@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">MagicDesk Kernel Fixes</string>
+    <string name="screen_title">Kernel fixes</string>
+    <string name="screen_subtitle">Optional, device-specific fixes distributed separately from MagicDesk</string>
+    <string name="security_warning">Kernel modules run with full kernel privileges. This add-on activates a fix only after verifying the exact kernel, stock driver, and module checksums.</string>
+    <string name="xr_fix_title">Nubia DP hot-plug recovery</string>
+    <string name="xr_fix_device">Verified for REDMAGIC 11 Pro NX809J and the documented Android 16 firmware profile.</string>
+    <string name="xr_fix_ready">Ready for compatibility checks</string>
+    <string name="xr_fix_working">Checking compatibility and loading module\u2026</string>
+    <string name="xr_fix_active">Active until the next reboot</string>
+    <string name="xr_fix_activated">Activated until the next reboot</string>
+    <string name="xr_fix_unsupported_kernel">Refused: unsupported kernel %1$s</string>
+    <string name="xr_fix_unsupported_driver">Refused: stock DP driver checksum %1$s</string>
+    <string name="xr_fix_invalid_module">Refused: packaged module checksum %1$s</string>
+    <string name="xr_fix_failed">Failed: %1$s</string>
+    <string name="action_activate">Check and activate</string>
+    <string name="action_active">Active</string>
+    <string name="confirm_title">Load kernel module?</string>
+    <string name="confirm_message">Continue only on the verified firmware. An incompatible kernel module can reboot or crash the device.</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_continue">Continue</string>
+</resources>

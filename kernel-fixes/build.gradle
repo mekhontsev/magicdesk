@@ -1,0 +1,18 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.mekhontsev.magicdesk.kernel'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId 'io.github.mekhontsev.magicdesk.kernel'
+        minSdk 36
+        targetSdk 36
+        versionCode 100
+        versionName '1.0'
+    }
+}
+
+apply from: rootProject.file('gradle/release-signing.gradle')

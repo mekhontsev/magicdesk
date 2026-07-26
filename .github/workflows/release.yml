@@ -1,0 +1,122 @@
+name: Signed release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up JDK
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate Android SDK components
+        shell: bash
+        run: |
+          test -f "$ANDROID_SDK_ROOT/platforms/android-37.0/android.jar"
+          test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
+          test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
+
+      - name: Restore release keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MAGICDESK_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          install -d -m 700 "$RUNNER_TEMP/magicdesk-signing"
+          printf '%s' "$KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/magicdesk-signing/release.jks"
+          chmod 600 "$RUNNER_TEMP/magicdesk-signing/release.jks"
+
+      - name: Build signed release APKs
+        env:
+          ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_FILE: ${{ runner.temp }}/magicdesk-signing/release.jks
+          ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_PASSWORD: ${{ secrets.MAGICDESK_RELEASE_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_KEY_ALIAS: ${{ secrets.MAGICDESK_RELEASE_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_KEY_PASSWORD: ${{ secrets.MAGICDESK_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon \
+            :app:lintRelease \
+            :kernel-fixes:lintRelease \
+            :app:assembleRelease \
+            :kernel-fixes:assembleRelease
+
+      - name: Verify signatures and APK boundaries
+        shell: bash
+        run: |
+          build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
+          core_apk=app/build/outputs/apk/release/app-release.apk
+          fixes_apk=kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk
+          "$build_tools/apksigner" verify --verbose "$core_apk"
+          "$build_tools/apksigner" verify --verbose "$fixes_apk"
+          core_cert=$("$build_tools/apksigner" verify --print-certs "$core_apk" \
+            | awk -F ': ' '/certificate SHA-256 digest:/ {print $NF; exit}')
+          fixes_cert=$("$build_tools/apksigner" verify --print-certs "$fixes_apk" \
+            | awk -F ': ' '/certificate SHA-256 digest:/ {print $NF; exit}')
+          test -n "$core_cert"
+          test "$core_cert" = "$fixes_cert"
+          ./scripts/verify-apks.sh "$core_apk" "$fixes_apk"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            app_version=$("$build_tools/aapt2" dump badging "$core_apk" \
+              | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
+            test "$app_version" = "${GITHUB_REF_NAME#v}"
+          fi
+
+      - name: Prepare release files
+        id: files
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version=manual-${GITHUB_RUN_NUMBER}
+          fi
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+            "dist/MagicDesk-${version}.apk"
+          cp kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk \
+            "dist/MagicDesk-Kernel-Fixes-${version}.apk"
+          (
+            cd dist
+            sha256sum ./*.apk > SHA256SUMS
+          )
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: magicdesk-signed-${{ steps.files.outputs.version }}
+          if-no-files-found: error
+          retention-days: 30
+          path: dist/
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            --title "MagicDesk $GITHUB_REF_NAME" \
+            dist/*

@@ -1,0 +1,80 @@
+# Compatibility and issue reports
+
+MagicDesk targets ZTE-family firmware on Android 16 and newer. This is a
+baseline gate, not a guarantee that every vendor hook exists on every model.
+The app uses standard Android APIs where possible, but Console Mode activation,
+the phone touchpad, external-display input routing, WMShell desktop commands,
+and several task transitions depend on undocumented firmware behavior.
+
+## Support levels
+
+- **Verified** means the complete build fingerprint is in the tested profile
+  list and the core desktop, window, input, and Console Mode paths were tested.
+- **Compatible baseline, unverified** means the device identifies as ZTE,
+  nubia, or REDMAGIC and runs API 36 or newer. MagicDesk allows startup, probes
+  capabilities, and reports unavailable features individually.
+- **Unsupported platform** means the vendor-family or Android-version baseline
+  is not met. Device Setup does not apply persistent windowing values.
+
+An OTA changes the fingerprint. A previously verified model therefore becomes
+unverified until that firmware has been tested. This is intentional: private
+Binder methods, component names, shell commands, and framework behavior can
+change without an Android API-level change.
+
+## Error behavior
+
+Failures that can be isolated should not terminate the desktop. MagicDesk keeps
+the rest of the UI running, shows a short user-facing message with a stable
+error code such as `[NUBIA-CONSOLE-002]`, and records technical context for the
+diagnostics report. Repeated identical errors are coalesced for 30 seconds and
+the local event log is size-bounded.
+
+Fatal uncaught exceptions are stored as `[CRASH-001]` before Android terminates
+the process. Open Diagnostics after restarting MagicDesk to include that crash
+in the next report.
+
+## Creating a report
+
+1. Reproduce the problem once.
+2. Open **Tools > Diagnostics**. Device Setup also has a **Diagnostics** button
+   when the desktop cannot start.
+3. Press **Refresh** after the failing operation has completed.
+4. Review the report, then use **Copy report** or **Share report**.
+5. Paste the complete report into the GitHub issue template and add exact
+   reproduction steps, expected behavior, and observed behavior.
+
+The report includes:
+
+- MagicDesk version and Android build fingerprint;
+- manufacturer, model, API level, security patch, and supported ABIs;
+- root and required desktop-windowing values;
+- overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
+  input-package probes;
+- current displays and external input-device descriptors;
+- bounded structured MagicDesk error events;
+- recent logcat entries from MagicDesk tags only.
+
+The report excludes notification title/body text, user files, account data,
+clipboard contents, and the installed-app list. MagicDesk-only logs can still
+contain package names, task ids, display ids, and filenames involved in a
+failed operation. Review the text before publishing it.
+
+On some Nubia firmware, Android keeps notification-listener access enabled
+after an app process or package restart but does not bind the service again.
+MagicDesk first requests a rebind through the public Android API. If the
+listener is still disconnected two seconds later, it uses root to re-apply the
+already granted listener component through `cmd notification allow_listener`.
+This does not grant access when the user has disabled it. A failed recovery is
+reported as `[NOTIFICATIONS-005]`.
+
+## Useful issue boundaries
+
+Use one issue per reproducible failure. Do not combine an input-routing problem
+with an unrelated window-decoration or XR-resolution problem. Include whether
+the same operation works in the stock ZTE/Nubia desktop or projection UI; that
+distinguishes a MagicDesk integration failure from a firmware limitation.
+
+For a display or input issue, include the monitor/glasses model and the keyboard
+or pointing-device model. For a window issue, include the affected Android
+package and whether the task was windowed, maximized, snapped, or true
+fullscreen.

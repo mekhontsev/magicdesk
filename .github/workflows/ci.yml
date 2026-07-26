@@ -1,0 +1,64 @@
+name: Android CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up JDK
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate Android SDK components
+        shell: bash
+        run: |
+          test -f "$ANDROID_SDK_ROOT/platforms/android-37.0/android.jar"
+          test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
+          test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
+
+      - name: Lint and build unsigned release APKs
+        run: |
+          ./gradlew --no-daemon \
+            :app:lintRelease \
+            :kernel-fixes:lintRelease \
+            :app:assembleRelease \
+            :kernel-fixes:assembleRelease
+
+      - name: Verify APK boundaries
+        run: |
+          ./scripts/verify-apks.sh \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
+
+      - name: Upload CI APKs and lint reports
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: magicdesk-ci-unsigned
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
+            app/build/reports/lint-results-release.html
+            kernel-fixes/build/reports/lint-results-release.html

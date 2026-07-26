@@ -1,0 +1,125 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <queries>
+        <package android:name="cn.nubia.keymapcenter" />
+        <package android:name="com.zte.mifavor.launcher" />
+        <package android:name="io.github.mekhontsev.magicdesk.kernel" />
+        <intent>
+            <action
+                android:name="io.github.mekhontsev.magicdesk.kernel.action.MANAGE_FIXES" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CALENDAR" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".MagicDeskApplication"
+        android:allowBackup="false"
+        android:banner="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:logo="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:resizeableActivity="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".DeviceSetupActivity"
+            android:exported="true"
+            android:banner="@mipmap/ic_launcher"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:logo="@mipmap/ic_launcher"
+            android:launchMode="singleTop"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:resizeableActivity="true"
+            android:theme="@style/TransparentActivityTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:banner="@mipmap/ic_launcher"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:logo="@mipmap/ic_launcher"
+            android:launchMode="singleTop"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:resizeableActivity="true" />
+
+        <activity
+            android:name=".DesktopActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true" />
+
+        <activity
+            android:name=".DiagnosticsActivity"
+            android:exported="false"
+            android:label="@string/diagnostics_title"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true" />
+
+        <activity
+            android:name=".FreeformLauncherActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:resizeableActivity="true"
+            android:theme="@style/TransparentActivityTheme" />
+
+        <service
+            android:name=".KeyboardWatcherService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Monitors external input and display state for desktop controls" />
+        </service>
+
+        <service
+            android:name=".DesktopNotificationListenerService"
+            android:exported="false"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".DesktopCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.github.mekhontsev.magicdesk.action.SHOW_START" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

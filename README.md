@@ -1,0 +1,305 @@
+# MagicDesk
+
+MagicDesk is an open-source, DeX-style desktop environment for REDMAGIC
+devices. It turns REDMAGIC Console Mode into a practical external-display
+workspace with native Android windows, a taskbar, Start menu, desktop
+shortcuts, global keyboard controls, notifications, and phone-based touchpad
+support.
+
+MagicDesk is intended to be the REDMAGIC counterpart to Samsung DeX. It is not
+a port of DeX and is not affiliated with Samsung. It builds on Android's own
+desktop window manager and the Console Mode services already present in
+REDMAGIC firmware.
+
+> **Development note:** MagicDesk is a vibe-coded project, built primarily
+> through iterative AI-assisted development and hands-on testing on real
+> REDMAGIC hardware. Root access and undocumented vendor interfaces make
+> independent review especially important.
+
+> **Project status:** MagicDesk 1.0 is under active development. The current
+> firmware verification is limited to the REDMAGIC 11 Pro profile listed
+> below.
+
+![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
+
+## Why MagicDesk
+
+REDMAGIC phones can drive an external display, but their stock Console Mode
+does not provide the complete desktop workflow available in Samsung DeX.
+MagicDesk supplies that missing shell while continuing to use native Android
+tasks and REDMAGIC's existing projection stack.
+
+The result is a familiar desktop model:
+
+- Android applications run in overlapping, resizable system windows.
+- Native captions provide move, resize, snap, maximize, minimize, and close.
+- A persistent taskbar tracks real Android tasks and pinned applications.
+- Start, desktop shortcuts, a desktop folder, task switching, and Show Desktop
+  provide normal mouse-driven navigation.
+- DeX-style global shortcuts manage windows without application-specific
+  configuration.
+- The phone can remain available as REDMAGIC's touchpad and text-input panel.
+- Fullscreen applications and in-app fullscreen video use the entire external
+  display.
+
+MagicDesk does not emulate Android applications, host them inside custom views,
+or replace Android's task organizer. Applications remain ordinary Android
+tasks managed by the firmware's WMShell.
+
+## Highlights
+
+### Desktop workspace
+
+- Launch applications in Windowed or Fullscreen mode.
+- Keep multiple overlapping windows visible and switch exact tasks from the
+  taskbar or with `Alt+Tab`.
+- Snap windows left or right, maximize them above the taskbar, or enter true
+  fullscreen.
+- Pin applications to the taskbar or place shortcuts on the desktop.
+- Show files from a user-selected folder without copying or deleting them.
+- Preserve one selected application and the last visible freeform workspace
+  across Show Desktop operations.
+- Store DPI, pins, shortcuts, folder access, and workspace state separately for
+  each external monitor.
+- Use the phone's current static wallpaper, center-cropped for the external
+  display.
+
+### Desktop controls
+
+- Start menu with application search and keyboard navigation.
+- Open Tasks view with exact-task focus and close controls.
+- Right-click context menus in MagicDesk and ordinary applications.
+- Notification center with unread state, actions, dismissal, and transient
+  notification popups.
+- Calendar panel, battery and charging state, active keyboard-layout indicator,
+  phone-screen control, and screenshot capture.
+- Automatic Console Mode entry and workspace restoration through `Win+D`.
+- REDMAGIC Touch Panel launch from MagicDesk's persistent phone notification.
+
+### Physical input
+
+- Native key repeat and physical keyboard layouts on the external display.
+- `Ctrl+Space` cycles through layouts configured in Android, in system order.
+- Right click reaches Chrome, Firefox, MagicDesk, and other applications instead
+  of being converted to Android Back by REDMAGIC firmware.
+- Mouse hot-plug and multiple external keyboard or touchpad devices are handled
+  without restarting MagicDesk.
+
+## Compatibility
+
+MagicDesk is intentionally REDMAGIC/ZTE-specific.
+
+**Currently verified:**
+
+- REDMAGIC 11 Pro (`NX809J`)
+- Android 16
+- Firmware fingerprint:
+  `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
+
+**Baseline accepted by Device Setup:**
+
+- A device identifying as ZTE, nubia, or REDMAGIC
+- Android 16 / API 36 or newer
+- Working root through `su`
+- USB-C DisplayPort output and REDMAGIC Console Mode
+
+Other models and OTA versions are treated as unverified. They can continue
+after an explicit warning so that compatibility reports can identify missing or
+changed vendor hooks. Passing the baseline check does not guarantee that every
+feature works on a different firmware.
+
+See [Compatibility and issue reports](docs/compatibility.md) before reporting a
+device-specific failure.
+
+## Getting Started
+
+1. Install the MagicDesk APK from a tagged GitHub Release when available, or
+   build it from source.
+2. Launch MagicDesk on the phone.
+3. Grant root when Device Setup requests it. MagicDesk does not continue
+   without uid 0.
+4. Review the settings Device Setup proposes and confirm the changes.
+5. Reboot when requested. Android and WMShell cache part of the desktop
+   configuration during startup.
+
+MagicDesk starts with an external-display DPI of `192`. A different value can
+be selected under **Start > Tools** and is remembered per monitor.
+
+Notification access is optional. Grant it from Android settings to enable the
+MagicDesk notification center and notification popups.
+
+Use **Tools > Restore previous values** before uninstalling when the Android
+desktop settings changed by MagicDesk should be restored. Android does not
+notify an application before it is uninstalled.
+
+## Typical Workflow
+
+1. Connect the phone to an external display.
+2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
+3. Launch MagicDesk on the phone.
+4. Grant root access if Android or the root manager requests it.
+5. Open **Tools** with the wrench button and select **Start Console Mode**, or
+   press `Win+D` on the physical keyboard.
+6. To leave Console Mode, open **Tools** and select **Switch to mirror**. Select
+   **Exit MagicDesk** instead to stop MagicDesk and its background services
+   completely.
+
+### Phone Notification
+
+MagicDesk keeps a persistent notification on the phone. It is particularly
+useful when no physical keyboard or mouse is connected:
+
+- Tap the MagicDesk notification itself to perform the same context-sensitive
+  action as `Win+D`: enter Console Mode, show the desktop, or restore the
+  previous window workspace.
+- Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone
+  and control the external display from the touchscreen.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Win+D` | Enter Console Mode, show the desktop, or restore the previous window workspace |
+| `Win+Up` | Move the active task to true fullscreen |
+| `Win+Down` | Restore fullscreen/maximized task to a window; press again to minimize |
+| `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
+| `Alt+Tab` / `Alt+Shift+Tab` | Switch forward or backward through real Android tasks |
+| `Alt+F4` | Close the active task |
+| `Win+Backspace` | Send Android Back to the external display |
+| `Win+L` | Lock the phone |
+| `Win+N` | Toggle the notification center |
+| `Win+Print Screen` | Save the external display under `Pictures/Screenshots` |
+| `Ctrl+Space` | Select the next configured physical-keyboard layout |
+| `Win+/` | Show all MagicDesk shortcuts |
+| `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
+
+The unmodified Win key is deliberately unused.
+
+## Phone And Console Controls
+
+The taskbar Tools panel provides:
+
+- Start Console Mode and Switch to mirror
+- Open REDMAGIC Touch Panel
+- Wake or dim the phone display
+- External-display DPI selection
+- Shortcut-service restart
+- Device Setup and Diagnostics
+- Optional Kernel Fixes entry
+- Clean MagicDesk exit
+
+**Exit MagicDesk** stops its foreground service and root input bridge, restores
+the physical mouse mapping and phone-side services it temporarily changed, and
+returns the phone to its normal launcher state.
+
+## Root And Trust
+
+Root is mandatory because Android does not expose the required cross-display
+desktop APIs to ordinary third-party applications. MagicDesk uses it for
+Console Mode activation, WMShell commands, task transitions, display settings,
+the physical-input bridge, and reversible REDMAGIC service controls.
+
+The trust boundaries are deliberately narrow:
+
+- The complete source and CI workflow are reviewable under the MIT license.
+- The main APK declares no Internet permission.
+- MagicDesk changes only the documented desktop settings accepted in Device
+  Setup and stores their previous values for restoration.
+- The system `ShellTaskOrganizer` remains the only task organizer.
+- Native helper `libmagicdesk_mouse_remap.so` is rebuilt from its C source in
+  every CI build; no prebuilt helper is checked in.
+- The main APK contains no kernel module or kernel-module loader.
+- Device and firmware mismatches are reported through structured Diagnostics
+  codes instead of silently assuming compatibility.
+
+The detailed root commands, vendor interfaces, lifecycle, and cleanup behavior
+are documented in [Architecture](docs/architecture.md).
+
+## Optional Kernel Fixes
+
+`MagicDesk Kernel Fixes` is a separately installed and separately identifiable
+APK. MagicDesk shows its Tools entry only when the add-on has the expected
+package and the same signing certificate as the main application.
+
+The current add-on contains a reviewed REDMAGIC 11 Pro DisplayPort recovery
+module for VITURE 3D EDID transitions. It validates the exact kernel, stock DP
+driver, and packaged module before asking for confirmation and invoking
+`insmod`. It is not required for the MagicDesk desktop.
+
+The module is never compiled by normal Android CI. Its source, validated binary,
+checksums, guarded rebuild procedure, and recovery boundary are documented in
+[VITURE XR resolution fix](docs/xr-resolution-fix.md).
+
+## Diagnostics And Issues
+
+Open **Tools > Diagnostics** to generate a copyable compatibility report. It
+contains:
+
+- device, firmware, Android, and MagicDesk versions
+- display and external-input information
+- desktop settings and capability probes
+- recent structured MagicDesk errors
+- MagicDesk-only logcat entries
+
+The report intentionally excludes user files, accounts, notification contents,
+and the installed-application list. Fatal crashes are retained for the next
+report.
+
+Include this report, reproduction steps, and whether the problem survives a
+reboot when filing an issue.
+
+## Build
+
+Install JDK 17, Android SDK platform/build-tools 37, and Android NDK r27 or
+newer. If Gradle cannot locate the SDK, create an untracked
+`local.properties`:
+
+```properties
+sdk.dir=/absolute/path/to/android-sdk
+```
+
+Build both debug APKs:
+
+```sh
+./gradlew :app:assembleDebug :kernel-fixes:assembleDebug
+```
+
+On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
+Linux, set `ANDROID_NDK_HOME`. The native mouse helper is always compiled from
+`native/magicdesk_mouse_remap.c`.
+
+## Releases And Signing
+
+GitHub Actions lints and builds both modules on every change. A `v*` tag runs
+the signed release workflow, verifies APK contents and matching certificates,
+publishes SHA-256 checksums, and creates a GitHub Release. The kernel-fixes APK
+remains optional.
+
+Official release APKs use this certificate SHA-256 fingerprint:
+
+```text
+3A:F3:FE:F8:95:AC:BC:9C:B7:7B:FD:BB:7E:91:79:42:
+95:70:72:14:97:E3:6E:C1:E4:19:68:C9:4B:52:99:50
+```
+
+Maintainer signing setup and encrypted CI secret names are described in
+[Architecture](docs/architecture.md#build-and-release-boundaries).
+
+## Technical Documentation
+
+- [Architecture](docs/architecture.md)
+- [Fullscreen transitions](docs/fullscreen-transitions.md)
+- [Compatibility and issue reports](docs/compatibility.md)
+- [VITURE XR resolution fix](docs/xr-resolution-fix.md)
+
+## Project
+
+- Version: 1.0
+- Main package: `io.github.mekhontsev.magicdesk`
+- Optional add-on package: `io.github.mekhontsev.magicdesk.kernel`
+- Minimum SDK: 36
+- Target SDK: 36
+- License: [MIT](LICENSE)
+
+Samsung DeX is a trademark of Samsung Electronics. Its name is used here only
+to describe the desktop-product category and interaction model.

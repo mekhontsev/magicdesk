@@ -1,0 +1,44 @@
+def releaseStoreFile = providers.gradleProperty(
+        'MAGICDESK_RELEASE_STORE_FILE').orNull
+def releaseStorePassword = providers.gradleProperty(
+        'MAGICDESK_RELEASE_STORE_PASSWORD').orNull
+def releaseKeyAlias = providers.gradleProperty(
+        'MAGICDESK_RELEASE_KEY_ALIAS').orNull
+def releaseKeyPassword = providers.gradleProperty(
+        'MAGICDESK_RELEASE_KEY_PASSWORD').orNull
+def releaseSigningConfigured = releaseStoreFile != null
+        && releaseStorePassword != null
+        && releaseKeyAlias != null
+        && releaseKeyPassword != null
+def releaseSigningPartiallyConfigured = releaseStoreFile != null
+        || releaseStorePassword != null
+        || releaseKeyAlias != null
+        || releaseKeyPassword != null
+
+if (releaseSigningPartiallyConfigured && !releaseSigningConfigured) {
+    throw new GradleException(
+            'All four MAGICDESK_RELEASE_* signing properties are required')
+}
+
+android {
+    signingConfigs {
+        magicDeskRelease {
+            if (releaseSigningConfigured) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.magicDeskRelease
+            }
+        }
+    }
+}
