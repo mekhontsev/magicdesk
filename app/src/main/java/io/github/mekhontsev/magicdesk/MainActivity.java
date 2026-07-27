@@ -130,13 +130,12 @@ public class MainActivity extends Activity {
     private TaskbarController mTaskbarController;
     private AltTabController mAltTabController;
     private WorkspaceController mWorkspaceController;
+    private AppTaskController mAppTasks;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
-    private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
-            Collections.emptyList();
     private BroadcastReceiver mBatteryReceiver;
     private final Set<Button> mConsoleModeActions = Collections.newSetFromMap(
             new WeakHashMap<Button, Boolean>());
@@ -190,6 +189,7 @@ public class MainActivity extends Activity {
         mTaskbarController = new TaskbarController(this, mUi);
         mAltTabController = new AltTabController(this);
         mWorkspaceController = new WorkspaceController(this);
+        mAppTasks = new AppTaskController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -301,7 +301,7 @@ public class MainActivity extends Activity {
             return false;
         }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !hasVisiblePanel()) {
-            mInteractionVisibleTasks = captureVisibleFreeformTasks();
+            mAppTasks.captureInteractionStackForPanel();
         }
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             return false;
@@ -428,7 +428,7 @@ public class MainActivity extends Activity {
         mContextMenuController.handleSecondaryClick(x, y);
     }
 
-    private boolean hasVisiblePanel() {
+    boolean hasVisiblePanel() {
         return mOverlayPanelController != null
                 && mOverlayPanelController.hasVisiblePanel();
     }
@@ -464,7 +464,7 @@ public class MainActivity extends Activity {
     }
 
     void clearInteractionVisibleTasks() {
-        mInteractionVisibleTasks = Collections.emptyList();
+        mAppTasks.clearInteractionStack();
     }
 
     void setTaskSnapshot(final TaskRepository.Snapshot snapshot) {
@@ -749,7 +749,7 @@ public class MainActivity extends Activity {
                     @Override
                     public boolean onDown(final MotionEvent event) {
                         hideAllPanels();
-                        mInteractionVisibleTasks = Collections.emptyList();
+                        clearInteractionVisibleTasks();
                         return true;
                     }
 
@@ -769,7 +769,7 @@ public class MainActivity extends Activity {
             final boolean handled = desktopGestures.onTouchEvent(event);
             if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
                 hideAllPanels();
-                mInteractionVisibleTasks = Collections.emptyList();
+                clearInteractionVisibleTasks();
             }
             return handled;
         });
@@ -898,7 +898,7 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private static TaskRepository.TaskEntry findTask(
+    static TaskRepository.TaskEntry findTask(
             final TaskRepository.Snapshot snapshot, final int taskId) {
         if (snapshot == null) {
             return null;
@@ -1135,45 +1135,14 @@ public class MainActivity extends Activity {
         mWorkspaceController.setWorkspaceApp(app, task, keep);
     }
 
-    private void restoreWorkspaceApp(
+    void restoreWorkspaceApp(
             final TaskRepository.Snapshot snapshot,
             final boolean bringToFront) {
         mWorkspaceController.restore(snapshot, bringToFront);
     }
 
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
-        setStatus(getString(R.string.status_switching_to, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks = takeInteractionVisibleTasks();
-        final int displayId = getCurrentDisplayId();
-        TaskRepository.load(displayId, snapshot -> runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed() || displayId != getCurrentDisplayId()) {
-                return;
-            }
-            if (!snapshot.rootAvailable) {
-                setStatus(getString(R.string.status_switch_failed,
-                        snapshot.error.length() == 0 ? app.label : snapshot.error));
-                return;
-            }
-            mTaskSnapshot = snapshot;
-            final TaskRepository.TaskEntry currentTask =
-                    findTask(snapshot, task.taskId);
-            if (currentTask == null) {
-                setStatus(getString(R.string.status_switch_failed, app.label));
-                refreshTaskSnapshot();
-                return;
-            }
-            DesktopTaskController.focusStack(
-                    visibleTasks, currentTask, result -> runOnUiThread(() -> {
-                        if (!result.success) {
-                            setStatus(getString(R.string.status_switch_failed,
-                                    result.message.length() == 0
-                                            ? app.label : result.message));
-                            return;
-                        }
-                        setTaskbarVisible(currentTask.isFreeform());
-                        refreshTaskSnapshot();
-                    }));
-        }));
+        mAppTasks.focusTask(app, task);
     }
 
     private void advanceAltTab(final boolean reverse) {
@@ -1190,44 +1159,15 @@ public class MainActivity extends Activity {
 
     void openTaskFullscreen(final AppItem app,
             final TaskRepository.TaskEntry task) {
-        final int displayId = beginFullscreenTransition(task.taskId);
-        setStatus(getString(R.string.status_launching_fullscreen, app.label));
-        TaskRepository.setFullscreen(task, result -> {
-            DesktopTaskController.finishFullscreenTransition(
-                    displayId, result.success);
-            runOnUiThread(() -> {
-                if (result.success) {
-                    setTaskbarVisible(false);
-                }
-                setStatus(getString(result.success
-                                ? R.string.status_switch_done : R.string.status_switch_failed,
-                        result.success ? app.label
-                                : (result.message.length() == 0 ? app.label : result.message)));
-                refreshTaskSnapshot();
-            });
-        });
+        mAppTasks.openTaskFullscreen(app, task);
     }
 
     void closeTask(final AppItem app, final TaskRepository.TaskEntry task) {
-        hideAllPanels();
-        setStatus(getString(R.string.status_closing_window, app.label));
-        TaskRepository.closeTask(task, result -> runOnUiThread(() -> {
-            setStatus(getString(result.success
-                    ? R.string.status_window_closed : R.string.status_close_window_failed,
-                    result.success ? app.label : result.message));
-            refreshTaskSnapshot();
-        }));
+        mAppTasks.closeTask(app, task);
     }
 
     private void forceStopApp(final AppItem app) {
-        hideAllPanels();
-        setStatus(getString(R.string.status_force_stopping, app.label));
-        TaskRepository.forceStop(app.packageName, result -> runOnUiThread(() -> {
-            setStatus(getString(result.success
-                    ? R.string.status_app_force_stopped : R.string.status_force_stop_failed,
-                    result.success ? app.label : result.message));
-            refreshTaskSnapshot();
-        }));
+        mAppTasks.forceStop(app);
     }
 
     void toggleDesktopWorkspace() {
@@ -1235,99 +1175,12 @@ public class MainActivity extends Activity {
         ConsoleModeSwitcher.showMagicDesk();
     }
 
-    private int beginFullscreenTransition(final int excludedTaskId) {
-        final List<TaskRepository.TaskEntry> visibleTasks = takeInteractionVisibleTasks();
-        final int displayId = getCurrentDisplayId();
-        DesktopTaskController.beginFullscreenTransition(
-                displayId, visibleTasks, excludedTaskId);
-        return displayId;
-    }
-
-    private int beginFullscreenTransition(final String packageName) {
-        final List<TaskRepository.TaskEntry> visibleTasks = takeInteractionVisibleTasks();
-        int excludedTaskId = -1;
-        for (final TaskRepository.TaskEntry task : visibleTasks) {
-            if (packageName.equals(task.packageName)) {
-                excludedTaskId = task.taskId;
-                break;
-            }
-        }
-        final int displayId = getCurrentDisplayId();
-        DesktopTaskController.beginFullscreenTransition(
-                displayId, visibleTasks, excludedTaskId);
-        return displayId;
-    }
-
     private void restoreLastVisibleWindows() {
-        hideAllPanels();
-        setTaskbarVisible(true);
-        mInteractionVisibleTasks = Collections.emptyList();
-        final int displayId = getCurrentDisplayId();
-        final List<TaskRepository.TaskEntry> savedTasks =
-                DesktopTaskController.getLastVisibleFreeformTasks(displayId);
-        if (savedTasks.isEmpty()) {
-            setStatus(R.string.status_desktop_visible);
-            TaskRepository.load(displayId, snapshot -> runOnUiThread(() ->
-                    restoreWorkspaceApp(snapshot, true)));
-            return;
-        }
-        setStatus(R.string.status_restoring_windows);
-        TaskRepository.restoreFreeformStack(displayId, savedTasks,
-                result -> runOnUiThread(() -> {
-                    setStatus(result.success
-                            ? getString(R.string.status_windows_restored)
-                            : getString(R.string.status_switch_failed,
-                                    result.message.length() == 0
-                                            ? getString(R.string.status_restoring_windows)
-                                            : result.message));
-                    refreshTaskSnapshot();
-                    TaskRepository.load(displayId, snapshot -> runOnUiThread(() ->
-                            restoreWorkspaceApp(snapshot, false)));
-                }));
-    }
-
-    private List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
-            final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.rootAvailable) {
-            return Collections.emptyList();
-        }
-        final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (task.visible && task.isFreeform() && !task.home
-                    && !getPackageName().equals(task.packageName)) {
-                visibleTasks.add(task);
-            }
-        }
-        return visibleTasks;
-    }
-
-    private List<TaskRepository.TaskEntry> captureVisibleFreeformTasks() {
-        final List<TaskRepository.TaskEntry> watchedTasks =
-                DesktopTaskController.getVisibleFreeformTasks(getCurrentDisplayId());
-        return watchedTasks == null
-                ? getVisibleFreeformTasks(mTaskSnapshot) : watchedTasks;
+        mAppTasks.restoreLastVisibleWindows();
     }
 
     void captureInteractionStackForPanel() {
-        if (!hasVisiblePanel()) {
-            mInteractionVisibleTasks = captureVisibleFreeformTasks();
-        }
-    }
-
-    private List<TaskRepository.TaskEntry> takeInteractionVisibleTasks() {
-        final List<TaskRepository.TaskEntry> visibleTasks = mInteractionVisibleTasks.isEmpty()
-                ? captureVisibleFreeformTasks()
-                : new ArrayList<>(mInteractionVisibleTasks);
-        mInteractionVisibleTasks = Collections.emptyList();
-        return visibleTasks;
-    }
-
-    private static int[] getTaskIds(final List<TaskRepository.TaskEntry> tasks) {
-        final int[] taskIds = new int[tasks == null ? 0 : tasks.size()];
-        for (int index = 0; index < taskIds.length; index++) {
-            taskIds[index] = tasks.get(index).taskId;
-        }
-        return taskIds;
+        mAppTasks.captureInteractionStackForPanel();
     }
 
     void renderTaskbarPins(final List<AppItem> apps) {
@@ -1985,105 +1838,27 @@ public class MainActivity extends Activity {
     }
 
     void launchDefault(final AppItem app) {
-        Log.i(TAG, "launch default package=" + app.packageName
-                + " canFloat=" + app.canFloat
-                + " fullscreenReason=" + app.fullscreenReason
-                + " display=" + getCurrentDisplayId());
-        if (app.canFloat
-                && AppItem.FULLSCREEN_REASON_NONE.equals(app.fullscreenReason)) {
-            launchFloating(app);
-        } else {
-            launchFullscreen(app);
-        }
+        mAppTasks.launchDefault(app);
     }
 
     void launchFloating(final AppItem app) {
-        launchFloating(app, false);
+        mAppTasks.launchFloating(app, false);
     }
 
-    private void launchFloating(final AppItem app, final boolean rootColdLaunch) {
-        Log.i(TAG, "launch floating package=" + app.packageName
-                + " display=" + getCurrentDisplayId());
-        setTaskbarVisible(true);
-        setStatus(getString(R.string.status_launching_window, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks = takeInteractionVisibleTasks();
-        try {
-            final Intent intent = FreeformLauncherActivity.createIntent(this,
-                    app.packageName, getTaskIds(visibleTasks), rootColdLaunch);
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            invokeIntOption(options, "setLaunchDisplayId", getCurrentDisplayId());
-            startActivity(intent, options.toBundle());
-        } catch (RuntimeException e) {
-            TaskRepository.bringStackToFront(visibleTasks, null, null);
-            showLaunchFailure(e);
-        }
+    private void launchFloating(
+            final AppItem app,
+            final boolean rootColdLaunch) {
+        mAppTasks.launchFloating(app, rootColdLaunch);
     }
 
     void launchFullscreen(final AppItem app) {
-        Log.i(TAG, "launch fullscreen package=" + app.packageName
-                + " display=" + getCurrentDisplayId());
-        final int displayId = beginFullscreenTransition(app.packageName);
-        setTaskbarVisible(false);
-        setStatus(getString(R.string.status_launching_fullscreen, app.label));
-        try {
-            if (RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
-                final ExistingTaskController.ReuseResult reuseResult =
-                        ExistingTaskController.reuseIfExists(app.packageName,
-                                getCurrentDisplayId(), false);
-                if (reuseResult.found) {
-                    DesktopTaskController.finishFullscreenTransition(displayId, true);
-                    Log.i(TAG, "reused fullscreen package=" + app.packageName);
-                    setStatus(getString(R.string.status_switch_done, app.label));
-                    return;
-                }
-            }
-
-            Log.i(TAG, "fresh fullscreen launch package=" + app.packageName);
-            final Intent launchIntent = getPackageManager()
-                    .getLaunchIntentForPackage(app.packageName);
-            if (launchIntent == null) {
-                DesktopTaskController.finishFullscreenTransition(displayId, false);
-                setTaskbarVisible(true);
-                setErrorStatus(
-                        "APP-LAUNCH-002",
-                        getString(R.string.status_launch_failed, "no launcher activity"),
-                        "package=" + app.packageName,
-                        null);
-                return;
-            }
-            launchIntent.addFlags(getFullscreenLaunchFlags());
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            invokeIntOption(options, "setLaunchDisplayId", getCurrentDisplayId());
-            startActivity(launchIntent, options.toBundle());
-            DesktopTaskController.finishFullscreenTransition(displayId, true);
-        } catch (IOException e) {
-            DesktopTaskController.finishFullscreenTransition(displayId, false);
-            setTaskbarVisible(true);
-            setErrorStatus(
-                    "TASK-FULLSCREEN-001",
-                    getString(R.string.status_switch_failed, e.getMessage()),
-                    "package=" + app.packageName + " display=" + displayId,
-                    e);
-        } catch (RuntimeException e) {
-            DesktopTaskController.finishFullscreenTransition(displayId, false);
-            setTaskbarVisible(true);
-            showLaunchFailure(e);
-        }
+        mAppTasks.launchFullscreen(app);
     }
 
-    private void setTaskbarVisible(final boolean visible) {
-        if (!mDesktopMode) {
-            return;
+    void setTaskbarVisible(final boolean visible) {
+        if (mDesktopMode) {
+            mTaskbarController.setVisible(visible);
         }
-        mTaskbarController.setVisible(visible);
-    }
-
-    private static int getFullscreenLaunchFlags() {
-        return Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
     }
 
     void restartConsoleShortcuts() {
