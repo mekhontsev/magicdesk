@@ -50,8 +50,7 @@ final class DesktopTaskController {
 
     private final Context mApplicationContext;
     private final Handler mHandler;
-    private final ExecutorService mWatcherExecutor = Executors.newSingleThreadExecutor();
-    private final Map<Long, TaskRepository.ActionCallback> mFocusCallbacks = new HashMap<>();
+    private final DesktopTaskWatcher mTaskWatcher;
     private final Map<Integer, Rect> mRestoreBounds = new HashMap<>();
     private final Map<Integer, Rect> mFullscreenRestoreBounds = new HashMap<>();
     private final Map<Integer, Rect> mLastNativeWindowBounds = new HashMap<>();
@@ -70,19 +69,72 @@ final class DesktopTaskController {
     private int mGeneration;
     private int mImmersiveWatchTaskId = -1;
     private volatile int mFocusingTaskId = -1;
-    private long mNextFocusSequence;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
     private boolean mTaskWatcherReady;
     private Boolean mLastTouchpadVisible;
     private boolean mTouchpadRestorePending;
     private boolean mTouchpadRestoreAttemptInProgress;
-    private Process mWatcherProcess;
-    private BufferedWriter mWatcherWriter;
 
     DesktopTaskController(final Context context, final Handler handler) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
+        mTaskWatcher = new DesktopTaskWatcher(
+                mHandler,
+                new DesktopTaskWatcher.Listener() {
+                    @Override
+                    public boolean isActive(final int generation) {
+                        return mRunning && generation == mGeneration;
+                    }
+
+                    @Override
+                    public void onReady(final int generation) {
+                        mTaskWatcherReady = true;
+                        sendImmersiveWatchCommand();
+                        sendNativeMaximizeWatchCommand();
+                        scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                    }
+
+                    @Override
+                    public void onChanged(final int generation) {
+                        scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                    }
+
+                    @Override
+                    public void onImmersiveRequest(
+                            final int generation,
+                            final int taskId,
+                            final boolean requesting) {
+                        handleImmersiveRequest(taskId, requesting);
+                    }
+
+                    @Override
+                    public void onTaskGone(
+                            final int generation,
+                            final int taskId) {
+                        forgetTaskState(taskId);
+                    }
+
+                    @Override
+                    public void onNativeMaximizeEvent(
+                            final int generation,
+                            final String event,
+                            final int taskId) {
+                        Log.d(TAG, event + " task=" + taskId);
+                        scheduleRefresh(0);
+                    }
+
+                    @Override
+                    public void onDisconnected(final int generation) {
+                        mTaskWatcherReady = false;
+                        scheduleRefresh(0);
+                        mHandler.postDelayed(() -> {
+                            if (mRunning && generation == mGeneration) {
+                                startTaskWatcher(generation);
+                            }
+                        }, WATCHER_RESTART_MILLIS);
+                    }
+                });
     }
 
     void start(final int displayId) {
@@ -113,7 +165,7 @@ final class DesktopTaskController {
         mGeneration++;
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
-        stopTaskWatcher();
+        mTaskWatcher.stop();
         mWindowContext = null;
         mDisplayId = -1;
         mImmersiveWatchTaskId = -1;
@@ -127,7 +179,6 @@ final class DesktopTaskController {
         mTouchpadRestorePending = false;
         mTouchpadRestoreAttemptInProgress = false;
         clearActiveController(this);
-        failPendingFocusCallbacks("task watcher stopped");
         clearVisibleFreeformTasks(stoppedDisplayId);
     }
 
@@ -243,7 +294,8 @@ final class DesktopTaskController {
             completeFocusCallback(callback, true, "no tasks");
             return;
         }
-        controller.sendFocusStack(new ArrayList<>(orderedTaskIds), trackedCallback);
+        controller.mTaskWatcher.sendFocusStack(
+                new ArrayList<>(orderedTaskIds), trackedCallback);
     }
 
     static boolean handleActiveTaskShortcut(final int shortcut) {
@@ -790,185 +842,11 @@ final class DesktopTaskController {
     }
 
     private void startTaskWatcher(final int generation) {
-        mWatcherExecutor.execute(() -> runTaskWatcher(generation));
+        mTaskWatcher.start(generation);
     }
 
-    private void runTaskWatcher(final int generation) {
-        final String command = "APK=$(/system/bin/pm path " + MAGICDESK_PACKAGE
-                + " | /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "export CLASSPATH=\"$APK\"; exec /system/bin/app_process / "
-                + "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand";
-        Process process = null;
-        try {
-            process = PrivilegedCommandRunner.start(command);
-            synchronized (this) {
-                if (!mRunning || generation != mGeneration) {
-                    process.getOutputStream().close();
-                    process.destroy();
-                    return;
-                }
-                mWatcherProcess = process;
-                mWatcherWriter = new BufferedWriter(
-                        new OutputStreamWriter(process.getOutputStream()));
-            }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    handleTaskWatcherLine(line, generation);
-                }
-            }
-            final int exitCode = process.waitFor();
-            if (mRunning && generation == mGeneration) {
-                Log.w(TAG, "task watcher exited code=" + exitCode);
-            }
-        } catch (IOException e) {
-            if (mRunning && generation == mGeneration) {
-                Log.w(TAG, "task watcher failed", e);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            synchronized (this) {
-                if (mWatcherProcess == process) {
-                    mWatcherProcess = null;
-                    mWatcherWriter = null;
-                }
-            }
-            if (process != null) {
-                process.destroy();
-            }
-            if (mRunning && generation == mGeneration) {
-                mHandler.post(() -> {
-                    if (mRunning && generation == mGeneration) {
-                        mTaskWatcherReady = false;
-                        failPendingFocusCallbacks("task watcher disconnected");
-                        scheduleRefresh(0);
-                    }
-                });
-                mHandler.postDelayed(() -> {
-                    if (mRunning && generation == mGeneration) {
-                        startTaskWatcher(generation);
-                    }
-                }, WATCHER_RESTART_MILLIS);
-            }
-        }
-    }
-
-    private void handleTaskWatcherLine(final String line, final int generation) {
-        if ("ready".equals(line)) {
-            mHandler.post(() -> {
-                if (mRunning && generation == mGeneration) {
-                    mTaskWatcherReady = true;
-                    sendImmersiveWatchCommand();
-                    sendNativeMaximizeWatchCommand();
-                    scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
-                }
-            });
-            return;
-        }
-        if ("changed".equals(line)) {
-            mHandler.post(() -> {
-                if (mRunning && generation == mGeneration) {
-                    scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
-                }
-            });
-            return;
-        }
-        final String[] fields = line.trim().split("\\s+");
-        if (fields.length == 4 && "immersive-request".equals(fields[0])) {
-            try {
-                final int taskId = Integer.parseInt(fields[1]);
-                final boolean requestingImmersive = Integer.parseInt(fields[2]) != 0;
-                mHandler.post(() -> {
-                    if (mRunning && generation == mGeneration) {
-                        handleImmersiveRequest(taskId, requestingImmersive);
-                    }
-                });
-                return;
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "invalid immersive request: " + line, e);
-                return;
-            }
-        }
-        if (fields.length == 2 && "task-gone".equals(fields[0])) {
-            try {
-                final int taskId = Integer.parseInt(fields[1]);
-                mHandler.post(() -> {
-                    if (mRunning && generation == mGeneration) {
-                        forgetTaskState(taskId);
-                    }
-                });
-                return;
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "invalid removed task: " + line, e);
-                return;
-            }
-        }
-        if (fields.length == 2
-                && ("native-maximize".equals(fields[0])
-                        || "native-maximize-exit".equals(fields[0]))) {
-            try {
-                final int taskId = Integer.parseInt(fields[1]);
-                mHandler.post(() -> {
-                    if (mRunning && generation == mGeneration) {
-                        Log.d(TAG, fields[0] + " task=" + taskId);
-                        scheduleRefresh(0);
-                    }
-                });
-                return;
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "invalid native maximize event: " + line, e);
-                return;
-            }
-        }
-        final boolean focusStackApplied = fields.length == 3
-                && "focus-stack-applied".equals(fields[0]);
-        final boolean focusStackFailed = fields.length == 3
-                && "focus-stack-failed".equals(fields[0]);
-        if (focusStackApplied || focusStackFailed) {
-            try {
-                final long sequence = Long.parseLong(fields[1]);
-                final int taskCount = Integer.parseInt(fields[2]);
-                mHandler.post(() -> {
-                    if (!mRunning || generation != mGeneration) {
-                        return;
-                    }
-                    final TaskRepository.ActionCallback callback =
-                            mFocusCallbacks.remove(Long.valueOf(sequence));
-                    completeFocusCallback(callback, focusStackApplied,
-                            focusStackApplied ? "focused " + taskCount + " tasks"
-                                    : "task stack focus failed");
-                    scheduleRefresh(0);
-                });
-                return;
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "invalid task watcher stack focus result: " + line, e);
-                return;
-            }
-        }
-        if (!line.trim().isEmpty()) {
-            Log.w(TAG, "task watcher: " + line);
-        }
-    }
-
-    private synchronized boolean sendWatcherCommand(final String command) {
-        if (mWatcherWriter == null) {
-            return false;
-        }
-        try {
-            mWatcherWriter.write(command);
-            mWatcherWriter.newLine();
-            mWatcherWriter.flush();
-            return true;
-        } catch (IOException e) {
-            Log.w(TAG, "failed to send task watcher command: " + command, e);
-            mWatcherWriter = null;
-            if (mWatcherProcess != null) {
-                mWatcherProcess.destroy();
-            }
-            return false;
-        }
+    private boolean sendWatcherCommand(final String command) {
+        return mTaskWatcher.sendCommand(command);
     }
 
     private void sendNativeMaximizeWatchCommand() {
@@ -1011,66 +889,6 @@ final class DesktopTaskController {
                     + " " + mImmersiveWatchTaskId);
         } else {
             sendWatcherCommand("pause-immersive");
-        }
-    }
-
-    private synchronized void stopTaskWatcher() {
-        if (mWatcherProcess == null) {
-            return;
-        }
-        try {
-            if (mWatcherWriter != null) {
-                mWatcherWriter.close();
-            } else {
-                mWatcherProcess.getOutputStream().close();
-            }
-        } catch (IOException ignored) {
-            // Process destruction below is sufficient if the pipe is already closed.
-        }
-        mWatcherProcess.destroy();
-        mWatcherProcess = null;
-        mWatcherWriter = null;
-    }
-
-    private synchronized void sendFocusStack(final List<Integer> taskIds,
-            final TaskRepository.ActionCallback callback) {
-        if (mWatcherWriter == null) {
-            completeFocusCallback(callback, false, "task watcher unavailable");
-            return;
-        }
-        final long sequence = ++mNextFocusSequence;
-        if (callback != null) {
-            mFocusCallbacks.put(Long.valueOf(sequence), callback);
-        }
-        try {
-            final StringBuilder command = new StringBuilder("focus-stack ")
-                    .append(sequence);
-            for (final Integer taskId : taskIds) {
-                command.append(' ').append(taskId.intValue());
-            }
-            mWatcherWriter.write(command.toString());
-            mWatcherWriter.newLine();
-            mWatcherWriter.flush();
-        } catch (IOException e) {
-            mFocusCallbacks.remove(Long.valueOf(sequence));
-            completeFocusCallback(callback, false, "task watcher write failed");
-            Log.w(TAG, "failed to send task stack focus", e);
-            mWatcherWriter = null;
-            if (mWatcherProcess != null) {
-                mWatcherProcess.destroy();
-            }
-        }
-    }
-
-    private void failPendingFocusCallbacks(final String message) {
-        if (mFocusCallbacks.isEmpty()) {
-            return;
-        }
-        final List<TaskRepository.ActionCallback> callbacks =
-                new ArrayList<>(mFocusCallbacks.values());
-        mFocusCallbacks.clear();
-        for (final TaskRepository.ActionCallback callback : callbacks) {
-            completeFocusCallback(callback, false, message);
         }
     }
 
