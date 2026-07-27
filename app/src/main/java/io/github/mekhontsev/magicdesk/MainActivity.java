@@ -2,90 +2,44 @@ package io.github.mekhontsev.magicdesk;
 
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_AMBER;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_CYAN;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_MUTED;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL_ALT;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
-import android.app.KeyguardManager;
-import android.app.NotificationManager;
-import android.content.BroadcastReceiver;
-import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.database.ContentObserver;
-import android.graphics.Color;
 import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.hardware.display.DisplayManager;
-import android.net.Uri;
 import android.os.Build;
-import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.DocumentsContract;
 import android.provider.Settings;
-import android.text.Editable;
-import android.text.TextUtils;
-import android.text.TextWatcher;
-import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.Display;
-import android.view.DragEvent;
 import android.view.GestureDetector;
-import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
-import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
-import android.widget.HorizontalScrollView;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextClock;
-import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
 
 public class MainActivity extends Activity {
     private static final String TAG = "MagicDesk";
-    private static final String AM = "/system/bin/am";
-    private static final String TOOLS_KEYBOARD_WATCHER_SERVICE =
-            "io.github.mekhontsev.magicdesk/.KeyboardWatcherService";
     static final String HARDWARE_LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
     static final String HARDWARE_LAYOUT_LABEL_STATE =
@@ -97,17 +51,14 @@ public class MainActivity extends Activity {
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     static final String BROADCAST_SHOW_START =
             "io.github.mekhontsev.magicdesk.action.SHOW_START";
-    private static final long SHORTCUT_RESTART_DELAY_MILLIS = 800;
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private static WeakReference<MainActivity> sDesktopInstance =
             new WeakReference<>(null);
 
-    private LinearLayout mContent;
     private FrameLayout mDesktopRoot;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
-    private TextView mStatus;
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
     private DesktopUiFactory mUi;
@@ -124,6 +75,8 @@ public class MainActivity extends Activity {
     private AppTaskController mAppTasks;
     private DisplayDensityController mDisplayDensityController;
     private ConsoleControlsController mConsoleControls;
+    private PhoneLauncherController mPhoneLauncherController;
+    private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
@@ -134,7 +87,6 @@ public class MainActivity extends Activity {
     private boolean mContextButtonDown;
     private boolean mContextButtonTouchSequence;
     private boolean mDesktopWindowFocusable = true;
-    private boolean mExitInProgress;
     private int mTaskRefreshGeneration;
     private float mLastPointerX;
     private float mLastPointerY;
@@ -180,6 +132,8 @@ public class MainActivity extends Activity {
         mAppTasks = new AppTaskController(this);
         mDisplayDensityController = new DisplayDensityController(this);
         mConsoleControls = new ConsoleControlsController(this, mUi);
+        mPhoneLauncherController = new PhoneLauncherController(this, mUi);
+        mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -225,7 +179,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void releaseDesktopOverlays() {
+    void releaseDesktopOverlays() {
         if (mOverlayPanelController != null) {
             mOverlayPanelController.release();
             mOverlayPanelController = null;
@@ -898,84 +852,7 @@ public class MainActivity extends Activity {
     }
 
     private View createPhoneContentView() {
-        final LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(COLOR_BACKGROUND);
-        root.setPadding(dp(18), dp(16), dp(18), dp(12));
-
-        final LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-
-        final ImageView appIcon = new ImageView(this);
-        appIcon.setImageResource(R.drawable.ic_magicdesk);
-        header.addView(appIcon, new LinearLayout.LayoutParams(dp(48), dp(48)));
-
-        final LinearLayout titleBlock = new LinearLayout(this);
-        titleBlock.setOrientation(LinearLayout.VERTICAL);
-        titleBlock.setPadding(dp(12), 0, 0, 0);
-        final TextView title = new TextView(this);
-        title.setText(R.string.app_name);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        titleBlock.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mStatus = new TextView(this);
-        mStatus.setText(R.string.status_loading);
-        mStatus.setTextColor(COLOR_MUTED);
-        mStatus.setTextSize(13);
-        titleBlock.addView(mStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        header.addView(titleBlock, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        final Button desktopMode = new Button(this);
-        desktopMode.setText(R.string.action_layout_desktop);
-        desktopMode.setAllCaps(false);
-        desktopMode.setTextColor(Color.WHITE);
-        desktopMode.setSingleLine(true);
-        desktopMode.setEllipsize(TextUtils.TruncateAt.END);
-        desktopMode.setBackground(rounded(COLOR_PANEL_ALT, dp(10), COLOR_CYAN));
-        desktopMode.setOnClickListener(
-                view -> setLayoutMode(DesktopPreferences.LAYOUT_DESKTOP));
-        final LinearLayout.LayoutParams desktopModeParams = new LinearLayout.LayoutParams(
-                dp(112), LinearLayout.LayoutParams.WRAP_CONTENT);
-        desktopModeParams.setMargins(0, 0, dp(8), 0);
-        header.addView(desktopMode, desktopModeParams);
-
-        final Button refresh = new Button(this);
-        refresh.setText(R.string.action_refresh);
-        refresh.setAllCaps(false);
-        refresh.setTextColor(Color.WHITE);
-        refresh.setBackground(rounded(COLOR_PANEL_ALT, dp(10), COLOR_CYAN));
-        refresh.setOnClickListener(view -> renderApps());
-        header.addView(refresh, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        root.addView(header, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        final ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(true);
-        scrollView.setClipToPadding(false);
-        scrollView.setPadding(0, dp(16), 0, dp(12));
-
-        mContent = new LinearLayout(this);
-        mContent.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(mContent, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-
-        root.addView(scrollView, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        return root;
+        return mPhoneLauncherController.createView();
     }
 
     void renderApps() {
@@ -1004,14 +881,7 @@ public class MainActivity extends Activity {
             renderDesktop(apps);
             return;
         }
-        if (mContent == null) {
-            return;
-        }
-        mContent.removeAllViews();
-        addDock(apps);
-        addTools();
-        addSection(R.string.section_floating, floating, true);
-        addSection(R.string.section_fullscreen, fullscreen, false);
+        mPhoneLauncherController.render(apps);
     }
 
     private void renderDesktop(final List<AppItem> apps) {
@@ -1223,7 +1093,7 @@ public class MainActivity extends Activity {
         return Math.max(0, areaHeight - getTaskbarHeight());
     }
 
-    private void updateConsoleControls() {
+    void updateConsoleControls() {
         mConsoleControls.update();
     }
 
@@ -1231,193 +1101,10 @@ public class MainActivity extends Activity {
         mConsoleControls.togglePhoneScreen();
     }
 
-    private void addDock(final List<AppItem> apps) {
-        final List<AppItem> favorites = new ArrayList<>();
-        for (final String packageName : DesktopPreferences.favoritePackages()) {
-            final AppItem app = LauncherAppRepository.find(apps, packageName);
-            if (app != null) {
-                favorites.add(app);
-            }
-        }
-        if (favorites.isEmpty()) {
-            return;
-        }
-
-        final TextView title = sectionTitle(R.string.section_dock);
-        final LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, 0, 0, dp(8));
-        mContent.addView(title, titleParams);
-
-        final LinearLayout dock = new LinearLayout(this);
-        dock.setOrientation(LinearLayout.HORIZONTAL);
-        dock.setGravity(Gravity.CENTER_VERTICAL);
-        dock.setPadding(dp(8), dp(8), dp(8), dp(8));
-        dock.setBackground(rounded(COLOR_PANEL, dp(16), COLOR_PANEL_ALT));
-
-        for (final AppItem app : favorites) {
-            dock.addView(createDockItem(app), new LinearLayout.LayoutParams(
-                    0, dp(82), 1));
-        }
-        mContent.addView(dock, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-    }
-
-    private View createDockItem(final AppItem app) {
-        final LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(6), dp(6), dp(6), dp(4));
-        item.setClickable(true);
-        item.setFocusable(true);
-        item.setOnClickListener(view -> launchDefault(app));
-
-        final ImageView icon = new ImageView(this);
-        icon.setImageDrawable(app.icon);
-        item.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
-
-        final TextView label = new TextView(this);
-        label.setText(app.label);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(11);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(1);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        final LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, dp(6), 0, 0);
-        item.addView(label, labelParams);
-        return item;
-    }
-
-    private void addTools() {
-        final TextView title = sectionTitle(R.string.section_tools);
-        final LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, dp(16), 0, dp(8));
-        mContent.addView(title, titleParams);
-
-        final LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12), dp(12), dp(12), dp(12));
-        panel.setBackground(rounded(COLOR_PANEL, dp(16), COLOR_PANEL_ALT));
-
-        populateToolsControls(panel, dp(8));
-
-        mContent.addView(panel, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-    }
-
     void populateToolsControls(
             final LinearLayout parent,
             final int spacing) {
         mConsoleControls.populate(parent, spacing);
-    }
-
-    private void addSection(final int titleResId, final List<AppItem> apps,
-            final boolean floating) {
-        if (apps.isEmpty()) {
-            return;
-        }
-
-        final TextView title = sectionTitle(titleResId);
-        final LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, dp(12), 0, dp(8));
-        mContent.addView(title, titleParams);
-
-        final GridLayout grid = new GridLayout(this);
-        grid.setColumnCount(getColumnCount());
-        grid.setUseDefaultMargins(false);
-        final int tileWidth = getTileWidth(grid.getColumnCount());
-        for (final AppItem app : apps) {
-            grid.addView(createAppTile(app, floating), createTileParams(tileWidth));
-        }
-
-        mContent.addView(grid, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-    }
-
-    private View createAppTile(final AppItem app, final boolean floating) {
-        final LinearLayout tile = new LinearLayout(this);
-        tile.setOrientation(LinearLayout.VERTICAL);
-        tile.setGravity(Gravity.CENTER);
-        tile.setPadding(dp(10), dp(12), dp(10), dp(10));
-        tile.setBackground(rounded(COLOR_PANEL, dp(14),
-                floating ? COLOR_CYAN : COLOR_PANEL_ALT));
-        tile.setClickable(true);
-        tile.setFocusable(true);
-        tile.setOnClickListener(view -> {
-            if (floating) {
-                launchFloating(app);
-            } else {
-                launchFullscreen(app);
-            }
-        });
-
-        final ImageView icon = new ImageView(this);
-        icon.setImageDrawable(app.icon);
-        tile.addView(icon, new LinearLayout.LayoutParams(dp(46), dp(46)));
-
-        final TextView label = new TextView(this);
-        label.setText(app.label);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(13);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        final LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, dp(8), 0, 0);
-        tile.addView(label, labelParams);
-
-        final LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(Gravity.CENTER);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        final Button primary = createSmallButton(
-                floating ? R.string.badge_window : R.string.action_open,
-                floating ? COLOR_CYAN : COLOR_PANEL_ALT);
-        primary.setOnClickListener(view -> {
-            if (floating) {
-                launchFloating(app);
-            } else {
-                launchFullscreen(app);
-            }
-        });
-        actions.addView(primary, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        if (floating) {
-            final Button fullscreenButton = createSmallButton(
-                    R.string.action_fullscreen_short, COLOR_PANEL_ALT);
-            fullscreenButton.setOnClickListener(view -> launchFullscreen(app));
-            final LinearLayout.LayoutParams fullscreenParams = new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-            fullscreenParams.setMargins(dp(6), 0, 0, 0);
-            actions.addView(fullscreenButton, fullscreenParams);
-        }
-        final LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        actionParams.setMargins(0, dp(8), 0, 0);
-        tile.addView(actions, actionParams);
-
-        return tile;
-    }
-
-    private GridLayout.LayoutParams createTileParams(final int width) {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = width;
-        params.height = dp(154);
-        params.setMargins(dp(5), dp(5), dp(5), dp(5));
-        return params;
     }
 
     private boolean isDesktopMode() {
@@ -1497,25 +1184,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private int getColumnCount() {
-        final int widthDp = getResources().getConfiguration().screenWidthDp;
-        if (widthDp >= 1100) {
-            return 7;
-        }
-        if (widthDp >= 840) {
-            return 5;
-        }
-        if (widthDp >= 600) {
-            return 4;
-        }
-        return 2;
-    }
-
-    private int getTileWidth(final int columns) {
-        final int available = getResources().getDisplayMetrics().widthPixels
-                - dp(36) - columns * dp(10);
-        return Math.max(dp(128), available / Math.max(columns, 1));
-    }
 
     void launchDefault(final AppItem app) {
         mAppTasks.launchDefault(app);
@@ -1542,40 +1210,7 @@ public class MainActivity extends Activity {
     }
 
     void restartConsoleShortcuts() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
-            return;
-        }
-        setStatus(R.string.status_restarting_shortcuts);
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    runRootCommandBestEffort(AM + " stopservice -n "
-                            + TOOLS_KEYBOARD_WATCHER_SERVICE);
-                    Thread.sleep(SHORTCUT_RESTART_DELAY_MILLIS);
-                    runRootCommand(AM + " start-foreground-service -n "
-                            + TOOLS_KEYBOARD_WATCHER_SERVICE);
-                    runOnUiThread(() -> {
-                        setStatus(R.string.status_shortcuts_restarted);
-                        updateConsoleControls();
-                        refreshTaskSnapshot();
-                    });
-                } catch (IOException e) {
-                    runOnUiThread(() -> setErrorStatus(
-                            "SHORTCUTS-001",
-                            getString(R.string.status_root_failed, e.getMessage()),
-                            "",
-                            e));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    runOnUiThread(() -> setErrorStatus(
-                            "SHORTCUTS-002",
-                            getString(R.string.status_root_failed, "interrupted"),
-                            "",
-                            e));
-                }
-            }
-        }, "MagicDeskRestartShortcuts").start();
+        mSessionController.restartConsoleShortcuts();
     }
 
     Button createKernelFixesAction() {
@@ -1593,93 +1228,7 @@ public class MainActivity extends Activity {
     }
 
     void exitMagicDesk() {
-        if (mExitInProgress) {
-            return;
-        }
-        mExitInProgress = true;
-        Log.i(TAG, "full MagicDesk exit requested");
-        setStatus(R.string.status_exiting);
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
-            finishUnprivilegedExit();
-            return;
-        }
-        ConsoleModeSwitcher.setPhoneScreenOff(false,
-                new ConsoleModeSwitcher.ResultCallback() {
-            @Override
-            public void onComplete(final boolean success) {
-                if (!success) {
-                    abortMagicDeskExit("EXIT-001", "Could not restore the phone screen");
-                    return;
-                }
-                ConsoleModeSwitcher.returnConsoleTasksToPhone(
-                        new ConsoleModeSwitcher.ResultCallback() {
-                    @Override
-                    public void onComplete(final boolean tasksReturned) {
-                        if (!tasksReturned) {
-                            abortMagicDeskExit(
-                                    "EXIT-002",
-                                    "Could not return Console tasks to the phone");
-                            return;
-                        }
-                        ConsoleModeSwitcher.switchToMirror(
-                                new ConsoleModeSwitcher.ResultCallback() {
-                            @Override
-                            public void onComplete(final boolean mirrorActive) {
-                                if (!mirrorActive) {
-                                    abortMagicDeskExit(
-                                            "EXIT-003",
-                                            "Could not restore mirror mode");
-                                    return;
-                                }
-                                finishMagicDeskExit();
-                            }
-                        });
-                    }
-                });
-            }
-        });
-    }
-
-    private void finishUnprivilegedExit() {
-        RootKeyboardShortcutWatcher.stop();
-        KeyboardWatcherService.stop(this);
-        ConsoleModeSwitcher.closeRootShell();
-        DeviceSetupManager.revokeRuntimeAuthorization();
-        releaseDesktopOverlays();
-        mExitInProgress = false;
-        finishAndRemoveTask();
-    }
-
-    private void finishMagicDeskExit() {
-        RootKeyboardShortcutWatcher.stop();
-        KeyboardWatcherService.stop(this);
-        runRootCommandBestEffort(AM + " stop-service -n "
-                + TOOLS_KEYBOARD_WATCHER_SERVICE);
-        try {
-            runRootCommand(AM + " start --display 0"
-                    + " -a android.intent.action.MAIN"
-                    + " -c android.intent.category.HOME");
-            runRootCommand(AM + " force-stop --user 0 " + getPackageName());
-        } catch (IOException e) {
-            Log.w(TAG, "full MagicDesk exit failed", e);
-            abortMagicDeskExit(
-                    "EXIT-004",
-                    getString(R.string.status_root_failed, e.getMessage()),
-                    e);
-        }
-    }
-
-    private void abortMagicDeskExit(final String code, final String message) {
-        abortMagicDeskExit(code, message, null);
-    }
-
-    private void abortMagicDeskExit(final String code, final String message,
-            final Throwable error) {
-        Log.w(TAG, "MagicDesk exit aborted: " + message, error);
-        runOnUiThread(() -> {
-            mExitInProgress = false;
-            setErrorStatus(code, message, "", error);
-        });
+        mSessionController.exit();
     }
 
     void applyDensity(final int dpi) {
@@ -1692,25 +1241,6 @@ public class MainActivity extends Activity {
 
     private void ensurePreferredConsoleDensity() {
         mDisplayDensityController.ensurePreferred();
-    }
-
-    private String getDensityStatus() {
-        return mDisplayDensityController.getStatus();
-    }
-
-    private static String runRootCommand(final String command)
-            throws IOException {
-        return PrivilegedCommandRunner.run(command);
-    }
-
-    private static void runRootCommandBestEffort(final String command) {
-        try {
-            runRootCommand(command);
-        } catch (IOException e) {
-            Log.w(TAG,
-                    "best-effort root command failed: " + command,
-                    e);
-        }
     }
 
     void showLaunchFailure(final RuntimeException e) {
@@ -1782,34 +1312,8 @@ public class MainActivity extends Activity {
         return packageName.indexOf('.') > 0 && packageName.indexOf("..") < 0;
     }
 
-    private TextView sectionTitle(final int titleResId) {
-        return mUi.sectionTitle(titleResId);
-    }
-
     private Button createActionButton(final int textResId, final int accentColor) {
         return mUi.actionButton(textResId, accentColor);
-    }
-
-    private Button createActionButton(final String text, final int accentColor) {
-        return mUi.actionButton(text, accentColor);
-    }
-
-    private Button createSmallButton(final int textResId, final int accentColor) {
-        return mUi.smallButton(textResId, accentColor);
-    }
-
-    private Button createSmallButton(final String text, final int accentColor) {
-        return mUi.smallButton(text, accentColor);
-    }
-
-    private ImageButton createTaskbarIconButton(final int drawableResId,
-            final int descriptionResId) {
-        return mUi.taskbarIconButton(
-                drawableResId, descriptionResId, isCompactDesktopPreview());
-    }
-
-    private GradientDrawable rounded(final int color, final int radius, final int strokeColor) {
-        return mUi.rounded(color, radius, strokeColor);
     }
 
     void setStatus(final int stringResId) {
@@ -1827,9 +1331,7 @@ public class MainActivity extends Activity {
     }
 
     void setStatus(final String text) {
-        if (mStatus != null) {
-            mStatus.setText(text);
-        }
+        mPhoneLauncherController.setStatus(text);
         if (mConsoleControls != null) {
             mConsoleControls.setActivityStatus(text);
         }
@@ -1846,10 +1348,6 @@ public class MainActivity extends Activity {
 
     boolean isCompactDesktopPreview() {
         return mDesktopMode && getResources().getConfiguration().screenWidthDp < 700;
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
 }

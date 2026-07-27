@@ -1,0 +1,176 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.util.Log;
+
+import java.io.IOException;
+
+final class MagicDeskSessionController {
+    private static final String TAG = "MagicDesk";
+    private static final String AM = "/system/bin/am";
+    private static final String KEYBOARD_WATCHER_SERVICE =
+            "io.github.mekhontsev.magicdesk/.KeyboardWatcherService";
+    private static final long SHORTCUT_RESTART_DELAY_MILLIS = 800;
+
+    private final MainActivity mActivity;
+    private boolean mExitInProgress;
+
+    MagicDeskSessionController(final MainActivity activity) {
+        mActivity = activity;
+    }
+
+    void restartConsoleShortcuts() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
+            return;
+        }
+        mActivity.setStatus(R.string.status_restarting_shortcuts);
+        final Thread worker = new Thread(
+                () -> {
+                    try {
+                        runRootCommandBestEffort(
+                                AM + " stopservice -n "
+                                        + KEYBOARD_WATCHER_SERVICE);
+                        Thread.sleep(SHORTCUT_RESTART_DELAY_MILLIS);
+                        runRootCommand(
+                                AM + " start-foreground-service -n "
+                                        + KEYBOARD_WATCHER_SERVICE);
+                        mActivity.runOnUiThread(() -> {
+                            mActivity.setStatus(
+                                    R.string.status_shortcuts_restarted);
+                            mActivity.updateConsoleControls();
+                            mActivity.refreshTaskSnapshot();
+                        });
+                    } catch (IOException e) {
+                        mActivity.runOnUiThread(() ->
+                                mActivity.setErrorStatus(
+                                        "SHORTCUTS-001",
+                                        mActivity.getString(
+                                                R.string.status_root_failed,
+                                                e.getMessage()),
+                                        "",
+                                        e));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        mActivity.runOnUiThread(() ->
+                                mActivity.setErrorStatus(
+                                        "SHORTCUTS-002",
+                                        mActivity.getString(
+                                                R.string.status_root_failed,
+                                                "interrupted"),
+                                        "",
+                                        e));
+                    }
+                },
+                "MagicDeskRestartShortcuts");
+        worker.start();
+    }
+
+    void exit() {
+        if (mExitInProgress) {
+            return;
+        }
+        mExitInProgress = true;
+        Log.i(TAG, "full MagicDesk exit requested");
+        mActivity.setStatus(R.string.status_exiting);
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+            finishUnprivilegedExit();
+            return;
+        }
+        ConsoleModeSwitcher.setPhoneScreenOff(
+                false,
+                success -> {
+                    if (!success) {
+                        abort(
+                                "EXIT-001",
+                                "Could not restore the phone screen",
+                                null);
+                        return;
+                    }
+                    ConsoleModeSwitcher.returnConsoleTasksToPhone(
+                            tasksReturned -> {
+                                if (!tasksReturned) {
+                                    abort(
+                                            "EXIT-002",
+                                            "Could not return Console tasks"
+                                                    + " to the phone",
+                                            null);
+                                    return;
+                                }
+                                ConsoleModeSwitcher.switchToMirror(
+                                        mirrorActive -> {
+                                            if (!mirrorActive) {
+                                                abort(
+                                                        "EXIT-003",
+                                                        "Could not restore"
+                                                                + " mirror mode",
+                                                        null);
+                                                return;
+                                            }
+                                            finishPrivilegedExit();
+                                        });
+                            });
+                });
+    }
+
+    private void finishUnprivilegedExit() {
+        RootKeyboardShortcutWatcher.stop();
+        KeyboardWatcherService.stop(mActivity);
+        ConsoleModeSwitcher.closeRootShell();
+        DeviceSetupManager.revokeRuntimeAuthorization();
+        mActivity.releaseDesktopOverlays();
+        mExitInProgress = false;
+        mActivity.finishAndRemoveTask();
+    }
+
+    private void finishPrivilegedExit() {
+        RootKeyboardShortcutWatcher.stop();
+        KeyboardWatcherService.stop(mActivity);
+        runRootCommandBestEffort(
+                AM + " stop-service -n " + KEYBOARD_WATCHER_SERVICE);
+        try {
+            runRootCommand(
+                    AM + " start --display 0"
+                            + " -a android.intent.action.MAIN"
+                            + " -c android.intent.category.HOME");
+            runRootCommand(
+                    AM + " force-stop --user 0 "
+                            + mActivity.getPackageName());
+        } catch (IOException e) {
+            Log.w(TAG, "full MagicDesk exit failed", e);
+            abort(
+                    "EXIT-004",
+                    mActivity.getString(
+                            R.string.status_root_failed,
+                            e.getMessage()),
+                    e);
+        }
+    }
+
+    private void abort(
+            final String code,
+            final String message,
+            final Throwable error) {
+        Log.w(TAG, "MagicDesk exit aborted: " + message, error);
+        mActivity.runOnUiThread(() -> {
+            mExitInProgress = false;
+            mActivity.setErrorStatus(code, message, "", error);
+        });
+    }
+
+    private static String runRootCommand(final String command)
+            throws IOException {
+        return PrivilegedCommandRunner.run(command);
+    }
+
+    private static void runRootCommandBestEffort(
+            final String command) {
+        try {
+            runRootCommand(command);
+        } catch (IOException e) {
+            Log.w(
+                    TAG,
+                    "best-effort root command failed: " + command,
+                    e);
+        }
+    }
+}
