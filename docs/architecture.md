@@ -100,6 +100,31 @@ by exact package and action, then requires `PackageManager.checkSignatures()` to
 return `SIGNATURE_MATCH`. The main APK contains neither `.ko` files nor
 kernel-loading code.
 
+### Main APK Source Boundaries
+
+`MainActivity` is the Android lifecycle host and compatibility facade used by
+the foreground services. Feature state belongs to focused collaborators:
+
+- `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
+  `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
+- `PhoneLauncherController` owns the independent phone-layout launcher.
+- `AppTaskController`, `WorkspaceController`, and `AltTabController` coordinate
+  application tasks and persisted workspace state.
+- `DisplayProfileController`, `DisplayDensityController`, and
+  `ConsoleControlsController` own display-specific preferences and controls.
+- `MagicDeskSessionController` owns shortcut-service restart and complete
+  MagicDesk teardown.
+- `DesktopTaskController` owns the native task transition state machine, while
+  `DesktopTaskWatcher` owns its root helper process and event protocol.
+- `ConsoleModeSwitcher` coordinates Console Mode. Keyboard-layout policy,
+  Nubia touchpad integration, and raw mouse-button decoding live in
+  `HardwareKeyboardLayoutController`, `NubiaTouchpadController`, and
+  `RawMouseButtonWatcher`.
+
+Repositories perform package, task, and document queries. View controllers do
+not run privileged commands directly; platform coordinators do not construct
+desktop panels. Keep this split when adding device-specific behavior.
+
 ## Display And Session Model
 
 Every launch resolves a session profile containing an independent privilege

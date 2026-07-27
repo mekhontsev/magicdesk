@@ -12,6 +12,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -91,7 +92,9 @@ public final class ConsoleTaskReturnCommand {
 
     private static boolean isMagicDeskPackage(final ComponentName component) {
         return component != null
-                && component.getPackageName().toLowerCase().endsWith(".magicdesk");
+                && component.getPackageName()
+                        .toLowerCase(Locale.ROOT)
+                        .endsWith(".magicdesk");
     }
 
     private static int getActivityType(final Object task)

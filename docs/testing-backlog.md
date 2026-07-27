@@ -6,6 +6,10 @@ successful build.
 
 ## External Display
 
+- [ ] Validate the controller refactor on the current device before pushing.
+  Exercise phone layout, Console Mode startup, Start and Tools panels, taskbar
+  task actions, floating/fullscreen transitions, hardware layout switching,
+  right click, touchpad restore, and complete MagicDesk exit.
 - [ ] Run Basic mode on a physical external display.
   Verify desktop launch, public application launch, overlays, taskbar, and
   graceful handling of unavailable task and DPI controls.
