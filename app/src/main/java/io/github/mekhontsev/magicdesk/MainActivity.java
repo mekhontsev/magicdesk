@@ -88,11 +88,11 @@ public class MainActivity extends Activity {
     private static final String AM = "/system/bin/am";
     private static final String TOOLS_KEYBOARD_WATCHER_SERVICE =
             "io.github.mekhontsev.magicdesk/.KeyboardWatcherService";
-    private static final String HARDWARE_LAYOUT_STATE =
+    static final String HARDWARE_LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
-    private static final String HARDWARE_LAYOUT_LABEL_STATE =
+    static final String HARDWARE_LAYOUT_LABEL_STATE =
             "magicdesk_hardware_keyboard_layout_label";
-    private static final String HARDWARE_LAYOUT_NAME_STATE =
+    static final String HARDWARE_LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
     private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
     static final String EXTRA_ACTION = "magicdesk_action";
@@ -113,12 +113,6 @@ public class MainActivity extends Activity {
     private LinearLayout mContent;
     private FrameLayout mDesktopRoot;
     private GridLayout mDesktopIcons;
-    private LinearLayout mTaskbar;
-    private LinearLayout mTaskbarPins;
-    private TextView mKeyboardLayoutIndicator;
-    private TextView mBatteryStatus;
-    private ImageButton mConsoleButton;
-    private ImageButton mPhoneScreenButton;
     private Button mPhoneScreenAction;
     private TextView mToolsStatus;
     private TextView mToolsActivityStatus;
@@ -135,6 +129,7 @@ public class MainActivity extends Activity {
     private StartMenuController mStartMenuController;
     private TaskOverviewController mTaskOverviewController;
     private AppContextMenuController mContextMenuController;
+    private TaskbarController mTaskbarController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
@@ -202,6 +197,7 @@ public class MainActivity extends Activity {
         mStartMenuController = new StartMenuController(this, mUi);
         mTaskOverviewController = new TaskOverviewController(this, mUi);
         mContextMenuController = new AppContextMenuController(this, mUi);
+        mTaskbarController = new TaskbarController(this, mUi);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -255,7 +251,9 @@ public class MainActivity extends Activity {
             mDesktopWallpaperController.stop();
             mDesktopWallpaperController = null;
         }
-        mTaskbar = null;
+        if (mTaskbarController != null) {
+            mTaskbarController.release();
+        }
     }
 
     @Override
@@ -303,7 +301,7 @@ public class MainActivity extends Activity {
         return super.dispatchGenericMotionEvent(event);
     }
 
-    private boolean handleDesktopMouseTouchEvent(final MotionEvent event,
+    boolean handleDesktopMouseTouchEvent(final MotionEvent event,
             final boolean useRawCoordinates) {
         if (!mDesktopMode || event == null) {
             return false;
@@ -338,7 +336,7 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private boolean handleDesktopMouseGenericEvent(final MotionEvent event,
+    boolean handleDesktopMouseGenericEvent(final MotionEvent event,
             final boolean useRawCoordinates) {
         if (!mDesktopMode || event == null || !event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             return false;
@@ -457,6 +455,22 @@ public class MainActivity extends Activity {
 
     List<AppItem> getLauncherApps() {
         return mLastApps;
+    }
+
+    NotificationCenterController notifications() {
+        return mNotifications;
+    }
+
+    TaskRepository.Snapshot getTaskSnapshot() {
+        return mTaskSnapshot;
+    }
+
+    String getWorkspacePackage() {
+        return getWorkspaceProfile().workspacePackage;
+    }
+
+    void clearInteractionVisibleTasks() {
+        mInteractionVisibleTasks = Collections.emptyList();
     }
 
     void setTaskSnapshot(final TaskRepository.Snapshot snapshot) {
@@ -804,11 +818,11 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
         mStartMenuController.create();
-        mTaskbar = createTaskbar();
+        final LinearLayout taskbar = mTaskbarController.create();
         final int taskbarHeight = getTaskbarHeight();
         final int taskbarWidth = Math.max(1, getDesktopAreaWidth());
         final int taskbarTop = getTaskbarTop(getDesktopAreaHeight());
-        if (!mOverlayPanelController.attachPersistent(mTaskbar,
+        if (!mOverlayPanelController.attachPersistent(taskbar,
                 0, taskbarTop, taskbarWidth, taskbarHeight,
                 "MagicDesk taskbar")) {
             setErrorStatus("OVERLAY-001",
@@ -823,220 +837,7 @@ public class MainActivity extends Activity {
         return root;
     }
 
-    private LinearLayout createTaskbar() {
-        final LinearLayout taskbar = new LinearLayout(this) {
-            private final int mTouchSlop = ViewConfiguration.get(
-                    MainActivity.this).getScaledTouchSlop();
-            private float mBlankDownX;
-            private float mBlankDownY;
-            private boolean mBlankLongPressPending;
-            private final Runnable mBlankLongPress = () -> {
-                if (!mBlankLongPressPending) {
-                    return;
-                }
-                mBlankLongPressPending = false;
-                captureInteractionStackForPanel();
-                showDesktopContextMenu(mBlankDownX, mBlankDownY);
-            };
-
-            @Override
-            public boolean dispatchTouchEvent(final MotionEvent event) {
-                if (handleDesktopMouseTouchEvent(event, true)) {
-                    cancelBlankLongPress();
-                    return true;
-                }
-                final int action = event.getActionMasked();
-                if (action == MotionEvent.ACTION_DOWN) {
-                    cancelBlankLongPress();
-                    if (!isTaskbarActionAt(event.getX(), event.getY())) {
-                        hideAllPanels();
-                        mInteractionVisibleTasks = Collections.emptyList();
-                        mBlankDownX = event.getRawX();
-                        mBlankDownY = event.getRawY();
-                        mBlankLongPressPending = true;
-                        postDelayed(mBlankLongPress,
-                                ViewConfiguration.getLongPressTimeout());
-                    }
-                } else if (action == MotionEvent.ACTION_MOVE
-                        && mBlankLongPressPending
-                        && (Math.abs(event.getRawX() - mBlankDownX) > mTouchSlop
-                                || Math.abs(event.getRawY() - mBlankDownY)
-                                        > mTouchSlop)) {
-                    cancelBlankLongPress();
-                } else if (action == MotionEvent.ACTION_UP
-                        || action == MotionEvent.ACTION_CANCEL) {
-                    cancelBlankLongPress();
-                }
-                return super.dispatchTouchEvent(event);
-            }
-
-            private void cancelBlankLongPress() {
-                mBlankLongPressPending = false;
-                removeCallbacks(mBlankLongPress);
-            }
-
-            @Override
-            public boolean dispatchGenericMotionEvent(final MotionEvent event) {
-                if (handleDesktopMouseGenericEvent(event, true)) {
-                    return true;
-                }
-                return super.dispatchGenericMotionEvent(event);
-            }
-        };
-        taskbar.setOrientation(LinearLayout.HORIZONTAL);
-        taskbar.setGravity(Gravity.CENTER_VERTICAL);
-        taskbar.setPadding(desktopDp(10, 4), desktopDp(8, 4),
-                desktopDp(10, 4), desktopDp(8, 4));
-        taskbar.setBackground(rounded(COLOR_PANEL, 0, COLOR_PANEL_ALT));
-
-        final Button start = createActionButton(R.string.action_start, COLOR_CYAN);
-        start.setTextSize(14);
-        start.setTypeface(Typeface.DEFAULT_BOLD);
-        start.setOnClickListener(view -> toggleStartMenu());
-        taskbar.addView(start, new LinearLayout.LayoutParams(desktopDp(108, 72),
-                LinearLayout.LayoutParams.MATCH_PARENT));
-
-        final HorizontalScrollView taskScroll = new HorizontalScrollView(this);
-        taskScroll.setHorizontalScrollBarEnabled(false);
-        taskScroll.setFillViewport(true);
-
-        mTaskbarPins = new LinearLayout(this);
-        mTaskbarPins.setOrientation(LinearLayout.HORIZONTAL);
-        mTaskbarPins.setGravity(Gravity.CENTER_VERTICAL);
-        taskScroll.addView(mTaskbarPins, new HorizontalScrollView.LayoutParams(
-                HorizontalScrollView.LayoutParams.WRAP_CONTENT,
-                HorizontalScrollView.LayoutParams.MATCH_PARENT));
-        final LinearLayout.LayoutParams pinsParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
-        pinsParams.setMargins(desktopDp(10, 4), 0, desktopDp(10, 4), 0);
-        taskbar.addView(taskScroll, pinsParams);
-
-        final ImageButton showDesktop = createTaskbarIconButton(
-                R.drawable.ic_show_desktop,
-                R.string.action_show_desktop);
-        showDesktop.setOnClickListener(view -> toggleDesktopWorkspace());
-        taskbar.addView(showDesktop, new LinearLayout.LayoutParams(
-                desktopDp(46, 38), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        final ImageButton taskOverview = createTaskbarIconButton(
-                android.R.drawable.ic_menu_recent_history,
-                R.string.action_open_tasks);
-        taskOverview.setOnClickListener(view -> toggleTaskOverview());
-        taskbar.addView(taskOverview, new LinearLayout.LayoutParams(
-                desktopDp(46, 38), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        taskbar.addView(
-                mNotifications.createTaskbarButton(
-                        isCompactDesktopPreview()),
-                new LinearLayout.LayoutParams(
-                        desktopDp(46, 38),
-                        LinearLayout.LayoutParams.MATCH_PARENT));
-
-        mKeyboardLayoutIndicator = new TextView(this);
-        mKeyboardLayoutIndicator.setTextColor(COLOR_TEXT);
-        mKeyboardLayoutIndicator.setTextSize(isCompactDesktopPreview() ? 11 : 13);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mKeyboardLayoutIndicator.setAutoSizeTextTypeUniformWithConfiguration(
-                    8, isCompactDesktopPreview() ? 11 : 13, 1,
-                    android.util.TypedValue.COMPLEX_UNIT_SP);
-        }
-        mKeyboardLayoutIndicator.setTypeface(Typeface.DEFAULT_BOLD);
-        mKeyboardLayoutIndicator.setGravity(Gravity.CENTER);
-        mKeyboardLayoutIndicator.setClickable(true);
-        mKeyboardLayoutIndicator.setFocusable(true);
-        mKeyboardLayoutIndicator.setBackground(rounded(
-                COLOR_PANEL_ALT, desktopDp(8, 6), COLOR_PANEL_ALT));
-        mKeyboardLayoutIndicator.setOnClickListener(
-                view -> ConsoleModeSwitcher.toggleHardwareKeyboardLayout());
-        mKeyboardLayoutIndicator.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT));
-        taskbar.addView(mKeyboardLayoutIndicator, new LinearLayout.LayoutParams(
-                desktopDp(48, 38), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        mPhoneScreenButton = createTaskbarIconButton(
-                R.drawable.ic_phone_screen_off,
-                R.string.tooltip_phone_screen);
-        mPhoneScreenButton.setOnClickListener(view -> togglePhoneScreen());
-        mPhoneScreenButton.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
-        taskbar.addView(mPhoneScreenButton, new LinearLayout.LayoutParams(
-                desktopDp(46, 38), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        mConsoleButton = createTaskbarIconButton(
-                android.R.drawable.ic_menu_manage,
-                R.string.tooltip_tools);
-        mConsoleButton.setOnClickListener(view -> toggleToolsMenu());
-        taskbar.addView(mConsoleButton, new LinearLayout.LayoutParams(
-                desktopDp(46, 38), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        mBatteryStatus = new TextView(this);
-        mBatteryStatus.setTextColor(COLOR_MUTED);
-        mBatteryStatus.setTextSize(isCompactDesktopPreview() ? 10 : 12);
-        mBatteryStatus.setGravity(Gravity.CENTER);
-        mBatteryStatus.setSingleLine(true);
-        taskbar.addView(mBatteryStatus, new LinearLayout.LayoutParams(
-                desktopDp(58, 44), LinearLayout.LayoutParams.MATCH_PARENT));
-
-        final TextClock clock = new TextClock(this);
-        clock.setFormat24Hour("HH:mm");
-        clock.setFormat12Hour("HH:mm");
-        clock.setTextColor(COLOR_TEXT);
-        clock.setTextSize(isCompactDesktopPreview() ? 12 : 16);
-        clock.setGravity(Gravity.CENTER);
-        clock.setClickable(true);
-        clock.setFocusable(true);
-        clock.setBackground(rounded(
-                COLOR_PANEL_ALT, desktopDp(8, 6), COLOR_PANEL_ALT));
-        clock.setContentDescription(getString(R.string.action_calendar));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            clock.setTooltipText(getString(R.string.action_calendar));
-        }
-        clock.setOnClickListener(view -> toggleCalendarPanel());
-        taskbar.addView(clock, new LinearLayout.LayoutParams(desktopDp(72, 50),
-                LinearLayout.LayoutParams.MATCH_PARENT));
-        return taskbar;
-    }
-
-    private boolean isTaskbarActionAt(final float localX, final float localY) {
-        if (mTaskbar == null) {
-            return false;
-        }
-        for (int index = 0; index < mTaskbar.getChildCount(); index++) {
-            if (isActionViewAt(mTaskbar, mTaskbar.getChildAt(index),
-                    localX, localY)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isActionViewAt(final ViewGroup parent, final View view,
-            final float parentX, final float parentY) {
-        if (view == null || !view.isShown() || !view.isEnabled()) {
-            return false;
-        }
-        final float localX = parentX + parent.getScrollX() - view.getLeft();
-        final float localY = parentY + parent.getScrollY() - view.getTop();
-        if (localX < 0 || localY < 0
-                || localX >= view.getWidth() || localY >= view.getHeight()) {
-            return false;
-        }
-        if (view.hasOnClickListeners()) {
-            return true;
-        }
-        if (!(view instanceof ViewGroup)) {
-            return false;
-        }
-        final ViewGroup group = (ViewGroup) view;
-        for (int index = 0; index < group.getChildCount(); index++) {
-            if (isActionViewAt(group, group.getChildAt(index), localX, localY)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void toggleCalendarPanel() {
+    void toggleCalendarPanel() {
         mCalendarController.toggle(
                 mOverlayPanelController,
                 getDesktopAreaWidth(),
@@ -1077,7 +878,7 @@ public class MainActivity extends Activity {
     }
 
 
-    private void toggleTaskOverview() {
+    void toggleTaskOverview() {
         mTaskOverviewController.toggle();
     }
 
@@ -1098,7 +899,7 @@ public class MainActivity extends Activity {
         mContextMenuController.registerTarget(view, app, task);
     }
 
-    private void showDesktopContextMenu(final float x, final float y) {
+    void showDesktopContextMenu(final float x, final float y) {
         mContextMenuController.showDesktopMenu(x, y);
     }
 
@@ -1632,7 +1433,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private List<TaskRepository.TaskEntry> findTasks(final String packageName) {
+    List<TaskRepository.TaskEntry> findTasks(final String packageName) {
         final List<TaskRepository.TaskEntry> result = new ArrayList<>();
         for (final TaskRepository.TaskEntry task : mTaskSnapshot.tasks) {
             if (isTaskbarTask(task) && packageName.equals(task.packageName)) {
@@ -1652,7 +1453,7 @@ public class MainActivity extends Activity {
                 apps, packageName, isUniversalFreeformEnabled());
     }
 
-    private List<String> getOrderedPinnedPackages(final List<AppItem> apps,
+    List<String> getOrderedPinnedPackages(final List<AppItem> apps,
             final Set<String> pinnedPackages) {
         final List<String> ordered = new ArrayList<>();
         for (final String packageName : DesktopPreferences.favoritePackages()) {
@@ -2117,105 +1918,14 @@ public class MainActivity extends Activity {
     }
 
     private void renderTaskbarPins(final List<AppItem> apps) {
-        if (mTaskbarPins == null) {
-            return;
-        }
-        mTaskbarPins.removeAllViews();
-        final Set<String> pinnedPackages = getPinnedPackages();
-        final String workspacePackage = getWorkspaceProfile().workspacePackage;
-        if (workspacePackage != null) {
-            pinnedPackages.add(workspacePackage);
-        }
-        final Set<Integer> renderedTaskIds = new HashSet<>();
-
-        for (final String packageName : getOrderedPinnedPackages(apps, pinnedPackages)) {
-            final AppItem app = LauncherAppRepository.find(apps, packageName);
-            if (app == null) {
-                continue;
-            }
-            final List<TaskRepository.TaskEntry> packageTasks = findTasks(packageName);
-            if (packageTasks.isEmpty()) {
-                addTaskbarPin(app, null, true);
-                continue;
-            }
-            for (final TaskRepository.TaskEntry task : packageTasks) {
-                addTaskbarPin(app, task, true);
-                renderedTaskIds.add(Integer.valueOf(task.taskId));
-            }
-        }
-
-        for (final TaskRepository.TaskEntry task : mTaskSnapshot.tasks) {
-            if (!isTaskbarTask(task)
-                    || renderedTaskIds.contains(Integer.valueOf(task.taskId))) {
-                continue;
-            }
-            final AppItem app = findOrLoadApp(apps, task.packageName);
-            if (app != null) {
-                addTaskbarPin(app, task, false);
-            }
-        }
-    }
-
-    private void addTaskbarPin(final AppItem app, final TaskRepository.TaskEntry task,
-            final boolean pinned) {
-        mTaskbarPins.addView(createTaskbarPin(app, task, pinned),
-                new LinearLayout.LayoutParams(
-                        desktopDp(48, 36), LinearLayout.LayoutParams.MATCH_PARENT));
-    }
-
-    private View createTaskbarPin(final AppItem app,
-            final TaskRepository.TaskEntry task, final boolean pinned) {
-        final FrameLayout item = new FrameLayout(this);
-        final boolean workspaceApp = app.packageName.equals(
-                getWorkspaceProfile().workspacePackage);
-        final int borderColor = workspaceApp ? COLOR_AMBER
-                : (task == null ? COLOR_PANEL_ALT
-                        : (task.active ? COLOR_AMBER : COLOR_CYAN));
-        item.setBackground(rounded(COLOR_PANEL_ALT, desktopDp(10, 8), borderColor));
-        item.setClickable(true);
-        item.setFocusable(true);
-
-        final ImageView icon = new ImageView(this);
-        icon.setImageDrawable(app.icon);
-        icon.setPadding(desktopDp(7, 5), desktopDp(7, 5),
-                desktopDp(7, 5), desktopDp(7, 5));
-        item.addView(icon, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-
-        if (task != null) {
-            final View running = new View(this);
-            running.setBackgroundColor(task.active ? COLOR_AMBER : COLOR_CYAN);
-            final FrameLayout.LayoutParams runningParams = new FrameLayout.LayoutParams(
-                    desktopDp(20, 14), dp(3), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-            runningParams.setMargins(0, 0, 0, dp(2));
-            item.addView(running, runningParams);
-        }
-
-        final String description = task == null ? app.label
-                : getString(R.string.taskbar_running_description,
-                        app.label, Integer.valueOf(task.taskId));
-        item.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            item.setTooltipText(description);
-        }
-        item.setOnClickListener(view -> {
-            hideAllPanels();
-            if (task == null) {
-                launchDefault(app);
-            } else {
-                focusTask(app, task);
-            }
-        });
-        registerContextTarget(item, app, task);
-        return item;
+        mTaskbarController.renderPins(apps);
     }
 
     private void renderStartMenuContent() {
         mStartMenuController.render();
     }
 
-    private void toggleStartMenu() {
+    void toggleStartMenu() {
         mStartMenuController.toggle();
     }
 
@@ -2223,7 +1933,7 @@ public class MainActivity extends Activity {
         mStartMenuController.setVisible(visible);
     }
 
-    private void toggleToolsMenu() {
+    void toggleToolsMenu() {
         mStartMenuController.toggleTools();
     }
 
@@ -2262,26 +1972,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateConsoleControls() {
-        final String layout = Settings.Global.getString(
-                getContentResolver(), HARDWARE_LAYOUT_STATE);
-        if (mKeyboardLayoutIndicator != null) {
-            String layoutLabel = Settings.Global.getString(
-                    getContentResolver(), HARDWARE_LAYOUT_LABEL_STATE);
-            if (layoutLabel == null || layoutLabel.isEmpty()) {
-                layoutLabel = "russian".equals(layout) ? "RU"
-                        : ("english".equals(layout) ? "EN" : "??");
-            }
-            final String layoutName = Settings.Global.getString(
-                    getContentResolver(), HARDWARE_LAYOUT_NAME_STATE);
-            mKeyboardLayoutIndicator.setText(layoutLabel);
-            final String description = getString(
-                    R.string.keyboard_layout_description,
-                    layoutName == null || layoutName.isEmpty() ? layoutLabel : layoutName);
-            mKeyboardLayoutIndicator.setContentDescription(description);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                mKeyboardLayoutIndicator.setTooltipText(description);
-            }
-        }
+        mTaskbarController.updateKeyboardLayout();
 
         final boolean phoneScreenOff = isPhoneScreenOff();
         final boolean phoneScreenControl =
@@ -2289,18 +1980,8 @@ public class MainActivity extends Activity {
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off;
-        if (mPhoneScreenButton != null) {
-            mPhoneScreenButton.setImageResource(phoneScreenOff
-                    ? R.drawable.ic_phone_screen_on
-                    : R.drawable.ic_phone_screen_off);
-            mPhoneScreenButton.setColorFilter(phoneScreenOff ? COLOR_CYAN : COLOR_TEXT);
-            mPhoneScreenButton.setContentDescription(getString(actionResId));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                mPhoneScreenButton.setTooltipText(getString(actionResId));
-            }
-            mPhoneScreenButton.setEnabled(phoneScreenControl);
-            mPhoneScreenButton.setAlpha(phoneScreenControl ? 1f : 0.45f);
-        }
+        mTaskbarController.updatePhoneScreen(
+                phoneScreenOff, phoneScreenControl);
         if (mPhoneScreenAction != null) {
             mPhoneScreenAction.setText(actionResId);
             mPhoneScreenAction.setEnabled(phoneScreenControl);
@@ -2328,24 +2009,9 @@ public class MainActivity extends Activity {
     }
 
     private void updateSystemStatusIndicator() {
-        if (mConsoleButton == null) {
-            return;
-        }
-        final boolean runtimeTaskControl =
-                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
         final boolean console = isConsoleModeActive();
         final boolean bridge = RootKeyboardShortcutWatcher.isRunning();
-        final int color = runtimeTaskControl && console && bridge ? COLOR_CYAN
-                : (runtimeTaskControl ? COLOR_AMBER : COLOR_MUTED);
-        final String description = getString(R.string.system_status_description,
-                RuntimeAccess.backendName(),
-                getString(console ? R.string.state_ready : R.string.state_unavailable),
-                getString(bridge ? R.string.state_ready : R.string.state_unavailable));
-        mConsoleButton.setColorFilter(color);
-        mConsoleButton.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mConsoleButton.setTooltipText(description);
-        }
+        mTaskbarController.updateSystemStatus(console, bridge);
     }
 
     private boolean isConsoleModeActive() {
@@ -2373,34 +2039,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateBatteryStatus(final Intent battery) {
-        if (mBatteryStatus == null || battery == null) {
-            return;
-        }
-        final int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-        final int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-        final int percent = level < 0 || scale <= 0
-                ? -1 : Math.max(0, Math.min(100, Math.round(level * 100f / scale)));
-        final int status = battery.getIntExtra(
-                BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
-        final boolean charging = status == BatteryManager.BATTERY_STATUS_CHARGING;
-        final boolean full = status == BatteryManager.BATTERY_STATUS_FULL;
-        mBatteryStatus.setText(percent < 0
-                ? getString(R.string.battery_compact_unknown)
-                : getString(charging
-                        ? R.string.battery_compact_charging : R.string.battery_compact,
-                        Integer.valueOf(percent)));
-        mBatteryStatus.setTextColor(charging ? COLOR_CYAN : COLOR_TEXT);
-        final String state = getString(charging
-                ? R.string.battery_state_charging
-                : (full ? R.string.battery_state_full : R.string.battery_state_discharging));
-        final String description = percent < 0
-                ? getString(R.string.battery_status_unknown)
-                : getString(R.string.battery_status_description,
-                        Integer.valueOf(percent), state);
-        mBatteryStatus.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mBatteryStatus.setTooltipText(description);
-        }
+        mTaskbarController.updateBattery(battery);
     }
 
     private void registerConsoleSettingsObserver() {
@@ -2439,15 +2078,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void togglePhoneScreen() {
+    void togglePhoneScreen() {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
             return;
         }
         final boolean screenOff = !isPhoneScreenOff();
-        if (mPhoneScreenButton != null) {
-            mPhoneScreenButton.setEnabled(false);
-        }
+        mTaskbarController.setPhoneScreenActionEnabled(false);
         if (mPhoneScreenAction != null) {
             mPhoneScreenAction.setEnabled(false);
         }
@@ -3024,10 +2661,10 @@ public class MainActivity extends Activity {
     }
 
     private void setTaskbarVisible(final boolean visible) {
-        if (!mDesktopMode || mTaskbar == null || mOverlayPanelController == null) {
+        if (!mDesktopMode) {
             return;
         }
-        mOverlayPanelController.setPersistentVisible(visible);
+        mTaskbarController.setVisible(visible);
     }
 
     private static int getFullscreenLaunchFlags() {
