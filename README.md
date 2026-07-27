@@ -303,6 +303,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Architecture](docs/architecture.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
+- [Deferred validation backlog](docs/testing-backlog.md)
 - [VITURE XR resolution fix](docs/xr-resolution-fix.md)
 
 ## Project
