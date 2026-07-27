@@ -115,8 +115,6 @@ public class MainActivity extends Activity {
     private GridLayout mDesktopIcons;
     private LinearLayout mTaskbar;
     private LinearLayout mTaskbarPins;
-    private LinearLayout mContextMenu;
-    private LinearLayout mTaskOverview;
     private TextView mKeyboardLayoutIndicator;
     private TextView mBatteryStatus;
     private ImageButton mConsoleButton;
@@ -135,6 +133,8 @@ public class MainActivity extends Activity {
     private NotificationCenterController mNotifications;
     private DisplayProfileController mDisplayProfiles;
     private StartMenuController mStartMenuController;
+    private TaskOverviewController mTaskOverviewController;
+    private AppContextMenuController mContextMenuController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
@@ -142,10 +142,8 @@ public class MainActivity extends Activity {
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
             Collections.emptyList();
     private BroadcastReceiver mBatteryReceiver;
-    private final Map<View, ContextTarget> mContextTargets = new WeakHashMap<>();
     private final Set<Button> mConsoleModeActions = Collections.newSetFromMap(
             new WeakHashMap<Button, Boolean>());
-    private View mHoveredContextTargetView;
     private boolean mDesktopMode;
     private boolean mConsoleDensityApplyStarted;
     private boolean mPanelBackDown;
@@ -202,6 +200,8 @@ public class MainActivity extends Activity {
         mNotifications = new NotificationCenterController(this, mUi);
         mDisplayProfiles = new DisplayProfileController(this);
         mStartMenuController = new StartMenuController(this, mUi);
+        mTaskOverviewController = new TaskOverviewController(this, mUi);
+        mContextMenuController = new AppContextMenuController(this, mUi);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -433,42 +433,7 @@ public class MainActivity extends Activity {
     }
 
     private void handleSecondaryClick(final float x, final float y) {
-        ContextTarget target = findHoveredContextTarget();
-        if (target == null) {
-            target = findContextTargetAt(x, y);
-        }
-        if (target != null) {
-            showAppContextMenu(x, y, target.app, target.task);
-            return;
-        }
-        if (isPointInsideVisiblePanel(x, y)) {
-            return;
-        }
-        showDesktopContextMenu(x, y);
-    }
-
-    private ContextTarget findHoveredContextTarget() {
-        final View view = mHoveredContextTargetView;
-        if (view == null || !view.isAttachedToWindow() || !view.isShown()) {
-            mHoveredContextTargetView = null;
-            return null;
-        }
-        return mContextTargets.get(view);
-    }
-
-    private ContextTarget findContextTargetAt(final float x, final float y) {
-        for (final Map.Entry<View, ContextTarget> entry : mContextTargets.entrySet()) {
-            final View view = entry.getKey();
-            if (view != null && view.isShown() && isPointInside(view, x, y)) {
-                return entry.getValue();
-            }
-        }
-        return null;
-    }
-
-    private boolean isPointInsideVisiblePanel(final float x, final float y) {
-        return mOverlayPanelController != null
-                && mOverlayPanelController.contains(x, y);
+        mContextMenuController.handleSecondaryClick(x, y);
     }
 
     private boolean hasVisiblePanel() {
@@ -494,7 +459,27 @@ public class MainActivity extends Activity {
         return mLastApps;
     }
 
-    private boolean isPointInside(final View view, final float x, final float y) {
+    void setTaskSnapshot(final TaskRepository.Snapshot snapshot) {
+        mTaskSnapshot = snapshot;
+    }
+
+    boolean isAltTabTaskSelected(final TaskRepository.TaskEntry task) {
+        return mAltTabActive
+                && mAltTabSelectedIndex >= 0
+                && mAltTabSelectedIndex < mAltTabTasks.size()
+                && mAltTabTasks.get(mAltTabSelectedIndex).taskId == task.taskId;
+    }
+
+    boolean isWorkspaceApp(final String packageName) {
+        return packageName != null
+                && packageName.equals(getWorkspaceProfile().workspacePackage);
+    }
+
+    boolean hasDesktopFolder() {
+        return getWorkspaceProfile().folderUri != null;
+    }
+
+    boolean isPointInside(final View view, final float x, final float y) {
         if (view == null || mDesktopRoot == null || !view.isShown()) {
             return false;
         }
@@ -660,9 +645,7 @@ public class MainActivity extends Activity {
         }
         activity.runOnUiThread(() -> {
             activity.resetAltTabState();
-            if (activity.mOverlayPanelController != null
-                    && activity.mOverlayPanelController.isVisible(
-                            activity.mTaskOverview)) {
+            if (activity.mTaskOverviewController.isVisible()) {
                 activity.hideAllPanels();
             }
         });
@@ -832,8 +815,8 @@ public class MainActivity extends Activity {
                     getString(R.string.status_overlay_panel_unavailable));
         }
 
-        mContextMenu = createContextMenu();
-        mTaskOverview = createTaskOverviewPanel();
+        mContextMenuController.create();
+        mTaskOverviewController.create();
         mNotifications.createPanel();
         mCalendarController.createPanel();
         mShortcutHelpController.createPanel();
@@ -1053,28 +1036,6 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private LinearLayout createContextMenu() {
-        final LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(10), dp(10), dp(10), dp(10));
-        menu.setBackground(rounded(COLOR_PANEL, dp(8), COLOR_CYAN));
-        menu.setVisibility(View.GONE);
-        menu.setClickable(true);
-        menu.setFocusable(true);
-        return menu;
-    }
-
-    private LinearLayout createTaskOverviewPanel() {
-        final LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(14), dp(14), dp(12));
-        panel.setBackground(rounded(COLOR_PANEL, dp(8), COLOR_CYAN));
-        panel.setVisibility(View.GONE);
-        panel.setClickable(true);
-        panel.setFocusable(true);
-        return panel;
-    }
-
     private void toggleCalendarPanel() {
         mCalendarController.toggle(
                 mOverlayPanelController,
@@ -1117,420 +1078,39 @@ public class MainActivity extends Activity {
 
 
     private void toggleTaskOverview() {
-        resetAltTabState();
-        if (mOverlayPanelController != null
-                && mOverlayPanelController.isVisible(mTaskOverview)) {
-            hideAllPanels();
-            return;
-        }
-        showTaskOverview();
+        mTaskOverviewController.toggle();
     }
 
-    private void showTaskOverview() {
-        resetAltTabState();
-        captureInteractionStackForPanel();
-        hideAllPanels();
-        final int displayId = getCurrentDisplayId();
-        TaskRepository.load(displayId, snapshot -> runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed() || displayId != getCurrentDisplayId()) {
-                return;
-            }
-            mTaskSnapshot = snapshot;
-            populateTaskOverview(snapshot);
-            showTaskOverviewPanel();
-        }));
-    }
-
-    private boolean showTaskOverviewPanel() {
-        final int areaWidth = getDesktopAreaWidth();
-        final int areaHeight = getDesktopAreaHeight();
-        final int width = Math.min(dp(760), areaWidth - dp(32));
-        final int height = Math.min(dp(520),
-                areaHeight - getTaskbarHeight() - dp(32));
-        final int left = Math.max(0, (areaWidth - width) / 2);
-        final int top = Math.max(0,
-                (areaHeight - getTaskbarHeight() - height) / 2);
-        if (mOverlayPanelController.show(mTaskOverview, left, top,
-                width, height, true, "MagicDesk open tasks")) {
-            return true;
-        }
-        setErrorStatus("OVERLAY-001",
-                getString(R.string.status_overlay_panel_unavailable));
-        return false;
+    void showTaskOverview() {
+        mTaskOverviewController.show();
     }
 
     private void populateTaskOverview(final TaskRepository.Snapshot snapshot) {
-        if (mTaskOverview == null) {
-            return;
-        }
-        mTaskOverview.removeAllViews();
-
-        final LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        final TextView title = new TextView(this);
-        final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (isTaskbarTask(task)) {
-                tasks.add(task);
-            }
-        }
-        title.setText(getString(R.string.open_tasks_title,
-                Integer.valueOf(tasks.size())));
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        final Button showDesktop = createSmallButton(
-                R.string.action_show_desktop, COLOR_PANEL_ALT);
-        showDesktop.setOnClickListener(view -> toggleDesktopWorkspace());
-        header.addView(showDesktop, new LinearLayout.LayoutParams(
-                dp(120), LinearLayout.LayoutParams.WRAP_CONTENT));
-        final Button close = createSmallButton(R.string.action_close, COLOR_PANEL_ALT);
-        close.setOnClickListener(view -> hideAllPanels());
-        final LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(
-                dp(82), LinearLayout.LayoutParams.WRAP_CONTENT);
-        closeParams.setMargins(dp(8), 0, 0, 0);
-        header.addView(close, closeParams);
-        mTaskOverview.addView(header, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        if (tasks.isEmpty()) {
-            final TextView empty = new TextView(this);
-            empty.setText(R.string.open_tasks_empty);
-            empty.setTextColor(COLOR_MUTED);
-            empty.setTextSize(14);
-            empty.setGravity(Gravity.CENTER);
-            mTaskOverview.addView(empty, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-            return;
-        }
-
-        final ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        final GridLayout grid = new GridLayout(this);
-        final int columns = getResources().getConfiguration().screenWidthDp >= 900 ? 4 : 3;
-        grid.setColumnCount(columns);
-        for (final TaskRepository.TaskEntry task : tasks) {
-            final AppItem app = findOrLoadApp(mLastApps, task.packageName);
-            if (app == null) {
-                continue;
-            }
-            grid.addView(createTaskOverviewTile(app, task,
-                            mAltTabActive && mAltTabSelectedIndex >= 0
-                                    && mAltTabSelectedIndex < mAltTabTasks.size()
-                                    && mAltTabTasks.get(mAltTabSelectedIndex).taskId
-                                            == task.taskId),
-                    createTaskOverviewTileParams());
-        }
-        scroll.addView(grid, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        final LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        scrollParams.setMargins(0, dp(12), 0, 0);
-        mTaskOverview.addView(scroll, scrollParams);
+        mTaskOverviewController.populate(snapshot);
     }
 
-    private View createTaskOverviewTile(final AppItem app,
-            final TaskRepository.TaskEntry task, final boolean selected) {
-        final FrameLayout tile = new FrameLayout(this);
-        final boolean workspaceApp = app.packageName.equals(
-                getWorkspaceProfile().workspacePackage);
-        tile.setBackground(rounded(COLOR_PANEL_ALT, dp(6),
-                selected || workspaceApp
-                        ? COLOR_AMBER
-                        : (task.active ? COLOR_CYAN : COLOR_PANEL_ALT)));
-        tile.setClickable(true);
-        tile.setFocusable(true);
-        tile.setOnClickListener(view -> {
-            resetAltTabState();
-            hideAllPanels();
-            focusTask(app, task);
-        });
-        registerContextTarget(tile, app, task);
-
-        final LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setGravity(Gravity.CENTER);
-        content.setPadding(dp(8), dp(8), dp(8), dp(6));
-        final ImageView icon = new ImageView(this);
-        icon.setImageDrawable(app.icon);
-        content.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        final TextView label = new TextView(this);
-        label.setText(app.label);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(12);
-        label.setSingleLine(true);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        label.setGravity(Gravity.CENTER);
-        final LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, dp(5), 0, 0);
-        content.addView(label, labelParams);
-        final TextView state = new TextView(this);
-        state.setText(getString(R.string.context_task_status,
-                Integer.valueOf(task.taskId), getString(task.isFreeform()
-                        ? R.string.badge_window : R.string.badge_fullscreen)));
-        state.setTextColor(COLOR_MUTED);
-        state.setTextSize(10);
-        state.setGravity(Gravity.CENTER);
-        content.addView(state, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        tile.addView(content, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-
-        final ImageButton close = new ImageButton(this);
-        close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        close.setColorFilter(COLOR_MUTED);
-        close.setBackgroundColor(Color.TRANSPARENT);
-        close.setPadding(dp(5), dp(5), dp(5), dp(5));
-        close.setContentDescription(getString(R.string.action_close_window));
-        close.setOnClickListener(view -> closeTask(app, task));
-        final FrameLayout.LayoutParams closeParams = new FrameLayout.LayoutParams(
-                dp(32), dp(32), Gravity.TOP | Gravity.END);
-        tile.addView(close, closeParams);
-        return tile;
-    }
-
-    private GridLayout.LayoutParams createTaskOverviewTileParams() {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = dp(112);
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(4), dp(4), dp(4), dp(4));
-        return params;
+    private boolean showTaskOverviewPanel() {
+        return mTaskOverviewController.showPanel();
     }
 
     void registerContextTarget(final View view, final AppItem app,
             final TaskRepository.TaskEntry task) {
-        if (view != null && app != null) {
-            mContextTargets.put(view, new ContextTarget(app, task));
-            view.setHapticFeedbackEnabled(false);
-            view.setOnLongClickListener(target -> {
-                captureInteractionStackForPanel();
-                showAppContextMenuForView(target, app, task);
-                return true;
-            });
-            view.setOnHoverListener((hoveredView, event) -> {
-                final int action = event.getActionMasked();
-                if (action == MotionEvent.ACTION_HOVER_ENTER
-                        || action == MotionEvent.ACTION_HOVER_MOVE) {
-                    mHoveredContextTargetView = hoveredView;
-                } else if (action == MotionEvent.ACTION_HOVER_EXIT
-                        && mHoveredContextTargetView == hoveredView) {
-                    mHoveredContextTargetView = null;
-                }
-                return false;
-            });
-        }
-    }
-
-    private void showAppContextMenuForView(final View view, final AppItem app,
-            final TaskRepository.TaskEntry task) {
-        final int[] location = new int[2];
-        view.getLocationOnScreen(location);
-        showAppContextMenu(
-                location[0] + view.getWidth() / 2f,
-                location[1] + view.getHeight() / 2f,
-                app,
-                task);
-    }
-
-    private void showAppContextMenu(final float x, final float y,
-            final AppItem app, final TaskRepository.TaskEntry exactTask) {
-        if (mContextMenu == null || mOverlayPanelController == null) {
-            return;
-        }
-        mOverlayPanelController.hide(mContextMenu);
-        mContextMenu.removeAllViews();
-
-        final TextView title = new TextView(this);
-        title.setText(app.label);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        mContextMenu.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        final TaskRepository.TaskEntry task = exactTask != null
-                ? exactTask : findFirstTask(app.packageName);
-        if (task != null) {
-            final TextView taskInfo = new TextView(this);
-            taskInfo.setText(getString(R.string.context_task_status,
-                    Integer.valueOf(task.taskId),
-                    getString(task.isFreeform()
-                            ? R.string.badge_window : R.string.badge_fullscreen)));
-            taskInfo.setTextColor(COLOR_MUTED);
-            taskInfo.setTextSize(12);
-            final LinearLayout.LayoutParams taskInfoParams = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT);
-            taskInfoParams.setMargins(0, dp(2), 0, dp(6));
-            mContextMenu.addView(taskInfo, taskInfoParams);
-        }
-
-        addContextAction(task == null ? R.string.action_open : R.string.action_switch_to,
-                COLOR_CYAN, true, view -> {
-                    hideAllPanels();
-                    if (task == null) {
-                        launchDefault(app);
-                    } else {
-                        focusTask(app, task);
-                    }
-                });
-        if (app.canFloat) {
-            addContextAction(R.string.action_open_floating, COLOR_PANEL_ALT, true, view -> {
-                hideAllPanels();
-                launchFloating(app);
-            });
-        }
-        addContextAction(R.string.action_open_fullscreen, COLOR_PANEL_ALT, true, view -> {
-            hideAllPanels();
-            if (task == null) {
-                launchFullscreen(app);
-            } else {
-                openTaskFullscreen(app, task);
-            }
-        });
-
-        final boolean pinned = getPinnedPackages().contains(app.packageName);
-        addContextAction(pinned ? R.string.action_unpin : R.string.action_pin,
-                COLOR_PANEL_ALT, true, view -> {
-                    hideAllPanels();
-                    togglePinned(app);
-                });
-        final boolean desktopShortcut = isDesktopShortcut(app.packageName);
-        addContextAction(desktopShortcut
-                        ? R.string.action_remove_from_desktop
-                        : R.string.action_add_to_desktop,
-                COLOR_PANEL_ALT, true, view -> {
-                    hideAllPanels();
-                    toggleDesktopShortcut(app);
-                });
-        final boolean workspaceApp = app.packageName.equals(
-                getWorkspaceProfile().workspacePackage);
-        addContextAction(workspaceApp
-                        ? R.string.action_remove_from_workspace
-                        : R.string.action_keep_in_workspace,
-                workspaceApp ? COLOR_AMBER : COLOR_PANEL_ALT,
-                workspaceApp || app.canFloat, view -> {
-                    hideAllPanels();
-                    setWorkspaceApp(app, task, !workspaceApp);
-                });
-        addContextAction(R.string.action_close_window, COLOR_AMBER, task != null,
-                view -> closeTask(app, task));
-        addContextAction(R.string.action_force_stop, COLOR_RED, true,
-                view -> confirmForceStop(app));
-        positionAndShowContextMenu(x, y);
+        mContextMenuController.registerTarget(view, app, task);
     }
 
     private void showDesktopContextMenu(final float x, final float y) {
-        if (mContextMenu == null || mOverlayPanelController == null) {
-            return;
-        }
-        mOverlayPanelController.hide(mContextMenu);
-        mContextMenu.removeAllViews();
-
-        final TextView title = new TextView(this);
-        title.setText(R.string.context_desktop);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        final LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, 0, 0, dp(6));
-        mContextMenu.addView(title, titleParams);
-
-        addContextAction(R.string.action_refresh, COLOR_CYAN, true, view -> {
-            hideAllPanels();
-            renderApps();
-            refreshDesktopFolder(true);
-        });
-        addContextAction(R.string.action_open_tasks, COLOR_PANEL_ALT, true,
-                view -> showTaskOverview());
-        addContextAction(R.string.action_choose_desktop_folder, COLOR_PANEL_ALT, true,
-                view -> chooseDesktopFolder());
-        addContextAction(R.string.action_hide_desktop_folder, COLOR_PANEL_ALT,
-                getWorkspaceProfile().folderUri != null, view -> {
-                    hideAllPanels();
-                    clearDesktopFolder();
-                });
-        addContextAction(R.string.section_tools, COLOR_PANEL_ALT, true, view ->
-                showStartSection(StartMenuController.MENU_TOOLS, false));
-        addContextAction(R.string.action_manage_taskbar, COLOR_PANEL_ALT, true, view ->
-                showStartSection(StartMenuController.MENU_PINNED));
-        addContextAction(R.string.action_layout_auto, COLOR_PANEL_ALT, true, view ->
-                setLayoutMode(DesktopPreferences.LAYOUT_AUTO));
-        addContextAction(R.string.action_layout_desktop, COLOR_PANEL_ALT, true, view ->
-                setLayoutMode(DesktopPreferences.LAYOUT_DESKTOP));
-        addContextAction(R.string.action_restart_shortcuts, COLOR_AMBER, true, view -> {
-            hideAllPanels();
-            restartConsoleShortcuts();
-        });
-        positionAndShowContextMenu(x, y);
+        mContextMenuController.showDesktopMenu(x, y);
     }
 
-    private void addContextAction(final int textResId, final int color,
-            final boolean enabled, final View.OnClickListener listener) {
-        final Button button = createActionButton(textResId, color);
-        button.setEnabled(enabled);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        button.setOnClickListener(listener);
-        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, dp(4), 0, 0);
-        mContextMenu.addView(button, params);
-    }
-
-    private void positionAndShowContextMenu(final float pointerX, final float pointerY) {
-        final int width = getContextMenuWidth();
-        final int maxHeight = mDesktopRoot == null
-                ? getResources().getDisplayMetrics().heightPixels : mDesktopRoot.getHeight();
-        mContextMenu.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(Math.max(1, maxHeight - dp(16)),
-                        View.MeasureSpec.AT_MOST));
-        final int menuHeight = mContextMenu.getMeasuredHeight();
-        final int rootWidth = mDesktopRoot == null
-                ? getResources().getDisplayMetrics().widthPixels : mDesktopRoot.getWidth();
-        int left = Math.round(pointerX) + dp(8);
-        int top = Math.round(pointerY) + dp(8);
-        if (left + width > rootWidth - dp(8)) {
-            left = Math.round(pointerX) - width - dp(8);
-        }
-        if (top + menuHeight > maxHeight - dp(8)) {
-            top = Math.round(pointerY) - menuHeight - dp(8);
-        }
-        left = Math.max(dp(8), Math.min(left, rootWidth - width - dp(8)));
-        top = Math.max(dp(8), Math.min(top, maxHeight - menuHeight - dp(8)));
-
-        if (!mOverlayPanelController.show(mContextMenu, left, top, width, menuHeight,
-                false, "MagicDesk context menu")) {
-            setErrorStatus("OVERLAY-001",
-                    getString(R.string.status_overlay_panel_unavailable));
-        }
-    }
-
-    private void showStartSection(final int mode) {
+    void showStartSection(final int mode) {
         mStartMenuController.showSection(mode);
     }
 
-    private void showStartSection(final int mode, final boolean focusable) {
+    void showStartSection(final int mode, final boolean focusable) {
         mStartMenuController.showSection(mode, focusable);
     }
 
-    private void confirmForceStop(final AppItem app) {
+    void confirmForceStop(final AppItem app) {
         hideAllPanels();
         new AlertDialog.Builder(this)
                 .setTitle(R.string.force_stop_title)
@@ -1541,7 +1121,7 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private TaskRepository.TaskEntry findFirstTask(final String packageName) {
+    TaskRepository.TaskEntry findFirstTask(final String packageName) {
         for (final TaskRepository.TaskEntry task : mTaskSnapshot.tasks) {
             if (isTaskbarTask(task) && packageName.equals(task.packageName)) {
                 return task;
@@ -1644,7 +1224,7 @@ public class MainActivity extends Activity {
         return root;
     }
 
-    private void renderApps() {
+    void renderApps() {
         final List<AppItem> apps =
                 mLauncherApps.load(isUniversalFreeformEnabled());
         mLastApps = apps;
@@ -1911,7 +1491,7 @@ public class MainActivity extends Activity {
         renderDesktopIcons(mLastApps);
     }
 
-    private void chooseDesktopFolder() {
+    void chooseDesktopFolder() {
         hideAllPanels();
         final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -1934,7 +1514,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void clearDesktopFolder() {
+    void clearDesktopFolder() {
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         final String previous = profile.folderUri;
         profile.folderUri = null;
@@ -1953,7 +1533,7 @@ public class MainActivity extends Activity {
         setStatus(R.string.status_desktop_folder_hidden);
     }
 
-    private void refreshDesktopFolder(final boolean force) {
+    void refreshDesktopFolder(final boolean force) {
         if (!mDesktopMode) {
             return;
         }
@@ -2062,12 +1642,12 @@ public class MainActivity extends Activity {
         return result;
     }
 
-    private boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
+    boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
         return task != null && !task.home && task.packageName != null
                 && !getPackageName().equals(task.packageName);
     }
 
-    private AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
+    AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
         return mLauncherApps.findOrLoad(
                 apps, packageName, isUniversalFreeformEnabled());
     }
@@ -2097,7 +1677,7 @@ public class MainActivity extends Activity {
         return DesktopPreferences.legacyPinnedPackages(this);
     }
 
-    private void togglePinned(final AppItem app) {
+    void togglePinned(final AppItem app) {
         final Set<String> pinned = getPinnedPackages();
         final boolean nowPinned;
         if (pinned.contains(app.packageName)) {
@@ -2119,11 +1699,11 @@ public class MainActivity extends Activity {
                 app.label));
     }
 
-    private boolean isDesktopShortcut(final String packageName) {
+    boolean isDesktopShortcut(final String packageName) {
         return getWorkspaceProfile().desktopPackages.contains(packageName);
     }
 
-    private void toggleDesktopShortcut(final AppItem app) {
+    void toggleDesktopShortcut(final AppItem app) {
         final List<String> shortcuts = getWorkspaceProfile().desktopPackages;
         final boolean added;
         if (shortcuts.remove(app.packageName)) {
@@ -2139,7 +1719,7 @@ public class MainActivity extends Activity {
                 : R.string.status_desktop_shortcut_removed, app.label));
     }
 
-    private void setWorkspaceApp(final AppItem app,
+    void setWorkspaceApp(final AppItem app,
             final TaskRepository.TaskEntry task, final boolean keep) {
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         if (!keep) {
@@ -2243,7 +1823,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
+    void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
         setStatus(getString(R.string.status_switching_to, app.label));
         final List<TaskRepository.TaskEntry> visibleTasks = takeInteractionVisibleTasks();
         final int displayId = getCurrentDisplayId();
@@ -2385,7 +1965,7 @@ public class MainActivity extends Activity {
         focusTask(app, target);
     }
 
-    private void resetAltTabState() {
+    void resetAltTabState() {
         mAltTabActive = false;
         mAltTabLoadInProgress = false;
         mAltTabCommitPending = false;
@@ -2394,7 +1974,7 @@ public class MainActivity extends Activity {
         mAltTabTasks = Collections.emptyList();
     }
 
-    private void openTaskFullscreen(final AppItem app,
+    void openTaskFullscreen(final AppItem app,
             final TaskRepository.TaskEntry task) {
         final int displayId = beginFullscreenTransition(task.taskId);
         setStatus(getString(R.string.status_launching_fullscreen, app.label));
@@ -2414,7 +1994,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void closeTask(final AppItem app, final TaskRepository.TaskEntry task) {
+    void closeTask(final AppItem app, final TaskRepository.TaskEntry task) {
         hideAllPanels();
         setStatus(getString(R.string.status_closing_window, app.label));
         TaskRepository.closeTask(task, result -> runOnUiThread(() -> {
@@ -2436,7 +2016,7 @@ public class MainActivity extends Activity {
         }));
     }
 
-    private void toggleDesktopWorkspace() {
+    void toggleDesktopWorkspace() {
         hideAllPanels();
         ConsoleModeSwitcher.showMagicDesk();
     }
@@ -3274,16 +2854,11 @@ public class MainActivity extends Activity {
         return getResources().getConfiguration().screenWidthDp >= 700;
     }
 
-    private int getContextMenuWidth() {
-        final int width = getResources().getDisplayMetrics().widthPixels;
-        return Math.min(dp(310), Math.max(dp(250), width - dp(24)));
-    }
-
     private int getLayoutMode() {
         return getWorkspaceProfile().layoutMode;
     }
 
-    private void setLayoutMode(final int mode) {
+    void setLayoutMode(final int mode) {
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         profile.layoutMode = mode;
         saveWorkspaceProfile();
@@ -3374,7 +2949,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void launchFloating(final AppItem app) {
+    void launchFloating(final AppItem app) {
         launchFloating(app, false);
     }
 
@@ -3463,7 +3038,7 @@ public class MainActivity extends Activity {
                 | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
     }
 
-    private void restartConsoleShortcuts() {
+    void restartConsoleShortcuts() {
         if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
             return;
         }
