@@ -35,6 +35,8 @@ public final class KeyboardWatcherService extends Service
             "io.github.mekhontsev.magicdesk.action.SHOW_MAGIC_DESK";
     private static final String ACTION_OPEN_TOUCHPAD =
             "io.github.mekhontsev.magicdesk.action.OPEN_TOUCHPAD";
+    private static final String ACTION_STOP =
+            "io.github.mekhontsev.magicdesk.action.STOP_KEYBOARD_WATCHER";
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
@@ -57,12 +59,23 @@ public final class KeyboardWatcherService extends Service
     private ContentObserver mConsoleModeObserver;
     private Boolean mMirrorInputProxyEnabled;
     private boolean mDestroyed;
+    private boolean mInitialized;
 
     private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
     private final Runnable mMirrorInputRetryRunnable = this::syncMirrorInputProxyState;
 
     public static void start(final Context context) {
         final Intent intent = new Intent(context, KeyboardWatcherService.class);
+        startForegroundService(context, intent);
+    }
+
+    public static void stop(final Context context) {
+        final Intent intent = new Intent(context, KeyboardWatcherService.class)
+                .setAction(ACTION_STOP);
+        startForegroundService(context, intent);
+    }
+
+    private static void startForegroundService(final Context context, final Intent intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
         } else {
@@ -74,16 +87,23 @@ public final class KeyboardWatcherService extends Service
     public void onCreate() {
         super.onCreate();
         mHandler = new Handler(Looper.getMainLooper());
+        createNotificationChannel();
+        startForeground(NOTIFICATION_ID, buildNotification());
+    }
+
+    private void initialize() {
+        if (mInitialized) {
+            return;
+        }
+        mInitialized = true;
         mDesktopTasks = new DesktopTaskController(this, mHandler);
         mDisplayManager = getSystemService(DisplayManager.class);
         mInputManager = getSystemService(InputManager.class);
-        createNotificationChannel();
         mHasHardwareKeyboard = hasHardwareKeyboard();
         mHasExternalMouse = hasExternalMouse();
         mExternalInputDeviceSignature = getExternalInputDeviceSignature();
         mConsoleDisplayId = getConsoleDisplayId();
         mConsoleModeActive = mConsoleDisplayId > 0;
-        startForeground(NOTIFICATION_ID, buildNotification());
         if (mInputManager != null) {
             mInputManager.registerInputDeviceListener(this, mHandler);
         }
@@ -92,7 +112,8 @@ public final class KeyboardWatcherService extends Service
         }
         registerConfigurationReceiver();
         registerConsoleModeObserver();
-        if (mConsoleModeActive) {
+        if (mConsoleModeActive
+                && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(true);
         }
         syncMirrorInputProxyState();
@@ -106,10 +127,18 @@ public final class KeyboardWatcherService extends Service
     @Override
     public int onStartCommand(final Intent intent, final int flags, final int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelfResult(startId);
+            return START_NOT_STICKY;
+        }
+        initialize();
         if (intent != null) {
-            if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
+            if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())
+                    && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
                 ConsoleModeSwitcher.showMagicDesk();
-            } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())) {
+            } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
+                    && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
                 ConsoleModeSwitcher.openTouchpad();
             }
         }
@@ -309,6 +338,11 @@ public final class KeyboardWatcherService extends Service
         if (mDestroyed) {
             return;
         }
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+            mMirrorInputProxyEnabled = null;
+            mHandler.removeCallbacks(mMirrorInputRetryRunnable);
+            return;
+        }
         final boolean enabled = !mConsoleModeActive || !isPhoneScreenOff();
         if (mMirrorInputProxyEnabled != null
                 && mMirrorInputProxyEnabled.booleanValue() == enabled) {
@@ -368,15 +402,20 @@ public final class KeyboardWatcherService extends Service
         if (activeStateChanged) {
             restartRootWatcher();
         }
-        ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
+        if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
+        }
         updateDesktopTasks();
-        if (wasConsoleModeActive && !consoleModeActive) {
+        if (wasConsoleModeActive && !consoleModeActive
+                && RuntimeAccess.has(
+                        RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
             ConsoleModeSwitcher.setPhoneScreenOff(false, null);
         }
     }
 
     private void updateRootWatcher() {
-        final boolean shouldRun = mHasHardwareKeyboard;
+        final boolean shouldRun = mHasHardwareKeyboard
+                && RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT);
         if (shouldRun == mRootWatcherRunning) {
             return;
         }
@@ -420,7 +459,8 @@ public final class KeyboardWatcherService extends Service
             return;
         }
         final int displayId = mConsoleDisplayId;
-        if (displayId > 0) {
+        if (displayId > 0
+                && RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS)) {
             mDesktopTasks.start(displayId);
         } else {
             mDesktopTasks.stop();

@@ -6,6 +6,7 @@ import android.os.Build;
 import android.provider.Settings;
 
 import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -45,6 +46,10 @@ final class DeviceSetupManager {
     }
 
     static Audit audit(final Context context) {
+        return audit(context, SessionProfile.load(context));
+    }
+
+    static Audit audit(final Context context, final SessionProfile sessionProfile) {
         final boolean compatibleDevice = isZteFamilyDevice()
                 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
         final boolean verifiedDevice =
@@ -53,18 +58,68 @@ final class DeviceSetupManager {
                 && VERIFIED_NX809J_FINGERPRINT.equals(Build.FINGERPRINT);
         final SharedPreferences preferences = preferences(context);
 
-        Map<String, String> values = new HashMap<>();
+        Map<String, String> values = readUnprivilegedValues(context);
         boolean rootAvailable = false;
         String rootError = "";
-        try {
-            values = parseValues(runRootCommand(buildAuditCommand()));
-            rootAvailable = "0".equals(values.get("UID"));
-            if (!rootAvailable) {
-                rootError = "su did not return uid 0";
+        ShizukuAccess.Snapshot shizuku = new ShizukuAccess.Snapshot(
+                false, false, false, -1, -1, "not requested");
+        RuntimeAccess.Backend backend = RuntimeAccess.Backend.BASIC;
+        final SessionProfile.PrivilegeMode requestedMode =
+                sessionProfile == null
+                        ? SessionProfile.PrivilegeMode.AUTO
+                        : sessionProfile.privilegeMode;
+        final boolean shouldProbeRoot =
+                requestedMode == SessionProfile.PrivilegeMode.AUTO
+                        || requestedMode == SessionProfile.PrivilegeMode.ROOT;
+        if (shouldProbeRoot) {
+            try {
+                values = parseValues(
+                        PrivilegedCommandRunner.runRootSetup(buildAuditCommand()));
+                rootAvailable = "0".equals(values.get("UID"));
+                if (!rootAvailable) {
+                    rootError = "su did not return uid 0";
+                }
+            } catch (IOException e) {
+                rootError = usefulMessage(e);
             }
-        } catch (IOException e) {
-            rootError = usefulMessage(e);
+            if (rootAvailable) {
+                backend = RuntimeAccess.Backend.ROOT;
+            }
+        } else if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU) {
+            shizuku = ShizukuAccess.inspect();
+            rootError = shizuku.error;
+            if (shizuku.running && shizuku.permissionGranted) {
+                try {
+                    final int serviceUid = ShizukuAccess.connectAndGetUid();
+                    shizuku = new ShizukuAccess.Snapshot(
+                            shizuku.installed,
+                            true,
+                            true,
+                            serviceUid,
+                            shizuku.version,
+                            "");
+                    backend = serviceUid == 0
+                            ? RuntimeAccess.Backend.SHIZUKU_ROOT
+                            : RuntimeAccess.Backend.SHIZUKU_SHELL;
+                    rootError = "";
+                } catch (IOException error) {
+                    rootError = usefulMessage(error);
+                    shizuku = new ShizukuAccess.Snapshot(
+                            shizuku.installed,
+                            true,
+                            true,
+                            shizuku.uid,
+                            shizuku.version,
+                            rootError);
+                }
+            }
+        } else {
+            rootError = "Root intentionally disabled by Basic mode";
         }
+        if (requestedMode != SessionProfile.PrivilegeMode.SHIZUKU) {
+            ShizukuAccess.disconnect();
+        }
+        RuntimeAccess.configure(sessionProfile, backend);
 
         final String bootId = value(values, "BOOT_ID");
         boolean rebootRequired = false;
@@ -85,8 +140,7 @@ final class DeviceSetupManager {
         final boolean resizableEnabled = "1".equals(resizableValue);
         final boolean restrictionsDisabled = "false".equals(restrictionsValue);
         final boolean roundedCornersDisabled = "false".equals(roundedCornersValue);
-        final boolean configurationReady = rootAvailable
-                && freeformEnabled
+        final boolean configurationReady = freeformEnabled
                 && resizableEnabled
                 && restrictionsDisabled
                 && roundedCornersDisabled;
@@ -106,16 +160,26 @@ final class DeviceSetupManager {
                     "Unverified ZTE/nubia firmware",
                     Build.FINGERPRINT);
         }
-        if (!rootAvailable) {
+        if (shouldProbeRoot && !rootAvailable) {
             CompatibilityDiagnostics.record(
                     "ROOT-001",
                     "Root access is unavailable",
+                    rootError);
+        } else if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU
+                && backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                && backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+            CompatibilityDiagnostics.record(
+                    "SHIZUKU-001",
+                    "Shizuku runtime is unavailable",
                     rootError);
         }
 
         return new Audit(
                 rootAvailable,
                 rootError,
+                shizuku,
+                sessionProfile,
+                backend,
                 compatibleDevice,
                 verifiedDevice,
                 Build.MANUFACTURER,
@@ -138,7 +202,13 @@ final class DeviceSetupManager {
     }
 
     static Audit configure(final Context context) throws IOException {
-        final Audit before = audit(context);
+        return configure(context, SessionProfile.load(context));
+    }
+
+    static Audit configure(
+            final Context context,
+            final SessionProfile sessionProfile) throws IOException {
+        final Audit before = audit(context, sessionProfile);
         requireRootAndCompatibility(before);
 
         final SharedPreferences preferences = preferences(context);
@@ -188,9 +258,9 @@ final class DeviceSetupManager {
         }
 
         if (!commands.isEmpty()) {
-            runRootCommand(joinCommands(commands));
+            PrivilegedCommandRunner.runRootSetup(joinCommands(commands));
         }
-        final Audit after = audit(context);
+        final Audit after = audit(context, sessionProfile);
         if (!after.configurationReady) {
             throw new IOException("one or more settings did not apply");
         }
@@ -216,7 +286,7 @@ final class DeviceSetupManager {
                 preferences, commands, ITEM_ROUNDED_CORNERS, ROUNDED_CORNERS_PROPERTY);
 
         if (!commands.isEmpty()) {
-            runRootCommand(joinCommands(commands));
+            PrivilegedCommandRunner.runRootSetup(joinCommands(commands));
         }
 
         final SharedPreferences.Editor editor = preferences.edit()
@@ -256,7 +326,7 @@ final class DeviceSetupManager {
     }
 
     static void reboot() throws IOException {
-        runRootCommand("/system/bin/reboot");
+        PrivilegedCommandRunner.runRootSetup("/system/bin/reboot");
     }
 
     private static void requireRootAndCompatibility(final Audit audit) throws IOException {
@@ -389,6 +459,54 @@ final class DeviceSetupManager {
                 + ROUNDED_CORNERS_PROPERTY;
     }
 
+    private static Map<String, String> readUnprivilegedValues(final Context context) {
+        final Map<String, String> values = new HashMap<>();
+        values.put("UID", Integer.toString(android.os.Process.myUid()));
+        values.put("BOOT_ID", readFirstLine("/proc/sys/kernel/random/boot_id"));
+        values.put("FREEFORM", Settings.Global.getString(
+                context.getContentResolver(), FREEFORM_SETTING));
+        values.put("RESIZABLE", Settings.Global.getString(
+                context.getContentResolver(), RESIZABLE_SETTING));
+        values.put("RESTRICTIONS", runLocalCommand(
+                "/system/bin/getprop", RESTRICTIONS_PROPERTY));
+        values.put("ROUNDED", runLocalCommand(
+                "/system/bin/getprop", ROUNDED_CORNERS_PROPERTY));
+        return values;
+    }
+
+    private static String readFirstLine(final String path) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+            final String line = reader.readLine();
+            return line == null ? "" : line.trim();
+        } catch (IOException | SecurityException e) {
+            return "";
+        }
+    }
+
+    private static String runLocalCommand(final String executable, final String argument) {
+        Process process = null;
+        try {
+            process = new ProcessBuilder(executable, argument)
+                    .redirectErrorStream(true)
+                    .start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                final String line = reader.readLine();
+                process.waitFor();
+                return line == null ? "" : line.trim();
+            }
+        } catch (IOException e) {
+            return "";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
     private static String joinCommands(final List<String> commands) {
         final StringBuilder result = new StringBuilder();
         for (final String command : commands) {
@@ -398,33 +516,6 @@ final class DeviceSetupManager {
             result.append(command);
         }
         return result.toString();
-    }
-
-    private static String runRootCommand(final String command) throws IOException {
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("root command interrupted", e);
-        } finally {
-            process.destroy();
-        }
-        return output.toString();
     }
 
     private static Map<String, String> parseValues(final String output) {
@@ -465,6 +556,9 @@ final class DeviceSetupManager {
     static final class Audit {
         final boolean rootAvailable;
         final String rootError;
+        final ShizukuAccess.Snapshot shizuku;
+        final SessionProfile sessionProfile;
+        final RuntimeAccess.Backend backend;
         final boolean compatibleDevice;
         final boolean verifiedDevice;
         final String manufacturer;
@@ -488,6 +582,9 @@ final class DeviceSetupManager {
         Audit(
                 final boolean rootAvailable,
                 final String rootError,
+                final ShizukuAccess.Snapshot shizuku,
+                final SessionProfile sessionProfile,
+                final RuntimeAccess.Backend backend,
                 final boolean compatibleDevice,
                 final boolean verifiedDevice,
                 final String manufacturer,
@@ -509,6 +606,9 @@ final class DeviceSetupManager {
                 final boolean hasManagedChanges) {
             this.rootAvailable = rootAvailable;
             this.rootError = rootError;
+            this.shizuku = shizuku;
+            this.sessionProfile = sessionProfile;
+            this.backend = backend;
             this.compatibleDevice = compatibleDevice;
             this.verifiedDevice = verifiedDevice;
             this.manufacturer = manufacturer;
@@ -531,10 +631,30 @@ final class DeviceSetupManager {
         }
 
         boolean canEnterMagicDesk() {
-            return rootAvailable
-                    && compatibleDevice
-                    && configurationReady
-                    && !rebootRequired;
+            final SessionProfile.PrivilegeMode requestedMode =
+                    sessionProfile == null
+                            ? SessionProfile.PrivilegeMode.AUTO
+                            : sessionProfile.privilegeMode;
+            if (requestedMode == SessionProfile.PrivilegeMode.ROOT
+                    && backend != RuntimeAccess.Backend.ROOT) {
+                return false;
+            }
+            if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU
+                    && backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                    && backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+                return false;
+            }
+            final boolean provisioningOptional =
+                    backend == RuntimeAccess.Backend.BASIC
+                            || backend == RuntimeAccess.Backend.SHIZUKU_SHELL
+                            || backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
+            return compatibleDevice
+                    && !rebootRequired
+                    && (configurationReady || provisioningOptional);
+        }
+
+        boolean isDegradedRuntime() {
+            return backend != RuntimeAccess.Backend.ROOT && !configurationReady;
         }
     }
 }

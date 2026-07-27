@@ -800,9 +800,7 @@ final class DesktopTaskController {
                 + "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand";
         Process process = null;
         try {
-            process = new ProcessBuilder("su", "-c", command)
-                    .redirectErrorStream(true)
-                    .start();
+            process = PrivilegedCommandRunner.start(command);
             synchronized (this) {
                 if (!mRunning || generation != mGeneration) {
                     process.getOutputStream().close();

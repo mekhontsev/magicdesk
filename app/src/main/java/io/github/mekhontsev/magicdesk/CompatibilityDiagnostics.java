@@ -111,7 +111,8 @@ final class CompatibilityDiagnostics {
 
     static String buildReport(final Context context) {
         final Context appContext = context.getApplicationContext();
-        final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(appContext);
+        final DeviceSetupManager.Audit audit =
+                DeviceSetupManager.audit(appContext, RuntimeAccess.profile());
         final StringBuilder report = new StringBuilder(24_000);
         report.append("# MagicDesk compatibility report\n\n")
                 .append("Report format: 1\n")
@@ -158,7 +159,17 @@ final class CompatibilityDiagnostics {
 
     private static void appendCompatibility(final StringBuilder report,
             final Context context, final DeviceSetupManager.Audit audit) {
-        report.append("## Capability checks\n");
+        final SessionProfile profile = audit.sessionProfile == null
+                ? SessionProfile.load(context) : audit.sessionProfile;
+        report.append("## Runtime profile\n")
+                .append("Requested privilege mode: ")
+                .append(profile.privilegeWireName()).append('\n')
+                .append("Active backend: ").append(RuntimeAccess.backendName()).append('\n')
+                .append("Display target: ").append(profile.displayWireName()).append('\n')
+                .append("System provisioning: ")
+                .append(audit.configurationReady ? "ready" : "incomplete").append('\n')
+                .append("Reboot pending: ").append(audit.rebootRequired).append("\n\n")
+                .append("## Capability checks\n");
         appendCheck(report, "PLATFORM-001", audit.compatibleDevice,
                 "ZTE/nubia device running Android 16 or newer",
                 audit.manufacturer + " " + audit.model);
@@ -166,8 +177,27 @@ final class CompatibilityDiagnostics {
                 "Firmware profile verified by maintainers",
                 audit.verifiedDevice ? "REDMAGIC 11 Pro / NX809J / 20260204.221845"
                         : "Unverified model or firmware; capability probing is required");
-        appendCheck(report, "ROOT-001", audit.rootAvailable,
-                "Root shell", audit.rootAvailable ? "uid=0" : audit.rootError);
+        final boolean rootRequested =
+                profile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
+                        || profile.privilegeMode == SessionProfile.PrivilegeMode.ROOT;
+        appendCheck(report, "ROOT-001", !rootRequested || audit.rootAvailable,
+                "Root shell", rootRequested
+                        ? (audit.rootAvailable ? "uid=0" : audit.rootError)
+                        : "not requested by the selected runtime mode");
+        final boolean shizukuRequested =
+                profile.privilegeMode == SessionProfile.PrivilegeMode.SHIZUKU;
+        final boolean shizukuReady =
+                audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
+                        || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
+        appendCheck(report, "SHIZUKU-001",
+                !shizukuRequested || shizukuReady,
+                "Shizuku command service",
+                !shizukuRequested
+                        ? "not requested by the selected runtime mode"
+                        : shizukuReady
+                                ? "API " + audit.shizuku.version
+                                        + ", service uid=" + audit.shizuku.uid
+                                : audit.shizuku.error);
         appendCheck(report, "WM-FREEFORM-001", audit.freeformEnabled,
                 "Freeform support setting",
                 expectedValue("1", audit.freeformValue));
@@ -200,17 +230,42 @@ final class CompatibilityDiagnostics {
                         : TextUtils.isEmpty(notificationSnapshot.connectionIssueCode)
                                 ? "not connected"
                                 : notificationSnapshot.connectionIssueCode);
-        appendCheck(report, "NATIVE-DESKTOP-001", NativeDesktopController.isAvailable(),
-                "WMShell desktopmode command", "wmshell-passthrough desktopmode");
+        final boolean taskControl =
+                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
+        appendCheck(report, "NATIVE-DESKTOP-001",
+                !taskControl || NativeDesktopController.isAvailable(),
+                "WMShell desktopmode command",
+                taskControl
+                        ? "wmshell-passthrough desktopmode"
+                        : "disabled by the selected runtime backend");
         appendCheck(report, "NUBIA-INPUT-001",
                 hasPackage(context, "cn.nubia.keymapcenter"),
                 "Nubia mirror input package", "cn.nubia.keymapcenter");
         appendCheck(report, "NUBIA-LAUNCHER-001",
                 hasPackage(context, "com.zte.mifavor.launcher"),
                 "ZTE launcher package", "com.zte.mifavor.launcher");
-        appendCheck(report, "SHORTCUTS-001", RootKeyboardShortcutWatcher.isRunning(),
+        final boolean globalInput =
+                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT);
+        appendCheck(report, "SHORTCUTS-001",
+                !globalInput || RootKeyboardShortcutWatcher.isRunning(),
                 "Root keyboard/input bridge",
-                RootKeyboardShortcutWatcher.isRunning() ? "running" : "not running");
+                globalInput
+                        ? (RootKeyboardShortcutWatcher.isRunning()
+                                ? "running" : "not running")
+                        : "disabled by the selected runtime backend");
+        report.append("Capabilities: publicLaunch=")
+                .append(RuntimeAccess.has(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH))
+                .append(", exactTasks=")
+                .append(RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS))
+                .append(", taskControl=")
+                .append(taskControl)
+                .append(", globalInput=")
+                .append(globalInput)
+                .append(", rightClickRemap=")
+                .append(RuntimeAccess.has(RuntimeAccess.Capability.RIGHT_CLICK_REMAP))
+                .append(", displayOverrides=")
+                .append(RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES))
+                .append('\n');
         report.append("Console display setting: ")
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "app_mirror_displayid"))
@@ -356,34 +411,12 @@ final class CompatibilityDiagnostics {
     }
 
     private static String runCommand(final String command, final int maxChars) {
-        Process process = null;
         try {
-            process = new ProcessBuilder("su", "-c", command)
-                    .redirectErrorStream(true)
-                    .start();
-            final StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                final char[] buffer = new char[2_048];
-                int read;
-                while ((read = reader.read(buffer)) >= 0) {
-                    if (output.length() < maxChars) {
-                        output.append(buffer, 0,
-                                Math.min(read, maxChars - output.length()));
-                    }
-                }
-            }
-            process.waitFor();
-            return output.toString();
+            final String output = PrivilegedCommandRunner.run(command);
+            return output.length() <= maxChars
+                    ? output : output.substring(0, maxChars);
         } catch (IOException e) {
             return "Probe failed: " + cleanSingleLine(e.getMessage(), 500) + '\n';
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return "Probe interrupted\n";
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
         }
     }
 

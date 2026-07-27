@@ -130,8 +130,24 @@ final class DesktopWallpaperController {
     private Bitmap loadWallpaper(final int targetWidth, final int targetHeight)
             throws IOException {
         final File cacheFile = new File(mContext.getCacheDir(), "desktop-wallpaper");
+        if (!RuntimeAccess.allowsRootCommands()) {
+            if (cacheFile.isFile() && cacheFile.length() > 0) {
+                try {
+                    return decodeWallpaper(cacheFile, targetWidth, targetHeight);
+                } catch (IOException error) {
+                    Log.w(TAG, "Ignoring invalid cached wallpaper", error);
+                }
+            }
+            return createFallbackWallpaper(targetWidth, targetHeight);
+        }
         copySystemWallpaper(cacheFile);
+        return decodeWallpaper(cacheFile, targetWidth, targetHeight);
+    }
 
+    private Bitmap decodeWallpaper(
+            final File cacheFile,
+            final int targetWidth,
+            final int targetHeight) throws IOException {
         final BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(cacheFile.getAbsolutePath(), bounds);
@@ -150,13 +166,21 @@ final class DesktopWallpaperController {
         return wallpaper;
     }
 
+    private static Bitmap createFallbackWallpaper(
+            final int targetWidth, final int targetHeight) {
+        final Bitmap wallpaper = Bitmap.createBitmap(
+                targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+        wallpaper.eraseColor(0xFF090D14);
+        return wallpaper;
+    }
+
     private void copySystemWallpaper(final File destination) throws IOException {
         final int userId = Process.myUid() / PER_USER_RANGE;
         final String wallpaperPath = "/data/system/users/" + userId + "/wallpaper";
         java.lang.Process process = null;
         try {
-            process = new ProcessBuilder(
-                    "su", "-c", "/system/bin/cat " + wallpaperPath).start();
+            process = PrivilegedCommandRunner.start(
+                    "/system/bin/cat " + wallpaperPath);
             try (InputStream input = process.getInputStream();
                     FileOutputStream output = new FileOutputStream(destination, false)) {
                 final byte[] buffer = new byte[BUFFER_SIZE];

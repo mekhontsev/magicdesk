@@ -976,6 +976,11 @@ final class ConsoleModeSwitcher {
         private int mCommandId;
 
         synchronized String run(final String command) {
+            if (!RuntimeAccess.allowsRootCommands()) {
+                Log.d(TAG, "skip root command for backend="
+                        + RuntimeAccess.backendName());
+                return "";
+            }
             if (!ensureStarted()) {
                 return "";
             }
@@ -1025,6 +1030,9 @@ final class ConsoleModeSwitcher {
         }
 
         private boolean ensureStarted() {
+            if (!RuntimeAccess.allowsRootCommands()) {
+                return false;
+            }
             if (mProcess != null && mProcess.isAlive() && mReader != null && mWriter != null) {
                 return true;
             }

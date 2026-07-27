@@ -17,7 +17,10 @@ public final class BootReceiver extends BroadcastReceiver {
             try {
                 final DeviceSetupManager.Audit audit =
                         DeviceSetupManager.audit(applicationContext);
-                if (audit.canEnterMagicDesk() && audit.acknowledged) {
+                if (audit.canEnterMagicDesk()
+                        && audit.acknowledged
+                        && audit.backend == RuntimeAccess.Backend.ROOT) {
+                    DeviceSetupManager.authorizeRuntime();
                     KeyboardWatcherService.start(applicationContext);
                 }
             } finally {

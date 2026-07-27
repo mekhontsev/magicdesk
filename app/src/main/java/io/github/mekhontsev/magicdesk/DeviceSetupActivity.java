@@ -10,9 +10,12 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -20,9 +23,11 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
+
+import rikka.shizuku.Shizuku;
 
 public final class DeviceSetupActivity extends Activity {
     private static final String TAG = "MagicDeskSetup";
@@ -39,8 +44,11 @@ public final class DeviceSetupActivity extends Activity {
     private static final int COLOR_AMBER = 0xFFF59E0B;
 
     private TextView mSummary;
+    private TextView mRuntimeModeValue;
+    private TextView mDisplayTargetValue;
     private TextView mDeviceValue;
     private TextView mRootValue;
+    private TextView mOverlayValue;
     private TextView mFreeformValue;
     private TextView mResizableValue;
     private TextView mRestrictionsValue;
@@ -55,6 +63,18 @@ public final class DeviceSetupActivity extends Activity {
     private boolean mBusy;
     private boolean mContentCreated;
     private DeviceSetupManager.Audit mAudit;
+    private SessionProfile mSessionProfile;
+    private final Shizuku.OnBinderReceivedListener mShizukuBinderReceivedListener =
+            this::handleShizukuStateChanged;
+    private final Shizuku.OnBinderDeadListener mShizukuBinderDeadListener =
+            this::handleShizukuStateChanged;
+    private final Shizuku.OnRequestPermissionResultListener
+            mShizukuPermissionResultListener =
+                    (requestCode, grantResult) -> {
+                        if (requestCode == ShizukuAccess.REQUEST_PERMISSION_CODE) {
+                            handleShizukuStateChanged();
+                        }
+                    };
 
     static Intent createLaunchIntent(final Context context) {
         return new Intent(context, DeviceSetupActivity.class)
@@ -71,7 +91,12 @@ public final class DeviceSetupActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         mManual = getIntent().getBooleanExtra(EXTRA_MANUAL, false);
+        Shizuku.addBinderReceivedListenerSticky(mShizukuBinderReceivedListener);
+        Shizuku.addBinderDeadListener(mShizukuBinderDeadListener);
+        Shizuku.addRequestPermissionResultListener(
+                mShizukuPermissionResultListener);
         if (mManual) {
             ensureSetupContent();
         }
@@ -79,14 +104,32 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        Shizuku.removeBinderReceivedListener(mShizukuBinderReceivedListener);
+        Shizuku.removeBinderDeadListener(mShizukuBinderDeadListener);
+        Shizuku.removeRequestPermissionResultListener(
+                mShizukuPermissionResultListener);
+        super.onDestroy();
+    }
+
+    @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        mSessionProfile = SessionProfile.fromLaunchIntent(this, intent);
         mManual = intent.getBooleanExtra(EXTRA_MANUAL, false);
         if (mManual) {
             ensureSetupContent();
         }
         runAudit();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (mContentCreated && !mBusy) {
+            runAudit();
+        }
     }
 
     private void ensureSetupContent() {
@@ -144,8 +187,15 @@ public final class DeviceSetupActivity extends Activity {
         final LinearLayout rows = new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setBackgroundColor(COLOR_PANEL);
+        mRuntimeModeValue = addStatusRow(rows, R.string.setup_item_runtime_mode);
+        makeProfileValueInteractive(
+                mRuntimeModeValue, this::showPrivilegeModeChooser);
+        mDisplayTargetValue = addStatusRow(rows, R.string.setup_item_display_target);
+        makeProfileValueInteractive(
+                mDisplayTargetValue, this::showDisplayTargetChooser);
         mDeviceValue = addStatusRow(rows, R.string.setup_item_device);
         mRootValue = addStatusRow(rows, R.string.setup_item_root);
+        mOverlayValue = addStatusRow(rows, R.string.setup_item_overlays);
         mFreeformValue = addStatusRow(rows, R.string.setup_item_freeform);
         mResizableValue = addStatusRow(rows, R.string.setup_item_resizable);
         mRestrictionsValue = addStatusRow(rows, R.string.setup_item_desktop_eligibility);
@@ -267,6 +317,83 @@ public final class DeviceSetupActivity extends Activity {
         return button;
     }
 
+    private void makeProfileValueInteractive(
+            final TextView value, final View.OnClickListener listener) {
+        value.setClickable(true);
+        value.setFocusable(true);
+        value.setPadding(dp(8), dp(4), dp(8), dp(4));
+        value.setBackground(rounded(COLOR_PANEL_ALT, dp(5), COLOR_PANEL_ALT));
+        value.setOnClickListener(listener);
+    }
+
+    private void showPrivilegeModeChooser(final View ignored) {
+        final SessionProfile.PrivilegeMode[] modes = {
+                SessionProfile.PrivilegeMode.AUTO,
+                SessionProfile.PrivilegeMode.BASIC,
+                SessionProfile.PrivilegeMode.SHIZUKU,
+                SessionProfile.PrivilegeMode.ROOT
+        };
+        final String[] labels = {
+                getString(R.string.setup_mode_auto),
+                getString(R.string.setup_mode_basic),
+                getString(R.string.setup_mode_shizuku),
+                getString(R.string.setup_mode_root)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.setup_choose_runtime_mode)
+                .setSingleChoiceItems(
+                        labels,
+                        indexOf(modes, mSessionProfile.privilegeMode),
+                        (dialog, which) -> {
+                            mSessionProfile =
+                                    mSessionProfile.withPrivilegeMode(modes[which]);
+                            mSessionProfile.save(this);
+                            DeviceSetupManager.revokeRuntimeAuthorization();
+                            dialog.dismiss();
+                            runAudit();
+                        })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void showDisplayTargetChooser(final View ignored) {
+        final SessionProfile.DisplayTarget[] targets = {
+                SessionProfile.DisplayTarget.AUTO,
+                SessionProfile.DisplayTarget.PRIMARY,
+                SessionProfile.DisplayTarget.CURRENT,
+                SessionProfile.DisplayTarget.EXTERNAL
+        };
+        final String[] labels = {
+                getString(R.string.setup_display_auto),
+                getString(R.string.setup_display_primary),
+                getString(R.string.setup_display_current),
+                getString(R.string.setup_display_external)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.setup_choose_display_target)
+                .setSingleChoiceItems(
+                        labels,
+                        indexOf(targets, mSessionProfile.displayTarget),
+                        (dialog, which) -> {
+                            mSessionProfile =
+                                    mSessionProfile.withDisplayTarget(targets[which]);
+                            mSessionProfile.save(this);
+                            dialog.dismiss();
+                            renderProfileSelection();
+                        })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private static <T> int indexOf(final T[] values, final T target) {
+        for (int index = 0; index < values.length; index++) {
+            if (values[index] == target) {
+                return index;
+            }
+        }
+        return 0;
+    }
+
     private void runAudit() {
         if (mBusy) {
             return;
@@ -274,7 +401,7 @@ public final class DeviceSetupActivity extends Activity {
         setBusy(true, R.string.setup_status_checking);
         new Thread(() -> {
             final DeviceSetupManager.Audit audit =
-                    DeviceSetupManager.audit(getApplicationContext());
+                    DeviceSetupManager.audit(getApplicationContext(), mSessionProfile);
             runOnUiThread(() -> {
                 if (isActivityUnavailable()) {
                     return;
@@ -287,7 +414,7 @@ public final class DeviceSetupActivity extends Activity {
                 }
                 if (!audit.canEnterMagicDesk()) {
                     DeviceSetupManager.revokeRuntimeAuthorization();
-                    stopService(new Intent(this, KeyboardWatcherService.class));
+                    KeyboardWatcherService.stop(this);
                 }
                 ensureSetupContent();
                 setBusy(false, 0);
@@ -297,6 +424,7 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void renderAudit(final DeviceSetupManager.Audit audit) {
+        renderProfileSelection();
         setStatusValue(mDeviceValue,
                 audit.compatibleDevice
                         ? getString(audit.verifiedDevice
@@ -307,11 +435,25 @@ public final class DeviceSetupActivity extends Activity {
                         : getString(R.string.setup_value_unsupported,
                                 audit.manufacturer, audit.model),
                 audit.compatibleDevice);
-        setStatusValue(mRootValue,
-                audit.rootAvailable
-                        ? getString(R.string.setup_value_available)
-                        : getString(R.string.setup_value_unavailable),
-                audit.rootAvailable);
+        final boolean rootRelevant =
+                mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
+                        || mSessionProfile.privilegeMode
+                                == SessionProfile.PrivilegeMode.ROOT;
+        setStatusValue(
+                mRootValue,
+                rootRelevant
+                        ? getString(audit.rootAvailable
+                                ? R.string.setup_value_available
+                                : R.string.setup_value_unavailable)
+                        : getString(R.string.setup_value_not_used),
+                !rootRelevant || audit.rootAvailable);
+        final boolean overlaysGranted = Settings.canDrawOverlays(this);
+        setStatusValue(
+                mOverlayValue,
+                getString(overlaysGranted
+                        ? R.string.setup_value_available
+                        : R.string.setup_value_unavailable),
+                overlaysGranted);
         setStatusValue(mFreeformValue,
                 getString(audit.freeformEnabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),
@@ -342,15 +484,57 @@ public final class DeviceSetupActivity extends Activity {
         mRestoreAction.setText(R.string.setup_action_restore);
         mRestoreAction.setOnClickListener(view -> confirmRestore());
 
-        if (!audit.rootAvailable) {
-            mSummary.setText(audit.rootError.isEmpty()
-                    ? getString(R.string.setup_status_root_required)
-                    : getString(R.string.setup_status_root_failed, audit.rootError));
+        if (mSessionProfile.privilegeMode
+                == SessionProfile.PrivilegeMode.SHIZUKU) {
+            if (!audit.shizuku.running) {
+                mSummary.setText(audit.shizuku.installed
+                        ? R.string.setup_status_shizuku_stopped
+                        : R.string.setup_status_shizuku_not_installed);
+                mSummary.setTextColor(COLOR_AMBER);
+                mPrimaryAction.setText(audit.shizuku.installed
+                        ? R.string.setup_action_open_shizuku
+                        : R.string.setup_action_get_shizuku);
+                mPrimaryAction.setOnClickListener(
+                        view -> ShizukuAccess.openManagerOrWebsite(this));
+                setCloseAction();
+                return;
+            }
+            if (!audit.shizuku.permissionGranted) {
+                mSummary.setText(R.string.setup_status_shizuku_permission);
+                mSummary.setTextColor(COLOR_AMBER);
+                mPrimaryAction.setText(R.string.setup_action_allow_shizuku);
+                mPrimaryAction.setOnClickListener(
+                        view -> requestShizukuPermission());
+                setCloseAction();
+                return;
+            }
+            if (audit.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                    && audit.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+                mSummary.setText(getString(
+                        R.string.setup_status_shizuku_failed,
+                        audit.shizuku.error));
+                mSummary.setTextColor(COLOR_RED);
+                mPrimaryAction.setText(R.string.setup_action_recheck);
+                mPrimaryAction.setOnClickListener(view -> runAudit());
+                setCloseAction();
+                return;
+            }
+        }
+        if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.ROOT
+                && !audit.rootAvailable) {
+            mSummary.setText(R.string.setup_status_root_mode_unavailable);
             mSummary.setTextColor(COLOR_RED);
             mPrimaryAction.setText(R.string.setup_action_retry_root);
             mPrimaryAction.setOnClickListener(view -> runAudit());
             setCloseAction();
             return;
+        }
+        if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
+                && !audit.rootAvailable) {
+            mSummary.setText(audit.rootError.isEmpty()
+                    ? getString(R.string.setup_status_root_required)
+                    : getString(R.string.setup_status_root_failed, audit.rootError));
+            mSummary.setTextColor(COLOR_AMBER);
         }
         if (!audit.compatibleDevice) {
             mSummary.setText(R.string.setup_status_unsupported);
@@ -370,12 +554,55 @@ public final class DeviceSetupActivity extends Activity {
             mSecondaryAction.setOnClickListener(view -> finishSetupScreen());
             return;
         }
-        if (!audit.configurationReady) {
+        if (!audit.configurationReady
+                && audit.backend == RuntimeAccess.Backend.ROOT) {
             mSummary.setText(R.string.setup_status_configuration_required);
             mSummary.setTextColor(COLOR_AMBER);
             mPrimaryAction.setText(R.string.setup_action_configure);
             mPrimaryAction.setOnClickListener(view -> configureDevice());
             setCloseAction();
+            return;
+        }
+        if (!overlaysGranted) {
+            mSummary.setText(R.string.setup_status_overlay_required);
+            mSummary.setTextColor(COLOR_AMBER);
+            mPrimaryAction.setText(R.string.setup_action_grant_overlay);
+            mPrimaryAction.setOnClickListener(view -> openOverlayPermission());
+            mSecondaryAction.setText(
+                    R.string.setup_action_continue_without_overlay);
+            mSecondaryAction.setOnClickListener(view -> continueFromSetup());
+            return;
+        }
+
+        if (audit.backend == RuntimeAccess.Backend.BASIC) {
+            mSummary.setText(audit.isDegradedRuntime()
+                    ? R.string.setup_status_basic_degraded
+                    : R.string.setup_status_basic_ready);
+            mSummary.setTextColor(
+                    audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
+            mPrimaryAction.setText(mManual
+                    ? R.string.setup_action_done : R.string.setup_action_continue);
+            mPrimaryAction.setOnClickListener(view -> continueFromSetup());
+            mSecondaryAction.setText(R.string.setup_action_recheck);
+            mSecondaryAction.setOnClickListener(view -> runAudit());
+            return;
+        }
+        if (audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
+                || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT) {
+            mSummary.setText(audit.isDegradedRuntime()
+                    ? getString(
+                            R.string.setup_status_shizuku_degraded,
+                            audit.shizuku.uid)
+                    : getString(
+                            R.string.setup_status_shizuku_ready,
+                            audit.shizuku.uid));
+            mSummary.setTextColor(
+                    audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
+            mPrimaryAction.setText(mManual
+                    ? R.string.setup_action_done : R.string.setup_action_continue);
+            mPrimaryAction.setOnClickListener(view -> continueFromSetup());
+            mSecondaryAction.setText(R.string.setup_action_recheck);
+            mSecondaryAction.setOnClickListener(view -> runAudit());
             return;
         }
 
@@ -384,14 +611,7 @@ public final class DeviceSetupActivity extends Activity {
         mSummary.setTextColor(audit.verifiedDevice ? COLOR_CYAN : COLOR_AMBER);
         mPrimaryAction.setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);
-        mPrimaryAction.setOnClickListener(view -> {
-            DeviceSetupManager.acknowledgeReadyConfiguration(this);
-            if (mManual) {
-                finish();
-            } else {
-                launchMagicDesk();
-            }
-        });
+        mPrimaryAction.setOnClickListener(view -> continueFromSetup());
         mSecondaryAction.setText(R.string.setup_action_recheck);
         mSecondaryAction.setOnClickListener(view -> runAudit());
     }
@@ -402,10 +622,98 @@ public final class DeviceSetupActivity extends Activity {
         mSecondaryAction.setOnClickListener(view -> finishSetupScreen());
     }
 
+    private void renderProfileSelection() {
+        if (mRuntimeModeValue != null) {
+            mRuntimeModeValue.setText(privilegeModeLabel(
+                    mSessionProfile.privilegeMode));
+            mRuntimeModeValue.setTextColor(COLOR_CYAN);
+        }
+        if (mDisplayTargetValue != null) {
+            mDisplayTargetValue.setText(displayTargetLabel(
+                    mSessionProfile.displayTarget));
+            mDisplayTargetValue.setTextColor(COLOR_CYAN);
+        }
+    }
+
+    private int privilegeModeLabel(final SessionProfile.PrivilegeMode mode) {
+        switch (mode) {
+            case BASIC:
+                return R.string.setup_mode_basic;
+            case SHIZUKU:
+                return R.string.setup_mode_shizuku;
+            case ROOT:
+                return R.string.setup_mode_root;
+            case AUTO:
+            default:
+                return R.string.setup_mode_auto;
+        }
+    }
+
+    private int displayTargetLabel(final SessionProfile.DisplayTarget target) {
+        switch (target) {
+            case PRIMARY:
+                return R.string.setup_display_primary;
+            case CURRENT:
+                return R.string.setup_display_current;
+            case EXTERNAL:
+                return R.string.setup_display_external;
+            case AUTO:
+            default:
+                return R.string.setup_display_auto;
+        }
+    }
+
     private void configureDevice() {
         runOperation(
                 R.string.setup_status_applying,
-                () -> DeviceSetupManager.configure(getApplicationContext()));
+                () -> DeviceSetupManager.configure(
+                        getApplicationContext(), mSessionProfile));
+    }
+
+    private void continueFromSetup() {
+        DeviceSetupManager.acknowledgeReadyConfiguration(this);
+        if (mManual) {
+            finish();
+        } else {
+            launchMagicDesk();
+        }
+    }
+
+    private void openOverlayPermission() {
+        final Intent intent = new Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(intent);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "could not open overlay permission settings", error);
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+        }
+    }
+
+    private void requestShizukuPermission() {
+        try {
+            ShizukuAccess.requestPermission();
+        } catch (RuntimeException error) {
+            Log.w(TAG, "could not request Shizuku permission", error);
+            Toast.makeText(
+                    this,
+                    getString(
+                            R.string.setup_status_shizuku_failed,
+                            error.getMessage()),
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void handleShizukuStateChanged() {
+        runOnUiThread(() -> {
+            if (!isActivityUnavailable()
+                    && mSessionProfile != null
+                    && mSessionProfile.privilegeMode
+                            == SessionProfile.PrivilegeMode.SHIZUKU) {
+                runAudit();
+            }
+        });
     }
 
     private void confirmRestore() {
@@ -465,7 +773,7 @@ public final class DeviceSetupActivity extends Activity {
                     setBusy(false, 0);
                     if (!audit.canEnterMagicDesk()) {
                         DeviceSetupManager.revokeRuntimeAuthorization();
-                        stopService(new Intent(this, KeyboardWatcherService.class));
+                        KeyboardWatcherService.stop(this);
                     }
                     renderAudit(audit);
                 });
@@ -545,28 +853,72 @@ public final class DeviceSetupActivity extends Activity {
 
     private void launchMagicDeskAfterPermission() {
         DeviceSetupManager.authorizeRuntime();
-        final Intent target = new Intent(this, MainActivity.class)
+        final int launchDisplayId = resolveLaunchDisplayId();
+        final Class<?> activityClass = launchDisplayId > Display.DEFAULT_DISPLAY
+                ? DesktopActivity.class : MainActivity.class;
+        final Intent target = new Intent(this, activityClass)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        mSessionProfile.writeToIntent(target);
         final String action = getIntent().getStringExtra(MainActivity.EXTRA_ACTION);
         if (action != null) {
             target.putExtra(MainActivity.EXTRA_ACTION, action);
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        setLaunchWindowingMode(options, 1);
+        options.setLaunchDisplayId(launchDisplayId);
         startActivity(target, options.toBundle());
         finish();
     }
 
-    private static void setLaunchWindowingMode(
-            final ActivityOptions options, final int windowingMode) {
-        try {
-            final Method method = ActivityOptions.class.getMethod(
-                    "setLaunchWindowingMode", Integer.TYPE);
-            method.invoke(options, Integer.valueOf(windowingMode));
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            Log.w(TAG, "setLaunchWindowingMode unavailable", e);
+    private int resolveLaunchDisplayId() {
+        final int currentDisplayId = getDisplay() == null
+                ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
+        switch (mSessionProfile.displayTarget) {
+            case PRIMARY:
+                return Display.DEFAULT_DISPLAY;
+            case CURRENT:
+                return currentDisplayId;
+            case EXTERNAL: {
+                final int externalDisplayId = activeExternalDisplayId();
+                if (externalDisplayId > Display.DEFAULT_DISPLAY) {
+                    return externalDisplayId;
+                }
+                Toast.makeText(
+                        this,
+                        R.string.setup_status_external_unavailable,
+                        Toast.LENGTH_LONG).show();
+                return currentDisplayId;
+            }
+            case AUTO:
+            default: {
+                final int externalDisplayId = activeExternalDisplayId();
+                return externalDisplayId > Display.DEFAULT_DISPLAY
+                        ? externalDisplayId : currentDisplayId;
+            }
         }
+    }
+
+    private int activeExternalDisplayId() {
+        final int configured = Settings.Global.getInt(
+                getContentResolver(), "app_mirror_displayid", -1);
+        final android.hardware.display.DisplayManager displayManager =
+                getSystemService(android.hardware.display.DisplayManager.class);
+        if (configured > Display.DEFAULT_DISPLAY
+                && displayManager != null
+                && displayManager.getDisplay(configured) != null) {
+            return configured;
+        }
+        if (displayManager == null) {
+            return -1;
+        }
+        final Display[] displays = displayManager.getDisplays(
+                android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+        for (final Display display : displays) {
+            if (display != null && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
+                return display.getDisplayId();
+            }
+        }
+        return -1;
     }
 
     private void finishSetupScreen() {

@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
+        <package android:name="moe.shizuku.privileged.api" />
         <package android:name="cn.nubia.keymapcenter" />
         <package android:name="com.zte.mifavor.launcher" />
         <package android:name="io.github.mekhontsev.magicdesk.kernel" />
@@ -34,6 +35,14 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:resizeableActivity="true"
         android:theme="@style/AppTheme">
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <activity
             android:name=".DeviceSetupActivity"
             android:exported="true"

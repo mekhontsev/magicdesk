@@ -99,9 +99,7 @@ final class RootKeyboardShortcutWatcher {
                         + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
                         + "export CLASSPATH=\"$APK\"; "
                         + "exec /system/bin/app_process / " + INPUT_BRIDGE_COMMAND + mode;
-                process = new ProcessBuilder("su", "-c", command)
-                        .redirectErrorStream(true)
-                        .start();
+                process = PrivilegedCommandRunner.start(command);
                 setProcess(process, generation);
                 Log.i(TAG, "root input bridge started console=" + consoleMode);
 

@@ -102,8 +102,10 @@ kernel-loading code.
 
 ## Display And Session Model
 
-MagicDesk can render a compact control UI on the phone or become the fullscreen
-HOME activity on Nubia's virtual Console display. Using HOME only on that
+Every launch resolves a session profile containing an independent privilege
+mode and display target. MagicDesk can render its desktop shell on Android's
+primary display, remain on the current display, or become the fullscreen HOME
+activity on Nubia's virtual Console display. Using HOME only on that external
 display keeps the desktop surface behind native freeform application tasks
 without replacing the phone launcher.
 
@@ -395,10 +397,14 @@ calendar application category.
 
 ## Device Setup
 
-Device Setup checks root on every cold launch and blocks both the desktop and
-foreground service when `su` does not return uid 0. It accepts the ZTE/nubia/
-REDMAGIC Android 16 baseline, then marks only tested build fingerprints as
-verified.
+Device Setup audits system provisioning separately from runtime privileges.
+Basic mode does not invoke `su` and may enter a degraded desktop when the
+windowing configuration is incomplete. Root mode remains strict and does not
+fall back when `su` is unavailable. Auto currently resolves to Root when
+available and Basic otherwise. Explicit Shizuku mode binds an official
+Shizuku UserService and dispatches finite shell commands through AIDL. It does
+not fall back when the server or permission is unavailable and never starts
+the long-lived root input helpers.
 
 After explicit confirmation it applies only missing values:
 
@@ -442,6 +448,9 @@ needed:
 su -c 'appops get io.github.mekhontsev.magicdesk SYSTEM_ALERT_WINDOW'
 su -c 'appops set io.github.mekhontsev.magicdesk SYSTEM_ALERT_WINDOW allow'
 ```
+
+See [Privilege and display modes](privilege-modes.md) for the capability
+boundaries, Primary display behavior, and development launch overrides.
 
 ## Hidden APIs And Compatibility
 

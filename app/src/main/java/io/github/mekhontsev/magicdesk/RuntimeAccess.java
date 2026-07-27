@@ -1,0 +1,118 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.content.Context;
+
+import java.io.IOException;
+import java.util.EnumSet;
+
+final class RuntimeAccess {
+    enum Backend {
+        BASIC,
+        SHIZUKU_SHELL,
+        SHIZUKU_ROOT,
+        ROOT
+    }
+
+    enum Capability {
+        PUBLIC_APP_LAUNCH,
+        EXACT_TASKS,
+        TASK_CONTROL,
+        GLOBAL_INPUT,
+        RIGHT_CLICK_REMAP,
+        CONSOLE_CONTROL,
+        DISPLAY_OVERRIDES,
+        PHONE_SCREEN_CONTROL,
+        SCREENSHOT,
+        NOTIFICATION_CONTROL,
+        KERNEL_FIXES
+    }
+
+    private static volatile SessionProfile sProfile =
+            new SessionProfile(
+                    SessionProfile.PrivilegeMode.AUTO,
+                    SessionProfile.DisplayTarget.AUTO);
+    private static volatile Backend sBackend = Backend.BASIC;
+
+    private RuntimeAccess() {
+    }
+
+    static void initialize(final Context context) {
+        sProfile = SessionProfile.load(context);
+        sBackend = Backend.BASIC;
+    }
+
+    static void configure(
+            final SessionProfile profile,
+            final Backend backend) {
+        sProfile = profile == null ? sProfile : profile;
+        sBackend = backend == null ? Backend.BASIC : backend;
+    }
+
+    static SessionProfile profile() {
+        return sProfile;
+    }
+
+    static Backend backend() {
+        return sBackend;
+    }
+
+    static boolean has(final Capability capability) {
+        return capabilitiesFor(sBackend).contains(capability);
+    }
+
+    static boolean allowsRootCommands() {
+        return sBackend == Backend.ROOT;
+    }
+
+    static boolean allowsShizukuCommands() {
+        return sBackend == Backend.SHIZUKU_SHELL
+                || sBackend == Backend.SHIZUKU_ROOT;
+    }
+
+    static void requireRootCommands(final String operation) throws IOException {
+        if (!allowsRootCommands()) {
+            throw new IOException(
+                    operation + " requires the Root runtime backend; active backend is "
+                            + backendName());
+        }
+    }
+
+    static String backendName() {
+        switch (sBackend) {
+            case ROOT:
+                return "Root";
+            case SHIZUKU_SHELL:
+                return "Shizuku (shell)";
+            case SHIZUKU_ROOT:
+                return "Shizuku (root)";
+            case BASIC:
+            default:
+                return "Basic";
+        }
+    }
+
+    private static EnumSet<Capability> capabilitiesFor(final Backend backend) {
+        if (backend == Backend.ROOT) {
+            return EnumSet.allOf(Capability.class);
+        }
+        if (backend == Backend.SHIZUKU_SHELL) {
+            return EnumSet.of(
+                    Capability.PUBLIC_APP_LAUNCH,
+                    Capability.EXACT_TASKS,
+                    Capability.TASK_CONTROL,
+                    Capability.DISPLAY_OVERRIDES,
+                    Capability.SCREENSHOT,
+                    Capability.NOTIFICATION_CONTROL);
+        }
+        if (backend == Backend.SHIZUKU_ROOT) {
+            return EnumSet.of(
+                    Capability.PUBLIC_APP_LAUNCH,
+                    Capability.EXACT_TASKS,
+                    Capability.TASK_CONTROL,
+                    Capability.DISPLAY_OVERRIDES,
+                    Capability.SCREENSHOT,
+                    Capability.NOTIFICATION_CONTROL);
+        }
+        return EnumSet.of(Capability.PUBLIC_APP_LAUNCH);
+    }
+}

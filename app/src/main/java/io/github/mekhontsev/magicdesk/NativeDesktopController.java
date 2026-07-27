@@ -104,7 +104,9 @@ final class NativeDesktopController {
     }
 
     private static void restoreTouchpadIfNeeded(final boolean restoreTouchpad) {
-        if (restoreTouchpad) {
+        if (restoreTouchpad
+                && RuntimeAccess.has(
+                        RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
             ConsoleModeSwitcher.restoreTouchpadIfMissing();
         }
     }
@@ -117,30 +119,7 @@ final class NativeDesktopController {
     }
 
     private static String runRootCommand(final String command) throws IOException {
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("root command interrupted", e);
-        } finally {
-            process.destroy();
-        }
-        return output.toString();
+        return PrivilegedCommandRunner.run(command);
     }
 
     private static String usefulMessage(final IOException error) {

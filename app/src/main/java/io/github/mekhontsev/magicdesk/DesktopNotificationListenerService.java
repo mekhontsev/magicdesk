@@ -682,6 +682,13 @@ public final class DesktopNotificationListenerService extends NotificationListen
             }
             return;
         }
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.NOTIFICATION_CONTROL)) {
+            synchronized (LOCK) {
+                sRebindRecoveryScheduled = false;
+            }
+            return;
+        }
 
         new Thread(() -> {
             String commandFailure = "";
@@ -725,29 +732,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
         final String command = "USER=$(/system/bin/am get-current-user); "
                 + "/system/bin/cmd notification allow_listener "
                 + component + " \"$USER\"";
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("notification listener rebind failed "
-                        + exitCode + ": " + output.toString().trim());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("notification listener rebind interrupted", e);
-        } finally {
-            process.destroy();
-        }
+        PrivilegedCommandRunner.run(command);
     }
 
     private static List<Entry> sortedEntriesLocked() {

@@ -100,8 +100,10 @@ MagicDesk is intentionally REDMAGIC/ZTE-specific.
 
 - A device identifying as ZTE, nubia, or REDMAGIC
 - Android 16 / API 36 or newer
-- Working root through `su`
 - USB-C DisplayPort output and REDMAGIC Console Mode
+
+Root is required for the complete REDMAGIC Console experience. Basic mode can
+run without root with reduced task, input, and display control.
 
 Other models and OTA versions are treated as unverified. They can continue
 after an explicit warning so that compatibility reports can identify missing or
@@ -116,10 +118,11 @@ device-specific failure.
 1. Install the MagicDesk APK from a tagged GitHub Release when available, or
    build it from source.
 2. Launch MagicDesk on the phone.
-3. Grant root when Device Setup requests it. MagicDesk does not continue
-   without uid 0.
-4. Review the settings Device Setup proposes and confirm the changes.
-5. Reboot when requested. Android and WMShell cache part of the desktop
+3. Select **Auto**, **Basic**, **Shizuku**, or **Root** runtime privileges and
+   choose the Primary, Current, External, or Auto display target.
+4. In Root mode, grant root when Device Setup requests it.
+5. Review the settings Device Setup proposes and confirm the changes.
+6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 
 MagicDesk starts with an external-display DPI of `192`. A different value can
@@ -192,17 +195,25 @@ The taskbar Tools panel provides:
 the physical mouse mapping and phone-side services it temporarily changed, and
 returns the phone to its normal launcher state.
 
-## Root And Trust
+## Privileges And Trust
 
-Root is mandatory because Android does not expose the required cross-display
-desktop APIs to ordinary third-party applications. MagicDesk uses it for
-Console Mode activation, WMShell commands, task transitions, display settings,
-the physical-input bridge, and reversible REDMAGIC service controls.
+Root remains necessary for the complete feature set because Android does not
+expose low-level physical input control and all REDMAGIC Console hooks to an
+ordinary third-party application. Basic mode never invokes `su` and keeps the
+desktop shell, public application launching, desktop content, notifications,
+and calendar with explicit limitations. Strict Shizuku mode uses the official
+Shizuku UserService API. A server started through ADB or wireless debugging
+runs MagicDesk commands as Android shell UID 2000 and enables task inspection,
+window operations, display density, and screenshots. It does not enable the
+root input bridge, right-click remapping, kernel fixes, or full Console Mode
+automation.
 
 The trust boundaries are deliberately narrow:
 
 - The complete source and CI workflow are reviewable under the MIT license.
 - The main APK declares no Internet permission.
+- Shizuku is never installed or started by MagicDesk. The user installs the
+  official manager, starts its server, and grants MagicDesk separately.
 - MagicDesk changes only the documented desktop settings accepted in Device
   Setup and stores their previous values for restoration.
 - The system `ShellTaskOrganizer` remains the only task organizer.
@@ -213,7 +224,9 @@ The trust boundaries are deliberately narrow:
   codes instead of silently assuming compatibility.
 
 The detailed root commands, vendor interfaces, lifecycle, and cleanup behavior
-are documented in [Architecture](docs/architecture.md).
+are documented in [Architecture](docs/architecture.md). The current runtime
+and display boundaries are documented in
+[Privilege and display modes](docs/privilege-modes.md).
 
 ## Optional Kernel Fixes
 

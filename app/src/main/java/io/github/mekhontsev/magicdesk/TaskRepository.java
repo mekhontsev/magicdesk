@@ -499,35 +499,14 @@ final class TaskRepository {
     }
 
     private static CommandResult runRootCommand(final String command) {
-        Process process = null;
-        final StringBuilder output = new StringBuilder();
         try {
-            process = new ProcessBuilder("su", "-c", command)
-                    .redirectErrorStream(true)
-                    .start();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    output.append(line).append('\n');
-                }
-            }
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                Log.w(TAG, "root command failed code=" + exitCode
-                        + " command=" + command + " output=" + output);
-            }
-            return new CommandResult(exitCode == 0, output.toString());
+            return new CommandResult(
+                    true, PrivilegedCommandRunner.run(command));
         } catch (IOException e) {
-            Log.w(TAG, "root command failed: " + command, e);
-            return new CommandResult(false, e.getMessage() == null ? "I/O error" : e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return new CommandResult(false, "interrupted");
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
+            Log.d(TAG, "privileged command unavailable: " + command + ": "
+                    + e.getMessage());
+            return new CommandResult(
+                    false, e.getMessage() == null ? "I/O error" : e.getMessage());
         }
     }
 

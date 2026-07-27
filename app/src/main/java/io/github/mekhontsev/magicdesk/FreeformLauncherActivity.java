@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -88,6 +90,12 @@ public final class FreeformLauncherActivity extends Activity {
         final Context appContext = getApplicationContext();
 
         try {
+            if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+                launchBasicFreeform(launchIntent, displayId);
+                finish();
+                overridePendingTransition(0, 0);
+                return;
+            }
             final boolean existingTask =
                     ExistingTaskController.taskExists(packageName, displayId);
             if (!existingTask) {
@@ -112,6 +120,37 @@ public final class FreeformLauncherActivity extends Activity {
             Log.w(TAG, "cannot prepare native desktop launch package=" + packageName, e);
             toastAndFinish("Window launch failed: " + usefulMessage(e));
         }
+    }
+
+    private void launchBasicFreeform(
+            final Intent launchIntent, final int displayId) {
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        options.setLaunchBounds(defaultLaunchBounds());
+        Log.i(TAG, "basic freeform launch display=" + displayId
+                + " component=" + launchIntent.getComponent());
+        startActivity(launchIntent, options.toBundle());
+    }
+
+    private Rect defaultLaunchBounds() {
+        final Display display = getDisplay();
+        final Point size = new Point();
+        if (display != null) {
+            display.getRealSize(size);
+        }
+        final int width = Math.max(1, size.x);
+        final int height = Math.max(1, size.y);
+        final int desiredWidth = Math.max(480, Math.round(width * 0.68f));
+        final int desiredHeight = Math.max(520, Math.round(height * 0.72f));
+        final int boundedWidth = Math.min(width, desiredWidth);
+        final int boundedHeight = Math.min(height, desiredHeight);
+        final int left = Math.max(0, (width - boundedWidth) / 2);
+        final int top = Math.max(0, (height - boundedHeight) / 3);
+        return new Rect(
+                left,
+                top,
+                left + boundedWidth,
+                top + boundedHeight);
     }
 
     private static void launchAsRootAndConvert(final Context context,

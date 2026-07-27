@@ -43,29 +43,6 @@ final class FloatingWindowController {
     }
 
     private static String runRootCommand(final String command) throws IOException {
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("root command interrupted", e);
-        } finally {
-            process.destroy();
-        }
-        return output.toString();
+        return PrivilegedCommandRunner.run(command);
     }
 }

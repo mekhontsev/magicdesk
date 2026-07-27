@@ -47,7 +47,8 @@ The report includes:
 
 - MagicDesk version and Android build fingerprint;
 - manufacturer, model, API level, security patch, and supported ABIs;
-- root and required desktop-windowing values;
+- selected runtime backend, root/Shizuku status, and required
+  desktop-windowing values;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
 - current displays and external input-device descriptors;

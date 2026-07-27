@@ -270,8 +270,14 @@ public class MainActivity extends Activity {
         registerBatteryReceiver();
         registerConsoleSettingsObserver();
         registerProfileDisplayListener();
-        KeyboardWatcherService.start(this);
-        ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
+        if (RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
+            KeyboardWatcherService.start(this);
+            ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
+        } else {
+            KeyboardWatcherService.stop(this);
+            RootKeyboardShortcutWatcher.stop();
+            ConsoleModeSwitcher.closeRootShell();
+        }
         renderApps();
         updateConsoleControls();
         handleLaunchAction(getIntent());
@@ -1016,6 +1022,8 @@ public class MainActivity extends Activity {
                 COLOR_PANEL_ALT, desktopDp(8, 6), COLOR_PANEL_ALT));
         mKeyboardLayoutIndicator.setOnClickListener(
                 view -> ConsoleModeSwitcher.toggleHardwareKeyboardLayout());
+        mKeyboardLayoutIndicator.setEnabled(
+                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT));
         taskbar.addView(mKeyboardLayoutIndicator, new LinearLayout.LayoutParams(
                 desktopDp(48, 38), LinearLayout.LayoutParams.MATCH_PARENT));
 
@@ -1023,6 +1031,8 @@ public class MainActivity extends Activity {
                 R.drawable.ic_phone_screen_off,
                 R.string.tooltip_phone_screen);
         mPhoneScreenButton.setOnClickListener(view -> togglePhoneScreen());
+        mPhoneScreenButton.setEnabled(
+                RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
         taskbar.addView(mPhoneScreenButton, new LinearLayout.LayoutParams(
                 desktopDp(46, 38), LinearLayout.LayoutParams.MATCH_PARENT));
 
@@ -3849,6 +3859,8 @@ public class MainActivity extends Activity {
         }
 
         final boolean phoneScreenOff = isPhoneScreenOff();
+        final boolean phoneScreenControl =
+                RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL);
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off;
@@ -3861,29 +3873,31 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 mPhoneScreenButton.setTooltipText(getString(actionResId));
             }
-            mPhoneScreenButton.setEnabled(true);
+            mPhoneScreenButton.setEnabled(phoneScreenControl);
+            mPhoneScreenButton.setAlpha(phoneScreenControl ? 1f : 0.45f);
         }
         if (mPhoneScreenAction != null) {
             mPhoneScreenAction.setText(actionResId);
-            mPhoneScreenAction.setEnabled(true);
+            mPhoneScreenAction.setEnabled(phoneScreenControl);
         }
         if (mToolsStatus != null) {
             mToolsStatus.setText(getString(R.string.tools_status_full,
                     Integer.valueOf(getCurrentDisplayId()),
                     Integer.valueOf(getResources().getDisplayMetrics().densityDpi),
                     getString(phoneScreenOff ? R.string.state_off : R.string.state_on),
-                    getString(mTaskSnapshot.rootAvailable
-                            ? R.string.state_ready : R.string.state_unavailable),
+                    RuntimeAccess.backendName(),
                     getString(RootKeyboardShortcutWatcher.isRunning()
                             ? R.string.state_ready : R.string.state_unavailable),
                     getMonitorProfileLabel()));
         }
         final boolean consoleModeActive = isConsoleModeActive();
+        final boolean consoleControl =
+                RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL);
         for (final Button action : mConsoleModeActions) {
             action.setText(consoleModeActive
                     ? R.string.action_switch_to_mirror
                     : R.string.action_start_console_mode);
-            action.setEnabled(true);
+            action.setEnabled(consoleControl);
         }
         updateSystemStatusIndicator();
     }
@@ -3892,13 +3906,14 @@ public class MainActivity extends Activity {
         if (mConsoleButton == null) {
             return;
         }
-        final boolean root = mTaskSnapshot.rootAvailable;
+        final boolean runtimeTaskControl =
+                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
         final boolean console = isConsoleModeActive();
         final boolean bridge = RootKeyboardShortcutWatcher.isRunning();
-        final int color = root && console && bridge ? COLOR_CYAN
-                : (root && console ? COLOR_AMBER : COLOR_RED);
+        final int color = runtimeTaskControl && console && bridge ? COLOR_CYAN
+                : (runtimeTaskControl ? COLOR_AMBER : COLOR_MUTED);
         final String description = getString(R.string.system_status_description,
-                getString(root ? R.string.state_ready : R.string.state_unavailable),
+                RuntimeAccess.backendName(),
                 getString(console ? R.string.state_ready : R.string.state_unavailable),
                 getString(bridge ? R.string.state_ready : R.string.state_unavailable));
         mConsoleButton.setColorFilter(color);
@@ -4030,6 +4045,10 @@ public class MainActivity extends Activity {
     }
 
     private void togglePhoneScreen() {
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+            return;
+        }
         final boolean screenOff = !isPhoneScreenOff();
         if (mPhoneScreenButton != null) {
             mPhoneScreenButton.setEnabled(false);
@@ -4068,6 +4087,9 @@ public class MainActivity extends Activity {
     }
 
     private void toggleConsoleMode() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+            return;
+        }
         if (!isConsoleModeActive()) {
             setStatus(R.string.status_console_starting);
             ConsoleModeSwitcher.showMagicDesk();
@@ -4244,6 +4266,8 @@ public class MainActivity extends Activity {
         final Button restartShortcuts = createActionButton(
                 R.string.action_restart_shortcuts, COLOR_AMBER);
         restartShortcuts.setOnClickListener(view -> restartConsoleShortcuts());
+        restartShortcuts.setEnabled(
+                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT));
         addToolsActionButton(actionGrid, restartShortcuts, false);
 
         final Button deviceSetup = createActionButton(
@@ -4259,7 +4283,8 @@ public class MainActivity extends Activity {
         diagnostics.setOnClickListener(view -> openDiagnostics());
         addToolsActionButton(actionGrid, diagnostics, false);
 
-        if (KernelFixesIntegration.isAvailable(this)) {
+        if (RuntimeAccess.has(RuntimeAccess.Capability.KERNEL_FIXES)
+                && KernelFixesIntegration.isAvailable(this)) {
             addToolsActionButton(actionGrid, createKernelFixesAction(), false);
         }
 
@@ -4294,12 +4319,16 @@ public class MainActivity extends Activity {
         final Button button = createActionButton(getString(R.string.dpi_value, Integer.valueOf(dpi)),
                 COLOR_CYAN);
         button.setOnClickListener(view -> applyDensity(dpi));
+        button.setEnabled(
+                RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES));
         grid.addView(button, createDpiButtonParams());
     }
 
     private void addDpiResetButton(final GridLayout grid) {
         final Button button = createActionButton(R.string.action_dpi_reset, COLOR_RED);
         button.setOnClickListener(view -> resetDensity());
+        button.setEnabled(
+                RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES));
         grid.addView(button, createDpiButtonParams());
     }
 
@@ -4414,6 +4443,12 @@ public class MainActivity extends Activity {
     }
 
     private boolean isDesktopMode() {
+        final SessionProfile.DisplayTarget displayTarget =
+                RuntimeAccess.profile().displayTarget;
+        if (displayTarget == SessionProfile.DisplayTarget.PRIMARY
+                || displayTarget == SessionProfile.DisplayTarget.EXTERNAL) {
+            return true;
+        }
         final int override = getLayoutMode();
         if (override == LAYOUT_DESKTOP) {
             return true;
@@ -4793,14 +4828,16 @@ public class MainActivity extends Activity {
         setTaskbarVisible(false);
         setStatus(getString(R.string.status_launching_fullscreen, app.label));
         try {
-            final ExistingTaskController.ReuseResult reuseResult =
-                    ExistingTaskController.reuseIfExists(app.packageName,
-                            getCurrentDisplayId(), false);
-            if (reuseResult.found) {
-                DesktopTaskController.finishFullscreenTransition(displayId, true);
-                Log.i(TAG, "reused fullscreen package=" + app.packageName);
-                setStatus(getString(R.string.status_switch_done, app.label));
-                return;
+            if (RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+                final ExistingTaskController.ReuseResult reuseResult =
+                        ExistingTaskController.reuseIfExists(app.packageName,
+                                getCurrentDisplayId(), false);
+                if (reuseResult.found) {
+                    DesktopTaskController.finishFullscreenTransition(displayId, true);
+                    Log.i(TAG, "reused fullscreen package=" + app.packageName);
+                    setStatus(getString(R.string.status_switch_done, app.label));
+                    return;
+                }
             }
 
             Log.i(TAG, "fresh fullscreen launch package=" + app.packageName);
@@ -4852,6 +4889,9 @@ public class MainActivity extends Activity {
     }
 
     private void restartConsoleShortcuts() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
+            return;
+        }
         setStatus(R.string.status_restarting_shortcuts);
         new Thread(new Runnable() {
             @Override
@@ -4906,6 +4946,10 @@ public class MainActivity extends Activity {
         mExitInProgress = true;
         Log.i(TAG, "full MagicDesk exit requested");
         setStatus(R.string.status_exiting);
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+            finishUnprivilegedExit();
+            return;
+        }
         ConsoleModeSwitcher.setPhoneScreenOff(false,
                 new ConsoleModeSwitcher.ResultCallback() {
             @Override
@@ -4943,9 +4987,19 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void finishUnprivilegedExit() {
+        RootKeyboardShortcutWatcher.stop();
+        KeyboardWatcherService.stop(this);
+        ConsoleModeSwitcher.closeRootShell();
+        DeviceSetupManager.revokeRuntimeAuthorization();
+        releaseDesktopOverlays();
+        mExitInProgress = false;
+        finishAndRemoveTask();
+    }
+
     private void finishMagicDeskExit() {
         RootKeyboardShortcutWatcher.stop();
-        stopService(new Intent(this, KeyboardWatcherService.class));
+        KeyboardWatcherService.stop(this);
         runRootCommandBestEffort(AM + " stop-service -n "
                 + TOOLS_KEYBOARD_WATCHER_SERVICE);
         try {
@@ -4976,6 +5030,9 @@ public class MainActivity extends Activity {
     }
 
     private void applyDensity(final int dpi) {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+            return;
+        }
         final int displayId = getCurrentDisplayId();
         if (displayId > 0) {
             setPreferredDesktopDpi(dpi);
@@ -4988,6 +5045,9 @@ public class MainActivity extends Activity {
     }
 
     private void resetDensity() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+            return;
+        }
         final int displayId = getCurrentDisplayId();
         final String command;
         if (displayId > 0) {
@@ -5003,6 +5063,9 @@ public class MainActivity extends Activity {
     }
 
     private void ensurePreferredConsoleDensity() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+            return;
+        }
         final int displayId = getCurrentDisplayId();
         if (mConsoleDensityApplyStarted || displayId <= 0) {
             return;
@@ -5107,30 +5170,7 @@ public class MainActivity extends Activity {
     }
 
     private static String runRootCommand(final String command) throws IOException {
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("root command interrupted", e);
-        } finally {
-            process.destroy();
-        }
-        return output.toString();
+        return PrivilegedCommandRunner.run(command);
     }
 
     private static void runRootCommandBestEffort(final String command) {
