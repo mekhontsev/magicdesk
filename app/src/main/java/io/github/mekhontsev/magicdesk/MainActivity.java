@@ -101,7 +101,6 @@ public class MainActivity extends Activity {
     static final String BROADCAST_SHOW_START =
             "io.github.mekhontsev.magicdesk.action.SHOW_START";
     private static final long SHORTCUT_RESTART_DELAY_MILLIS = 800;
-    private static final int REQUEST_DESKTOP_FOLDER = 1001;
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
@@ -112,7 +111,6 @@ public class MainActivity extends Activity {
 
     private LinearLayout mContent;
     private FrameLayout mDesktopRoot;
-    private GridLayout mDesktopIcons;
     private Button mPhoneScreenAction;
     private TextView mToolsStatus;
     private TextView mToolsActivityStatus;
@@ -132,6 +130,7 @@ public class MainActivity extends Activity {
     private TaskbarController mTaskbarController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
+    private DesktopItemsController mDesktopItemsController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
@@ -152,13 +151,10 @@ public class MainActivity extends Activity {
     private int mAltTabPendingOffset;
     private int mAltTabSelectedIndex = -1;
     private int mTaskRefreshGeneration;
-    private int mFolderLoadGeneration;
     private float mLastPointerX;
     private float mLastPointerY;
     private String mLastStatusText;
-    private String mLoadedFolderUri;
     private List<AppItem> mLastApps = Collections.emptyList();
-    private List<DesktopFile> mDesktopFiles = Collections.emptyList();
     private List<TaskRepository.TaskEntry> mAltTabTasks = Collections.emptyList();
     private boolean mWorkspaceRestoreAttempted;
     private boolean mWorkspaceBoundsRestorePending;
@@ -201,6 +197,8 @@ public class MainActivity extends Activity {
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
+        mDesktopItemsController = new DesktopItemsController(
+                this, mUi, mDesktopFileRepository);
         mDesktopMode = isDesktopMode();
         if (mDesktopMode) {
             replaceDesktopInstance();
@@ -262,7 +260,7 @@ public class MainActivity extends Activity {
             mNotifications.stop();
         }
         mTaskRefreshGeneration++;
-        mFolderLoadGeneration++;
+        mDesktopItemsController.cancel();
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
         }
@@ -529,24 +527,8 @@ public class MainActivity extends Activity {
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_DESKTOP_FOLDER || resultCode != RESULT_OK
-                || data == null || data.getData() == null) {
-            return;
-        }
-        final Uri treeUri = data.getData();
-        if ((data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-            try {
-                getContentResolver().takePersistableUriPermission(
-                        treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException e) {
-                Log.w(TAG, "Cannot persist desktop folder permission for " + treeUri, e);
-            }
-        }
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        profile.folderUri = treeUri.toString();
-        saveWorkspaceProfile();
-        refreshDesktopFolder(true);
-        setStatus(R.string.status_desktop_folder_selected);
+        mDesktopItemsController.handleActivityResult(
+                requestCode, resultCode, data);
     }
 
     @Override
@@ -804,14 +786,10 @@ public class MainActivity extends Activity {
         });
         desktop.setOnClickListener(view -> { });
 
-        mDesktopIcons = new GridLayout(this);
-        mDesktopIcons.setColumnCount(getDesktopColumnCount());
-        mDesktopIcons.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
-        mDesktopIcons.setOnDragListener((view, event) ->
-                handleDesktopGridDrop(event));
+        final GridLayout desktopIcons = mDesktopItemsController.createGrid();
         final LinearLayout.LayoutParams iconsParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        desktop.addView(mDesktopIcons, iconsParams);
+        desktop.addView(desktopIcons, iconsParams);
 
         root.addView(desktop, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1072,338 +1050,19 @@ public class MainActivity extends Activity {
     }
 
     private void renderDesktopIcons(final List<AppItem> apps) {
-        if (mDesktopIcons == null) {
-            return;
-        }
-        mDesktopIcons.removeAllViews();
-        mDesktopIcons.setColumnCount(getDesktopColumnCount());
-        final int capacity = getDesktopItemCapacity();
-        int rendered = 0;
-        for (final String packageName : getWorkspaceProfile().desktopPackages) {
-            final AppItem app = LauncherAppRepository.find(apps, packageName);
-            if (app == null) {
-                continue;
-            }
-            mDesktopIcons.addView(createDesktopIcon(app), createDesktopItemParams());
-            rendered++;
-            if (rendered >= capacity) {
-                return;
-            }
-        }
-        for (final DesktopFile file : mDesktopFiles) {
-            mDesktopIcons.addView(createDesktopFileIcon(file), createDesktopItemParams());
-            rendered++;
-            if (rendered >= capacity) {
-                return;
-            }
-        }
-    }
-
-    private View createDesktopIcon(final AppItem app) {
-        final LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(8), dp(6), dp(8), dp(6));
-        if (app.packageName.equals(getWorkspaceProfile().workspacePackage)) {
-            item.setBackground(rounded(0x55172033, dp(8), COLOR_AMBER));
-        }
-        item.setClickable(true);
-        item.setFocusable(true);
-        item.setOnClickListener(view -> {
-            hideAllPanels();
-            launchDefault(app);
-        });
-        final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
-        final float[] dragDown = new float[2];
-        final boolean[] dragging = new boolean[1];
-        item.setOnTouchListener((view, event) -> {
-            final int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN) {
-                dragDown[0] = event.getX();
-                dragDown[1] = event.getY();
-                dragging[0] = false;
-            } else if (action == MotionEvent.ACTION_MOVE && !dragging[0]
-                    && (Math.abs(event.getX() - dragDown[0]) > touchSlop
-                            || Math.abs(event.getY() - dragDown[1]) > touchSlop)) {
-                dragging[0] = startDesktopShortcutDrag(view, app);
-                return dragging[0];
-            } else if (action == MotionEvent.ACTION_UP
-                    || action == MotionEvent.ACTION_CANCEL) {
-                dragging[0] = false;
-            }
-            return false;
-        });
-        item.setOnDragListener((view, event) -> handleDesktopShortcutDrop(event,
-                app.packageName));
-        registerContextTarget(item, app, null);
-
-        final ImageView icon = new ImageView(this);
-        icon.setImageDrawable(app.icon);
-        item.addView(icon, new LinearLayout.LayoutParams(
-                desktopDp(44, 34), desktopDp(44, 34)));
-
-        final TextView label = new TextView(this);
-        label.setText(app.label);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(isCompactDesktopPreview() ? 10 : 12);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        final LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, dp(6), 0, 0);
-        item.addView(label, labelParams);
-        return item;
-    }
-
-    private boolean startDesktopShortcutDrag(final View view, final AppItem app) {
-        final ClipData data = ClipData.newPlainText(
-                getString(R.string.desktop_drag_label), app.packageName);
-        final View.DragShadowBuilder shadow = new View.DragShadowBuilder(view);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return view.startDragAndDrop(data, shadow, app.packageName, 0);
-        }
-        return view.startDrag(data, shadow, app.packageName, 0);
-    }
-
-    private View createDesktopFileIcon(final DesktopFile file) {
-        final LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(8), dp(6), dp(8), dp(6));
-        item.setClickable(true);
-        item.setFocusable(true);
-        item.setOnClickListener(view -> openDesktopFile(file));
-
-        final ImageView icon = new ImageView(this);
-        icon.setImageResource(file.directory
-                ? android.R.drawable.ic_menu_agenda
-                : desktopFileIcon(file.mimeType));
-        icon.setColorFilter(file.directory ? COLOR_AMBER : COLOR_CYAN);
-        item.addView(icon, new LinearLayout.LayoutParams(
-                desktopDp(44, 34), desktopDp(44, 34)));
-
-        final TextView label = new TextView(this);
-        label.setText(file.name);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(isCompactDesktopPreview() ? 10 : 12);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(TextUtils.TruncateAt.END);
-        final LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, dp(6), 0, 0);
-        item.addView(label, labelParams);
-        return item;
-    }
-
-    private int desktopFileIcon(final String mimeType) {
-        if (mimeType != null && mimeType.startsWith("image/")) {
-            return android.R.drawable.ic_menu_gallery;
-        }
-        if (mimeType != null && (mimeType.startsWith("audio/")
-                || mimeType.startsWith("video/"))) {
-            return android.R.drawable.ic_media_play;
-        }
-        return android.R.drawable.ic_menu_save;
-    }
-
-    private GridLayout.LayoutParams createDesktopItemParams() {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = desktopDp(104, 78);
-        params.height = desktopDp(94, 74);
-        params.setMargins(desktopDp(4, 2), desktopDp(4, 2),
-                desktopDp(4, 2), desktopDp(4, 2));
-        return params;
-    }
-
-    private int getDesktopColumnCount() {
-        final int availableDp = Math.max(1,
-                getResources().getConfiguration().screenWidthDp
-                        - (isCompactDesktopPreview() ? 20 : 48));
-        final int cellDp = isCompactDesktopPreview() ? 82 : 112;
-        return Math.max(1, Math.min(12, availableDp / cellDp));
-    }
-
-    private int getDesktopItemCapacity() {
-        final int heightDp = getResources().getConfiguration().screenHeightDp;
-        final int reservedDp = isCompactDesktopPreview() ? 116 : 158;
-        final int cellDp = isCompactDesktopPreview() ? 78 : 102;
-        final int rows = Math.max(1, (heightDp - reservedDp) / cellDp);
-        return getDesktopColumnCount() * rows;
-    }
-
-    private boolean handleDesktopShortcutDrop(final DragEvent event,
-            final String targetPackage) {
-        if (event.getAction() != DragEvent.ACTION_DROP) {
-            return event.getAction() == DragEvent.ACTION_DRAG_STARTED
-                    && event.getLocalState() instanceof String;
-        }
-        final Object state = event.getLocalState();
-        if (!(state instanceof String)) {
-            return false;
-        }
-        reorderDesktopShortcut((String) state, targetPackage);
-        return true;
-    }
-
-    private boolean handleDesktopGridDrop(final DragEvent event) {
-        final Object state = event.getLocalState();
-        if (!(state instanceof String)) {
-            return false;
-        }
-        if (event.getAction() == DragEvent.ACTION_DROP) {
-            final int cellWidth = desktopDp(112, 82);
-            final int cellHeight = desktopDp(102, 78);
-            final int column = Math.max(0, Math.min(
-                    getDesktopColumnCount() - 1,
-                    Math.round(event.getX()) / Math.max(1, cellWidth)));
-            final int row = Math.max(0,
-                    Math.round(event.getY()) / Math.max(1, cellHeight));
-            moveDesktopShortcut((String) state,
-                    row * getDesktopColumnCount() + column);
-        }
-        return true;
-    }
-
-    private void reorderDesktopShortcut(final String sourcePackage,
-            final String targetPackage) {
-        final List<String> packages = getWorkspaceProfile().desktopPackages;
-        final int sourceIndex = packages.indexOf(sourcePackage);
-        final int targetIndex = packages.indexOf(targetPackage);
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex == targetIndex) {
-            return;
-        }
-        moveDesktopShortcut(sourcePackage, targetIndex);
-    }
-
-    private void moveDesktopShortcut(final String sourcePackage, final int requestedIndex) {
-        final List<String> packages = getWorkspaceProfile().desktopPackages;
-        final int sourceIndex = packages.indexOf(sourcePackage);
-        if (sourceIndex < 0) {
-            return;
-        }
-        packages.remove(sourceIndex);
-        final int targetIndex = Math.max(0, Math.min(requestedIndex, packages.size()));
-        packages.add(targetIndex, sourcePackage);
-        saveWorkspaceProfile();
-        renderDesktopIcons(mLastApps);
+        mDesktopItemsController.render(apps);
     }
 
     void chooseDesktopFolder() {
-        hideAllPanels();
-        final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                        | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        final String currentUri = getWorkspaceProfile().folderUri;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && currentUri != null && currentUri.length() > 0) {
-            intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, Uri.parse(currentUri));
-        }
-        try {
-            startActivityForResult(intent, REQUEST_DESKTOP_FOLDER);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot open desktop folder picker", e);
-            setErrorStatus(
-                    "FILES-001",
-                    getString(R.string.status_desktop_folder_failed, e.getMessage()),
-                    "",
-                    e);
-        }
+        mDesktopItemsController.chooseFolder();
     }
 
     void clearDesktopFolder() {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        final String previous = profile.folderUri;
-        profile.folderUri = null;
-        saveWorkspaceProfile();
-        mLoadedFolderUri = null;
-        mDesktopFiles = Collections.emptyList();
-        if (previous != null) {
-            try {
-                getContentResolver().releasePersistableUriPermission(Uri.parse(previous),
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException ignored) {
-                // The provider may already have revoked the grant.
-            }
-        }
-        renderDesktopIcons(mLastApps);
-        setStatus(R.string.status_desktop_folder_hidden);
+        mDesktopItemsController.clearFolder();
     }
 
     void refreshDesktopFolder(final boolean force) {
-        if (!mDesktopMode) {
-            return;
-        }
-        final String folderUri = getWorkspaceProfile().folderUri;
-        if (folderUri == null || folderUri.length() == 0) {
-            if (!mDesktopFiles.isEmpty()) {
-                mDesktopFiles = Collections.emptyList();
-                renderDesktopIcons(mLastApps);
-            }
-            mLoadedFolderUri = null;
-            return;
-        }
-        if (!force && folderUri.equals(mLoadedFolderUri)) {
-            return;
-        }
-        mLoadedFolderUri = folderUri;
-        final int generation = ++mFolderLoadGeneration;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final List<DesktopFile> files;
-                try {
-                    files = mDesktopFileRepository.load(Uri.parse(folderUri));
-                } catch (RuntimeException e) {
-                    Log.w(TAG, "Cannot load desktop folder " + folderUri, e);
-                    runOnUiThread(() -> {
-                        if (generation == mFolderLoadGeneration) {
-                            mDesktopFiles = Collections.emptyList();
-                            renderDesktopIcons(mLastApps);
-                            setErrorStatus(
-                                    "FILES-002",
-                                    getString(R.string.status_desktop_folder_failed,
-                                            e.getMessage()),
-                                    "",
-                                    e);
-                        }
-                    });
-                    return;
-                }
-                runOnUiThread(() -> {
-                    if (generation != mFolderLoadGeneration || isFinishing()
-                            || isDestroyed()) {
-                        return;
-                    }
-                    mDesktopFiles = files;
-                    renderDesktopIcons(mLastApps);
-                });
-            }
-        }, "MagicDeskDesktopFolder").start();
-    }
-
-    private void openDesktopFile(final DesktopFile file) {
-        hideAllPanels();
-        final Intent intent = new Intent(Intent.ACTION_VIEW)
-                .setDataAndType(file.uri, file.mimeType == null ? "*/*" : file.mimeType)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_ACTIVITY_NEW_TASK);
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        invokeIntOption(options, "setLaunchDisplayId", getCurrentDisplayId());
-        try {
-            startActivity(intent, options.toBundle());
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot open desktop file " + file.uri, e);
-            setErrorStatus(
-                    "FILES-003",
-                    getString(R.string.status_desktop_file_failed, file.name),
-                    "mime=" + file.mimeType,
-                    e);
-        }
+        mDesktopItemsController.refreshFolder(force);
     }
 
     private void refreshTaskSnapshot() {
@@ -2514,7 +2173,7 @@ public class MainActivity extends Activity {
         DesktopPreferences.saveLegacyDesktopDpi(this, dpi);
     }
 
-    private WorkspaceProfileStore.Profile getWorkspaceProfile() {
+    WorkspaceProfileStore.Profile getWorkspaceProfile() {
         return mDisplayProfiles.getProfile();
     }
 
@@ -2530,15 +2189,14 @@ public class MainActivity extends Activity {
         return mDisplayProfiles.getMonitorLabel();
     }
 
-    private void saveWorkspaceProfile() {
+    void saveWorkspaceProfile() {
         mDisplayProfiles.save();
     }
 
     void onWorkspaceProfileReset() {
         mWorkspaceRestoreAttempted = false;
         mWorkspaceBoundsRestorePending = false;
-        mLoadedFolderUri = null;
-        mDesktopFiles = Collections.emptyList();
+        mDesktopItemsController.resetProfileState();
     }
 
     void onMonitorProfileResolved(
@@ -3017,7 +2675,7 @@ public class MainActivity extends Activity {
         return display == null ? 0 : display.getDisplayId();
     }
 
-    private static void invokeIntOption(final ActivityOptions options, final String methodName,
+    static void invokeIntOption(final ActivityOptions options, final String methodName,
             final int value) {
         try {
             final Method method = ActivityOptions.class.getMethod(methodName, Integer.TYPE);
@@ -3083,7 +2741,7 @@ public class MainActivity extends Activity {
         return mUi.rounded(color, radius, strokeColor);
     }
 
-    private void setStatus(final int stringResId) {
+    void setStatus(final int stringResId) {
         setStatus(getString(stringResId));
     }
 
@@ -3091,13 +2749,13 @@ public class MainActivity extends Activity {
         setErrorStatus(code, message, "", null);
     }
 
-    private void setErrorStatus(final String code, final String message,
+    void setErrorStatus(final String code, final String message,
             final String technicalDetail, final Throwable error) {
         CompatibilityDiagnostics.record(code, message, technicalDetail, error);
         setStatus(message + " [" + code + "]");
     }
 
-    private void setStatus(final String text) {
+    void setStatus(final String text) {
         mLastStatusText = text;
         if (mStatus != null) {
             mStatus.setText(text);
