@@ -33,32 +33,11 @@ public final class DeviceSetupActivity extends Activity {
     private static final String TAG = "MagicDeskSetup";
     private static final String EXTRA_MANUAL = "manual_setup";
     private static final int REQUEST_NOTIFICATIONS = 1;
+    private static final int COLOR_CYAN = DesktopUiFactory.COLOR_CYAN;
+    private static final int COLOR_RED = DesktopUiFactory.COLOR_RED;
+    private static final int COLOR_AMBER = DesktopUiFactory.COLOR_AMBER;
 
-    private static final int COLOR_BACKGROUND = 0xFF090D14;
-    private static final int COLOR_PANEL = 0xFF111827;
-    private static final int COLOR_PANEL_ALT = 0xFF172033;
-    private static final int COLOR_TEXT = 0xFFE5E7EB;
-    private static final int COLOR_MUTED = 0xFF94A3B8;
-    private static final int COLOR_CYAN = 0xFF22D3EE;
-    private static final int COLOR_RED = 0xFFF43F5E;
-    private static final int COLOR_AMBER = 0xFFF59E0B;
-
-    private TextView mSummary;
-    private TextView mRuntimeModeValue;
-    private TextView mDisplayTargetValue;
-    private TextView mDeviceValue;
-    private TextView mRootValue;
-    private TextView mOverlayValue;
-    private TextView mFreeformValue;
-    private TextView mResizableValue;
-    private TextView mRestrictionsValue;
-    private TextView mCornersValue;
-    private TextView mRebootValue;
-    private TextView mBuildValue;
-    private Button mPrimaryAction;
-    private Button mDiagnosticsAction;
-    private Button mSecondaryAction;
-    private Button mRestoreAction;
+    private DeviceSetupView mSetupView;
     private boolean mManual;
     private boolean mBusy;
     private boolean mContentCreated;
@@ -91,6 +70,7 @@ public final class DeviceSetupActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mSetupView = new DeviceSetupView(this);
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         mManual = getIntent().getBooleanExtra(EXTRA_MANUAL, false);
         Shizuku.addBinderReceivedListenerSticky(mShizukuBinderReceivedListener);
@@ -136,197 +116,11 @@ public final class DeviceSetupActivity extends Activity {
         if (mContentCreated) {
             return;
         }
-        setContentView(createContentView());
+        setContentView(mSetupView.create());
         mContentCreated = true;
     }
 
-    private View createContentView() {
-        final FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(COLOR_BACKGROUND);
-
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), dp(18), dp(20), dp(18));
-
-        final LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.VERTICAL);
-
-        final TextView title = new TextView(this);
-        title.setText(R.string.setup_title);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title);
-
-        final TextView subtitle = new TextView(this);
-        subtitle.setText(R.string.setup_subtitle);
-        subtitle.setTextColor(COLOR_MUTED);
-        subtitle.setTextSize(14);
-        final LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        subtitleParams.setMargins(0, dp(4), 0, 0);
-        header.addView(subtitle, subtitleParams);
-        page.addView(header);
-
-        mSummary = new TextView(this);
-        mSummary.setText(R.string.setup_status_checking);
-        mSummary.setTextColor(COLOR_CYAN);
-        mSummary.setTextSize(16);
-        mSummary.setTypeface(Typeface.DEFAULT_BOLD);
-        mSummary.setPadding(dp(12), dp(10), dp(12), dp(10));
-        mSummary.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_PANEL_ALT));
-        final LinearLayout.LayoutParams summaryParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        summaryParams.setMargins(0, dp(18), 0, dp(10));
-        page.addView(mSummary, summaryParams);
-
-        final ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        final LinearLayout rows = new LinearLayout(this);
-        rows.setOrientation(LinearLayout.VERTICAL);
-        rows.setBackgroundColor(COLOR_PANEL);
-        mRuntimeModeValue = addStatusRow(rows, R.string.setup_item_runtime_mode);
-        makeProfileValueInteractive(
-                mRuntimeModeValue, this::showPrivilegeModeChooser);
-        mDisplayTargetValue = addStatusRow(rows, R.string.setup_item_display_target);
-        makeProfileValueInteractive(
-                mDisplayTargetValue, this::showDisplayTargetChooser);
-        mDeviceValue = addStatusRow(rows, R.string.setup_item_device);
-        mRootValue = addStatusRow(rows, R.string.setup_item_root);
-        mOverlayValue = addStatusRow(rows, R.string.setup_item_overlays);
-        mFreeformValue = addStatusRow(rows, R.string.setup_item_freeform);
-        mResizableValue = addStatusRow(rows, R.string.setup_item_resizable);
-        mRestrictionsValue = addStatusRow(rows, R.string.setup_item_desktop_eligibility);
-        mCornersValue = addStatusRow(rows, R.string.setup_item_window_corners);
-        mRebootValue = addStatusRow(rows, R.string.setup_item_reboot);
-
-        final TextView buildLabel = new TextView(this);
-        buildLabel.setText(R.string.setup_build_label);
-        buildLabel.setTextColor(COLOR_MUTED);
-        buildLabel.setTextSize(12);
-        buildLabel.setPadding(dp(12), dp(12), dp(12), 0);
-        rows.addView(buildLabel);
-
-        mBuildValue = new TextView(this);
-        mBuildValue.setTextColor(COLOR_MUTED);
-        mBuildValue.setTextSize(11);
-        mBuildValue.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        mBuildValue.setSingleLine(true);
-        mBuildValue.setPadding(dp(12), dp(4), dp(12), dp(12));
-        rows.addView(mBuildValue);
-
-        scroll.addView(rows, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        final LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        page.addView(scroll, scrollParams);
-
-        final LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.VERTICAL);
-        actions.setPadding(0, dp(12), 0, 0);
-
-        mPrimaryAction = createActionButton(COLOR_CYAN);
-        actions.addView(mPrimaryAction, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)));
-
-        mDiagnosticsAction = createActionButton(COLOR_CYAN);
-        mDiagnosticsAction.setText(R.string.action_diagnostics);
-        mDiagnosticsAction.setOnClickListener(
-                view -> startActivity(DiagnosticsActivity.createIntent(this)));
-        final LinearLayout.LayoutParams diagnosticsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-        diagnosticsParams.setMargins(0, dp(8), 0, 0);
-        actions.addView(mDiagnosticsAction, diagnosticsParams);
-
-        final LinearLayout secondaryRow = new LinearLayout(this);
-        secondaryRow.setOrientation(LinearLayout.HORIZONTAL);
-        mSecondaryAction = createActionButton(COLOR_MUTED);
-        secondaryRow.addView(mSecondaryAction, new LinearLayout.LayoutParams(
-                0, dp(48), 1));
-        mRestoreAction = createActionButton(COLOR_AMBER);
-        final LinearLayout.LayoutParams restoreParams = new LinearLayout.LayoutParams(
-                0, dp(48), 1);
-        restoreParams.setMargins(dp(8), 0, 0, 0);
-        secondaryRow.addView(mRestoreAction, restoreParams);
-        final LinearLayout.LayoutParams secondaryParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        secondaryParams.setMargins(0, dp(8), 0, 0);
-        actions.addView(secondaryRow, secondaryParams);
-        page.addView(actions);
-        mPrimaryAction.setText(R.string.setup_action_recheck);
-        mSecondaryAction.setText(R.string.setup_action_exit);
-        mRestoreAction.setVisibility(View.GONE);
-
-        final FrameLayout.LayoutParams pageParams = new FrameLayout.LayoutParams(
-                Math.min(getResources().getDisplayMetrics().widthPixels - dp(24), dp(720)),
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                Gravity.CENTER_HORIZONTAL);
-        root.addView(page, pageParams);
-        return root;
-    }
-
-    private TextView addStatusRow(final LinearLayout parent, final int labelResId) {
-        final LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(11), dp(12), dp(11));
-
-        final TextView label = new TextView(this);
-        label.setText(labelResId);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(14);
-        row.addView(label, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        final TextView value = new TextView(this);
-        value.setText(R.string.setup_value_checking);
-        value.setTextColor(COLOR_MUTED);
-        value.setTextSize(13);
-        value.setGravity(Gravity.END);
-        value.setMaxLines(2);
-        row.addView(value, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        parent.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        final View divider = new View(this);
-        divider.setBackgroundColor(COLOR_PANEL_ALT);
-        parent.addView(divider, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-        return value;
-    }
-
-    private Button createActionButton(final int accentColor) {
-        final Button button = new Button(this);
-        button.setAllCaps(false);
-        button.setTextColor(Color.WHITE);
-        button.setSingleLine(true);
-        button.setEllipsize(TextUtils.TruncateAt.END);
-        button.setTextSize(14);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setPadding(dp(8), dp(6), dp(8), dp(6));
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(rounded(COLOR_PANEL_ALT, dp(6), accentColor));
-        return button;
-    }
-
-    private void makeProfileValueInteractive(
-            final TextView value, final View.OnClickListener listener) {
-        value.setClickable(true);
-        value.setFocusable(true);
-        value.setPadding(dp(8), dp(4), dp(8), dp(4));
-        value.setBackground(rounded(COLOR_PANEL_ALT, dp(5), COLOR_PANEL_ALT));
-        value.setOnClickListener(listener);
-    }
-
-    private void showPrivilegeModeChooser(final View ignored) {
+    void showPrivilegeModeChooser(final View ignored) {
         final SessionProfile.PrivilegeMode[] modes = {
                 SessionProfile.PrivilegeMode.AUTO,
                 SessionProfile.PrivilegeMode.BASIC,
@@ -356,7 +150,7 @@ public final class DeviceSetupActivity extends Activity {
                 .show();
     }
 
-    private void showDisplayTargetChooser(final View ignored) {
+    void showDisplayTargetChooser(final View ignored) {
         final SessionProfile.DisplayTarget[] targets = {
                 SessionProfile.DisplayTarget.AUTO,
                 SessionProfile.DisplayTarget.PRIMARY,
@@ -425,7 +219,7 @@ public final class DeviceSetupActivity extends Activity {
 
     private void renderAudit(final DeviceSetupManager.Audit audit) {
         renderProfileSelection();
-        setStatusValue(mDeviceValue,
+        setStatusValue(mSetupView.deviceValue(),
                 audit.compatibleDevice
                         ? getString(audit.verifiedDevice
                                         ? R.string.setup_value_supported
@@ -440,7 +234,7 @@ public final class DeviceSetupActivity extends Activity {
                         || mSessionProfile.privilegeMode
                                 == SessionProfile.PrivilegeMode.ROOT;
         setStatusValue(
-                mRootValue,
+                mSetupView.rootValue(),
                 rootRelevant
                         ? getString(audit.rootAvailable
                                 ? R.string.setup_value_available
@@ -449,189 +243,189 @@ public final class DeviceSetupActivity extends Activity {
                 !rootRelevant || audit.rootAvailable);
         final boolean overlaysGranted = Settings.canDrawOverlays(this);
         setStatusValue(
-                mOverlayValue,
+                mSetupView.overlayValue(),
                 getString(overlaysGranted
                         ? R.string.setup_value_available
                         : R.string.setup_value_unavailable),
                 overlaysGranted);
-        setStatusValue(mFreeformValue,
+        setStatusValue(mSetupView.freeformValue(),
                 getString(audit.freeformEnabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),
                 audit.freeformEnabled);
-        setStatusValue(mResizableValue,
+        setStatusValue(mSetupView.resizableValue(),
                 getString(audit.resizableEnabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),
                 audit.resizableEnabled);
-        setStatusValue(mRestrictionsValue,
+        setStatusValue(mSetupView.restrictionsValue(),
                 getString(audit.restrictionsDisabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),
                 audit.restrictionsDisabled);
-        setStatusValue(mCornersValue,
+        setStatusValue(mSetupView.cornersValue(),
                 getString(audit.roundedCornersDisabled
                         ? R.string.setup_value_square : R.string.setup_value_rounded),
                 audit.roundedCornersDisabled);
-        setStatusValue(mRebootValue,
+        setStatusValue(mSetupView.rebootValue(),
                 getString(audit.rebootRequired
                         ? R.string.setup_value_required : R.string.setup_value_not_required),
                 !audit.rebootRequired);
-        mBuildValue.setText(getString(
+        mSetupView.buildValue().setText(getString(
                 R.string.setup_build_value, audit.androidRelease, audit.fingerprint));
 
-        mPrimaryAction.setVisibility(View.VISIBLE);
-        mSecondaryAction.setVisibility(View.VISIBLE);
-        mRestoreAction.setVisibility(
+        mSetupView.primaryAction().setVisibility(View.VISIBLE);
+        mSetupView.secondaryAction().setVisibility(View.VISIBLE);
+        mSetupView.restoreAction().setVisibility(
                 audit.rootAvailable && audit.hasManagedChanges ? View.VISIBLE : View.GONE);
-        mRestoreAction.setText(R.string.setup_action_restore);
-        mRestoreAction.setOnClickListener(view -> confirmRestore());
+        mSetupView.restoreAction().setText(R.string.setup_action_restore);
+        mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
         if (mSessionProfile.privilegeMode
                 == SessionProfile.PrivilegeMode.SHIZUKU) {
             if (!audit.shizuku.running) {
-                mSummary.setText(audit.shizuku.installed
+                mSetupView.summary().setText(audit.shizuku.installed
                         ? R.string.setup_status_shizuku_stopped
                         : R.string.setup_status_shizuku_not_installed);
-                mSummary.setTextColor(COLOR_AMBER);
-                mPrimaryAction.setText(audit.shizuku.installed
+                mSetupView.summary().setTextColor(COLOR_AMBER);
+                mSetupView.primaryAction().setText(audit.shizuku.installed
                         ? R.string.setup_action_open_shizuku
                         : R.string.setup_action_get_shizuku);
-                mPrimaryAction.setOnClickListener(
+                mSetupView.primaryAction().setOnClickListener(
                         view -> ShizukuAccess.openManagerOrWebsite(this));
                 setCloseAction();
                 return;
             }
             if (!audit.shizuku.permissionGranted) {
-                mSummary.setText(R.string.setup_status_shizuku_permission);
-                mSummary.setTextColor(COLOR_AMBER);
-                mPrimaryAction.setText(R.string.setup_action_allow_shizuku);
-                mPrimaryAction.setOnClickListener(
+                mSetupView.summary().setText(R.string.setup_status_shizuku_permission);
+                mSetupView.summary().setTextColor(COLOR_AMBER);
+                mSetupView.primaryAction().setText(R.string.setup_action_allow_shizuku);
+                mSetupView.primaryAction().setOnClickListener(
                         view -> requestShizukuPermission());
                 setCloseAction();
                 return;
             }
             if (audit.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
                     && audit.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
-                mSummary.setText(getString(
+                mSetupView.summary().setText(getString(
                         R.string.setup_status_shizuku_failed,
                         audit.shizuku.error));
-                mSummary.setTextColor(COLOR_RED);
-                mPrimaryAction.setText(R.string.setup_action_recheck);
-                mPrimaryAction.setOnClickListener(view -> runAudit());
+                mSetupView.summary().setTextColor(COLOR_RED);
+                mSetupView.primaryAction().setText(R.string.setup_action_recheck);
+                mSetupView.primaryAction().setOnClickListener(view -> runAudit());
                 setCloseAction();
                 return;
             }
         }
         if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.ROOT
                 && !audit.rootAvailable) {
-            mSummary.setText(R.string.setup_status_root_mode_unavailable);
-            mSummary.setTextColor(COLOR_RED);
-            mPrimaryAction.setText(R.string.setup_action_retry_root);
-            mPrimaryAction.setOnClickListener(view -> runAudit());
+            mSetupView.summary().setText(R.string.setup_status_root_mode_unavailable);
+            mSetupView.summary().setTextColor(COLOR_RED);
+            mSetupView.primaryAction().setText(R.string.setup_action_retry_root);
+            mSetupView.primaryAction().setOnClickListener(view -> runAudit());
             setCloseAction();
             return;
         }
         if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
                 && !audit.rootAvailable) {
-            mSummary.setText(audit.rootError.isEmpty()
+            mSetupView.summary().setText(audit.rootError.isEmpty()
                     ? getString(R.string.setup_status_root_required)
                     : getString(R.string.setup_status_root_failed, audit.rootError));
-            mSummary.setTextColor(COLOR_AMBER);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
         }
         if (!audit.compatibleDevice) {
-            mSummary.setText(R.string.setup_status_unsupported);
-            mSummary.setTextColor(COLOR_RED);
-            mPrimaryAction.setText(R.string.setup_action_recheck);
-            mPrimaryAction.setOnClickListener(view -> runAudit());
+            mSetupView.summary().setText(R.string.setup_status_unsupported);
+            mSetupView.summary().setTextColor(COLOR_RED);
+            mSetupView.primaryAction().setText(R.string.setup_action_recheck);
+            mSetupView.primaryAction().setOnClickListener(view -> runAudit());
             setCloseAction();
             return;
         }
         if (audit.rebootRequired
                 && (audit.configurationReady || !audit.hasManagedChanges)) {
-            mSummary.setText(R.string.setup_status_reboot_required);
-            mSummary.setTextColor(COLOR_AMBER);
-            mPrimaryAction.setText(R.string.setup_action_reboot_now);
-            mPrimaryAction.setOnClickListener(view -> confirmReboot());
-            mSecondaryAction.setText(R.string.setup_action_later);
-            mSecondaryAction.setOnClickListener(view -> finishSetupScreen());
+            mSetupView.summary().setText(R.string.setup_status_reboot_required);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(R.string.setup_action_reboot_now);
+            mSetupView.primaryAction().setOnClickListener(view -> confirmReboot());
+            mSetupView.secondaryAction().setText(R.string.setup_action_later);
+            mSetupView.secondaryAction().setOnClickListener(view -> finishSetupScreen());
             return;
         }
         if (!audit.configurationReady
                 && audit.backend == RuntimeAccess.Backend.ROOT) {
-            mSummary.setText(R.string.setup_status_configuration_required);
-            mSummary.setTextColor(COLOR_AMBER);
-            mPrimaryAction.setText(R.string.setup_action_configure);
-            mPrimaryAction.setOnClickListener(view -> configureDevice());
+            mSetupView.summary().setText(R.string.setup_status_configuration_required);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(R.string.setup_action_configure);
+            mSetupView.primaryAction().setOnClickListener(view -> configureDevice());
             setCloseAction();
             return;
         }
         if (!overlaysGranted) {
-            mSummary.setText(R.string.setup_status_overlay_required);
-            mSummary.setTextColor(COLOR_AMBER);
-            mPrimaryAction.setText(R.string.setup_action_grant_overlay);
-            mPrimaryAction.setOnClickListener(view -> openOverlayPermission());
-            mSecondaryAction.setText(
+            mSetupView.summary().setText(R.string.setup_status_overlay_required);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(R.string.setup_action_grant_overlay);
+            mSetupView.primaryAction().setOnClickListener(view -> openOverlayPermission());
+            mSetupView.secondaryAction().setText(
                     R.string.setup_action_continue_without_overlay);
-            mSecondaryAction.setOnClickListener(view -> continueFromSetup());
+            mSetupView.secondaryAction().setOnClickListener(view -> continueFromSetup());
             return;
         }
 
         if (audit.backend == RuntimeAccess.Backend.BASIC) {
-            mSummary.setText(audit.isDegradedRuntime()
+            mSetupView.summary().setText(audit.isDegradedRuntime()
                     ? R.string.setup_status_basic_degraded
                     : R.string.setup_status_basic_ready);
-            mSummary.setTextColor(
+            mSetupView.summary().setTextColor(
                     audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
-            mPrimaryAction.setText(mManual
+            mSetupView.primaryAction().setText(mManual
                     ? R.string.setup_action_done : R.string.setup_action_continue);
-            mPrimaryAction.setOnClickListener(view -> continueFromSetup());
-            mSecondaryAction.setText(R.string.setup_action_recheck);
-            mSecondaryAction.setOnClickListener(view -> runAudit());
+            mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
+            mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
+            mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
             return;
         }
         if (audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
                 || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT) {
-            mSummary.setText(audit.isDegradedRuntime()
+            mSetupView.summary().setText(audit.isDegradedRuntime()
                     ? getString(
                             R.string.setup_status_shizuku_degraded,
                             audit.shizuku.uid)
                     : getString(
                             R.string.setup_status_shizuku_ready,
                             audit.shizuku.uid));
-            mSummary.setTextColor(
+            mSetupView.summary().setTextColor(
                     audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
-            mPrimaryAction.setText(mManual
+            mSetupView.primaryAction().setText(mManual
                     ? R.string.setup_action_done : R.string.setup_action_continue);
-            mPrimaryAction.setOnClickListener(view -> continueFromSetup());
-            mSecondaryAction.setText(R.string.setup_action_recheck);
-            mSecondaryAction.setOnClickListener(view -> runAudit());
+            mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
+            mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
+            mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
             return;
         }
 
-        mSummary.setText(audit.verifiedDevice
+        mSetupView.summary().setText(audit.verifiedDevice
                 ? R.string.setup_status_ready : R.string.setup_status_unverified);
-        mSummary.setTextColor(audit.verifiedDevice ? COLOR_CYAN : COLOR_AMBER);
-        mPrimaryAction.setText(mManual
+        mSetupView.summary().setTextColor(audit.verifiedDevice ? COLOR_CYAN : COLOR_AMBER);
+        mSetupView.primaryAction().setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);
-        mPrimaryAction.setOnClickListener(view -> continueFromSetup());
-        mSecondaryAction.setText(R.string.setup_action_recheck);
-        mSecondaryAction.setOnClickListener(view -> runAudit());
+        mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
+        mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
+        mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
     }
 
     private void setCloseAction() {
-        mSecondaryAction.setText(mManual
+        mSetupView.secondaryAction().setText(mManual
                 ? android.R.string.cancel : R.string.setup_action_exit);
-        mSecondaryAction.setOnClickListener(view -> finishSetupScreen());
+        mSetupView.secondaryAction().setOnClickListener(view -> finishSetupScreen());
     }
 
     private void renderProfileSelection() {
-        if (mRuntimeModeValue != null) {
-            mRuntimeModeValue.setText(privilegeModeLabel(
+        if (mSetupView.runtimeModeValue() != null) {
+            mSetupView.runtimeModeValue().setText(privilegeModeLabel(
                     mSessionProfile.privilegeMode));
-            mRuntimeModeValue.setTextColor(COLOR_CYAN);
+            mSetupView.runtimeModeValue().setTextColor(COLOR_CYAN);
         }
-        if (mDisplayTargetValue != null) {
-            mDisplayTargetValue.setText(displayTargetLabel(
+        if (mSetupView.displayTargetValue() != null) {
+            mSetupView.displayTargetValue().setText(displayTargetLabel(
                     mSessionProfile.displayTarget));
-            mDisplayTargetValue.setTextColor(COLOR_CYAN);
+            mSetupView.displayTargetValue().setTextColor(COLOR_CYAN);
         }
     }
 
@@ -814,13 +608,13 @@ public final class DeviceSetupActivity extends Activity {
             return;
         }
         if (statusResId != 0) {
-            mSummary.setText(statusResId);
-            mSummary.setTextColor(COLOR_CYAN);
+            mSetupView.summary().setText(statusResId);
+            mSetupView.summary().setTextColor(COLOR_CYAN);
         }
-        mPrimaryAction.setEnabled(!busy);
-        mDiagnosticsAction.setEnabled(!busy);
-        mSecondaryAction.setEnabled(!busy);
-        mRestoreAction.setEnabled(!busy);
+        mSetupView.primaryAction().setEnabled(!busy);
+        mSetupView.diagnosticsAction().setEnabled(!busy);
+        mSetupView.secondaryAction().setEnabled(!busy);
+        mSetupView.restoreAction().setEnabled(!busy);
     }
 
     private void setStatusValue(
@@ -931,19 +725,6 @@ public final class DeviceSetupActivity extends Activity {
 
     private boolean isActivityUnavailable() {
         return isFinishing() || isDestroyed();
-    }
-
-    private GradientDrawable rounded(
-            final int color, final int radius, final int strokeColor) {
-        final GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(radius);
-        drawable.setStroke(dp(1), strokeColor);
-        return drawable;
-    }
-
-    private int dp(final int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private interface SetupOperation {
