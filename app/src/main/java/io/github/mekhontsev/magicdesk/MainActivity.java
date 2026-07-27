@@ -83,8 +83,6 @@ import java.util.WeakHashMap;
 
 public class MainActivity extends Activity {
     private static final String TAG = "MagicDesk";
-    private static final String WM = "/system/bin/wm";
-    private static final String SETTINGS = "/system/bin/settings";
     private static final String AM = "/system/bin/am";
     private static final String TOOLS_KEYBOARD_WATCHER_SERVICE =
             "io.github.mekhontsev.magicdesk/.KeyboardWatcherService";
@@ -94,7 +92,6 @@ public class MainActivity extends Activity {
             "magicdesk_hardware_keyboard_layout_label";
     static final String HARDWARE_LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
-    private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
     static final String EXTRA_ACTION = "magicdesk_action";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
@@ -106,15 +103,9 @@ public class MainActivity extends Activity {
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private static WeakReference<MainActivity> sDesktopInstance =
             new WeakReference<>(null);
-    private static final Set<String> DENSITY_APPLY_KEYS =
-            Collections.synchronizedSet(new HashSet<String>());
 
     private LinearLayout mContent;
     private FrameLayout mDesktopRoot;
-    private Button mPhoneScreenAction;
-    private TextView mToolsStatus;
-    private TextView mToolsActivityStatus;
-    private ContentObserver mConsoleSettingsObserver;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private TextView mStatus;
     private DesktopWallpaperController mDesktopWallpaperController;
@@ -131,16 +122,14 @@ public class MainActivity extends Activity {
     private AltTabController mAltTabController;
     private WorkspaceController mWorkspaceController;
     private AppTaskController mAppTasks;
+    private DisplayDensityController mDisplayDensityController;
+    private ConsoleControlsController mConsoleControls;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
-    private BroadcastReceiver mBatteryReceiver;
-    private final Set<Button> mConsoleModeActions = Collections.newSetFromMap(
-            new WeakHashMap<Button, Boolean>());
     private boolean mDesktopMode;
-    private boolean mConsoleDensityApplyStarted;
     private boolean mPanelBackDown;
     private boolean mContextButtonDown;
     private boolean mContextButtonTouchSequence;
@@ -149,7 +138,6 @@ public class MainActivity extends Activity {
     private int mTaskRefreshGeneration;
     private float mLastPointerX;
     private float mLastPointerY;
-    private String mLastStatusText;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -190,6 +178,8 @@ public class MainActivity extends Activity {
         mAltTabController = new AltTabController(this);
         mWorkspaceController = new WorkspaceController(this);
         mAppTasks = new AppTaskController(this);
+        mDisplayDensityController = new DisplayDensityController(this);
+        mConsoleControls = new ConsoleControlsController(this, mUi);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -205,8 +195,7 @@ public class MainActivity extends Activity {
         if (mDesktopMode) {
             mNotifications.start();
         }
-        registerBatteryReceiver();
-        registerConsoleSettingsObserver();
+        mConsoleControls.start();
         mDisplayProfiles.start();
         if (RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
             KeyboardWatcherService.start(this);
@@ -264,18 +253,7 @@ public class MainActivity extends Activity {
         if (sDesktopInstance.get() == this) {
             sDesktopInstance.clear();
         }
-        if (mConsoleSettingsObserver != null) {
-            getContentResolver().unregisterContentObserver(mConsoleSettingsObserver);
-            mConsoleSettingsObserver = null;
-        }
-        if (mBatteryReceiver != null) {
-            try {
-                unregisterReceiver(mBatteryReceiver);
-            } catch (IllegalArgumentException ignored) {
-                // The receiver may already be detached during process teardown.
-            }
-            mBatteryReceiver = null;
-        }
+        mConsoleControls.stop();
         super.onDestroy();
     }
 
@@ -453,6 +431,14 @@ public class MainActivity extends Activity {
 
     NotificationCenterController notifications() {
         return mNotifications;
+    }
+
+    TaskbarController taskbar() {
+        return mTaskbarController;
+    }
+
+    void scheduleDisplayProfileRefresh() {
+        mDisplayProfiles.scheduleRefresh();
     }
 
     TaskRepository.Snapshot getTaskSnapshot() {
@@ -1238,187 +1224,11 @@ public class MainActivity extends Activity {
     }
 
     private void updateConsoleControls() {
-        mTaskbarController.updateKeyboardLayout();
-
-        final boolean phoneScreenOff = isPhoneScreenOff();
-        final boolean phoneScreenControl =
-                RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL);
-        final int actionResId = phoneScreenOff
-                ? R.string.action_phone_screen_on
-                : R.string.action_phone_screen_off;
-        mTaskbarController.updatePhoneScreen(
-                phoneScreenOff, phoneScreenControl);
-        if (mPhoneScreenAction != null) {
-            mPhoneScreenAction.setText(actionResId);
-            mPhoneScreenAction.setEnabled(phoneScreenControl);
-        }
-        if (mToolsStatus != null) {
-            mToolsStatus.setText(getString(R.string.tools_status_full,
-                    Integer.valueOf(getCurrentDisplayId()),
-                    Integer.valueOf(getResources().getDisplayMetrics().densityDpi),
-                    getString(phoneScreenOff ? R.string.state_off : R.string.state_on),
-                    RuntimeAccess.backendName(),
-                    getString(RootKeyboardShortcutWatcher.isRunning()
-                            ? R.string.state_ready : R.string.state_unavailable),
-                    getMonitorProfileLabel()));
-        }
-        final boolean consoleModeActive = isConsoleModeActive();
-        final boolean consoleControl =
-                RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL);
-        for (final Button action : mConsoleModeActions) {
-            action.setText(consoleModeActive
-                    ? R.string.action_switch_to_mirror
-                    : R.string.action_start_console_mode);
-            action.setEnabled(consoleControl);
-        }
-        updateSystemStatusIndicator();
-    }
-
-    private void updateSystemStatusIndicator() {
-        final boolean console = isConsoleModeActive();
-        final boolean bridge = RootKeyboardShortcutWatcher.isRunning();
-        mTaskbarController.updateSystemStatus(console, bridge);
-    }
-
-    private boolean isConsoleModeActive() {
-        try {
-            return Settings.Global.getInt(
-                    getContentResolver(), "app_mirror_displayid", -1) > 0;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot read Console Mode state", e);
-            return false;
-        }
-    }
-
-    private void registerBatteryReceiver() {
-        mBatteryReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(final Context context, final Intent intent) {
-                updateBatteryStatus(intent);
-            }
-        };
-        final Intent battery = registerReceiver(mBatteryReceiver,
-                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        if (battery != null) {
-            updateBatteryStatus(battery);
-        }
-    }
-
-    private void updateBatteryStatus(final Intent battery) {
-        mTaskbarController.updateBattery(battery);
-    }
-
-    private void registerConsoleSettingsObserver() {
-        mConsoleSettingsObserver = new ContentObserver(
-                new Handler(Looper.getMainLooper())) {
-            @Override
-            public void onChange(final boolean selfChange) {
-                updateConsoleControls();
-                mDisplayProfiles.scheduleRefresh();
-            }
-        };
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(HARDWARE_LAYOUT_STATE),
-                false, mConsoleSettingsObserver);
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(HARDWARE_LAYOUT_LABEL_STATE),
-                false, mConsoleSettingsObserver);
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(HARDWARE_LAYOUT_NAME_STATE),
-                false, mConsoleSettingsObserver);
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(PHONE_SCREEN_OFF_STATE),
-                false, mConsoleSettingsObserver);
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor("app_mirror_displayid"),
-                false, mConsoleSettingsObserver);
-    }
-
-    private boolean isPhoneScreenOff() {
-        try {
-            return Settings.Global.getInt(
-                    getContentResolver(), PHONE_SCREEN_OFF_STATE, 0) == 1;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot read phone screen state", e);
-            return false;
-        }
+        mConsoleControls.update();
     }
 
     void togglePhoneScreen() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
-            return;
-        }
-        final boolean screenOff = !isPhoneScreenOff();
-        mTaskbarController.setPhoneScreenActionEnabled(false);
-        if (mPhoneScreenAction != null) {
-            mPhoneScreenAction.setEnabled(false);
-        }
-        setStatus(R.string.status_phone_screen_applying);
-        ConsoleModeSwitcher.setPhoneScreenOff(screenOff,
-                new ConsoleModeSwitcher.ResultCallback() {
-                    @Override
-                    public void onComplete(final boolean success) {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                updateConsoleControls();
-                                final int resultResId;
-                                if (!success) {
-                                    resultResId = R.string.status_phone_screen_failed;
-                                } else if (screenOff) {
-                                    resultResId = R.string.status_phone_screen_off;
-                                } else {
-                                    resultResId = R.string.status_phone_screen_on;
-                                }
-                                if (success) {
-                                    setStatus(resultResId);
-                                } else {
-                                    setErrorStatus(
-                                            "NUBIA-SCREEN-001",
-                                            getString(resultResId));
-                                }
-                            }
-                        });
-                    }
-                });
-    }
-
-    private void toggleConsoleMode() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
-            return;
-        }
-        if (!isConsoleModeActive()) {
-            setStatus(R.string.status_console_starting);
-            ConsoleModeSwitcher.showMagicDesk();
-            return;
-        }
-
-        for (final Button action : mConsoleModeActions) {
-            action.setEnabled(false);
-        }
-        setStatus(R.string.status_mirror_switching);
-        ConsoleModeSwitcher.switchToMirror(new ConsoleModeSwitcher.ResultCallback() {
-            @Override
-            public void onComplete(final boolean success) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        updateConsoleControls();
-                        final int result = success
-                                ? R.string.status_mirror_active
-                                : R.string.status_mirror_failed;
-                        if (success) {
-                            setStatus(result);
-                        } else {
-                            setErrorStatus(
-                                    "NUBIA-CONSOLE-001",
-                                    getString(result));
-                        }
-                    }
-                });
-            }
-        });
+        mConsoleControls.togglePhoneScreen();
     }
 
     private void addDock(final List<AppItem> apps) {
@@ -1503,140 +1313,10 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    void populateToolsControls(final LinearLayout parent, final int spacing) {
-        final TextView dpiLabel = new TextView(this);
-        dpiLabel.setText(R.string.dpi_label);
-        dpiLabel.setTextColor(COLOR_TEXT);
-        dpiLabel.setTextSize(14);
-        final LinearLayout.LayoutParams dpiLabelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        dpiLabelParams.setMargins(0, 0, 0, dp(6));
-        parent.addView(dpiLabel, dpiLabelParams);
-
-        final GridLayout dpiGrid = new GridLayout(this);
-        dpiGrid.setColumnCount(5);
-        addDpiButton(dpiGrid, 160);
-        addDpiButton(dpiGrid, 192);
-        addDpiButton(dpiGrid, 240);
-        addDpiButton(dpiGrid, 320);
-        addDpiResetButton(dpiGrid);
-        parent.addView(dpiGrid, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mToolsStatus = new TextView(this);
-        mToolsStatus.setTextColor(COLOR_MUTED);
-        mToolsStatus.setTextSize(13);
-        final LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.setMargins(0, spacing, 0, 0);
-        parent.addView(mToolsStatus, statusParams);
-
-        mToolsActivityStatus = new TextView(this);
-        mToolsActivityStatus.setTextColor(COLOR_TEXT);
-        mToolsActivityStatus.setTextSize(13);
-        if (!TextUtils.isEmpty(mLastStatusText)) {
-            mToolsActivityStatus.setText(mLastStatusText);
-        }
-        final LinearLayout.LayoutParams activityStatusParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        activityStatusParams.setMargins(0, spacing, 0, 0);
-        parent.addView(mToolsActivityStatus, activityStatusParams);
-
-        final GridLayout actionGrid = new GridLayout(this);
-        actionGrid.setColumnCount(2);
-
-        mPhoneScreenAction = createActionButton(
-                R.string.action_phone_screen_off, COLOR_CYAN);
-        mPhoneScreenAction.setOnClickListener(view -> togglePhoneScreen());
-        addToolsActionButton(actionGrid, mPhoneScreenAction, false);
-
-        final Button consoleMode = createActionButton(
-                R.string.action_switch_to_mirror, COLOR_CYAN);
-        mConsoleModeActions.add(consoleMode);
-        consoleMode.setOnClickListener(view -> toggleConsoleMode());
-        addToolsActionButton(actionGrid, consoleMode, false);
-
-        final Button restartShortcuts = createActionButton(
-                R.string.action_restart_shortcuts, COLOR_AMBER);
-        restartShortcuts.setOnClickListener(view -> restartConsoleShortcuts());
-        restartShortcuts.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT));
-        addToolsActionButton(actionGrid, restartShortcuts, false);
-
-        final Button deviceSetup = createActionButton(
-                R.string.action_device_setup, COLOR_CYAN);
-        deviceSetup.setOnClickListener(view -> {
-            hideAllPanels();
-            startActivity(DeviceSetupActivity.createManualIntent(this));
-        });
-        addToolsActionButton(actionGrid, deviceSetup, false);
-
-        final Button diagnostics = createActionButton(
-                R.string.action_diagnostics, COLOR_CYAN);
-        diagnostics.setOnClickListener(view -> openDiagnostics());
-        addToolsActionButton(actionGrid, diagnostics, false);
-
-        if (RuntimeAccess.has(RuntimeAccess.Capability.KERNEL_FIXES)
-                && KernelFixesIntegration.isAvailable(this)) {
-            addToolsActionButton(actionGrid, createKernelFixesAction(), false);
-        }
-
-        final Button exit = createActionButton(R.string.action_exit, COLOR_RED);
-        exit.setOnClickListener(view -> exitMagicDesk());
-        addToolsActionButton(actionGrid, exit, false);
-
-        final LinearLayout.LayoutParams actionGridParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        actionGridParams.setMargins(0, spacing, 0, 0);
-        parent.addView(actionGrid, actionGridParams);
-        updateConsoleControls();
-    }
-
-    private void addToolsActionButton(final GridLayout grid, final Button button,
-            final boolean fullRow) {
-        button.setSingleLine(false);
-        button.setMaxLines(2);
-        button.setGravity(Gravity.CENTER);
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
-        params.columnSpec = fullRow
-                ? GridLayout.spec(0, 2, 1f)
-                : GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(3), dp(3), dp(3), dp(3));
-        grid.addView(button, params);
-    }
-
-    private void addDpiButton(final GridLayout grid, final int dpi) {
-        final Button button = createActionButton(getString(R.string.dpi_value, Integer.valueOf(dpi)),
-                COLOR_CYAN);
-        button.setOnClickListener(view -> applyDensity(dpi));
-        button.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES));
-        grid.addView(button, createDpiButtonParams());
-    }
-
-    private void addDpiResetButton(final GridLayout grid) {
-        final Button button = createActionButton(R.string.action_dpi_reset, COLOR_RED);
-        button.setOnClickListener(view -> resetDensity());
-        button.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES));
-        grid.addView(button, createDpiButtonParams());
-    }
-
-    private GridLayout.LayoutParams createDpiButtonParams() {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(3), dp(3), dp(3), dp(3));
-        return params;
+    void populateToolsControls(
+            final LinearLayout parent,
+            final int spacing) {
+        mConsoleControls.populate(parent, spacing);
     }
 
     private void addSection(final int titleResId, final List<AppItem> apps,
@@ -1769,11 +1449,11 @@ public class MainActivity extends Activity {
         recreate();
     }
 
-    private int getPreferredDesktopDpi() {
+    int getPreferredDesktopDpi() {
         return getWorkspaceProfile().dpi;
     }
 
-    private void setPreferredDesktopDpi(final int dpi) {
+    void setPreferredDesktopDpi(final int dpi) {
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         profile.dpi = dpi;
         saveWorkspaceProfile();
@@ -1792,7 +1472,7 @@ public class MainActivity extends Activity {
         mDisplayProfiles.resolveMonitorIdentityAsync();
     }
 
-    private String getMonitorProfileLabel() {
+    String getMonitorProfileLabel() {
         return mDisplayProfiles.getMonitorLabel();
     }
 
@@ -1812,7 +1492,7 @@ public class MainActivity extends Activity {
         refreshDesktopFolder(true);
         updateConsoleControls();
         if (resolvedDpi != previousDpi) {
-            mConsoleDensityApplyStarted = false;
+            mDisplayDensityController.resetApplyState();
             ensurePreferredConsoleDensity();
         }
     }
@@ -1898,7 +1578,7 @@ public class MainActivity extends Activity {
         }, "MagicDeskRestartShortcuts").start();
     }
 
-    private Button createKernelFixesAction() {
+    Button createKernelFixesAction() {
         final Button action = createActionButton(
                 R.string.action_kernel_fixes, COLOR_AMBER);
         action.setOnClickListener(view -> {
@@ -1912,7 +1592,7 @@ public class MainActivity extends Activity {
         return action;
     }
 
-    private void exitMagicDesk() {
+    void exitMagicDesk() {
         if (mExitInProgress) {
             return;
         }
@@ -2002,148 +1682,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void applyDensity(final int dpi) {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
-            return;
-        }
-        final int displayId = getCurrentDisplayId();
-        if (displayId > 0) {
-            setPreferredDesktopDpi(dpi);
-        }
-        setStatus(getString(R.string.status_dpi_applying,
-                Integer.valueOf(dpi), Integer.valueOf(displayId)));
-        runRootAction(WM + " density " + dpi + " -d " + displayId,
-                getString(R.string.status_dpi_applied,
-                        Integer.valueOf(dpi), Integer.valueOf(displayId)));
+    void applyDensity(final int dpi) {
+        mDisplayDensityController.apply(dpi);
     }
 
-    private void resetDensity() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
-            return;
-        }
-        final int displayId = getCurrentDisplayId();
-        final String command;
-        if (displayId > 0) {
-            setPreferredDesktopDpi(DesktopPreferences.DEFAULT_DESKTOP_DPI);
-            command = WM + " density " + DesktopPreferences.DEFAULT_DESKTOP_DPI
-                    + " -d " + displayId;
-        } else {
-            command = WM + " density reset -d " + displayId;
-        }
-        setStatus(getString(R.string.status_dpi_resetting,
-                Integer.valueOf(displayId)));
-        runRootAction(command,
-                getString(R.string.status_dpi_reset, Integer.valueOf(displayId)));
+    void resetDensity() {
+        mDisplayDensityController.reset();
     }
 
     private void ensurePreferredConsoleDensity() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
-            return;
-        }
-        final int displayId = getCurrentDisplayId();
-        if (mConsoleDensityApplyStarted || displayId <= 0) {
-            return;
-        }
-        final int targetDpi = getPreferredDesktopDpi();
-        final int currentDpi = getResources().getDisplayMetrics().densityDpi;
-        if (currentDpi == targetDpi) {
-            return;
-        }
-        final String applyKey = displayId + ":" + targetDpi;
-        if (!DENSITY_APPLY_KEYS.add(applyKey)) {
-            return;
-        }
-        mConsoleDensityApplyStarted = true;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    final int mirrorDisplayId = getMirrorDisplayId();
-                    if (mirrorDisplayId != displayId) {
-                        Log.i(TAG, "skip default DPI for non-mirror display " + displayId);
-                        return;
-                    }
-                    final int configuredDpi = getConfiguredDisplayDensity(displayId);
-                    if (configuredDpi == targetDpi) {
-                        Log.i(TAG, "Console display DPI already configured display="
-                                + displayId + " dpi=" + targetDpi);
-                        return;
-                    }
-                    runOnUiThread(() -> setStatus(getString(
-                            R.string.status_dpi_desktop_applying,
-                            Integer.valueOf(targetDpi),
-                            Integer.valueOf(displayId),
-                            Integer.valueOf(configuredDpi > 0
-                                    ? configuredDpi : currentDpi))));
-                    runRootCommand(WM + " density " + targetDpi + " -d "
-                            + displayId);
-                    runOnUiThread(() -> setStatus(getString(
-                            R.string.status_dpi_desktop_applied,
-                            Integer.valueOf(targetDpi),
-                            Integer.valueOf(displayId))));
-                } catch (IOException e) {
-                    Log.w(TAG, "desktop DPI failed", e);
-                    runOnUiThread(() -> setErrorStatus(
-                            "DISPLAY-DPI-001",
-                            getString(R.string.status_dpi_desktop_failed, e.getMessage()),
-                            "display=" + displayId + " targetDpi=" + targetDpi,
-                            e));
-                } finally {
-                    DENSITY_APPLY_KEYS.remove(applyKey);
-                    mConsoleDensityApplyStarted = false;
-                }
-            }
-        }, "MagicDeskDesktopDpi").start();
+        mDisplayDensityController.ensurePreferred();
     }
 
-    private static int getConfiguredDisplayDensity(final int displayId)
+    private String getDensityStatus() {
+        return mDisplayDensityController.getStatus();
+    }
+
+    private static String runRootCommand(final String command)
             throws IOException {
-        final String output = runRootCommand(WM + " density -d " + displayId);
-        int physicalDensity = -1;
-        for (final String line : output.split("\\r?\\n")) {
-            final String trimmed = line.trim();
-            if (trimmed.startsWith("Override density:")) {
-                return parsePositiveInt(trimmed.substring("Override density:".length()));
-            }
-            if (trimmed.startsWith("Physical density:")) {
-                physicalDensity = parsePositiveInt(
-                        trimmed.substring("Physical density:".length()));
-            }
-        }
-        return physicalDensity;
-    }
-
-    private static int parsePositiveInt(final String value) {
-        try {
-            final int parsed = Integer.parseInt(value.trim());
-            return parsed > 0 ? parsed : -1;
-        } catch (NumberFormatException ignored) {
-            return -1;
-        }
-    }
-
-    private void runRootAction(final String command, final String successStatus) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    runRootCommand(command);
-                    runOnUiThread(() -> {
-                        renderApps();
-                        setStatus(successStatus);
-                    });
-                } catch (IOException e) {
-                    runOnUiThread(() -> setErrorStatus(
-                            "ROOT-ACTION-001",
-                            getString(R.string.status_root_failed, e.getMessage()),
-                            "",
-                            e));
-                }
-            }
-        }, "MagicDeskRootAction").start();
-    }
-
-    private static String runRootCommand(final String command) throws IOException {
         return PrivilegedCommandRunner.run(command);
     }
 
@@ -2151,23 +1707,10 @@ public class MainActivity extends Activity {
         try {
             runRootCommand(command);
         } catch (IOException e) {
-            Log.w(TAG, "best-effort root command failed: " + command, e);
+            Log.w(TAG,
+                    "best-effort root command failed: " + command,
+                    e);
         }
-    }
-
-    private static int getMirrorDisplayId() throws IOException {
-        final String output = runRootCommand(SETTINGS + " get global app_mirror_displayid");
-        final String trimmed = output == null ? "" : output.trim();
-        try {
-            return Integer.parseInt(trimmed);
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private String getDensityStatus() {
-        return getString(R.string.density_status,
-                Integer.valueOf(getResources().getDisplayMetrics().densityDpi));
     }
 
     void showLaunchFailure(final RuntimeException e) {
@@ -2183,7 +1726,7 @@ public class MainActivity extends Activity {
                 Toast.LENGTH_LONG).show();
     }
 
-    private void openDiagnostics() {
+    void openDiagnostics() {
         hideAllPanels();
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(getCurrentDisplayId());
@@ -2284,12 +1827,11 @@ public class MainActivity extends Activity {
     }
 
     void setStatus(final String text) {
-        mLastStatusText = text;
         if (mStatus != null) {
             mStatus.setText(text);
         }
-        if (mToolsActivityStatus != null) {
-            mToolsActivityStatus.setText(text);
+        if (mConsoleControls != null) {
+            mConsoleControls.setActivityStatus(text);
         }
     }
 
