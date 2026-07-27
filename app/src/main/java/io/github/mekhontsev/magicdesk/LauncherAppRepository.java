@@ -1,12 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.LauncherActivityInfo;
+import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.graphics.drawable.Drawable;
+import android.os.Process;
+import android.util.DisplayMetrics;
 import android.util.Log;
 
 import java.lang.reflect.Field;
@@ -26,44 +28,50 @@ final class LauncherAppRepository {
 
     private final Context mContext;
     private final PackageManager mPackageManager;
+    private final LauncherApps mLauncherApps;
+    private final LauncherIconRenderer mIconRenderer;
 
     LauncherAppRepository(final Context context) {
         mContext = context.getApplicationContext();
         mPackageManager = context.getPackageManager();
+        mLauncherApps = context.getSystemService(LauncherApps.class);
+        mIconRenderer = new LauncherIconRenderer(context.getResources());
     }
 
     List<AppItem> load(final boolean universalFreeform) {
-        final Intent launcherIntent = new Intent(Intent.ACTION_MAIN);
-        launcherIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-
-        final List<ResolveInfo> activities =
-                mPackageManager.queryIntentActivities(launcherIntent, 0);
+        final List<LauncherActivityInfo> activities = mLauncherApps == null
+                ? Collections.<LauncherActivityInfo>emptyList()
+                : mLauncherApps.getActivityList(null, Process.myUserHandle());
         final List<AppItem> result = new ArrayList<>();
         final Set<String> addedPackages = new HashSet<>();
         final String ownPackage = mContext.getPackageName();
 
-        for (final ResolveInfo resolveInfo : activities) {
-            if (resolveInfo == null || resolveInfo.activityInfo == null) {
+        for (final LauncherActivityInfo launcherInfo : activities) {
+            if (launcherInfo == null || launcherInfo.getComponentName() == null) {
                 continue;
             }
-            final String packageName = resolveInfo.activityInfo.packageName;
+            final String packageName =
+                    launcherInfo.getComponentName().getPackageName();
             if (packageName == null
                     || ownPackage.equals(packageName)
                     || !addedPackages.add(packageName)) {
                 continue;
             }
             final CharSequence labelChars =
-                    resolveInfo.loadLabel(mPackageManager);
+                    launcherInfo.getLabel();
             final String label = labelChars == null || labelChars.length() == 0
                     ? packageName : labelChars.toString();
-            final Drawable icon = resolveInfo.loadIcon(mPackageManager);
+            final Drawable icon = mIconRenderer.render(
+                    launcherInfo.getIcon(DisplayMetrics.DENSITY_XHIGH));
             final ApplicationInfo applicationInfo =
-                    resolveInfo.activityInfo.applicationInfo;
+                    launcherInfo.getApplicationInfo();
+            final ActivityInfo activityInfo =
+                    launcherInfo.getActivityInfo();
             result.add(new AppItem(
                     label,
                     packageName,
                     universalFreeform,
-                    fullscreenPreference(resolveInfo.activityInfo, applicationInfo),
+                    fullscreenPreference(activityInfo, applicationInfo),
                     icon));
         }
 
@@ -88,6 +96,21 @@ final class LauncherAppRepository {
         if (known != null) {
             return known;
         }
+        final LauncherActivityInfo launcherInfo =
+                findLauncherActivity(packageName);
+        if (launcherInfo != null) {
+            final CharSequence label = launcherInfo.getLabel();
+            return new AppItem(
+                    label == null ? packageName : label.toString(),
+                    packageName,
+                    universalFreeform,
+                    fullscreenPreference(
+                            launcherInfo.getActivityInfo(),
+                            launcherInfo.getApplicationInfo()),
+                    mIconRenderer.render(
+                            launcherInfo.getIcon(
+                                    DisplayMetrics.DENSITY_XHIGH)));
+        }
         try {
             final ApplicationInfo info =
                     mPackageManager.getApplicationInfo(packageName, 0);
@@ -99,11 +122,23 @@ final class LauncherAppRepository {
                     packageName,
                     universalFreeform,
                     fullscreenPreference(activityInfo, info),
-                    info.loadIcon(mPackageManager));
+                    mIconRenderer.render(info.loadIcon(mPackageManager)));
         } catch (PackageManager.NameNotFoundException error) {
             Log.w(TAG, "Task package is not installed: " + packageName, error);
             return null;
         }
+    }
+
+    private LauncherActivityInfo findLauncherActivity(
+            final String packageName) {
+        if (mLauncherApps == null) {
+            return null;
+        }
+        final List<LauncherActivityInfo> activities =
+                mLauncherApps.getActivityList(
+                        packageName,
+                        Process.myUserHandle());
+        return activities.isEmpty() ? null : activities.get(0);
     }
 
     static AppItem find(final List<AppItem> apps, final String packageName) {
@@ -119,17 +154,9 @@ final class LauncherAppRepository {
     }
 
     private ActivityInfo resolveLauncherActivityInfo(final String packageName) {
-        final Intent launchIntent =
-                mPackageManager.getLaunchIntentForPackage(packageName);
-        if (launchIntent == null || launchIntent.getComponent() == null) {
-            return null;
-        }
-        try {
-            return mPackageManager.getActivityInfo(
-                    launchIntent.getComponent(), 0);
-        } catch (PackageManager.NameNotFoundException error) {
-            return null;
-        }
+        final LauncherActivityInfo launcherInfo =
+                findLauncherActivity(packageName);
+        return launcherInfo == null ? null : launcherInfo.getActivityInfo();
     }
 
     private static String fullscreenPreference(

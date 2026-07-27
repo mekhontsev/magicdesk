@@ -125,6 +125,14 @@ Repositories perform package, task, and document queries. View controllers do
 not run privileged commands directly; platform coordinators do not construct
 desktop panels. Keep this split when adding device-specific behavior.
 
+`LauncherAppRepository` enumerates applications through Android's public
+`LauncherApps` API and requests density-bounded icons. `LauncherIconRenderer`
+then converts each icon to one bounded bitmap shared by its desktop, taskbar,
+and menu views. Do not return to `ResolveInfo.loadIcon()` for the whole catalog:
+some vendor icon resources decode at their maximum size and can retain hundreds
+of megabytes of temporary bitmap data. App catalogs are not reloaded on every
+`onResume`; explicit Refresh remains the user-controlled rescan path.
+
 ## Display And Session Model
 
 Every launch resolves a session profile containing an independent privilege
@@ -133,6 +141,14 @@ primary display, remain on the current display, or become the fullscreen HOME
 activity on Nubia's virtual Console display. Using HOME only on that external
 display keeps the desktop surface behind native freeform application tasks
 without replacing the phone launcher.
+
+Runtime audits report the backend available for a requested profile but do not
+change the active process backend. `DeviceSetupActivity` explicitly activates a
+successful audit before launching MagicDesk. `BootReceiver` does the same only
+after confirming that initial setup was acknowledged and that the saved profile
+requests Root or Auto-root operation. Keep this ownership explicit: diagnostics
+and concurrent background audits must never promote a Basic or Shizuku session
+to Root or trigger a first-run superuser prompt.
 
 Display ids are runtime values and are never persisted as fixed constants.
 When Console Mode is activated, MagicDesk waits for Android to publish the real

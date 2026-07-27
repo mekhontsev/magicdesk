@@ -203,6 +203,10 @@ public class MainActivity extends Activity {
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
         }
+        if (mPhoneLauncherController != null) {
+            mPhoneLauncherController.release();
+        }
+        mLastApps = Collections.emptyList();
         releaseDesktopOverlays();
         if (sDesktopInstance.get() == this) {
             sDesktopInstance.clear();
@@ -447,7 +451,11 @@ public class MainActivity extends Activity {
         resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
         setTaskbarVisible(true);
-        renderApps();
+        if (mLastApps.isEmpty()) {
+            renderApps();
+        } else if (mDesktopMode) {
+            refreshTaskSnapshot();
+        }
         refreshDesktopFolder(true);
         updateConsoleControls();
         if (mDesktopMode) {

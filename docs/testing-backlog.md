@@ -4,6 +4,15 @@ This checklist records validation that requires hardware, a clean device, or a
 future release cycle. Do not treat an item as complete based only on a
 successful build.
 
+## Completed Locally
+
+- [x] Install an isolated Basic-mode build beside the signed production app.
+  Verify first-run setup, delayed `BOOT_COMPLETED`, diagnostics, Primary and
+  Current targets, phone/desktop layout changes across rotation, and the
+  absence of a child `su` process or foreground watcher service. Verify that a
+  162-app catalog retains one bounded icon bitmap per app after startup cleanup
+  and is not reloaded on `onResume`.
+
 ## External Display
 
 - [ ] Validate the controller refactor on the current device before pushing.

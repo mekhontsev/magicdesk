@@ -15,11 +15,20 @@ public final class BootReceiver extends BroadcastReceiver {
         final Context applicationContext = context.getApplicationContext();
         new Thread(() -> {
             try {
+                if (!DeviceSetupManager.isSetupAcknowledged(applicationContext)) {
+                    return;
+                }
+                final SessionProfile profile = SessionProfile.load(applicationContext);
+                if (profile.privilegeMode != SessionProfile.PrivilegeMode.AUTO
+                        && profile.privilegeMode != SessionProfile.PrivilegeMode.ROOT) {
+                    return;
+                }
                 final DeviceSetupManager.Audit audit =
-                        DeviceSetupManager.audit(applicationContext);
+                        DeviceSetupManager.audit(applicationContext, profile);
                 if (audit.canEnterMagicDesk()
                         && audit.acknowledged
                         && audit.backend == RuntimeAccess.Backend.ROOT) {
+                    DeviceSetupManager.activateRuntime(audit);
                     DeviceSetupManager.authorizeRuntime();
                     KeyboardWatcherService.start(applicationContext);
                 }

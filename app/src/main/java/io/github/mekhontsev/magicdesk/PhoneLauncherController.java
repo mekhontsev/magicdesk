@@ -8,10 +8,12 @@ import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL_ALT;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -40,15 +42,32 @@ final class PhoneLauncherController {
         final LinearLayout root = new LinearLayout(mActivity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(COLOR_BACKGROUND);
-        root.setPadding(dp(18), dp(16), dp(18), dp(12));
+        final int horizontalPadding = dp(18);
+        final int topPadding = dp(16);
+        final int bottomPadding = dp(12);
+        root.setPadding(
+                horizontalPadding,
+                topPadding,
+                horizontalPadding,
+                bottomPadding);
+        root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            final Insets systemBars = windowInsets.getInsets(
+                    WindowInsets.Type.systemBars());
+            view.setPadding(
+                    horizontalPadding,
+                    topPadding + systemBars.top,
+                    horizontalPadding,
+                    bottomPadding + systemBars.bottom);
+            return windowInsets;
+        });
 
-        final LinearLayout header = new LinearLayout(mActivity);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setOrientation(LinearLayout.HORIZONTAL);
+        final LinearLayout brand = new LinearLayout(mActivity);
+        brand.setGravity(Gravity.CENTER_VERTICAL);
+        brand.setOrientation(LinearLayout.HORIZONTAL);
 
         final ImageView appIcon = new ImageView(mActivity);
         appIcon.setImageResource(R.drawable.ic_magicdesk);
-        header.addView(
+        brand.addView(
                 appIcon,
                 new LinearLayout.LayoutParams(dp(48), dp(48)));
 
@@ -75,13 +94,21 @@ final class PhoneLauncherController {
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT));
-        header.addView(
+        brand.addView(
                 titleBlock,
                 new LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1));
+        root.addView(
+                brand,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        final LinearLayout actions = new LinearLayout(mActivity);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
         final Button desktopMode = new Button(mActivity);
         desktopMode.setText(R.string.action_layout_desktop);
         desktopMode.setAllCaps(false);
@@ -95,10 +122,11 @@ final class PhoneLauncherController {
                         DesktopPreferences.LAYOUT_DESKTOP));
         final LinearLayout.LayoutParams desktopModeParams =
                 new LinearLayout.LayoutParams(
-                        dp(112),
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        0,
+                        dp(48),
+                        1);
         desktopModeParams.setMargins(0, 0, dp(8), 0);
-        header.addView(desktopMode, desktopModeParams);
+        actions.addView(desktopMode, desktopModeParams);
 
         final Button refresh = new Button(mActivity);
         refresh.setText(R.string.action_refresh);
@@ -107,16 +135,18 @@ final class PhoneLauncherController {
         refresh.setBackground(
                 mUi.rounded(COLOR_PANEL_ALT, dp(10), COLOR_CYAN));
         refresh.setOnClickListener(view -> mActivity.renderApps());
-        header.addView(
+        actions.addView(
                 refresh,
                 new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
-        root.addView(
-                header,
+                        0,
+                        dp(48),
+                        1));
+        final LinearLayout.LayoutParams actionParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        actionParams.setMargins(0, dp(12), 0, 0);
+        root.addView(actions, actionParams);
 
         final ScrollView scrollView = new ScrollView(mActivity);
         scrollView.setFillViewport(true);
@@ -160,6 +190,14 @@ final class PhoneLauncherController {
         if (mStatus != null) {
             mStatus.setText(text);
         }
+    }
+
+    void release() {
+        if (mContent != null) {
+            mContent.removeAllViews();
+            mContent = null;
+        }
+        mStatus = null;
     }
 
     private void addDock(final List<AppItem> apps) {

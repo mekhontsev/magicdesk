@@ -35,8 +35,6 @@ public final class KeyboardWatcherService extends Service
             "io.github.mekhontsev.magicdesk.action.SHOW_MAGIC_DESK";
     private static final String ACTION_OPEN_TOUCHPAD =
             "io.github.mekhontsev.magicdesk.action.OPEN_TOUCHPAD";
-    private static final String ACTION_STOP =
-            "io.github.mekhontsev.magicdesk.action.STOP_KEYBOARD_WATCHER";
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
@@ -70,9 +68,7 @@ public final class KeyboardWatcherService extends Service
     }
 
     public static void stop(final Context context) {
-        final Intent intent = new Intent(context, KeyboardWatcherService.class)
-                .setAction(ACTION_STOP);
-        startForegroundService(context, intent);
+        context.stopService(new Intent(context, KeyboardWatcherService.class));
     }
 
     private static void startForegroundService(final Context context, final Intent intent) {
@@ -127,11 +123,6 @@ public final class KeyboardWatcherService extends Service
     @Override
     public int onStartCommand(final Intent intent, final int flags, final int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
-        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelfResult(startId);
-            return START_NOT_STICKY;
-        }
         initialize();
         if (intent != null) {
             if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())

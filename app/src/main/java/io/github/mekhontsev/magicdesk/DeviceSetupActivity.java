@@ -191,6 +191,7 @@ public final class DeviceSetupActivity extends Activity {
                 if (isActivityUnavailable()) {
                     return;
                 }
+                DeviceSetupManager.activateRuntime(audit);
                 mAudit = audit;
                 if (!mManual && audit.canEnterMagicDesk() && audit.acknowledged) {
                     mBusy = false;
@@ -554,6 +555,7 @@ public final class DeviceSetupActivity extends Activity {
                     if (isActivityUnavailable()) {
                         return;
                     }
+                    DeviceSetupManager.activateRuntime(audit);
                     mAudit = audit;
                     setBusy(false, 0);
                     if (!audit.canEnterMagicDesk()) {

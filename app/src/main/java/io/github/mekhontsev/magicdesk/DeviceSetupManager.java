@@ -119,8 +119,6 @@ final class DeviceSetupManager {
         if (requestedMode != SessionProfile.PrivilegeMode.SHIZUKU) {
             ShizukuAccess.disconnect();
         }
-        RuntimeAccess.configure(sessionProfile, backend);
-
         final String bootId = value(values, "BOOT_ID");
         boolean rebootRequired = false;
         final String pendingBootId = preferences.getString(KEY_PENDING_BOOT_ID, "");
@@ -311,6 +309,17 @@ final class DeviceSetupManager {
         preferences(context).edit()
                 .putInt(KEY_APPROVED_VERSION, SETUP_VERSION)
                 .apply();
+    }
+
+    static boolean isSetupAcknowledged(final Context context) {
+        return preferences(context).getInt(KEY_APPROVED_VERSION, 0) >= SETUP_VERSION;
+    }
+
+    static void activateRuntime(final Audit audit) {
+        if (audit == null) {
+            return;
+        }
+        RuntimeAccess.configure(audit.sessionProfile, audit.backend);
     }
 
     static void authorizeRuntime() {
