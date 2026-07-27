@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -10,6 +11,8 @@ import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.InputEventReceiver;
 import android.view.InputMonitor;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 import java.io.BufferedReader;
@@ -47,6 +50,8 @@ public final class ConsoleInputBridgeCommand {
     private final Set<String> mAssociatedInputPorts = new LinkedHashSet<>();
     private final RawMouseButtonWatcher mRawMouseButtonWatcher =
             new RawMouseButtonWatcher();
+    private final RawKeyboardTabWatcher mRawKeyboardTabWatcher =
+            new RawKeyboardTabWatcher();
     private Object mDisplayManager;
     private Object mInputManager;
     private Class<?> mInputManagerInterface;
@@ -54,6 +59,7 @@ public final class ConsoleInputBridgeCommand {
     private Method mRemovePortAssociation;
     private Binder mPanelToken;
     private Process mGeteventProcess;
+    private final List<KeyboardDevice> mKeyboardDevices = new ArrayList<>();
     private final List<MouseDevice> mMouseDevices = new ArrayList<>();
     private int mConsoleDisplayId = -1;
     private boolean mMouseInputSourceOverride;
@@ -63,7 +69,9 @@ public final class ConsoleInputBridgeCommand {
     private InputMonitor mRightButtonMonitor;
     private RightButtonInputReceiver mRightButtonReceiver;
     private Method mInjectInputEvent;
+    private Method mSetInputEventDisplayId;
     private final Set<Integer> mDisabledMouseInputDeviceIds = new LinkedHashSet<>();
+    private final Set<Integer> mDisabledKeyboardInputDeviceIds = new LinkedHashSet<>();
     private boolean mCleanedUp;
     private volatile boolean mStopRequested;
 
@@ -91,10 +99,19 @@ public final class ConsoleInputBridgeCommand {
             configureConsoleInput();
         }
 
-        mGeteventProcess = new ProcessBuilder(GETEVENT, "-lt")
-                .redirectErrorStream(true)
-                .start();
         if (consoleMode) {
+            for (final KeyboardDevice keyboard : mKeyboardDevices) {
+                try {
+                    setKeyboardTabRemapped(keyboard, true);
+                    resetPhysicalKeyboardInputDevice(keyboard);
+                    startRawKeyboardTabWatcher(keyboard);
+                } catch (Exception e) {
+                    System.err.println("MAGICDESK_TAB_REMAP_UNAVAILABLE source="
+                            + keyboard.path + " error=" + e);
+                    e.printStackTrace(System.err);
+                    restoreKeyboardTabAfterSetupFailure(keyboard);
+                }
+            }
             int activeMouseCount = 0;
             for (final MouseDevice mouse : mMouseDevices) {
                 try {
@@ -123,6 +140,9 @@ public final class ConsoleInputBridgeCommand {
                 }
             }
         }
+        mGeteventProcess = new ProcessBuilder(GETEVENT, "-lt")
+                .redirectErrorStream(true)
+                .start();
         final Thread stopThread = new Thread(this::waitForStopRequest,
                 "MagicDeskInputBridgeStop");
         stopThread.setDaemon(true);
@@ -132,6 +152,7 @@ public final class ConsoleInputBridgeCommand {
                 + " associations=" + mAssociatedInputPorts.size()
                 + " panel=" + (mPanelToken != null)
                 + " mouseSource=" + mMouseInputSourceOverride
+                + " tabRemap=" + countRemappedKeyboards()
                 + " mouseRemap=" + countRemappedMice()
                 + " rightButton=" + (mRightButtonReceiver != null));
         System.out.flush();
@@ -153,6 +174,7 @@ public final class ConsoleInputBridgeCommand {
         mGeteventProcess.waitFor();
     }
 
+    @SuppressLint("BlockedPrivateApi")
     private void configureConsoleInput() throws Exception {
         final int displayPort = findExternalDisplayPort();
         if (displayPort < 0) {
@@ -163,13 +185,19 @@ public final class ConsoleInputBridgeCommand {
         mInputManager = getService("input", "android.hardware.input.IInputManager");
         mInputManagerInterface = Class.forName(
                 "android.hardware.input.IInputManager");
+        mInjectInputEvent = findInjectInputEventMethod();
+        mSetInputEventDisplayId =
+                InputEvent.class.getDeclaredMethod("setDisplayId", int.class);
+        mSetInputEventDisplayId.setAccessible(true);
         final Method addPortAssociation = mInputManagerInterface.getMethod(
                 "addPortAssociation", String.class, int.class);
         mRemovePortAssociation = mInputManagerInterface.getMethod(
                 "removePortAssociation", String.class);
-        for (final String inputPort : findExternalKeyboardInputPorts()) {
-            addPortAssociation.invoke(mInputManager, inputPort, displayPort);
-            mAssociatedInputPorts.add(inputPort);
+        mKeyboardDevices.addAll(findExternalKeyboardDevices());
+        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+            addPortAssociation.invoke(
+                    mInputManager, keyboard.location, displayPort);
+            mAssociatedInputPorts.add(keyboard.location);
         }
         if (mAssociatedInputPorts.isEmpty()) {
             throw new IllegalStateException("external alphabetic keyboard input port not found");
@@ -303,6 +331,10 @@ public final class ConsoleInputBridgeCommand {
     }
 
     private boolean injectSecondaryButtonEvent(final MotionEvent event) throws Exception {
+        return injectInputEvent(event);
+    }
+
+    private boolean injectInputEvent(final InputEvent event) throws Exception {
         final Method method = mInjectInputEvent;
         if (method == null) {
             return false;
@@ -317,6 +349,79 @@ public final class ConsoleInputBridgeCommand {
                     Integer.valueOf(INVALID_UID));
         }
         return !(result instanceof Boolean) || ((Boolean) result).booleanValue();
+    }
+
+    private void startRawKeyboardTabWatcher(final KeyboardDevice keyboard)
+            throws IOException {
+        if (keyboard.inputDeviceId < 0) {
+            throw new IOException("logical keyboard input device is unavailable");
+        }
+        mRawKeyboardTabWatcher.start(
+                keyboard.path,
+                keyboard.inputDeviceId,
+                new RawKeyboardTabWatcher.Listener() {
+                    @Override
+                    public void onTab(final int action, final int repeatCount,
+                            final int metaState) {
+                        handleRawKeyboardTabEvent(
+                                keyboard, action, repeatCount, metaState);
+                    }
+
+                    @Override
+                    public void onAltReleased() {
+                        System.out.println("MAGICDESK_ALT_TAB_COMMIT");
+                        System.out.flush();
+                    }
+                });
+    }
+
+    private void handleRawKeyboardTabEvent(
+            final KeyboardDevice keyboard,
+            final int action,
+            final int repeatCount,
+            final int metaState) {
+        if ((metaState & KeyEvent.META_ALT_ON) != 0) {
+            if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
+                final boolean reverse =
+                        (metaState & KeyEvent.META_SHIFT_ON) != 0;
+                System.out.println("MAGICDESK_ALT_TAB_ADVANCE "
+                        + (reverse ? "reverse" : "forward"));
+                System.out.flush();
+            }
+            return;
+        }
+
+        final long eventTime = SystemClock.uptimeMillis();
+        if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
+            keyboard.tabDownTime = eventTime;
+        } else if (keyboard.tabDownTime == 0) {
+            keyboard.tabDownTime = eventTime;
+        }
+        final KeyEvent translated = new KeyEvent(
+                keyboard.tabDownTime,
+                eventTime,
+                action,
+                KeyEvent.KEYCODE_TAB,
+                repeatCount,
+                metaState,
+                KeyCharacterMap.VIRTUAL_KEYBOARD,
+                0,
+                KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
+                InputDevice.SOURCE_KEYBOARD);
+        try {
+            mSetInputEventDisplayId.invoke(
+                    translated, Integer.valueOf(mConsoleDisplayId));
+            if (!injectInputEvent(translated)) {
+                throw new IOException("Tab injection was rejected");
+            }
+        } catch (Exception e) {
+            System.err.println("MAGICDESK_TAB_INJECTION_ERROR source="
+                    + keyboard.path + " error=" + e);
+        } finally {
+            if (action == KeyEvent.ACTION_UP) {
+                keyboard.tabDownTime = 0;
+            }
+        }
     }
 
     private void handleRawMouseButtonEvent(final MouseDevice mouse,
@@ -363,7 +468,6 @@ public final class ConsoleInputBridgeCommand {
         mRightButtonHandler = null;
         mRightButtonThread = null;
         mRightButtonMonitorToken = null;
-        mInjectInputEvent = null;
     }
 
     private void disposeRightButtonTranslator() {
@@ -410,15 +514,18 @@ public final class ConsoleInputBridgeCommand {
         return -1;
     }
 
-    private Set<String> findExternalKeyboardInputPorts() throws IOException,
+    private List<KeyboardDevice> findExternalKeyboardDevices() throws IOException,
             InterruptedException {
         final Process process = new ProcessBuilder(DUMPSYS, "input")
                 .redirectErrorStream(true)
                 .start();
-        final Set<String> result = new LinkedHashSet<>();
+        final List<KeyboardDevice> result = new ArrayList<>();
         boolean inEventHub = false;
         String classes = null;
+        String path = null;
         String location = null;
+        int vendorId = -1;
+        int productId = -1;
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()))) {
             String line;
@@ -432,20 +539,33 @@ public final class ConsoleInputBridgeCommand {
                     continue;
                 }
                 if (trimmed.startsWith("Input Reader State")) {
-                    addKeyboardInputPort(result, classes, location);
+                    addKeyboardDevice(result, classes, path, location,
+                            vendorId, productId);
                     break;
                 }
                 final Matcher deviceHeader = EVENT_HUB_DEVICE.matcher(line);
                 if (deviceHeader.matches()) {
-                    addKeyboardInputPort(result, classes, location);
+                    addKeyboardDevice(result, classes, path, location,
+                            vendorId, productId);
                     classes = null;
+                    path = null;
                     location = null;
+                    vendorId = -1;
+                    productId = -1;
                     continue;
                 }
                 if (trimmed.startsWith("Classes:")) {
                     classes = trimmed.substring("Classes:".length()).trim();
+                } else if (trimmed.startsWith("Path:")) {
+                    path = trimmed.substring("Path:".length()).trim();
                 } else if (trimmed.startsWith("Location:")) {
                     location = trimmed.substring("Location:".length()).trim();
+                } else if (trimmed.startsWith("Identifier:")) {
+                    final Matcher identifier = INPUT_IDENTIFIER.matcher(trimmed);
+                    if (identifier.matches()) {
+                        vendorId = Integer.parseInt(identifier.group(1), 16);
+                        productId = Integer.parseInt(identifier.group(2), 16);
+                    }
                 }
             }
         }
@@ -456,11 +576,79 @@ public final class ConsoleInputBridgeCommand {
         return result;
     }
 
+    private void addKeyboardDevice(
+            final List<KeyboardDevice> result,
+            final String classes,
+            final String path,
+            final String location,
+            final int vendorId,
+            final int productId) {
+        if (classes == null || path == null || location == null
+                || vendorId < 0 || productId < 0) {
+            return;
+        }
+        if (!classes.contains("KEYBOARD")
+                || !classes.contains("ALPHAKEY")
+                || !classes.contains("EXTERNAL")
+                || !path.startsWith("/dev/input/event")
+                || location.isEmpty()) {
+            return;
+        }
+        result.add(new KeyboardDevice(
+                path, location, vendorId, productId));
+    }
+
     private void setMouseRightButtonRemapped(final MouseDevice mouse,
             final boolean remapped) throws Exception {
-        final File executable = findMouseRemapExecutable();
+        final String output = runInputRemap(
+                mouse.path, remapped ? "unknown" : "right");
+        mouse.remapped = remapped;
+        System.out.println(output);
+        System.out.flush();
+    }
+
+    private void setKeyboardTabRemapped(
+            final KeyboardDevice keyboard,
+            final boolean remapped) throws Exception {
+        if (remapped) {
+            keyboard.remapped = true;
+        }
+        final String output;
+        try {
+            output = runInputRemap(
+                    keyboard.path,
+                    remapped ? "tab-filter" : "tab-restore");
+        } catch (Exception e) {
+            if (!remapped) {
+                keyboard.remapped = true;
+            }
+            throw e;
+        }
+        keyboard.remapped = remapped;
+        System.out.println(output);
+        System.out.flush();
+    }
+
+    private void restoreKeyboardTabAfterSetupFailure(
+            final KeyboardDevice keyboard) {
+        if (!keyboard.remapped) {
+            return;
+        }
+        try {
+            setKeyboardTabRemapped(keyboard, false);
+            resetPhysicalKeyboardInputDevice(keyboard);
+        } catch (Exception e) {
+            System.err.println("MAGICDESK_TAB_REMAP_ROLLBACK_ERROR source="
+                    + keyboard.path + " error=" + e);
+        }
+    }
+
+    private String runInputRemap(
+            final String path,
+            final String mode) throws Exception {
+        final File executable = findInputRemapExecutable();
         final Process process = new ProcessBuilder(executable.getAbsolutePath(),
-                mouse.path, remapped ? "unknown" : "right")
+                path, mode)
                 .redirectErrorStream(true)
                 .start();
         final StringBuilder output = new StringBuilder();
@@ -476,11 +664,10 @@ public final class ConsoleInputBridgeCommand {
         }
         final int exitCode = process.waitFor();
         if (exitCode != 0) {
-            throw new IOException("mouse remap failed " + exitCode + ": " + output);
+            throw new IOException("input remap failed " + exitCode
+                    + ": " + output);
         }
-        mouse.remapped = remapped;
-        System.out.println(output);
-        System.out.flush();
+        return output.toString();
     }
 
     private List<MouseDevice> findExternalMouseDevices()
@@ -596,8 +783,67 @@ public final class ConsoleInputBridgeCommand {
                 + Integer.toHexString(mouse.productId));
     }
 
+    private void resetPhysicalKeyboardInputDevice(
+            final KeyboardDevice keyboard) throws Exception {
+        if (mInputManager == null || mInputManagerInterface == null) {
+            return;
+        }
+
+        final Method getInputDeviceIds =
+                mInputManagerInterface.getMethod("getInputDeviceIds");
+        final Method getInputDevice = mInputManagerInterface.getMethod(
+                "getInputDevice", int.class);
+        final Method disableInputDevice = mInputManagerInterface.getMethod(
+                "disableInputDevice", int.class);
+        final Method enableInputDevice = mInputManagerInterface.getMethod(
+                "enableInputDevice", int.class);
+        final int[] deviceIds =
+                (int[]) getInputDeviceIds.invoke(mInputManager);
+        for (final int deviceId : deviceIds) {
+            final InputDevice device = (InputDevice) getInputDevice.invoke(
+                    mInputManager, Integer.valueOf(deviceId));
+            if (device == null || !device.isExternal()
+                    || device.getKeyboardType()
+                    != InputDevice.KEYBOARD_TYPE_ALPHABETIC
+                    || device.getVendorId() != keyboard.vendorId
+                    || device.getProductId() != keyboard.productId) {
+                continue;
+            }
+            disableInputDevice.invoke(
+                    mInputManager, Integer.valueOf(deviceId));
+            mDisabledKeyboardInputDeviceIds.add(
+                    Integer.valueOf(deviceId));
+            enableInputDevice.invoke(
+                    mInputManager, Integer.valueOf(deviceId));
+            mDisabledKeyboardInputDeviceIds.remove(
+                    Integer.valueOf(deviceId));
+            keyboard.inputDeviceId = deviceId;
+            System.out.println(
+                    "MAGICDESK_KEYBOARD_SOURCE_RESET id=" + deviceId);
+            System.out.flush();
+            return;
+        }
+        throw new IllegalStateException(
+                "physical keyboard input device not found: vendor=0x"
+                        + Integer.toHexString(keyboard.vendorId)
+                        + " product=0x"
+                        + Integer.toHexString(keyboard.productId));
+    }
+
+    private void enablePhysicalKeyboardInputDevices() {
+        enablePhysicalInputDevices(
+                mDisabledKeyboardInputDeviceIds, "keyboard");
+    }
+
     private void enablePhysicalMouseInputDevices() {
-        if (mDisabledMouseInputDeviceIds.isEmpty()
+        enablePhysicalInputDevices(
+                mDisabledMouseInputDeviceIds, "mouse");
+    }
+
+    private void enablePhysicalInputDevices(
+            final Set<Integer> disabledDeviceIds,
+            final String type) {
+        if (disabledDeviceIds.isEmpty()
                 || mInputManager == null || mInputManagerInterface == null) {
             return;
         }
@@ -605,18 +851,19 @@ public final class ConsoleInputBridgeCommand {
             final Method enableInputDevice = mInputManagerInterface.getMethod(
                     "enableInputDevice", int.class);
             for (final Integer deviceId
-                    : new ArrayList<>(mDisabledMouseInputDeviceIds)) {
+                    : new ArrayList<>(disabledDeviceIds)) {
                 try {
                     enableInputDevice.invoke(mInputManager, deviceId);
                 } catch (ReflectiveOperationException | RuntimeException e) {
-                    System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP mouse="
-                            + deviceId + " error=" + e);
+                    System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP "
+                            + type + "=" + deviceId + " error=" + e);
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP mouse=" + e);
+            System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP "
+                    + type + "=" + e);
         } finally {
-            mDisabledMouseInputDeviceIds.clear();
+            disabledDeviceIds.clear();
         }
     }
 
@@ -640,7 +887,17 @@ public final class ConsoleInputBridgeCommand {
         return count;
     }
 
-    private static File findMouseRemapExecutable() throws IOException {
+    private int countRemappedKeyboards() {
+        int count = 0;
+        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+            if (keyboard.remapped) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static File findInputRemapExecutable() throws IOException {
         final String classPath = System.getProperty("java.class.path", "");
         for (final String entry : classPath.split(Pattern.quote(File.pathSeparator))) {
             final File apk = new File(entry);
@@ -654,19 +911,7 @@ public final class ConsoleInputBridgeCommand {
                 return executable;
             }
         }
-        throw new IOException("packaged mouse remap executable not found");
-    }
-
-    private static void addKeyboardInputPort(final Set<String> result,
-            final String classes, final String location) {
-        if (classes == null || location == null || location.isEmpty()) {
-            return;
-        }
-        if (classes.contains("KEYBOARD")
-                && classes.contains("ALPHAKEY")
-                && classes.contains("EXTERNAL")) {
-            result.add(location);
-        }
+        throw new IOException("packaged input remap executable not found");
     }
 
     private void waitForStopRequest() {
@@ -682,6 +927,7 @@ public final class ConsoleInputBridgeCommand {
         if (process != null) {
             process.destroy();
         }
+        mRawKeyboardTabWatcher.stop();
         stopRawMouseButtonWatchers();
     }
 
@@ -696,8 +942,21 @@ public final class ConsoleInputBridgeCommand {
             process.destroy();
             mGeteventProcess = null;
         }
+        mRawKeyboardTabWatcher.stop();
         stopRawMouseButtonWatchers();
         stopRightButtonTranslator();
+        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+            if (!keyboard.remapped) {
+                continue;
+            }
+            try {
+                setKeyboardTabRemapped(keyboard, false);
+                resetPhysicalKeyboardInputDevice(keyboard);
+            } catch (Exception e) {
+                System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP tabRemap="
+                        + keyboard.path + " error=" + e);
+            }
+        }
         for (final MouseDevice mouse : mMouseDevices) {
             if (!mouse.remapped) {
                 continue;
@@ -734,11 +993,15 @@ public final class ConsoleInputBridgeCommand {
                 }
             }
         }
+        enablePhysicalKeyboardInputDevices();
         enablePhysicalMouseInputDevices();
         mAssociatedInputPorts.clear();
+        mKeyboardDevices.clear();
         mMouseDevices.clear();
         mConsoleDisplayId = -1;
         mPanelToken = null;
+        mSetInputEventDisplayId = null;
+        mInjectInputEvent = null;
     }
 
     private static Object getService(final String name, final String interfaceName)
@@ -939,6 +1202,27 @@ public final class ConsoleInputBridgeCommand {
         boolean remapped;
 
         MouseDevice(final String path, final String location, final int vendorId,
+                final int productId) {
+            this.path = path;
+            this.location = location;
+            this.vendorId = vendorId;
+            this.productId = productId;
+        }
+    }
+
+    private static final class KeyboardDevice {
+        final String path;
+        final String location;
+        final int vendorId;
+        final int productId;
+        int inputDeviceId = -1;
+        long tabDownTime;
+        boolean remapped;
+
+        KeyboardDevice(
+                final String path,
+                final String location,
+                final int vendorId,
                 final int productId) {
             this.path = path;
             this.location = location;

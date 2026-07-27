@@ -80,6 +80,9 @@ tasks managed by the firmware's WMShell.
 
 - Native key repeat and physical keyboard layouts on the external display.
 - `Ctrl+Space` cycles through layouts configured in Android, in system order.
+- In Root Console Mode, `Alt+Tab` bypasses REDMAGIC's broken system Recents
+  path while ordinary `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal
+  application input.
 - Right click reaches Chrome, Firefox, MagicDesk, and other applications instead
   of being converted to Android Back by REDMAGIC firmware.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are handled
@@ -217,7 +220,7 @@ The trust boundaries are deliberately narrow:
 - MagicDesk changes only the documented desktop settings accepted in Device
   Setup and stores their previous values for restoration.
 - The system `ShellTaskOrganizer` remains the only task organizer.
-- Native helper `libmagicdesk_mouse_remap.so` is rebuilt from its C source in
+- Native input helper `libmagicdesk_mouse_remap.so` is rebuilt from its C source in
   every CI build; no prebuilt helper is checked in.
 - The main APK contains no kernel module or kernel-module loader.
 - Device and firmware mismatches are reported through structured Diagnostics
@@ -278,7 +281,7 @@ Build both debug APKs:
 ```
 
 On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
-Linux, set `ANDROID_NDK_HOME`. The native mouse helper is always compiled from
+Linux, set `ANDROID_NDK_HOME`. The native input helper is always compiled from
 `native/magicdesk_mouse_remap.c`.
 
 ## Releases And Signing

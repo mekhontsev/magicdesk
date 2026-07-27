@@ -92,7 +92,7 @@ immersive mode must preserve the current Activity instance.
 | Main application | `io.github.mekhontsev.magicdesk` | Desktop shell, taskbar, overlays, setup, diagnostics, and services |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Optional, explicitly confirmed firmware-specific kernel fixes |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
-| Mouse remap helper | `native/magicdesk_mouse_remap.c` | Short-lived physical HID keymap adjustment |
+| Input remap helper | `native/magicdesk_mouse_remap.c` | Short-lived physical HID keymap adjustment |
 | Root Java helpers | Main application classes | Short-lived `app_process` access to framework and vendor Binder APIs |
 
 The main app and add-on are independent APKs. The main app resolves the add-on
@@ -117,9 +117,9 @@ the foreground services. Feature state belongs to focused collaborators:
 - `DesktopTaskController` owns the native task transition state machine, while
   `DesktopTaskWatcher` owns its root helper process and event protocol.
 - `ConsoleModeSwitcher` coordinates Console Mode. Keyboard-layout policy,
-  Nubia touchpad integration, and raw mouse-button decoding live in
+  Nubia touchpad integration, and raw input decoding live in
   `HardwareKeyboardLayoutController`, `NubiaTouchpadController`, and
-  `RawMouseButtonWatcher`.
+  `RawKeyboardTabWatcher` / `RawMouseButtonWatcher`.
 
 Repositories perform package, task, and document queries. View controllers do
 not run privileged commands directly; platform coordinators do not construct
@@ -343,6 +343,41 @@ or change the selected input method.
 The global shortcut watcher handles desktop operations while another
 application owns focus. Shortcuts operate on exact task ids and the current
 Console display.
+
+### Alt+Tab Firmware Failure
+
+Android 16's `KeyGestureController` recognizes physical `Alt+Tab` before the
+focused application and asks the system launcher to show Recents. On the
+verified REDMAGIC firmware, Quickstep's `DesktopTaskView.bind()` creates a
+desktop task container without a title view, while the inherited
+`TaskView.setThumbnailOrientation()` path still dereferences that view. Opening
+Recents with Console freeform tasks can therefore crash
+`com.zte.mifavor.launcher`.
+
+MagicDesk avoids only that gesture. While the root Console input bridge is
+active, the native helper maps standard HID Tab usage `0x0007002b` from Linux
+`KEY_TAB` to `KEY_UNKNOWN` with `EVIOCSKEYCODE_V2`. Android InputReader ignores
+the remapped key, so `KeyGestureController` cannot open the broken Recents
+implementation. The bridge reads that one usage from the physical `evdev`
+node:
+
+- with Alt held, it advances MagicDesk's exact-task switcher and commits when
+  Alt is released;
+- without Alt, it injects a standard `KEYCODE_TAB` into the Console display,
+  preserving Shift, Ctrl, Meta, and hardware repeat.
+
+The bridge does not grab or proxy the keyboard. Every key except the single Tab
+usage stays on Android's normal path. On cleanup, Tab is restored to
+`KEY_TAB`, the logical `InputDevice` is refreshed, and the display-port
+association is removed. A setup failure rolls the mapping back immediately;
+physical hot-plug restarts the bridge for the new event node.
+
+Do not replace this path with an Accessibility key filter. Physical keys routed
+through Nubia's private Console display do not reach a third-party
+`AccessibilityService` reliably. SystemUI's Recents disable flag affects the
+phone display rather than this Console gesture, and changing launcher
+AConfig/`device_config` feature flags at runtime can trigger a userspace reboot
+on this firmware.
 
 ## Mouse Architecture
 

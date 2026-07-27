@@ -134,6 +134,21 @@ final class RootKeyboardShortcutWatcher {
     }
 
     private static void handleGeteventLine(final String line) {
+        if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")) {
+            final boolean reverse = line.endsWith("reverse");
+            synchronized (LOCK) {
+                sAltTabActive = true;
+            }
+            Log.i(TAG, reverse
+                    ? "root Alt+Shift+Tab"
+                    : "root Alt+Tab");
+            ConsoleModeSwitcher.advanceAltTab(reverse);
+            return;
+        }
+        if ("MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
+            finishAltTabIfActive();
+            return;
+        }
         if (line.indexOf(" EV_KEY ") < 0) {
             return;
         }
@@ -160,17 +175,11 @@ final class RootKeyboardShortcutWatcher {
             return;
         }
         if (isAltKey(keyName)) {
-            final boolean finishAltTab;
             synchronized (LOCK) {
                 sAltDown = action == 1;
-                finishAltTab = action == 0 && sAltTabActive;
-                if (finishAltTab) {
-                    sAltTabActive = false;
-                }
             }
-            if (finishAltTab) {
-                Log.i(TAG, "root Alt+Tab commit");
-                ConsoleModeSwitcher.finishAltTab();
+            if (action == 0) {
+                finishAltTabIfActive();
             }
             return;
         }
@@ -198,16 +207,6 @@ final class RootKeyboardShortcutWatcher {
             Log.i(TAG, "root Alt+F4");
             ConsoleModeSwitcher.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_CLOSE);
-            return;
-        }
-
-        if ("KEY_TAB".equals(keyName) && isAltTabDown()) {
-            final boolean reverse = isShiftDown();
-            synchronized (LOCK) {
-                sAltTabActive = true;
-            }
-            Log.i(TAG, reverse ? "root Alt+Shift+Tab" : "root Alt+Tab");
-            ConsoleModeSwitcher.advanceAltTab(reverse);
             return;
         }
 
@@ -325,18 +324,6 @@ final class RootKeyboardShortcutWatcher {
         }
     }
 
-    private static boolean isAltTabDown() {
-        synchronized (LOCK) {
-            return sAltDown && !sCtrlDown && !sMetaDown;
-        }
-    }
-
-    private static boolean isShiftDown() {
-        synchronized (LOCK) {
-            return sShiftDown;
-        }
-    }
-
     private static boolean isMetaOnlyDown() {
         synchronized (LOCK) {
             return sMetaDown && !sCtrlDown && !sAltDown && !sShiftDown;
@@ -364,6 +351,18 @@ final class RootKeyboardShortcutWatcher {
     private static void setShiftDown(final boolean down) {
         synchronized (LOCK) {
             sShiftDown = down;
+        }
+    }
+
+    private static void finishAltTabIfActive() {
+        final boolean finishAltTab;
+        synchronized (LOCK) {
+            finishAltTab = sAltTabActive;
+            sAltTabActive = false;
+        }
+        if (finishAltTab) {
+            Log.i(TAG, "root Alt+Tab commit");
+            ConsoleModeSwitcher.finishAltTab();
         }
     }
 

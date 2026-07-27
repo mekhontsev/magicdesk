@@ -15,10 +15,16 @@ successful build.
 
 ## External Display
 
-- [ ] Validate the controller refactor on the current device before pushing.
+- [x] Validate the controller refactor on the current device before pushing.
   Exercise phone layout, Console Mode startup, Start and Tools panels, taskbar
   task actions, floating/fullscreen transitions, hardware layout switching,
   right click, touchpad restore, and complete MagicDesk exit.
+  The external-display pass also covered ordinary Tab, `Ctrl+Tab`, `Alt+Tab`,
+  `Alt+Shift+Tab`, repeated task advancement while Alt remained held, launcher
+  process stability, and restoration of the keyboard/mouse keymaps and input
+  port association during Exit. A deliberately launched `standard/freeform`
+  MagicDesk task was also recovered by `Win+D` into a new fullscreen HOME task
+  without relaunching the existing Termux or Golly processes.
 - [ ] Run Basic mode on a physical external display.
   Verify desktop launch, public application launch, overlays, taskbar, and
   graceful handling of unavailable task and DPI controls.

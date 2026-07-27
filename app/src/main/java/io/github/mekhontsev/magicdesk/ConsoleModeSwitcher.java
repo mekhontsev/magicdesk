@@ -398,14 +398,16 @@ final class ConsoleModeSwitcher {
 
         ensureLandscapeDisplay(displayId);
         final boolean desktopReady = MainActivity.isDesktopReadyOnDisplay(displayId);
-        if (!startedConsoleMode && !desktopReady) {
+        final boolean desktopTaskReady =
+                desktopReady && hasDesktopHomeTask(displayId);
+        if (!startedConsoleMode && !desktopTaskReady) {
             setExternalTaskCaptionsEnabledInternal(true);
         }
         final Boolean visibleTaskSnapshot =
                 DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
         final boolean restoreWindows = !(visibleTaskSnapshot != null
                 ? visibleTaskSnapshot.booleanValue() : hasVisibleAppTask(displayId));
-        if (!desktopReady && !startedConsoleMode) {
+        if (!desktopTaskReady) {
             final String preparedTask = runRootCommand(
                     appProcessCommand(TASK_CONTROL_COMMAND)
                             + " prepare-desktop " + displayId).trim();
@@ -414,7 +416,8 @@ final class ConsoleModeSwitcher {
         Log.i(TAG, "show MagicDesk display=" + displayId
                 + " restoreWindows=" + restoreWindows
                 + " cachedVisibility=" + (visibleTaskSnapshot != null)
-                + " desktopReady=" + desktopReady);
+                + " desktopReady=" + desktopReady
+                + " desktopTaskReady=" + desktopTaskReady);
         final String launchTaskFlags = startedConsoleMode
                 ? " -f 0x18000000"
                 : " --activity-reorder-to-front --activity-single-top";
@@ -471,6 +474,19 @@ final class ConsoleModeSwitcher {
         if (!output.contains("visible-app-task=false")) {
             Log.w(TAG, "cannot query visible app task output=" + output);
             return true;
+        }
+        return false;
+    }
+
+    private static boolean hasDesktopHomeTask(final int displayId) {
+        final String output = runRootCommand(
+                appProcessCommand(TASK_CONTROL_COMMAND)
+                        + " has-desktop-home " + displayId).trim();
+        if (output.contains("desktop-home-task=true")) {
+            return true;
+        }
+        if (!output.contains("desktop-home-task=false")) {
+            Log.w(TAG, "cannot query Console desktop task output=" + output);
         }
         return false;
     }
