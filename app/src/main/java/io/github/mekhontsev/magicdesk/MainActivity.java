@@ -199,7 +199,9 @@ public class MainActivity extends Activity {
             mNotifications.stop();
         }
         mTaskRefreshGeneration++;
-        mDesktopItemsController.cancel();
+        if (mDesktopItemsController != null) {
+            mDesktopItemsController.cancel();
+        }
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
         }
@@ -211,7 +213,9 @@ public class MainActivity extends Activity {
         if (sDesktopInstance.get() == this) {
             sDesktopInstance.clear();
         }
-        mConsoleControls.stop();
+        if (mConsoleControls != null) {
+            mConsoleControls.stop();
+        }
         super.onDestroy();
     }
 
