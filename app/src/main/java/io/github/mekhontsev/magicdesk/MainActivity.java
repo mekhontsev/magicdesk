@@ -128,6 +128,8 @@ public class MainActivity extends Activity {
     private TaskOverviewController mTaskOverviewController;
     private AppContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
+    private AltTabController mAltTabController;
+    private WorkspaceController mWorkspaceController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
@@ -144,20 +146,12 @@ public class MainActivity extends Activity {
     private boolean mContextButtonDown;
     private boolean mContextButtonTouchSequence;
     private boolean mDesktopWindowFocusable = true;
-    private boolean mAltTabActive;
-    private boolean mAltTabLoadInProgress;
-    private boolean mAltTabCommitPending;
     private boolean mExitInProgress;
-    private int mAltTabPendingOffset;
-    private int mAltTabSelectedIndex = -1;
     private int mTaskRefreshGeneration;
     private float mLastPointerX;
     private float mLastPointerY;
     private String mLastStatusText;
     private List<AppItem> mLastApps = Collections.emptyList();
-    private List<TaskRepository.TaskEntry> mAltTabTasks = Collections.emptyList();
-    private boolean mWorkspaceRestoreAttempted;
-    private boolean mWorkspaceBoundsRestorePending;
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -194,6 +188,8 @@ public class MainActivity extends Activity {
         mTaskOverviewController = new TaskOverviewController(this, mUi);
         mContextMenuController = new AppContextMenuController(this, mUi);
         mTaskbarController = new TaskbarController(this, mUi);
+        mAltTabController = new AltTabController(this);
+        mWorkspaceController = new WorkspaceController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
@@ -476,10 +472,7 @@ public class MainActivity extends Activity {
     }
 
     boolean isAltTabTaskSelected(final TaskRepository.TaskEntry task) {
-        return mAltTabActive
-                && mAltTabSelectedIndex >= 0
-                && mAltTabSelectedIndex < mAltTabTasks.size()
-                && mAltTabTasks.get(mAltTabSelectedIndex).taskId == task.taskId;
+        return mAltTabController.isSelected(task);
     }
 
     boolean isWorkspaceApp(final String packageName) {
@@ -708,11 +701,7 @@ public class MainActivity extends Activity {
                 && activity.getPackageName().equals(activeTask.packageName);
         activity.runOnUiThread(() -> {
             activity.mTaskSnapshot = snapshot;
-            final boolean firstWorkspaceRestore = !activity.mWorkspaceRestoreAttempted;
-            activity.restoreWorkspaceAppOnce(snapshot);
-            if (!firstWorkspaceRestore) {
-                activity.updateWorkspaceBounds(snapshot);
-            }
+            activity.mWorkspaceController.syncSnapshot(snapshot);
             activity.renderTaskbarPins(activity.mLastApps);
             activity.setTaskbarVisible(visible);
             if (hasActiveTask) {
@@ -864,11 +853,11 @@ public class MainActivity extends Activity {
         mTaskOverviewController.show();
     }
 
-    private void populateTaskOverview(final TaskRepository.Snapshot snapshot) {
+    void populateTaskOverview(final TaskRepository.Snapshot snapshot) {
         mTaskOverviewController.populate(snapshot);
     }
 
-    private boolean showTaskOverviewPanel() {
+    boolean showTaskOverviewPanel() {
         return mTaskOverviewController.showPanel();
     }
 
@@ -1049,7 +1038,7 @@ public class MainActivity extends Activity {
         refreshDesktopFolder(false);
     }
 
-    private void renderDesktopIcons(final List<AppItem> apps) {
+    void renderDesktopIcons(final List<AppItem> apps) {
         mDesktopItemsController.render(apps);
     }
 
@@ -1065,7 +1054,7 @@ public class MainActivity extends Activity {
         mDesktopItemsController.refreshFolder(force);
     }
 
-    private void refreshTaskSnapshot() {
+    void refreshTaskSnapshot() {
         final int generation = ++mTaskRefreshGeneration;
         final int displayId = getCurrentDisplayId();
         TaskRepository.load(displayId, new TaskRepository.SnapshotCallback() {
@@ -1079,11 +1068,7 @@ public class MainActivity extends Activity {
                             return;
                         }
                         mTaskSnapshot = snapshot;
-                        final boolean firstWorkspaceRestore = !mWorkspaceRestoreAttempted;
-                        restoreWorkspaceAppOnce(snapshot);
-                        if (!firstWorkspaceRestore) {
-                            updateWorkspaceBounds(snapshot);
-                        }
+                        mWorkspaceController.syncSnapshot(snapshot);
                         renderTaskbarPins(mLastApps);
                         updateConsoleControls();
                     }
@@ -1130,157 +1115,30 @@ public class MainActivity extends Activity {
     }
 
     Set<String> getPinnedPackages() {
-        return new LinkedHashSet<>(getWorkspaceProfile().taskbarPackages);
-    }
-
-    private Set<String> getLegacyPinnedPackages() {
-        return DesktopPreferences.legacyPinnedPackages(this);
+        return mWorkspaceController.getPinnedPackages();
     }
 
     void togglePinned(final AppItem app) {
-        final Set<String> pinned = getPinnedPackages();
-        final boolean nowPinned;
-        if (pinned.contains(app.packageName)) {
-            pinned.remove(app.packageName);
-            nowPinned = false;
-        } else {
-            pinned.add(app.packageName);
-            nowPinned = true;
-        }
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        profile.taskbarPackages.clear();
-        profile.taskbarPackages.addAll(pinned);
-        saveWorkspaceProfile();
-        DesktopPreferences.saveLegacyPinnedPackages(this, pinned);
-        renderTaskbarPins(mLastApps);
-        renderStartMenuContent();
-        setStatus(getString(nowPinned
-                ? R.string.status_app_pinned : R.string.status_app_unpinned,
-                app.label));
+        mWorkspaceController.togglePinned(app);
     }
 
     boolean isDesktopShortcut(final String packageName) {
-        return getWorkspaceProfile().desktopPackages.contains(packageName);
+        return mWorkspaceController.isDesktopShortcut(packageName);
     }
 
     void toggleDesktopShortcut(final AppItem app) {
-        final List<String> shortcuts = getWorkspaceProfile().desktopPackages;
-        final boolean added;
-        if (shortcuts.remove(app.packageName)) {
-            added = false;
-        } else {
-            shortcuts.add(app.packageName);
-            added = true;
-        }
-        saveWorkspaceProfile();
-        renderDesktopIcons(mLastApps);
-        setStatus(getString(added
-                ? R.string.status_desktop_shortcut_added
-                : R.string.status_desktop_shortcut_removed, app.label));
+        mWorkspaceController.toggleDesktopShortcut(app);
     }
 
     void setWorkspaceApp(final AppItem app,
             final TaskRepository.TaskEntry task, final boolean keep) {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        if (!keep) {
-            profile.workspacePackage = null;
-            profile.workspaceBounds.setEmpty();
-            mWorkspaceBoundsRestorePending = false;
-            saveWorkspaceProfile();
-            renderDesktopIcons(mLastApps);
-            renderTaskbarPins(mLastApps);
-            setStatus(getString(R.string.status_workspace_app_removed, app.label));
-            return;
-        }
-
-        profile.workspacePackage = app.packageName;
-        profile.workspaceBounds.setEmpty();
-        if (task != null && task.isFreeform() && !task.bounds.isEmpty()) {
-            profile.workspaceBounds.set(task.bounds);
-        }
-        saveWorkspaceProfile();
-        renderDesktopIcons(mLastApps);
-        renderTaskbarPins(mLastApps);
-        setStatus(getString(R.string.status_workspace_app_kept, app.label));
-        if (task == null || !task.isFreeform()) {
-            mWorkspaceBoundsRestorePending = !profile.workspaceBounds.isEmpty();
-            launchFloating(app);
-        }
+        mWorkspaceController.setWorkspaceApp(app, task, keep);
     }
 
-    private TaskRepository.TaskEntry findWorkspaceTask(
-            final TaskRepository.Snapshot snapshot) {
-        final String workspacePackage = getWorkspaceProfile().workspacePackage;
-        if (workspacePackage == null || snapshot == null) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (isTaskbarTask(task) && workspacePackage.equals(task.packageName)) {
-                return task;
-            }
-        }
-        return null;
-    }
-
-    private void updateWorkspaceBounds(final TaskRepository.Snapshot snapshot) {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        final TaskRepository.TaskEntry task = findWorkspaceTask(snapshot);
-        if (task == null || !task.isFreeform() || task.bounds.isEmpty()) {
-            return;
-        }
-        if (mWorkspaceBoundsRestorePending && !profile.workspaceBounds.isEmpty()) {
-            final Rect desiredBounds = new Rect(profile.workspaceBounds);
-            mWorkspaceBoundsRestorePending = false;
-            if (!desiredBounds.equals(task.bounds)) {
-                TaskRepository.resizeTaskBounds(task, desiredBounds,
-                        result -> runOnUiThread(this::refreshTaskSnapshot));
-                return;
-            }
-        }
-        if (!profile.workspaceBounds.equals(task.bounds)) {
-            profile.workspaceBounds.set(task.bounds);
-            saveWorkspaceProfile();
-        }
-    }
-
-    private void restoreWorkspaceAppOnce(final TaskRepository.Snapshot snapshot) {
-        if (mWorkspaceRestoreAttempted) {
-            return;
-        }
-        mWorkspaceRestoreAttempted = true;
-        restoreWorkspaceApp(snapshot, false);
-    }
-
-    private void restoreWorkspaceApp(final TaskRepository.Snapshot snapshot,
+    private void restoreWorkspaceApp(
+            final TaskRepository.Snapshot snapshot,
             final boolean bringToFront) {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        if (profile.workspacePackage == null || profile.workspacePackage.length() == 0) {
-            return;
-        }
-        final AppItem app = findOrLoadApp(mLastApps, profile.workspacePackage);
-        if (app == null) {
-            return;
-        }
-        final TaskRepository.TaskEntry task = findWorkspaceTask(snapshot);
-        if (task == null || !task.isFreeform()) {
-            mWorkspaceBoundsRestorePending = !profile.workspaceBounds.isEmpty();
-            launchFloating(app);
-            return;
-        }
-        if (!profile.workspaceBounds.isEmpty()
-                && !profile.workspaceBounds.equals(task.bounds)) {
-            final Rect bounds = new Rect(profile.workspaceBounds);
-            TaskRepository.resizeTaskBounds(task, bounds, result -> runOnUiThread(() -> {
-                if (bringToFront) {
-                    focusTask(app, task);
-                }
-                refreshTaskSnapshot();
-            }));
-            return;
-        }
-        if (bringToFront && !task.visible) {
-            focusTask(app, task);
-        }
+        mWorkspaceController.restore(snapshot, bringToFront);
     }
 
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
@@ -1319,119 +1177,15 @@ public class MainActivity extends Activity {
     }
 
     private void advanceAltTab(final boolean reverse) {
-        final int offset = reverse ? -1 : 1;
-        if (mAltTabActive) {
-            if (mAltTabLoadInProgress) {
-                mAltTabPendingOffset += offset;
-            } else {
-                selectAltTabOffset(offset);
-                populateTaskOverview(mTaskSnapshot);
-            }
-            return;
-        }
-
-        mAltTabActive = true;
-        mAltTabLoadInProgress = true;
-        mAltTabCommitPending = false;
-        mAltTabPendingOffset = offset;
-        mAltTabSelectedIndex = -1;
-        mAltTabTasks = Collections.emptyList();
-        captureInteractionStackForPanel();
-        hideAllPanels();
-
-        final int displayId = getCurrentDisplayId();
-        TaskRepository.load(displayId, snapshot -> runOnUiThread(() -> {
-            if (!mAltTabActive || isFinishing() || isDestroyed()
-                    || displayId != getCurrentDisplayId()) {
-                return;
-            }
-            mAltTabLoadInProgress = false;
-            if (!snapshot.rootAvailable) {
-                resetAltTabState();
-                setStatus(getString(R.string.status_switch_failed,
-                        snapshot.error.length() == 0
-                                ? "task snapshot" : snapshot.error));
-                return;
-            }
-
-            mTaskSnapshot = snapshot;
-            final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
-            for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-                if (isTaskbarTask(task)) {
-                    tasks.add(task);
-                }
-            }
-            if (tasks.isEmpty()) {
-                resetAltTabState();
-                return;
-            }
-            mAltTabTasks = tasks;
-            int activeIndex = -1;
-            for (int index = 0; index < tasks.size(); index++) {
-                if (tasks.get(index).active) {
-                    activeIndex = index;
-                    break;
-                }
-            }
-            if (activeIndex < 0) {
-                activeIndex = mAltTabPendingOffset < 0 ? 0 : -1;
-            }
-            mAltTabSelectedIndex = Math.floorMod(
-                    activeIndex + mAltTabPendingOffset, tasks.size());
-            mAltTabPendingOffset = 0;
-            populateTaskOverview(snapshot);
-            if (mAltTabCommitPending) {
-                finishAltTab();
-            } else if (!showTaskOverviewPanel()) {
-                resetAltTabState();
-            }
-        }));
-    }
-
-    private void selectAltTabOffset(final int offset) {
-        if (mAltTabTasks.isEmpty()) {
-            return;
-        }
-        final int current = mAltTabSelectedIndex < 0 ? 0 : mAltTabSelectedIndex;
-        mAltTabSelectedIndex = Math.floorMod(
-                current + offset, mAltTabTasks.size());
+        mAltTabController.advance(reverse);
     }
 
     private void finishAltTab() {
-        if (!mAltTabActive) {
-            return;
-        }
-        if (mAltTabLoadInProgress) {
-            mAltTabCommitPending = true;
-            return;
-        }
-        if (mAltTabSelectedIndex < 0
-                || mAltTabSelectedIndex >= mAltTabTasks.size()) {
-            resetAltTabState();
-            hideAllPanels();
-            return;
-        }
-
-        final TaskRepository.TaskEntry target =
-                mAltTabTasks.get(mAltTabSelectedIndex);
-        final AppItem app = findOrLoadApp(mLastApps, target.packageName);
-        resetAltTabState();
-        hideAllPanels();
-        if (app == null) {
-            mInteractionVisibleTasks = Collections.emptyList();
-            setStatus(getString(R.string.status_switch_failed, target.packageName));
-            return;
-        }
-        focusTask(app, target);
+        mAltTabController.finish();
     }
 
     void resetAltTabState() {
-        mAltTabActive = false;
-        mAltTabLoadInProgress = false;
-        mAltTabCommitPending = false;
-        mAltTabPendingOffset = 0;
-        mAltTabSelectedIndex = -1;
-        mAltTabTasks = Collections.emptyList();
+        mAltTabController.reset();
     }
 
     void openTaskFullscreen(final AppItem app,
@@ -1576,11 +1330,11 @@ public class MainActivity extends Activity {
         return taskIds;
     }
 
-    private void renderTaskbarPins(final List<AppItem> apps) {
+    void renderTaskbarPins(final List<AppItem> apps) {
         mTaskbarController.renderPins(apps);
     }
 
-    private void renderStartMenuContent() {
+    void renderStartMenuContent() {
         mStartMenuController.render();
     }
 
@@ -2194,8 +1948,7 @@ public class MainActivity extends Activity {
     }
 
     void onWorkspaceProfileReset() {
-        mWorkspaceRestoreAttempted = false;
-        mWorkspaceBoundsRestorePending = false;
+        mWorkspaceController.resetProfileState();
         mDesktopItemsController.resetProfileState();
     }
 
