@@ -43,13 +43,15 @@ successful build.
   HOME task focus, and absence of the root watcher were verified on a REDMAGIC
   11 Pro Console display. Display-density controls and a 1920x1080 screenshot
   captured from the Tools panel were also verified.
-- [ ] Exercise the Primary, Current, External, and Auto targets with display
+- [x] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in
   Mirror Mode, where the firmware leaves the pointer on the phone. Primary,
-  Current, and active-Console transitions were also verified without duplicate
-  shell tasks. Explicit External presentation and disconnect/relaunch cases
-  remain.
+  Current, and active-Console transitions were verified without duplicate
+  shell tasks. Explicit External selected the physical presentation display in
+  Mirror Mode and the virtual Console display while Console Mode was active.
+  Physical disconnect restored the phone launcher, and reconnect selected new
+  physical and Console display IDs without reusing stale IDs.
 
 ## Lifecycle
 
@@ -57,12 +59,14 @@ successful build.
   starts the root watcher only for an acknowledged Root/Auto-root session.
 - [ ] Reboot with each saved display target and verify that no stale display id
   is reused.
-- [ ] Switch Root to Basic and Root to Shizuku repeatedly while MagicDesk is
+- [x] Switch Root to Basic and Root to Shizuku repeatedly while MagicDesk is
   active and confirm that no foreground-service startup race returns.
   One Root -> Basic -> Root cycle on the external display is complete: Basic
   stopped the foreground watcher and both root helpers without removing the
-  desktop HOME task, and confirming Root restarted all three without relaunching
-  MagicDesk. Shizuku and repeated-cycle coverage remain.
+  desktop HOME task, and returning to Root restarted all three without
+  relaunching MagicDesk. A Root -> Shizuku -> Root -> Shizuku cycle retained
+  one runtime service and one desktop task while stopping and restarting the
+  root input bridge exactly once per transition.
 
 ## Clean Environment
 

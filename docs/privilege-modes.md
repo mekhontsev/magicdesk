@@ -82,7 +82,10 @@ execution boundary rather than only disabling controls in the UI.
   on tablets and for development without an external monitor.
 - **Current** keeps the shell on the display where setup was opened.
 - **External** selects an active Console or presentation display and falls back
-  to Current when none exists.
+  to Current when none exists. On REDMAGIC in Mirror Mode, a physical
+  presentation display can render MagicDesk but the system pointer remains on
+  the phone. Use External with an active Console display for an interactive
+  desktop.
 - **Auto** prefers an already-active Nubia Console display, otherwise Current.
   It deliberately ignores a physical presentation display while REDMAGIC is in
   Mirror Mode because the firmware continues routing its pointer to the phone.

@@ -22,6 +22,9 @@ final class PhoneHomeRecoveryController {
     private static final String MAGICDESK_MAIN_ACTIVITY =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.MainActivity";
+    private static final String MAGICDESK_DESKTOP_ACTIVITY =
+            "io.github.mekhontsev.magicdesk/"
+                    + "io.github.mekhontsev.magicdesk.DesktopActivity";
 
     private PhoneHomeRecoveryController() {
     }
@@ -90,8 +93,10 @@ final class PhoneHomeRecoveryController {
                     && SECONDARY_PHONE_HOME.equals(task.topActivityName);
             final boolean migratedMagicDesk =
                     includeMigratedMagicDesk
-                            && MAGICDESK_MAIN_ACTIVITY.equals(
-                                    task.topActivityName);
+                            && (MAGICDESK_MAIN_ACTIVITY.equals(
+                                    task.topActivityName)
+                                    || MAGICDESK_DESKTOP_ACTIVITY.equals(
+                                            task.topActivityName));
             if (secondaryHome || migratedMagicDesk) {
                 return true;
             }

@@ -20,6 +20,9 @@ public final class PhoneHomeRecoveryControllerTest {
     private static final String MAGICDESK_MAIN =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.MainActivity";
+    private static final String MAGICDESK_DESKTOP =
+            "io.github.mekhontsev.magicdesk/"
+                    + "io.github.mekhontsev.magicdesk.DesktopActivity";
 
     @Test
     public void detectsVisibleSecondaryHomeOnPhone() {
@@ -60,6 +63,18 @@ public final class PhoneHomeRecoveryControllerTest {
                         true,
                         false,
                         MAGICDESK_MAIN);
+        assertTrue(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
+                Collections.singletonList(task),
+                true));
+        assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
+                Collections.singletonList(task),
+                false));
+    }
+
+    @Test
+    public void detectsDesktopActivityMigratedAfterDisplayRemoval() {
+        final TaskRepository.TaskEntry task =
+                task(MAGICDESK_DESKTOP, true, false, MAGICDESK_DESKTOP);
         assertTrue(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
                 Collections.singletonList(task),
                 true));

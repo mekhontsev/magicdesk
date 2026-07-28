@@ -246,8 +246,8 @@ A `DisplayManager.DisplayListener` validates the actual display lifecycle
 instead of trusting only Nubia's global settings.
 
 When Nubia removes the virtual Console display, the firmware may reparent
-either `SecondaryDisplayLauncher` or the external MagicDesk activity to display
-0 and leave the phone in landscape. MagicDesk restores `QuickstepLauncher`
+`SecondaryDisplayLauncher`, `MainActivity`, or `DesktopActivity` to display 0
+and leave the phone in landscape. MagicDesk restores `QuickstepLauncher`
 after a confirmed Console-to-mirror transition. Root and Shizuku first inspect
 the exact phone task; Basic uses the confirmed transition itself because it
 cannot inspect system tasks. The privileged check uses the visible
