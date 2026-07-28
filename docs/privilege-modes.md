@@ -47,6 +47,12 @@ root/vendor controls, so the global shortcut bridge, physical-key repeat
 correction, keyboard-layout cycling, right-click remapping, phone-screen
 controls, and Console Mode automation remain disabled.
 
+On REDMAGIC firmware, the physical right mouse button becomes Android Back
+before an application overlay can consume it. Use a long left-button press for
+MagicDesk context menus in Shizuku mode. Screenshots remain available from
+**Tools > Screenshot**; the panel is synchronously detached and the capture is
+queued against display frames rather than a fixed delay.
+
 MagicDesk does not download, install, or start Shizuku. The user must install
 the official manager, start its server, and grant MagicDesk. A Shizuku/Sui
 service running as UID 0 is identified separately, but MagicDesk still exposes

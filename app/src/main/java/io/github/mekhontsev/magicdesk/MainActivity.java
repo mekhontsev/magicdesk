@@ -1076,6 +1076,19 @@ public class MainActivity extends Activity {
         ConsoleModeSwitcher.showMagicDesk();
     }
 
+    void captureDesktopScreenshot() {
+        hideAllPanels();
+        final View decor = getWindow().getDecorView();
+        if (!decor.isAttachedToWindow()) {
+            ConsoleModeSwitcher.captureScreenshot();
+            return;
+        }
+        // removeViewImmediate() has detached the overlay. Two display frames let
+        // WindowManager commit that removal before the external display is captured.
+        decor.postOnAnimation(() ->
+                decor.postOnAnimation(ConsoleModeSwitcher::captureScreenshot));
+    }
+
     private void restoreLastVisibleWindows() {
         mAppTasks.restoreLastVisibleWindows();
     }

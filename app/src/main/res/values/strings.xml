@@ -171,6 +171,7 @@
     <string name="shortcut_notifications_action">Show notifications</string>
     <string name="shortcut_screenshot">Win + Print Screen</string>
     <string name="shortcut_screenshot_action">Save screenshot to Pictures</string>
+    <string name="action_screenshot">Screenshot</string>
     <string name="shortcut_desktop">Win + D</string>
     <string name="shortcut_desktop_action">Show or restore desktop</string>
     <string name="shortcut_help">Win + /</string>

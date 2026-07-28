@@ -180,6 +180,9 @@ useful when no physical keyboard or mouse is connected:
 | `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
 
 The unmodified Win key is deliberately unused.
+Global shortcuts require the Root runtime input bridge. In Shizuku mode use
+the equivalent taskbar and Tools actions; **Screenshot** captures the external
+display without leaving the Tools panel in the image.
 
 ## Phone And Console Controls
 
@@ -189,6 +192,7 @@ The taskbar Tools panel provides:
 - Open REDMAGIC Touch Panel
 - Wake or dim the phone display
 - External-display DPI selection
+- External-display screenshot
 - Shortcut-service restart
 - Device Setup and Diagnostics
 - Optional Kernel Fixes entry

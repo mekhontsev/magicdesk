@@ -35,13 +35,14 @@ successful build.
   task-identity limitation. The final UI pass verified that privileged DPI,
   Console Mode, phone-screen, and shortcut controls remain present but are
   disabled and visually distinct.
-- [ ] Run Shizuku shell mode on a physical external display.
+- [x] Run Shizuku shell mode on a physical external display.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
   controls, screenshots, and the absence of root-only input services.
   Existing-task reuse, native freeform launch, landscape correction, native
   caption visibility, fullscreen/freeform transitions, notification-driven
   HOME task focus, and absence of the root watcher were verified on a REDMAGIC
-  11 Pro Console display. Display-density controls and screenshots remain.
+  11 Pro Console display. Display-density controls and a 1920x1080 screenshot
+  captured from the Tools panel were also verified.
 - [ ] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in

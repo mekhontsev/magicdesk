@@ -159,6 +159,15 @@ final class ConsoleControlsController {
                 mActivity.openDiagnostics());
         addActionButton(actionGrid, diagnostics);
 
+        final Button screenshot = mUi.actionButton(
+                R.string.action_screenshot,
+                DesktopUiFactory.COLOR_CYAN);
+        screenshot.setEnabled(RuntimeAccess.has(
+                RuntimeAccess.Capability.SCREENSHOT));
+        screenshot.setOnClickListener(view ->
+                mActivity.captureDesktopScreenshot());
+        addActionButton(actionGrid, screenshot);
+
         if (RuntimeAccess.has(RuntimeAccess.Capability.KERNEL_FIXES)
                 && KernelFixesIntegration.isAvailable(mActivity)) {
             addActionButton(

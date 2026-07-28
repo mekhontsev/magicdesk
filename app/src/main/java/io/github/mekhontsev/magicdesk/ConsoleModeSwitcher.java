@@ -444,6 +444,11 @@ final class ConsoleModeSwitcher {
         if (!markShortcut("screenshot")) {
             return;
         }
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.SCREENSHOT)) {
+            Log.w(TAG, "screenshot unavailable for backend="
+                    + RuntimeAccess.backendName());
+            return;
+        }
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
@@ -753,38 +758,47 @@ final class ConsoleModeSwitcher {
     }
 
     private static void captureScreenshotInternal() {
-        final String physicalDisplayId = getExternalPhysicalDisplayId();
-        final String fileName = "MagicDesk_"
-                + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
-                        .format(new Date())
-                + ".png";
-        final String path = SCREENSHOT_DIRECTORY + "/" + fileName;
-        final String displayArgument = physicalDisplayId == null
-                ? "" : "-d " + physicalDisplayId + " ";
-        final String command = "umask 002; "
-                + "/system/bin/mkdir -p " + shellQuote(SCREENSHOT_DIRECTORY)
-                + " && /system/bin/screencap " + displayArgument
-                + "-p " + shellQuote(path)
-                + " && /system/bin/test -s " + shellQuote(path)
-                + " && /system/bin/chmod 0664 " + shellQuote(path)
-                + " && /system/bin/am broadcast --user 0"
-                + " -a android.intent.action.MEDIA_SCANNER_SCAN_FILE"
-                + " -d " + shellQuote("file://" + path)
-                + " >/dev/null"
-                + " && echo " + shellQuote("screenshot-saved=" + path);
-        final String output = runRootCommand(command).trim();
-        if (output.contains("screenshot-saved=" + path)) {
+        String path = null;
+        try {
+            final String physicalDisplayId = getExternalPhysicalDisplayId();
+            final String fileName = "MagicDesk_"
+                    + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
+                            .format(new Date())
+                    + ".png";
+            path = SCREENSHOT_DIRECTORY + "/" + fileName;
+            final String displayArgument = physicalDisplayId == null
+                    ? "" : "-d " + physicalDisplayId + " ";
+            final String command = "umask 002; "
+                    + "/system/bin/mkdir -p " + shellQuote(SCREENSHOT_DIRECTORY)
+                    + " && /system/bin/screencap " + displayArgument
+                    + "-p " + shellQuote(path)
+                    + " && /system/bin/test -s " + shellQuote(path)
+                    + " && /system/bin/chmod 0664 " + shellQuote(path)
+                    + " && /system/bin/am broadcast --user 0"
+                    + " -a android.intent.action.MEDIA_SCANNER_SCAN_FILE"
+                    + " -d " + shellQuote("file://" + path)
+                    + " >/dev/null"
+                    + " && echo " + shellQuote("screenshot-saved=" + path);
+            final String output = PrivilegedCommandRunner.run(command).trim();
+            if (!output.contains("screenshot-saved=" + path)) {
+                throw new IOException(
+                        "unexpected screenshot response: "
+                                + output.replace('\n', ' '));
+            }
             Log.i(TAG, "screenshot saved path=" + path
                     + " physicalDisplay=" + physicalDisplayId);
-        } else {
-            Log.w(TAG, "screenshot failed path=" + path
-                    + " physicalDisplay=" + physicalDisplayId
-                    + " output=" + output.replace('\n', ' '));
+        } catch (IOException error) {
+            Log.w(TAG, "screenshot failed path=" + path, error);
+            CompatibilityDiagnostics.record(
+                    "SCREENSHOT-001",
+                    "Could not capture the external display",
+                    error.getMessage());
         }
     }
 
-    private static String getExternalPhysicalDisplayId() {
-        final String output = runRootCommand(DISPLAY + " get-displays --type external");
+    private static String getExternalPhysicalDisplayId() throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                DISPLAY + " get-displays --type external");
         final Matcher matcher = EXTERNAL_PHYSICAL_DISPLAY_PATTERN.matcher(output);
         return matcher.find() ? matcher.group(1) : null;
     }
