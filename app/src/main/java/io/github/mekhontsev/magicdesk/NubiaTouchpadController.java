@@ -15,9 +15,6 @@ final class NubiaTouchpadController {
             "cn.nubia.keymapcenter/.mirror.MirrorInputActivity";
     private static final String MIRROR_INPUT_ACTION =
             "cn.nubia.keymapcenter.intent.action.MIRROR_INPUT";
-    private static final String PRIMARY_PHONE_HOME =
-            "com.zte.mifavor.launcher/"
-                    + "com.android.launcher3.uioverrides.QuickstepLauncher";
     private static final String CONSOLE_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleControlCommand";
     private static final String CONSOLE_DISPLAY_COMMAND =
@@ -122,12 +119,7 @@ final class NubiaTouchpadController {
         ConsoleModeSwitcher.executeSerialized(() -> {
             try {
                 ConsoleModeSwitcher.runRootCommand(
-                        AM + " start --display 0"
-                                + " --activity-clear-top"
-                                + " --activity-single-top"
-                                + " -a android.intent.action.MAIN"
-                                + " -c android.intent.category.HOME"
-                                + " -n " + PRIMARY_PHONE_HOME);
+                        PhoneHomeRecoveryController.primaryHomeCommand());
             } finally {
                 ConsoleModeSwitcher.closeRootShell();
             }

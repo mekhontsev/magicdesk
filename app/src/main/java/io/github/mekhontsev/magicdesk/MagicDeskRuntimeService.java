@@ -21,6 +21,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.Display;
 import android.view.InputDevice;
 
 import java.util.ArrayList;
@@ -51,6 +52,9 @@ public final class MagicDeskRuntimeService extends Service
     private String mExternalInputDeviceSignature;
     private boolean mConsoleModeActive;
     private int mConsoleDisplayId;
+    private boolean mConsoleExitRecoveryPending;
+    private boolean mPhoneHomeRecoveryInFlight;
+    private boolean mPhoneHomeRecoveryAgain;
     private boolean mRootWatcherRunning;
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
@@ -61,6 +65,8 @@ public final class MagicDeskRuntimeService extends Service
 
     private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
     private final Runnable mMirrorInputRetryRunnable = this::syncMirrorInputProxyState;
+    private final Runnable mPhoneHomeRecoveryRunnable =
+            this::restorePrimaryPhoneHomeIfNeeded;
 
     public static void start(final Context context) {
         final Intent intent = new Intent(context, MagicDeskRuntimeService.class);
@@ -118,6 +124,7 @@ public final class MagicDeskRuntimeService extends Service
         syncMirrorInputProxyState();
         updateRootWatcher();
         updateDesktopTasks();
+        schedulePhoneHomeRecovery();
         logInputState();
         Log.i(TAG, "started, hardwareKeyboard=" + mHasHardwareKeyboard
                 + " externalMouse=" + mHasExternalMouse);
@@ -167,6 +174,7 @@ public final class MagicDeskRuntimeService extends Service
         if (mHandler != null) {
             mHandler.removeCallbacks(mDeviceChangeRunnable);
             mHandler.removeCallbacks(mMirrorInputRetryRunnable);
+            mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
         }
         if (mDesktopTasks != null) {
             mDesktopTasks.stop();
@@ -204,11 +212,15 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public void onDisplayRemoved(final int displayId) {
         handleConsoleStateMaybeChanged();
+        schedulePhoneHomeRecovery();
     }
 
     @Override
     public void onDisplayChanged(final int displayId) {
         handleConsoleStateMaybeChanged();
+        if (displayId == Display.DEFAULT_DISPLAY) {
+            schedulePhoneHomeRecovery();
+        }
     }
 
     private void scheduleDeviceStateCheck() {
@@ -400,6 +412,9 @@ public final class MagicDeskRuntimeService extends Service
                 + " display=" + mConsoleDisplayId);
         if (activeStateChanged) {
             restartRootWatcher();
+            if (consoleModeActive) {
+                mConsoleExitRecoveryPending = false;
+            }
         }
         if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
@@ -413,6 +428,52 @@ public final class MagicDeskRuntimeService extends Service
                         RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
             ConsoleModeSwitcher.setPhoneScreenOff(false, null);
         }
+        if (wasConsoleModeActive && !consoleModeActive) {
+            mConsoleExitRecoveryPending = true;
+            if (RuntimeAccess.has(
+                    RuntimeAccess.Capability.EXACT_TASKS)) {
+                schedulePhoneHomeRecovery();
+            } else {
+                PhoneHomeRecoveryController.restoreAfterConsoleExit(this);
+                mConsoleExitRecoveryPending = false;
+            }
+        }
+    }
+
+    private void schedulePhoneHomeRecovery() {
+        if (mDestroyed || mHandler == null || mConsoleModeActive
+                || !RuntimeAccess.has(
+                        RuntimeAccess.Capability.EXACT_TASKS)) {
+            return;
+        }
+        mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
+        mHandler.post(mPhoneHomeRecoveryRunnable);
+    }
+
+    private void restorePrimaryPhoneHomeIfNeeded() {
+        if (mDestroyed || mConsoleModeActive) {
+            return;
+        }
+        if (mPhoneHomeRecoveryInFlight) {
+            mPhoneHomeRecoveryAgain = true;
+            return;
+        }
+        mPhoneHomeRecoveryInFlight = true;
+        final boolean includeMigratedMagicDesk =
+                mConsoleExitRecoveryPending;
+        PhoneHomeRecoveryController.restoreIfNeeded(
+                includeMigratedMagicDesk,
+                settled -> mHandler.post(() -> {
+                    mPhoneHomeRecoveryInFlight = false;
+                    if (!mDestroyed && settled
+                            && includeMigratedMagicDesk) {
+                        mConsoleExitRecoveryPending = false;
+                    }
+                    if (!mDestroyed && mPhoneHomeRecoveryAgain) {
+                        mPhoneHomeRecoveryAgain = false;
+                        schedulePhoneHomeRecovery();
+                    }
+                }));
     }
 
     private void updateRootWatcher() {
