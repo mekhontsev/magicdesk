@@ -557,6 +557,18 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    static boolean restoreLastVisibleWindowsIfRunning() {
+        final MainActivity activity = sDesktopInstance.get();
+        if (activity == null || activity.isFinishing()
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
+                        && activity.isDestroyed())
+                || !activity.mDesktopMode) {
+            return false;
+        }
+        activity.runOnUiThread(activity::restoreLastVisibleWindows);
+        return true;
+    }
+
     static boolean recreateShellOnDisplayIfRunning(final int displayId) {
         final MainActivity activity = sShellInstance.get();
         if (activity == null

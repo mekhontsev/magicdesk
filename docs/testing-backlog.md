@@ -39,9 +39,9 @@ successful build.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
   controls, screenshots, and the absence of root-only input services.
   Existing-task reuse, native freeform launch, landscape correction, native
-  caption visibility, and absence of the root watcher were verified on a
-  REDMAGIC 11 Pro Console display. Fullscreen transitions and screenshots
-  remain.
+  caption visibility, fullscreen/freeform transitions, notification-driven
+  HOME task focus, and absence of the root watcher were verified on a REDMAGIC
+  11 Pro Console display. Display-density controls and screenshots remain.
 - [ ] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in

@@ -24,15 +24,19 @@ public final class TaskControlCommand {
                 args.length == 2 && "has-visible-app".equals(args[0]);
         final boolean queryDesktopHome =
                 args.length == 2 && "has-desktop-home".equals(args[0]);
+        final boolean queryDesktopHomeId =
+                args.length == 2 && "desktop-home-task-id".equals(args[0]);
         final boolean singleTaskAction = args.length == 2
                 && ("focus".equals(args[0]) || "remove".equals(args[0]));
-        if (!focusStack && !prepareDesktop && !queryVisibleApp && !queryDesktopHome
+        if (!focusStack && !prepareDesktop && !queryVisibleApp
+                && !queryDesktopHome && !queryDesktopHomeId
                 && !singleTaskAction) {
             System.err.println("usage: TaskControlCommand "
                     + "<focus|remove> <task-id> | focus-stack <task-id>... "
                     + "| prepare-desktop <display-id>"
                     + "| has-visible-app <display-id>"
-                    + "| has-desktop-home <display-id>");
+                    + "| has-desktop-home <display-id>"
+                    + "| desktop-home-task-id <display-id>");
             System.exit(64);
             return;
         }
@@ -59,6 +63,9 @@ public final class TaskControlCommand {
             if (queryDesktopHome) {
                 System.out.println("desktop-home-task="
                         + hasDesktopHomeTask(service, taskIds[0]));
+            } else if (queryDesktopHomeId) {
+                System.out.println("desktop-home-task-id="
+                        + findDesktopHomeTaskId(service, taskIds[0]));
             } else if (queryVisibleApp) {
                 System.out.println("visible-app-task="
                         + hasVisibleAppTask(service, taskIds[0]));
@@ -174,6 +181,11 @@ public final class TaskControlCommand {
 
     private static boolean hasDesktopHomeTask(final Object service, final int displayId)
             throws ReflectiveOperationException {
+        return findDesktopHomeTaskId(service, displayId) >= 0;
+    }
+
+    private static int findDesktopHomeTaskId(final Object service, final int displayId)
+            throws ReflectiveOperationException {
         final Object result = service.getClass()
                 .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
                 .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
@@ -195,10 +207,10 @@ public final class TaskControlCommand {
                     .getMethod("getActivityType").invoke(windowConfiguration)).intValue();
             if (windowingMode == WINDOWING_MODE_FULLSCREEN
                     && activityType == ACTIVITY_TYPE_HOME) {
-                return true;
+                return task.getClass().getField("taskId").getInt(task);
             }
         }
-        return false;
+        return -1;
     }
 
     private static void prepareDesktopTask(final Object service, final int displayId)

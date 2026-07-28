@@ -42,6 +42,8 @@ final class ConsoleModeSwitcher {
             Pattern.compile("Display id (\\d+): .* real (\\d+) x (\\d+),");
     private static final Pattern EXTERNAL_PHYSICAL_DISPLAY_PATTERN =
             Pattern.compile("type EXTERNAL,.*?uniqueId \"local:([0-9]+)\"");
+    private static final Pattern DESKTOP_HOME_TASK_ID_PATTERN =
+            Pattern.compile("desktop-home-task-id=(\\d+)");
     private static final long SHORTCUT_DEBOUNCE_MS = 300L;
     private static final long CONSOLE_START_TIMEOUT_MS = 10_000L;
     private static final long LANDSCAPE_APPLY_TIMEOUT_MS = 2_000L;
@@ -162,31 +164,35 @@ final class ConsoleModeSwitcher {
         }
         try {
             ensureLandscapeDisplayWithShizuku(displayId);
-            final boolean desktopReady =
-                    MainActivity.isDesktopReadyOnDisplay(displayId);
             final Boolean visibleTaskSnapshot =
                     DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
             final boolean restoreWindows =
                     visibleTaskSnapshot != null
                             && !visibleTaskSnapshot.booleanValue();
-            final String component = desktopReady
-                    ? "io.github.mekhontsev.magicdesk/.DesktopActivity"
-                    : "io.github.mekhontsev.magicdesk/.DeviceSetupActivity";
-            final String launchFlags = desktopReady
-                    ? " --activity-reorder-to-front --activity-single-top"
-                    : " -f 0x18000000";
+            final int desktopTaskId = findDesktopHomeTaskWithShizuku(displayId);
+            if (desktopTaskId >= 0) {
+                final String focusOutput = PrivilegedCommandRunner.run(
+                        AM + " task focus " + desktopTaskId).trim();
+                Log.i(TAG, "Shizuku MagicDesk focus task=" + desktopTaskId
+                        + " output=" + focusOutput.replace('\n', ' '));
+                if (restoreWindows) {
+                    MainActivity.restoreLastVisibleWindowsIfRunning();
+                }
+                return;
+            }
             final String output = PrivilegedCommandRunner.run(
                     AM + " start -W --display " + displayId
                             + " --windowingMode 1"
                             + " --activityType 2"
-                            + launchFlags
+                            + " -f 0x18000000"
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.LAUNCHER"
                             + (restoreWindows
                                     ? " --es " + MainActivity.EXTRA_ACTION + " "
                                             + MainActivity.ACTION_RESTORE_WINDOWS
                                     : "")
-                            + " -n " + component).trim();
+                            + " -n io.github.mekhontsev.magicdesk/.DeviceSetupActivity")
+                    .trim();
             if (output.startsWith("Error:")
                     || output.contains("Exception occurred while executing")) {
                 throw new IOException(output);
@@ -200,6 +206,19 @@ final class ConsoleModeSwitcher {
                     "Could not open MagicDesk on the Console display",
                     error.getMessage());
         }
+    }
+
+    private static int findDesktopHomeTaskWithShizuku(final int displayId)
+            throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                appProcessCommand(TASK_CONTROL_COMMAND)
+                        + " desktop-home-task-id " + displayId);
+        final Matcher matcher = DESKTOP_HOME_TASK_ID_PATTERN.matcher(output);
+        if (!matcher.find()) {
+            throw new IOException(
+                    "could not query MagicDesk HOME task: " + output.trim());
+        }
+        return Integer.parseInt(matcher.group(1));
     }
 
     private static void ensureLandscapeDisplayWithShizuku(final int displayId)
