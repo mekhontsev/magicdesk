@@ -60,8 +60,11 @@ successful build.
   launches the application. The application has no boot receiver or boot
   permission, so this behavior is independent of the saved privilege profile.
   A manual launch then started the runtime foreground service as expected.
-- [ ] Reboot with each saved display target and verify that no stale display id
-  is reused.
+- [x] Reboot with a saved Current target and verify that no stale display id is
+  reused. The previous Console display `19` disappeared, the reconnected
+  physical display was assigned `2`, and launching Device Setup on `2` kept
+  `DesktopActivity` on that current display. Display targets persist only their
+  selection policy; runtime display ids are always resolved again.
 - [x] Switch Root to Basic and Root to Shizuku repeatedly while MagicDesk is
   active and confirm that no foreground-service startup race returns.
   One Root -> Basic -> Root cycle on the external display is complete: Basic
@@ -76,8 +79,15 @@ successful build.
 - [ ] Test Basic mode on a ZTE/nubia Android 16 device whose desktop flags have
   not previously been provisioned with root.
 - [ ] Test Shizuku shell mode on a device without working `su`.
-- [ ] Verify first-run permission denial and later recovery for overlay,
-  notifications, and Shizuku authorization.
+- [x] Verify permission denial and later recovery for overlays, notifications,
+  and Shizuku authorization. Overlay denial left the manual setup available
+  with a clear limited-mode explanation. Denying `POST_NOTIFICATIONS` did not
+  stop the desktop runtime, and granting it later restored the foreground
+  notification on the next activity resume without restarting the service.
+  Notification-listener denial was reported by diagnostics and granting access
+  produced a live listener binding. Shizuku denial kept the strict Shizuku
+  profile while stopping the runtime service and all root helpers; granting it
+  later started the Shizuku UserService and runtime without a Root fallback.
 
 ## Automated Coverage
 

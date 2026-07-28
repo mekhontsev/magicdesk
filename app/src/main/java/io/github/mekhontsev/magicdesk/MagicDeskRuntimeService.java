@@ -24,6 +24,7 @@ import android.util.Log;
 import android.view.Display;
 import android.view.InputDevice;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,6 +44,8 @@ public final class MagicDeskRuntimeService extends Service
     private static final long MIRROR_INPUT_RETRY_MILLIS = 1_000;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
+    private static WeakReference<MagicDeskRuntimeService> sInstance =
+            new WeakReference<>(null);
 
     private Handler mHandler;
     private DisplayManager mDisplayManager;
@@ -77,6 +80,18 @@ public final class MagicDeskRuntimeService extends Service
         context.stopService(new Intent(context, MagicDeskRuntimeService.class));
     }
 
+    static void refreshNotificationIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed) {
+            return;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            service.updateNotification();
+        } else if (service.mHandler != null) {
+            service.mHandler.post(service::updateNotification);
+        }
+    }
+
     private static void startForegroundService(final Context context, final Intent intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
@@ -88,6 +103,8 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public void onCreate() {
         super.onCreate();
+        mDestroyed = false;
+        sInstance = new WeakReference<>(this);
         mHandler = new Handler(Looper.getMainLooper());
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
@@ -157,6 +174,9 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public void onDestroy() {
         mDestroyed = true;
+        if (sInstance.get() == this) {
+            sInstance = new WeakReference<>(null);
+        }
         if (mInputManager != null) {
             mInputManager.unregisterInputDeviceListener(this);
         }

@@ -456,6 +456,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        MagicDeskRuntimeService.refreshNotificationIfRunning();
         refreshWorkspaceProfileForDisplay();
         resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
