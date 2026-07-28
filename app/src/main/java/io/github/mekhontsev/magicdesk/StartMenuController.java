@@ -352,11 +352,7 @@ final class StartMenuController {
         tile.setFocusable(true);
         tile.setOnClickListener(view -> {
             mActivity.hideAllPanels();
-            if (mMode == MENU_FULLSCREEN) {
-                mActivity.launchFullscreen(app);
-            } else {
-                mActivity.launchDefault(app);
-            }
+            launchForCurrentMode(app);
         });
         mActivity.registerContextTarget(tile, app, null);
 
@@ -518,7 +514,7 @@ final class StartMenuController {
             final AppItem app = matches.get(
                     Math.min(mSearchSelection, matches.size() - 1));
             mActivity.hideAllPanels();
-            mActivity.launchDefault(app);
+            launchForCurrentMode(app);
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
@@ -526,6 +522,16 @@ final class StartMenuController {
             return true;
         }
         return false;
+    }
+
+    private void launchForCurrentMode(final AppItem app) {
+        if (mMode == MENU_FLOATING) {
+            mActivity.launchFloating(app);
+        } else if (mMode == MENU_FULLSCREEN) {
+            mActivity.launchFullscreen(app);
+        } else {
+            mActivity.launchDefault(app);
+        }
     }
 
     private int getColumnCount() {
