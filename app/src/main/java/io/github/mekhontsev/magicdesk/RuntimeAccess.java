@@ -91,7 +91,7 @@ final class RuntimeAccess {
         }
     }
 
-    private static EnumSet<Capability> capabilitiesFor(final Backend backend) {
+    static EnumSet<Capability> capabilitiesFor(final Backend backend) {
         if (backend == Backend.ROOT) {
             return EnumSet.allOf(Capability.class);
         }

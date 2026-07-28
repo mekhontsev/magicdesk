@@ -69,10 +69,10 @@ successful build.
 
 ## Automated Coverage
 
-- [ ] Add unit tests for SessionProfile parsing, persistence, and launch
+- [x] Add unit tests for SessionProfile parsing, persistence, and launch
   overrides.
-- [ ] Add unit tests for the RuntimeAccess capability matrix.
-- [ ] Add tests for strict backend selection: explicit Basic and Shizuku must
+- [x] Add unit tests for the RuntimeAccess capability matrix.
+- [x] Add tests for strict backend selection: explicit Basic and Shizuku must
   never fall back to Root.
 
 ## Next Release

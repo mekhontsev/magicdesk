@@ -61,16 +61,16 @@ final class DeviceSetupManager {
         Map<String, String> values = readUnprivilegedValues(context);
         boolean rootAvailable = false;
         String rootError = "";
+        boolean shizukuReady = false;
+        int shizukuUid = -1;
         ShizukuAccess.Snapshot shizuku = new ShizukuAccess.Snapshot(
                 false, false, false, -1, -1, "not requested");
-        RuntimeAccess.Backend backend = RuntimeAccess.Backend.BASIC;
         final SessionProfile.PrivilegeMode requestedMode =
                 sessionProfile == null
                         ? SessionProfile.PrivilegeMode.AUTO
                         : sessionProfile.privilegeMode;
         final boolean shouldProbeRoot =
-                requestedMode == SessionProfile.PrivilegeMode.AUTO
-                        || requestedMode == SessionProfile.PrivilegeMode.ROOT;
+                RuntimeBackendPolicy.shouldProbeRoot(requestedMode);
         if (shouldProbeRoot) {
             try {
                 values = parseValues(
@@ -82,15 +82,14 @@ final class DeviceSetupManager {
             } catch (IOException e) {
                 rootError = usefulMessage(e);
             }
-            if (rootAvailable) {
-                backend = RuntimeAccess.Backend.ROOT;
-            }
-        } else if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU) {
+        } else if (RuntimeBackendPolicy.shouldProbeShizuku(requestedMode)) {
             shizuku = ShizukuAccess.inspect();
             rootError = shizuku.error;
             if (shizuku.running && shizuku.permissionGranted) {
                 try {
                     final int serviceUid = ShizukuAccess.connectAndGetUid();
+                    shizukuReady = true;
+                    shizukuUid = serviceUid;
                     shizuku = new ShizukuAccess.Snapshot(
                             shizuku.installed,
                             true,
@@ -98,9 +97,6 @@ final class DeviceSetupManager {
                             serviceUid,
                             shizuku.version,
                             "");
-                    backend = serviceUid == 0
-                            ? RuntimeAccess.Backend.SHIZUKU_ROOT
-                            : RuntimeAccess.Backend.SHIZUKU_SHELL;
                     rootError = "";
                 } catch (IOException error) {
                     rootError = usefulMessage(error);
@@ -119,6 +115,11 @@ final class DeviceSetupManager {
         if (requestedMode != SessionProfile.PrivilegeMode.SHIZUKU) {
             ShizukuAccess.disconnect();
         }
+        final RuntimeAccess.Backend backend = RuntimeBackendPolicy.select(
+                requestedMode,
+                rootAvailable,
+                shizukuReady,
+                shizukuUid);
         final String bootId = value(values, "BOOT_ID");
         boolean rebootRequired = false;
         final String pendingBootId = preferences.getString(KEY_PENDING_BOOT_ID, "");

@@ -86,6 +86,7 @@ dependencies {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
     compileOnly project(':hidden-api-stubs')
+    testImplementation 'junit:junit:4.13.2'
 }
 
 apply from: rootProject.file('gradle/release-signing.gradle')

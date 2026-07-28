@@ -33,6 +33,16 @@ final class SessionProfile {
     final PrivilegeMode privilegeMode;
     final DisplayTarget displayTarget;
 
+    interface PreferenceStore {
+        String getString(String key);
+
+        void putStrings(
+                String firstKey,
+                String firstValue,
+                String secondKey,
+                String secondValue);
+    }
+
     SessionProfile(
             final PrivilegeMode privilegeMode,
             final DisplayTarget displayTarget) {
@@ -43,15 +53,18 @@ final class SessionProfile {
     }
 
     static SessionProfile load(final Context context) {
-        final SharedPreferences preferences = preferences(context);
+        return load(new SharedPreferenceStore(preferences(context)));
+    }
+
+    static SessionProfile load(final PreferenceStore preferences) {
         return new SessionProfile(
                 parseEnum(
                         PrivilegeMode.class,
-                        preferences.getString(KEY_PRIVILEGE_MODE, null),
+                        preferences.getString(KEY_PRIVILEGE_MODE),
                         PrivilegeMode.AUTO),
                 parseEnum(
                         DisplayTarget.class,
-                        preferences.getString(KEY_DISPLAY_TARGET, null),
+                        preferences.getString(KEY_DISPLAY_TARGET),
                         DisplayTarget.AUTO));
     }
 
@@ -61,22 +74,40 @@ final class SessionProfile {
         if (intent == null) {
             return saved;
         }
+        return withLaunchOverrides(
+                saved,
+                intent.getStringExtra(EXTRA_PRIVILEGE_MODE),
+                intent.getStringExtra(EXTRA_DISPLAY_TARGET));
+    }
+
+    static SessionProfile withLaunchOverrides(
+            final SessionProfile saved,
+            final String privilegeMode,
+            final String displayTarget) {
+        final SessionProfile fallback = saved == null
+                ? new SessionProfile(PrivilegeMode.AUTO, DisplayTarget.AUTO)
+                : saved;
         return new SessionProfile(
                 parseEnum(
                         PrivilegeMode.class,
-                        intent.getStringExtra(EXTRA_PRIVILEGE_MODE),
-                        saved.privilegeMode),
+                        privilegeMode,
+                        fallback.privilegeMode),
                 parseEnum(
                         DisplayTarget.class,
-                        intent.getStringExtra(EXTRA_DISPLAY_TARGET),
-                        saved.displayTarget));
+                        displayTarget,
+                        fallback.displayTarget));
     }
 
     void save(final Context context) {
-        preferences(context).edit()
-                .putString(KEY_PRIVILEGE_MODE, wireName(privilegeMode))
-                .putString(KEY_DISPLAY_TARGET, wireName(displayTarget))
-                .apply();
+        save(new SharedPreferenceStore(preferences(context)));
+    }
+
+    void save(final PreferenceStore preferences) {
+        preferences.putStrings(
+                KEY_PRIVILEGE_MODE,
+                wireName(privilegeMode),
+                KEY_DISPLAY_TARGET,
+                wireName(displayTarget));
     }
 
     void writeToIntent(final Intent intent) {
@@ -105,6 +136,32 @@ final class SessionProfile {
 
     private static SharedPreferences preferences(final Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static final class SharedPreferenceStore
+            implements PreferenceStore {
+        private final SharedPreferences mPreferences;
+
+        SharedPreferenceStore(final SharedPreferences preferences) {
+            mPreferences = preferences;
+        }
+
+        @Override
+        public String getString(final String key) {
+            return mPreferences.getString(key, null);
+        }
+
+        @Override
+        public void putStrings(
+                final String firstKey,
+                final String firstValue,
+                final String secondKey,
+                final String secondValue) {
+            mPreferences.edit()
+                    .putString(firstKey, firstValue)
+                    .putString(secondKey, secondValue)
+                    .apply();
+        }
     }
 
     private static String wireName(final Enum<?> value) {
