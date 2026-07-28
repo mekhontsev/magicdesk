@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
@@ -86,7 +87,7 @@ public final class TaskControlCommand {
                 }
             }
         } catch (ReflectiveOperationException | RuntimeException e) {
-            System.err.println("task control failed: " + e);
+            System.err.println("task control failed: " + usefulFailure(e));
             System.exit(1);
         }
     }
@@ -133,6 +134,15 @@ public final class TaskControlCommand {
             throw new NoSuchMethodException("moveTaskToFront task id");
         }
         target.invoke(service, arguments);
+    }
+
+    private static Throwable usefulFailure(final Throwable error) {
+        Throwable current = error;
+        while (current instanceof InvocationTargetException
+                && ((InvocationTargetException) current).getCause() != null) {
+            current = ((InvocationTargetException) current).getCause();
+        }
+        return current;
     }
 
     private static boolean hasVisibleAppTask(final Object service, final int displayId)

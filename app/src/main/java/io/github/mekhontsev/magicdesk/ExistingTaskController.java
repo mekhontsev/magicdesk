@@ -196,6 +196,11 @@ final class ExistingTaskController {
                 }
             }
             orderedTaskIds.add(Integer.valueOf(task.taskId));
+            if (RuntimeAccess.allowsShizukuCommands()) {
+                runRootCommand(
+                        TaskFocusCommands.createShellCommand(orderedTaskIds));
+                return;
+            }
             final StringBuilder arguments = new StringBuilder("focus-stack");
             for (final Integer taskId : orderedTaskIds) {
                 arguments.append(' ').append(taskId.intValue());

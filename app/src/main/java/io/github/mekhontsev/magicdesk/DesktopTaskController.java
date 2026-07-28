@@ -253,8 +253,15 @@ final class DesktopTaskController {
             final TaskRepository.TaskEntry topTask,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskController controller = getActiveController();
-        if (controller == null) {
-            completeFocusCallback(callback, false, "task watcher unavailable");
+        if (RuntimeAccess.allowsRootCommands()
+                && topTask != null && topTask.isFreeform() && !topTask.visible) {
+            TaskRepository.restoreTask(topTask, callback);
+            return;
+        }
+        if (controller == null || !controller.mRunning
+                || !controller.mTaskWatcherReady) {
+            TaskRepository.bringStackToFront(
+                    topFirstTasks, topTask, callback);
             return;
         }
         final int focusedTaskId = topTask == null ? -1 : topTask.taskId;
@@ -265,10 +272,6 @@ final class DesktopTaskController {
             }
             completeFocusCallback(callback, result.success, result.message);
         };
-        if (topTask != null && topTask.isFreeform() && !topTask.visible) {
-            TaskRepository.restoreTask(topTask, trackedCallback);
-            return;
-        }
 
         final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
         if (topFirstTasks != null) {

@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -87,7 +88,7 @@ final class TaskRepository {
             complete(callback, false, "invalid task");
             return;
         }
-        runAction(createTaskControlCommand("focus", task.taskId), callback);
+        runAction(createTaskFocusCommand(task.taskId), callback);
     }
 
     static void bringStackToFront(final List<TaskEntry> topFirstTasks,
@@ -107,6 +108,13 @@ final class TaskRepository {
         }
         if (orderedTaskIds.isEmpty()) {
             complete(callback, true, "no tasks");
+            return;
+        }
+
+        if (RuntimeAccess.allowsShizukuCommands()) {
+            runAction(
+                    TaskFocusCommands.createShellCommand(orderedTaskIds),
+                    callback);
             return;
         }
 
@@ -279,6 +287,14 @@ final class TaskRepository {
 
     private static String createTaskControlCommand(final String action, final int taskId) {
         return createTaskControlCommand(action + " " + taskId);
+    }
+
+    private static String createTaskFocusCommand(final int taskId) {
+        if (RuntimeAccess.allowsShizukuCommands()) {
+            return TaskFocusCommands.createShellCommand(
+                    Arrays.asList(Integer.valueOf(taskId)));
+        }
+        return createTaskControlCommand("focus", taskId);
     }
 
     private static String createTaskControlCommand(final String arguments) {
