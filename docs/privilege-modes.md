@@ -22,6 +22,13 @@ arbitrary existing tasks, preserve their exact cross-display identity, provide
 the global physical-input bridge, remap the right mouse button, or change
 display geometry.
 
+On the verified REDMAGIC firmware, publicly launching a package that is already
+running on another display can make the vendor framework stop that process and
+create a new task on the target display. Basic mode cannot detect or prevent
+that vendor action. Do not use Basic to move a stateful application such as a
+terminal with live sessions between displays; Root or Shizuku task control is
+required for exact task reuse.
+
 ### Shizuku
 
 Shizuku mode uses the official `dev.rikka.shizuku` API and a bound UserService;

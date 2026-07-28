@@ -47,7 +47,15 @@ final class StartMenuController {
     }
 
     LinearLayout create() {
-        final LinearLayout menu = new LinearLayout(mActivity);
+        final LinearLayout menu = new LinearLayout(mActivity) {
+            @Override
+            public void onWindowFocusChanged(final boolean hasWindowFocus) {
+                super.onWindowFocusChanged(hasWindowFocus);
+                if (hasWindowFocus) {
+                    StartMenuController.this.focusSearch();
+                }
+            }
+        };
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(14), dp(14), dp(14), dp(12));
         menu.setBackground(mUi.rounded(
@@ -242,12 +250,17 @@ final class StartMenuController {
                     mActivity.getString(R.string.status_overlay_panel_unavailable));
             return;
         }
-        if (focusable && mMode != MENU_TOOLS && mSearch != null) {
-            mSearch.post(() -> {
-                mSearch.requestFocus();
-                mSearch.setSelection(mSearch.length());
-            });
+        if (mPanel.hasWindowFocus()) {
+            focusSearch();
         }
+    }
+
+    private void focusSearch() {
+        if (!mFocusable || mMode == MENU_TOOLS || mSearch == null) {
+            return;
+        }
+        mSearch.requestFocus();
+        mSearch.setSelection(mSearch.length());
     }
 
     private void renderBody() {

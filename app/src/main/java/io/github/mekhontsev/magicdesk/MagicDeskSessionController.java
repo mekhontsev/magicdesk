@@ -113,10 +113,7 @@ final class MagicDeskSessionController {
     }
 
     private void finishUnprivilegedExit() {
-        RootKeyboardShortcutWatcher.stop();
-        KeyboardWatcherService.stop(mActivity);
-        ConsoleModeSwitcher.closeRootShell();
-        DeviceSetupManager.revokeRuntimeAuthorization();
+        DeviceSetupManager.revokeRuntimeAuthorization(mActivity);
         mActivity.releaseDesktopOverlays();
         mExitInProgress = false;
         mActivity.finishAndRemoveTask();

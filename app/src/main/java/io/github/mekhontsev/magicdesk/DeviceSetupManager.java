@@ -315,23 +315,50 @@ final class DeviceSetupManager {
         return preferences(context).getInt(KEY_APPROVED_VERSION, 0) >= SETUP_VERSION;
     }
 
-    static void activateRuntime(final Audit audit) {
+    static void activateRuntime(final Context context, final Audit audit) {
         if (audit == null) {
             return;
         }
         RuntimeAccess.configure(audit.sessionProfile, audit.backend);
+        if (audit.canEnterMagicDesk()) {
+            reconcileRuntimeServices(context);
+        } else {
+            stopRuntimeServices(context);
+        }
     }
 
-    static void authorizeRuntime() {
+    static void authorizeRuntime(final Context context) {
         sRuntimeAuthorized = true;
+        reconcileRuntimeServices(context);
     }
 
-    static void revokeRuntimeAuthorization() {
+    static void revokeRuntimeAuthorization(final Context context) {
         sRuntimeAuthorized = false;
+        stopRuntimeServices(context);
     }
 
     static boolean isRuntimeAuthorized() {
         return sRuntimeAuthorized;
+    }
+
+    private static void reconcileRuntimeServices(final Context context) {
+        if (context == null) {
+            return;
+        }
+        if (sRuntimeAuthorized
+                && RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
+            KeyboardWatcherService.start(context.getApplicationContext());
+        } else {
+            stopRuntimeServices(context);
+        }
+    }
+
+    private static void stopRuntimeServices(final Context context) {
+        RootKeyboardShortcutWatcher.stop();
+        ConsoleModeSwitcher.closeRootShell();
+        if (context != null) {
+            KeyboardWatcherService.stop(context.getApplicationContext());
+        }
     }
 
     static void reboot() throws IOException {

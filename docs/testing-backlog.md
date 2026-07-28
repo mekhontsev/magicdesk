@@ -28,6 +28,12 @@ successful build.
 - [ ] Run Basic mode on a physical external display.
   Verify desktop launch, public application launch, overlays, taskbar, and
   graceful handling of unavailable task and DPI controls.
+  On the REDMAGIC 11 Pro, desktop persistence, public cold launch, Start search
+  focus, and immediate shutdown of all root helpers were verified. A public
+  cross-display launch of an already-running Termux process caused the vendor
+  framework to force-stop it; this confirmed and documented the Basic-mode
+  task-identity limitation. Unavailable task and DPI controls still need a
+  complete UI pass.
 - [ ] Run Shizuku shell mode on a physical external display.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
   controls, screenshots, and the absence of root-only input services.
@@ -42,6 +48,10 @@ successful build.
   is reused.
 - [ ] Switch Root to Basic and Root to Shizuku repeatedly while MagicDesk is
   active and confirm that no foreground-service startup race returns.
+  One Root -> Basic -> Root cycle on the external display is complete: Basic
+  stopped the foreground watcher and both root helpers without removing the
+  desktop HOME task, and confirming Root restarted all three without relaunching
+  MagicDesk. Shizuku and repeated-cycle coverage remain.
 
 ## Clean Environment
 

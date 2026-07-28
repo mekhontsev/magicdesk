@@ -133,7 +133,7 @@ public final class DeviceSetupActivity extends Activity {
                             mSessionProfile =
                                     mSessionProfile.withPrivilegeMode(modes[which]);
                             mSessionProfile.save(this);
-                            DeviceSetupManager.revokeRuntimeAuthorization();
+                            DeviceSetupManager.revokeRuntimeAuthorization(this);
                             dialog.dismiss();
                             runAudit();
                         })
@@ -191,7 +191,7 @@ public final class DeviceSetupActivity extends Activity {
                 if (isActivityUnavailable()) {
                     return;
                 }
-                DeviceSetupManager.activateRuntime(audit);
+                DeviceSetupManager.activateRuntime(this, audit);
                 mAudit = audit;
                 if (!mManual && audit.canEnterMagicDesk() && audit.acknowledged) {
                     mBusy = false;
@@ -199,8 +199,7 @@ public final class DeviceSetupActivity extends Activity {
                     return;
                 }
                 if (!audit.canEnterMagicDesk()) {
-                    DeviceSetupManager.revokeRuntimeAuthorization();
-                    KeyboardWatcherService.stop(this);
+                    DeviceSetupManager.revokeRuntimeAuthorization(this);
                 }
                 ensureSetupContent();
                 setBusy(false, 0);
@@ -459,6 +458,7 @@ public final class DeviceSetupActivity extends Activity {
     private void continueFromSetup() {
         DeviceSetupManager.acknowledgeReadyConfiguration(this);
         if (mManual) {
+            DeviceSetupManager.authorizeRuntime(this);
             finish();
         } else {
             launchMagicDesk();
@@ -555,12 +555,11 @@ public final class DeviceSetupActivity extends Activity {
                     if (isActivityUnavailable()) {
                         return;
                     }
-                    DeviceSetupManager.activateRuntime(audit);
+                    DeviceSetupManager.activateRuntime(this, audit);
                     mAudit = audit;
                     setBusy(false, 0);
                     if (!audit.canEnterMagicDesk()) {
-                        DeviceSetupManager.revokeRuntimeAuthorization();
-                        KeyboardWatcherService.stop(this);
+                        DeviceSetupManager.revokeRuntimeAuthorization(this);
                     }
                     renderAudit(audit);
                 });
@@ -639,7 +638,7 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void launchMagicDeskAfterPermission() {
-        DeviceSetupManager.authorizeRuntime();
+        DeviceSetupManager.authorizeRuntime(this);
         final int launchDisplayId = resolveLaunchDisplayId();
         final Class<?> activityClass = launchDisplayId > Display.DEFAULT_DISPLAY
                 ? DesktopActivity.class : MainActivity.class;

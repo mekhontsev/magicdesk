@@ -321,11 +321,11 @@ One display-scoped application-overlay controller owns:
 These overlays stay above freeform tasks without focusing the MagicDesk HOME
 task. The taskbar is hidden when an application owns true fullscreen.
 
-Start remains non-focusable on the Nubia Console display. Making a third-party
-application overlay focusable causes this firmware to tear down the virtual
-display and move its tasks to display 0. Search can take normal focus when the
-desktop is previewed on display 0. Only one auxiliary panel stays open, and
-clicking empty desktop/taskbar space or pressing Escape dismisses it.
+Start uses a focusable overlay for its application search and requests the
+search field only after the overlay receives window focus. Tools remains
+non-focusable so opening a command panel does not take keyboard focus from the
+active application. Only one auxiliary panel stays open, and clicking empty
+desktop/taskbar space or pressing Escape dismisses it.
 
 ## Physical Keyboard Architecture
 
