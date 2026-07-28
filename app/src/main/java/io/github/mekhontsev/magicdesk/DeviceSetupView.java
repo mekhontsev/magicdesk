@@ -43,7 +43,11 @@ final class DeviceSetupView {
 
         final LinearLayout page = new LinearLayout(mActivity);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), dp(18), dp(20), dp(18));
+        page.setPadding(
+                dp(20),
+                dp(18),
+                dp(20),
+                dp(18 + MainActivity.TASKBAR_HEIGHT_DP));
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -84,8 +88,6 @@ final class DeviceSetupView {
         summaryParams.setMargins(0, dp(18), 0, dp(10));
         page.addView(mSummary, summaryParams);
 
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(false);
         final LinearLayout rows = new LinearLayout(mActivity);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
@@ -125,11 +127,9 @@ final class DeviceSetupView {
         mBuildValue.setPadding(dp(12), dp(4), dp(12), dp(12));
         rows.addView(mBuildValue);
 
-        scroll.addView(rows, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        page.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        page.addView(rows, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         final LinearLayout actions = new LinearLayout(mActivity);
         actions.setOrientation(LinearLayout.VERTICAL);
@@ -176,7 +176,13 @@ final class DeviceSetupView {
         mSecondaryAction.setText(R.string.setup_action_exit);
         mRestoreAction.setVisibility(View.GONE);
 
-        final FrameLayout.LayoutParams pageParams =
+        final ScrollView scroll = new ScrollView(mActivity);
+        scroll.setFillViewport(true);
+        scroll.addView(page, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+
+        final FrameLayout.LayoutParams scrollParams =
                 new FrameLayout.LayoutParams(
                         Math.min(
                                 mActivity.getResources()
@@ -185,7 +191,7 @@ final class DeviceSetupView {
                                 dp(720)),
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         Gravity.CENTER_HORIZONTAL);
-        root.addView(page, pageParams);
+        root.addView(scroll, scrollParams);
         return root;
     }
 

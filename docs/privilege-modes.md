@@ -74,7 +74,9 @@ execution boundary rather than only disabling controls in the UI.
 - **Current** keeps the shell on the display where setup was opened.
 - **External** selects an active Console or presentation display and falls back
   to Current when none exists.
-- **Auto** prefers an active external display, otherwise Current.
+- **Auto** prefers an already-active Nubia Console display, otherwise Current.
+  It deliberately ignores a physical presentation display while REDMAGIC is in
+  Mirror Mode because the firmware continues routing its pointer to the phone.
 
 Display ids are resolved for every launch and are never stored as device
 constants. Primary mode does not activate Nubia Console Mode, launch Nubia

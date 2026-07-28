@@ -54,6 +54,8 @@ public class MainActivity extends Activity {
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
+    private static WeakReference<MainActivity> sShellInstance =
+            new WeakReference<>(null);
     private static WeakReference<MainActivity> sDesktopInstance =
             new WeakReference<>(null);
 
@@ -104,6 +106,7 @@ public class MainActivity extends Activity {
             finish();
             return;
         }
+        sShellInstance = new WeakReference<>(this);
         mUi = new DesktopUiFactory(this);
         mCalendarController = new CalendarPanelController(
                 this,
@@ -210,6 +213,9 @@ public class MainActivity extends Activity {
         }
         mLastApps = Collections.emptyList();
         releaseDesktopOverlays();
+        if (sShellInstance.get() == this) {
+            sShellInstance.clear();
+        }
         if (sDesktopInstance.get() == this) {
             sDesktopInstance.clear();
         }
@@ -548,6 +554,22 @@ public class MainActivity extends Activity {
         activity.runOnUiThread(() -> {
             activity.captureInteractionStackForPanel();
             activity.setStartMenuVisible(true);
+        });
+        return true;
+    }
+
+    static boolean recreateShellOnDisplayIfRunning(final int displayId) {
+        final MainActivity activity = sShellInstance.get();
+        if (activity == null
+                || activity.isFinishing()
+                || activity.isDestroyed()
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        activity.mMainHandler.post(() -> {
+            if (!activity.isFinishing() && !activity.isDestroyed()) {
+                activity.recreate();
+            }
         });
         return true;
     }
@@ -1069,6 +1091,15 @@ public class MainActivity extends Activity {
 
     void toggleToolsMenu() {
         mStartMenuController.toggleTools();
+    }
+
+    void openDeviceSetup() {
+        hideAllPanels();
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(getCurrentDisplayId());
+        startActivity(
+                DeviceSetupActivity.createManualIntent(this),
+                options.toBundle());
     }
 
     private void toggleShortcutHelp() {

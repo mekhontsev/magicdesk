@@ -148,11 +148,8 @@ final class ConsoleControlsController {
         final Button deviceSetup = mUi.actionButton(
                 R.string.action_device_setup,
                 DesktopUiFactory.COLOR_CYAN);
-        deviceSetup.setOnClickListener(view -> {
-            mActivity.hideAllPanels();
-            mActivity.startActivity(
-                    DeviceSetupActivity.createManualIntent(mActivity));
-        });
+        deviceSetup.setOnClickListener(view ->
+                mActivity.openDeviceSetup());
         addActionButton(actionGrid, deviceSetup);
 
         final Button diagnostics = mUi.actionButton(

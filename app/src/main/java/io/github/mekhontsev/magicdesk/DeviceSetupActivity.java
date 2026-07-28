@@ -55,6 +55,8 @@ public final class DeviceSetupActivity extends Activity {
 
     static Intent createManualIntent(final Context context) {
         return new Intent(context, DeviceSetupActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                 .putExtra(EXTRA_MANUAL, true);
     }
 
@@ -459,7 +461,14 @@ public final class DeviceSetupActivity extends Activity {
         DeviceSetupManager.acknowledgeReadyConfiguration(this);
         if (mManual) {
             DeviceSetupManager.authorizeRuntime(this);
-            finish();
+            final int currentDisplayId = currentDisplayId();
+            if (resolveLaunchDisplayId() == currentDisplayId
+                    && MainActivity.recreateShellOnDisplayIfRunning(
+                            currentDisplayId)) {
+                finish();
+            } else {
+                launchMagicDesk();
+            }
         } else {
             launchMagicDesk();
         }
@@ -640,11 +649,16 @@ public final class DeviceSetupActivity extends Activity {
     private void launchMagicDeskAfterPermission() {
         DeviceSetupManager.authorizeRuntime(this);
         final int launchDisplayId = resolveLaunchDisplayId();
+        final int currentDisplayId = currentDisplayId();
         final Class<?> activityClass = launchDisplayId > Display.DEFAULT_DISPLAY
                 ? DesktopActivity.class : MainActivity.class;
         final Intent target = new Intent(this, activityClass)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (launchDisplayId != currentDisplayId) {
+            target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        }
         mSessionProfile.writeToIntent(target);
         final String action = getIntent().getStringExtra(MainActivity.EXTRA_ACTION);
         if (action != null) {
@@ -656,9 +670,13 @@ public final class DeviceSetupActivity extends Activity {
         finish();
     }
 
-    private int resolveLaunchDisplayId() {
-        final int currentDisplayId = getDisplay() == null
+    private int currentDisplayId() {
+        return getDisplay() == null
                 ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
+    }
+
+    private int resolveLaunchDisplayId() {
+        final int currentDisplayId = currentDisplayId();
         switch (mSessionProfile.displayTarget) {
             case PRIMARY:
                 return Display.DEFAULT_DISPLAY;
@@ -677,23 +695,20 @@ public final class DeviceSetupActivity extends Activity {
             }
             case AUTO:
             default: {
-                final int externalDisplayId = activeExternalDisplayId();
-                return externalDisplayId > Display.DEFAULT_DISPLAY
-                        ? externalDisplayId : currentDisplayId;
+                final int consoleDisplayId = activeConsoleDisplayId();
+                return consoleDisplayId > Display.DEFAULT_DISPLAY
+                        ? consoleDisplayId : currentDisplayId;
             }
         }
     }
 
     private int activeExternalDisplayId() {
-        final int configured = Settings.Global.getInt(
-                getContentResolver(), "app_mirror_displayid", -1);
+        final int consoleDisplayId = activeConsoleDisplayId();
+        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
+            return consoleDisplayId;
+        }
         final android.hardware.display.DisplayManager displayManager =
                 getSystemService(android.hardware.display.DisplayManager.class);
-        if (configured > Display.DEFAULT_DISPLAY
-                && displayManager != null
-                && displayManager.getDisplay(configured) != null) {
-            return configured;
-        }
         if (displayManager == null) {
             return -1;
         }
@@ -703,6 +718,19 @@ public final class DeviceSetupActivity extends Activity {
             if (display != null && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
                 return display.getDisplayId();
             }
+        }
+        return -1;
+    }
+
+    private int activeConsoleDisplayId() {
+        final int configured = Settings.Global.getInt(
+                getContentResolver(), "app_mirror_displayid", -1);
+        final android.hardware.display.DisplayManager displayManager =
+                getSystemService(android.hardware.display.DisplayManager.class);
+        if (configured > Display.DEFAULT_DISPLAY
+                && displayManager != null
+                && displayManager.getDisplay(configured) != null) {
+            return configured;
         }
         return -1;
     }

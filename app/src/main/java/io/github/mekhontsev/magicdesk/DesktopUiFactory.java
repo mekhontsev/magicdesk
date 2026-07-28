@@ -1,9 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.text.TextUtils;
 import android.widget.Button;
@@ -56,11 +58,22 @@ final class DesktopUiFactory {
         final Button button = new Button(mContext);
         button.setText(text);
         button.setAllCaps(false);
-        button.setTextColor(Color.WHITE);
+        button.setTextColor(new ColorStateList(
+                new int[][] {
+                    new int[] {-android.R.attr.state_enabled},
+                    new int[0]
+                },
+                new int[] {COLOR_MUTED, Color.WHITE}));
         button.setSingleLine(true);
         button.setEllipsize(TextUtils.TruncateAt.END);
-        button.setBackground(rounded(
-                COLOR_PANEL_ALT, dp(10), accentColor));
+        final StateListDrawable background = new StateListDrawable();
+        background.addState(
+                new int[] {-android.R.attr.state_enabled},
+                rounded(COLOR_PANEL, dp(10), COLOR_MUTED));
+        background.addState(
+                new int[0],
+                rounded(COLOR_PANEL_ALT, dp(10), accentColor));
+        button.setBackground(background);
         return button;
     }
 

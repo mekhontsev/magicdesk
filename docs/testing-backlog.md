@@ -25,20 +25,26 @@ successful build.
   port association during Exit. A deliberately launched `standard/freeform`
   MagicDesk task was also recovered by `Win+D` into a new fullscreen HOME task
   without relaunching the existing Termux or Golly processes.
-- [ ] Run Basic mode on a physical external display.
+- [x] Run Basic mode on a physical external display.
   Verify desktop launch, public application launch, overlays, taskbar, and
   graceful handling of unavailable task and DPI controls.
   On the REDMAGIC 11 Pro, desktop persistence, public cold launch, Start search
   focus, and immediate shutdown of all root helpers were verified. A public
   cross-display launch of an already-running Termux process caused the vendor
   framework to force-stop it; this confirmed and documented the Basic-mode
-  task-identity limitation. Unavailable task and DPI controls still need a
-  complete UI pass.
+  task-identity limitation. The final UI pass verified that privileged DPI,
+  Console Mode, phone-screen, and shortcut controls remain present but are
+  disabled and visually distinct.
 - [ ] Run Shizuku shell mode on a physical external display.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
   controls, screenshots, and the absence of root-only input services.
 - [ ] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
+  Auto was verified not to target REDMAGIC's physical presentation display in
+  Mirror Mode, where the firmware leaves the pointer on the phone. Primary,
+  Current, and active-Console transitions were also verified without duplicate
+  shell tasks. Explicit External presentation and disconnect/relaunch cases
+  remain.
 
 ## Lifecycle
 

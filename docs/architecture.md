@@ -150,6 +150,15 @@ requests Root or Auto-root operation. Keep this ownership explicit: diagnostics
 and concurrent background audits must never promote a Basic or Shizuku session
 to Root or trigger a first-run superuser prompt.
 
+Manual Device Setup runs in a separate Android task pinned to the display where
+it was opened. A shell launch targeting another display also receives a separate
+task. Do not place activity records from two displays in the same task: this
+REDMAGIC firmware can move the setup activity to display 0 while leaving the
+desktop activity visible elsewhere, then report no focused application window
+and raise an input-dispatch ANR. A same-display profile change recreates the
+existing shell activity so its phone/desktop layout is recalculated without
+creating a duplicate task.
+
 Display ids are runtime values and are never persisted as fixed constants.
 When Console Mode is activated, MagicDesk waits for Android to publish the real
 virtual display before launching or moving tasks. If Nubia creates it with
