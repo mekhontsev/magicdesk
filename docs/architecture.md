@@ -144,11 +144,11 @@ without replacing the phone launcher.
 
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a
-successful audit before launching MagicDesk. `BootReceiver` does the same only
-after confirming that initial setup was acknowledged and that the saved profile
-requests Root or Auto-root operation. Keep this ownership explicit: diagnostics
-and concurrent background audits must never promote a Basic or Shizuku session
-to Root or trigger a first-run superuser prompt.
+successful audit before launching MagicDesk. A device reboot never starts
+MagicDesk or restores its runtime services; the user must launch the application
+explicitly. Keep this ownership explicit: diagnostics, boot events, and
+concurrent background audits must never activate a backend, promote a Basic or
+Shizuku session to Root, or trigger a first-run superuser prompt.
 
 Manual Device Setup runs in a separate Android task pinned to the display where
 it was opened. A shell launch targeting another display also receives a separate

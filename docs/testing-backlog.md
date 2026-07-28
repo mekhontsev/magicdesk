@@ -7,11 +7,11 @@ successful build.
 ## Completed Locally
 
 - [x] Install an isolated Basic-mode build beside the signed production app.
-  Verify first-run setup, delayed `BOOT_COMPLETED`, diagnostics, Primary and
-  Current targets, phone/desktop layout changes across rotation, and the
-  absence of a child `su` process or foreground watcher service. Verify that a
-  162-app catalog retains one bounded icon bitmap per app after startup cleanup
-  and is not reloaded on `onResume`.
+  Verify first-run setup, diagnostics, Primary and Current targets,
+  phone/desktop layout changes across rotation, and the absence of a child `su`
+  process or foreground watcher service. Verify that a 162-app catalog retains
+  one bounded icon bitmap per app after startup cleanup and is not reloaded on
+  `onResume`.
 
 ## External Display
 
@@ -55,8 +55,11 @@ successful build.
 
 ## Lifecycle
 
-- [ ] Reboot with each saved privilege profile and verify that BootReceiver
-  starts the root watcher only for an acknowledged Root/Auto-root session.
+- [x] Reboot with a saved Root profile and verify that MagicDesk, privileged
+  helpers, and its foreground service remain stopped until the user explicitly
+  launches the application. The application has no boot receiver or boot
+  permission, so this behavior is independent of the saved privilege profile.
+  A manual launch then started the runtime foreground service as expected.
 - [ ] Reboot with each saved display target and verify that no stale display id
   is reused.
 - [x] Switch Root to Basic and Root to Shizuku repeatedly while MagicDesk is
