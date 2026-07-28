@@ -407,7 +407,7 @@ final class ConsoleModeSwitcher {
                 DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
         final boolean restoreWindows = !(visibleTaskSnapshot != null
                 ? visibleTaskSnapshot.booleanValue() : hasVisibleAppTask(displayId));
-        if (!desktopTaskReady) {
+        if (!desktopTaskReady && !startedConsoleMode) {
             final String preparedTask = runRootCommand(
                     appProcessCommand(TASK_CONTROL_COMMAND)
                             + " prepare-desktop " + displayId).trim();
@@ -418,9 +418,17 @@ final class ConsoleModeSwitcher {
                 + " cachedVisibility=" + (visibleTaskSnapshot != null)
                 + " desktopReady=" + desktopReady
                 + " desktopTaskReady=" + desktopTaskReady);
-        final String launchTaskFlags = startedConsoleMode
+        final boolean newDesktopTask = !desktopTaskReady;
+        final String launchTaskFlags = newDesktopTask
                 ? " -f 0x18000000"
                 : " --activity-reorder-to-front --activity-single-top";
+        // Keep Nubia's automatically migrated MagicDesk task alive while
+        // bootstrapping the dedicated HOME task. It grants the root launch
+        // access to the private Console display; the new desktop instance
+        // removes the temporary standard task after it becomes ready.
+        final String launchComponent = newDesktopTask
+                ? "io.github.mekhontsev.magicdesk/.DeviceSetupActivity"
+                : "io.github.mekhontsev.magicdesk/.DesktopActivity";
         final String launchOutput = runRootCommand(AM + " start -W --display " + displayId
                 + " --windowingMode 1"
                 + " --activityType 2"
@@ -431,7 +439,7 @@ final class ConsoleModeSwitcher {
                         ? " --es " + MainActivity.EXTRA_ACTION + " "
                                 + MainActivity.ACTION_RESTORE_WINDOWS
                         : "")
-                + " -n io.github.mekhontsev.magicdesk/.DesktopActivity").trim();
+                + " -n " + launchComponent).trim();
         Log.i(TAG, "MagicDesk launch output=" + launchOutput.replace('\n', ' '));
         if (startedConsoleMode) {
             if (!waitForDesktopReady(displayId)) {
