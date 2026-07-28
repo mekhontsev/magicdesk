@@ -154,11 +154,10 @@ public class MainActivity extends Activity {
         }
         mConsoleControls.start();
         mDisplayProfiles.start();
+        MagicDeskRuntimeService.start(this);
         if (RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
-            KeyboardWatcherService.start(this);
             ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
         } else {
-            KeyboardWatcherService.stop(this);
             RootKeyboardShortcutWatcher.stop();
             ConsoleModeSwitcher.closeRootShell();
         }

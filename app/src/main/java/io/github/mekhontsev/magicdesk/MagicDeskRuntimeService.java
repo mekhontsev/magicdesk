@@ -27,7 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public final class KeyboardWatcherService extends Service
+public final class MagicDeskRuntimeService extends Service
         implements InputManager.InputDeviceListener, DisplayManager.DisplayListener {
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
@@ -63,12 +63,12 @@ public final class KeyboardWatcherService extends Service
     private final Runnable mMirrorInputRetryRunnable = this::syncMirrorInputProxyState;
 
     public static void start(final Context context) {
-        final Intent intent = new Intent(context, KeyboardWatcherService.class);
+        final Intent intent = new Intent(context, MagicDeskRuntimeService.class);
         startForegroundService(context, intent);
     }
 
     public static void stop(final Context context) {
-        context.stopService(new Intent(context, KeyboardWatcherService.class));
+        context.stopService(new Intent(context, MagicDeskRuntimeService.class));
     }
 
     private static void startForegroundService(final Context context, final Intent intent) {
@@ -125,9 +125,14 @@ public final class KeyboardWatcherService extends Service
         startForeground(NOTIFICATION_ID, buildNotification());
         initialize();
         if (intent != null) {
-            if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())
-                    && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
-                ConsoleModeSwitcher.showMagicDesk();
+            if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
+                if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+                    ConsoleModeSwitcher.showMagicDesk();
+                } else if (RuntimeAccess.allowsShizukuCommands()) {
+                    ConsoleModeSwitcher.showMagicDesk(mConsoleDisplayId);
+                } else {
+                    startActivity(DeviceSetupActivity.createLaunchIntent(this));
+                }
             } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
                     && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
                 ConsoleModeSwitcher.openTouchpad();
@@ -488,7 +493,7 @@ public final class KeyboardWatcherService extends Service
 
     private Notification buildNotification() {
         final Intent showMagicDeskIntent =
-                new Intent(this, KeyboardWatcherService.class)
+                new Intent(this, MagicDeskRuntimeService.class)
                         .setAction(ACTION_SHOW_MAGIC_DESK);
         final PendingIntent showMagicDeskPendingIntent =
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -502,7 +507,7 @@ public final class KeyboardWatcherService extends Service
                                 SHOW_MAGIC_DESK_REQUEST_CODE,
                                 showMagicDeskIntent,
                                 pendingIntentFlags());
-        final Intent openTouchpadIntent = new Intent(this, KeyboardWatcherService.class)
+        final Intent openTouchpadIntent = new Intent(this, MagicDeskRuntimeService.class)
                 .setAction(ACTION_OPEN_TOUCHPAD);
         final PendingIntent openTouchpadPendingIntent =
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -523,18 +528,20 @@ public final class KeyboardWatcherService extends Service
         final Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        return builder
+        builder
                 .setSmallIcon(R.drawable.ic_magicdesk)
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setOngoing(true)
                 .setShowWhen(false)
-                .setContentIntent(showMagicDeskPendingIntent)
-                .addAction(
+                .setContentIntent(showMagicDeskPendingIntent);
+        if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+            builder.addAction(
                         R.drawable.ic_touchpad,
                         getString(R.string.notification_open_touchpad),
-                        openTouchpadPendingIntent)
-                .build();
+                        openTouchpadPendingIntent);
+        }
+        return builder.build();
     }
 
     private static int pendingIntentFlags() {

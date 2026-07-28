@@ -95,7 +95,7 @@
             android:theme="@style/TransparentActivityTheme" />
 
         <service
-            android:name=".KeyboardWatcherService"
+            android:name=".MagicDeskRuntimeService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

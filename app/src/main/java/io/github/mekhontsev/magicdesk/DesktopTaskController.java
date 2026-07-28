@@ -148,7 +148,9 @@ final class DesktopTaskController {
         }
         mGeneration++;
         setActiveController(this);
-        startTaskWatcher(mGeneration);
+        if (RuntimeAccess.allowsRootCommands()) {
+            startTaskWatcher(mGeneration);
+        }
         scheduleRefresh(0);
         Log.i(TAG, "started on display=" + displayId);
     }

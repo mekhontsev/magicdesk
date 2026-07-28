@@ -347,8 +347,8 @@ final class DeviceSetupManager {
             return;
         }
         if (sRuntimeAuthorized
-                && RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
-            KeyboardWatcherService.start(context.getApplicationContext());
+                && RuntimeAccess.has(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH)) {
+            MagicDeskRuntimeService.start(context.getApplicationContext());
         } else {
             stopRuntimeServices(context);
         }
@@ -358,7 +358,7 @@ final class DeviceSetupManager {
         RootKeyboardShortcutWatcher.stop();
         ConsoleModeSwitcher.closeRootShell();
         if (context != null) {
-            KeyboardWatcherService.stop(context.getApplicationContext());
+            MagicDeskRuntimeService.stop(context.getApplicationContext());
         }
     }
 

@@ -124,7 +124,7 @@
     <string name="status_exited">MagicDesk stopped</string>
     <string name="status_root_failed">Root action failed: %1$s</string>
     <string name="notification_channel">MagicDesk</string>
-    <string name="notification_channel_description">Runs MagicDesk hardware and Console Mode services.</string>
+    <string name="notification_channel_description">Keeps MagicDesk desktop controls available.</string>
     <string name="notification_hw_connected">Hardware keyboard connected</string>
     <string name="notification_hw_disconnected">No hardware keyboard</string>
     <string name="notification_open_touchpad">Open touchpad</string>

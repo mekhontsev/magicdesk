@@ -122,6 +122,10 @@ final class ConsoleModeSwitcher {
     }
 
     static void showMagicDesk() {
+        showMagicDesk(-1);
+    }
+
+    static void showMagicDesk(final int knownConsoleDisplayId) {
         if (!markShortcut("magicdesk")) {
             return;
         }
@@ -133,13 +137,98 @@ final class ConsoleModeSwitcher {
             @Override
             public void run() {
                 try {
-                    showMagicDeskInternal();
+                    if (RuntimeAccess.allowsShizukuCommands()
+                            && !RuntimeAccess.allowsRootCommands()) {
+                        showMagicDeskWithShizuku(knownConsoleDisplayId);
+                    } else {
+                        showMagicDeskInternal();
+                    }
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);
                     closeRootShell();
                 }
             }
         });
+    }
+
+    private static void showMagicDeskWithShizuku(final int displayId) {
+        if (displayId <= 0) {
+            Log.w(TAG, "cannot show MagicDesk with Shizuku: Console Mode is inactive");
+            CompatibilityDiagnostics.record(
+                    "SHIZUKU-CONSOLE-001",
+                    "Cannot open MagicDesk on the external display",
+                    "Start Nubia Console Mode before using the MagicDesk notification");
+            return;
+        }
+        try {
+            ensureLandscapeDisplayWithShizuku(displayId);
+            final boolean desktopReady =
+                    MainActivity.isDesktopReadyOnDisplay(displayId);
+            final Boolean visibleTaskSnapshot =
+                    DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
+            final boolean restoreWindows =
+                    visibleTaskSnapshot != null
+                            && !visibleTaskSnapshot.booleanValue();
+            final String component = desktopReady
+                    ? "io.github.mekhontsev.magicdesk/.DesktopActivity"
+                    : "io.github.mekhontsev.magicdesk/.DeviceSetupActivity";
+            final String launchFlags = desktopReady
+                    ? " --activity-reorder-to-front --activity-single-top"
+                    : " -f 0x18000000";
+            final String output = PrivilegedCommandRunner.run(
+                    AM + " start -W --display " + displayId
+                            + " --windowingMode 1"
+                            + " --activityType 2"
+                            + launchFlags
+                            + " -a android.intent.action.MAIN"
+                            + " -c android.intent.category.LAUNCHER"
+                            + (restoreWindows
+                                    ? " --es " + MainActivity.EXTRA_ACTION + " "
+                                            + MainActivity.ACTION_RESTORE_WINDOWS
+                                    : "")
+                            + " -n " + component).trim();
+            if (output.startsWith("Error:")
+                    || output.contains("Exception occurred while executing")) {
+                throw new IOException(output);
+            }
+            Log.i(TAG, "Shizuku MagicDesk launch display=" + displayId
+                    + " output=" + output.replace('\n', ' '));
+        } catch (IOException error) {
+            Log.w(TAG, "Shizuku MagicDesk launch failed", error);
+            CompatibilityDiagnostics.record(
+                    "SHIZUKU-CONSOLE-002",
+                    "Could not open MagicDesk on the Console display",
+                    error.getMessage());
+        }
+    }
+
+    private static void ensureLandscapeDisplayWithShizuku(final int displayId)
+            throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                WM + " size -d " + displayId);
+        final Matcher matcher = Pattern.compile(
+                "(?:Physical|Override) size: (\\d+)x(\\d+)")
+                .matcher(output);
+        int width = -1;
+        int height = -1;
+        while (matcher.find()) {
+            width = Integer.parseInt(matcher.group(1));
+            height = Integer.parseInt(matcher.group(2));
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IOException("could not read Console display size: "
+                    + output.trim());
+        }
+        if (width < height) {
+            PrivilegedCommandRunner.run(
+                    WM + " size " + height + "x" + width
+                            + " -d " + displayId);
+        }
+        PrivilegedCommandRunner.run(
+                WM + " fixed-to-user-rotation -d " + displayId
+                        + " enabled");
+        PrivilegedCommandRunner.run(
+                WM + " user-rotation -d " + displayId + " lock 0");
     }
 
     static void openTouchpad() {

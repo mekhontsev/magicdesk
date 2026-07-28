@@ -8,7 +8,7 @@ final class MagicDeskSessionController {
     private static final String TAG = "MagicDesk";
     private static final String AM = "/system/bin/am";
     private static final String KEYBOARD_WATCHER_SERVICE =
-            "io.github.mekhontsev.magicdesk/.KeyboardWatcherService";
+            "io.github.mekhontsev.magicdesk/.MagicDeskRuntimeService";
     private static final long SHORTCUT_RESTART_DELAY_MILLIS = 800;
 
     private final MainActivity mActivity;
@@ -121,7 +121,7 @@ final class MagicDeskSessionController {
 
     private void finishPrivilegedExit() {
         RootKeyboardShortcutWatcher.stop();
-        KeyboardWatcherService.stop(mActivity);
+        MagicDeskRuntimeService.stop(mActivity);
         runRootCommandBestEffort(
                 AM + " stop-service -n " + KEYBOARD_WATCHER_SERVICE);
         try {
