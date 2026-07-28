@@ -38,11 +38,14 @@ does not fall back to Root or Basic.
 
 A Shizuku server started through ADB or wireless debugging runs the service as
 Android shell UID 2000. It enables exact task snapshots, task/window commands,
-display density overrides, and screenshots. It cannot access `/dev/input`,
-load kernel modules, or use the complete set of REDMAGIC root/vendor controls,
-so the global shortcut bridge, physical-key repeat correction, keyboard-layout
-cycling, right-click remapping, phone-screen controls, and Console Mode
-automation remain disabled.
+native freeform launches and captions on an already-active Console display,
+display density overrides, and screenshots. Caption visibility uses Nubia's
+exported projection provider to preserve the user's wired-privacy preference
+before invoking the narrow vendor SurfaceFlinger option. Shizuku cannot access
+`/dev/input`, load kernel modules, or use the complete set of REDMAGIC
+root/vendor controls, so the global shortcut bridge, physical-key repeat
+correction, keyboard-layout cycling, right-click remapping, phone-screen
+controls, and Console Mode automation remain disabled.
 
 MagicDesk does not download, install, or start Shizuku. The user must install
 the official manager, start its server, and grant MagicDesk. A Shizuku/Sui

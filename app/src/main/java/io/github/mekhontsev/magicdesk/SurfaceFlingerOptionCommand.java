@@ -21,6 +21,21 @@ public final class SurfaceFlingerOptionCommand {
     }
 
     public static void main(final String[] args) {
+        if (args.length == 2 && "set".equals(args[0])) {
+            final int value;
+            try {
+                value = Integer.parseInt(args[1]);
+            } catch (NumberFormatException error) {
+                usage();
+                return;
+            }
+            if (value != 0 && value != 1) {
+                usage();
+                return;
+            }
+            setOption(value, value == 0 ? "enabled" : "restored");
+            return;
+        }
         if (args.length != 1
                 || (!"enable-captions".equals(args[0])
                 && !"restore-privacy".equals(args[0]))) {
@@ -30,13 +45,17 @@ public final class SurfaceFlingerOptionCommand {
 
         final boolean enableCaptions = "enable-captions".equals(args[0]);
         final int value = enableCaptions ? 0 : readWiredPrivacyModePreference();
+        setOption(value, enableCaptions ? "enabled" : "restored");
+    }
+
+    private static void setOption(final int value, final String state) {
         try {
             final Class<?> surfaceControl = Class.forName("android.view.SurfaceControl");
             final Method setter = surfaceControl.getDeclaredMethod(
                     "setSFOption", int.class, int.class);
             setter.invoke(null, WIRED_PRIVACY_MODE_OPTION, value);
             System.out.println("external-task-captions="
-                    + (enableCaptions ? "enabled" : "restored")
+                    + state
                     + " sf-option=" + WIRED_PRIVACY_MODE_OPTION
                     + " value=" + value);
         } catch (InvocationTargetException e) {
@@ -76,7 +95,8 @@ public final class SurfaceFlingerOptionCommand {
 
     private static void usage() {
         System.err.println(
-                "usage: SurfaceFlingerOptionCommand <enable-captions|restore-privacy>");
+                "usage: SurfaceFlingerOptionCommand "
+                        + "<enable-captions|restore-privacy|set 0|set 1>");
         System.exit(64);
     }
 }

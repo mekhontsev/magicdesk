@@ -10,6 +10,7 @@
         <package android:name="cn.nubia.keymapcenter" />
         <package android:name="com.zte.mifavor.launcher" />
         <package android:name="io.github.mekhontsev.magicdesk.kernel" />
+        <provider android:authorities="cn.nubia.touping.TouPingProvider" />
         <intent>
             <action
                 android:name="io.github.mekhontsev.magicdesk.kernel.action.MANAGE_FIXES" />

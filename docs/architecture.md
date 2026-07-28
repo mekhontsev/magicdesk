@@ -218,9 +218,16 @@ SurfaceControl.setSFOption(1102, 1)
 The firmware then removes external-output layers whose debug names contain
 `Task=`. AOSP captions are named `Caption of Task=<id>`, so they exist and
 receive input but may be invisible. After Console Mode becomes ready,
-MagicDesk calls `setSFOption(1102, 0)` through a short-lived root helper. On
-teardown it restores the value represented by NubiaProjectionScreen's
-`PRIVATE_MODE_WIRED` preference.
+MagicDesk calls `setSFOption(1102, 0)` through a short-lived privileged helper.
+
+Root mode reads NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference
+directly when restoring the option. Shizuku shell cannot read another
+application's private files, so it queries the exported
+`cn.nubia.touping.TouPingProvider` `CALL_5` endpoint instead. MagicDesk records
+the returned value before applying the override and restores the latest Nubia
+preference, or the recorded value if the provider is temporarily unavailable.
+If the preference cannot be read before the first override, MagicDesk leaves
+the SurfaceFlinger option unchanged.
 
 ### Teardown
 

@@ -111,6 +111,9 @@ public final class MagicDeskRuntimeService extends Service
         if (mConsoleModeActive
                 && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(true);
+        } else if (RuntimeAccess.allowsShizukuCommands()) {
+            ShizukuCaptionPolicyController.setCaptionsVisible(
+                    this, mConsoleModeActive);
         }
         syncMirrorInputProxyState();
         updateRootWatcher();
@@ -400,6 +403,9 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
+        } else if (RuntimeAccess.allowsShizukuCommands()) {
+            ShizukuCaptionPolicyController.setCaptionsVisible(
+                    this, consoleModeActive);
         }
         updateDesktopTasks();
         if (wasConsoleModeActive && !consoleModeActive
