@@ -2,18 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.os.Binder;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.IBinder;
-import android.os.SystemClock;
-import android.util.Log;
 import android.view.InputDevice;
-import android.view.InputEvent;
-import android.view.InputEventReceiver;
-import android.view.InputMonitor;
-import android.view.KeyCharacterMap;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -22,36 +12,18 @@ import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ConsoleInputBridgeCommand {
-    private static final String TAG = "MagicDeskRightButton";
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
-    private static final int INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT = 1;
-    private static final int INVALID_UID = -1;
     private static final String GETEVENT = "/system/bin/getevent";
     private static final String DUMPSYS = "/system/bin/dumpsys";
     private static final String SETTINGS = "/system/bin/settings";
     private static final String CONSOLE_DISPLAY_SETTING = "app_mirror_displayid";
-    private static final Pattern EVENT_HUB_DEVICE =
-            Pattern.compile("^\\s*-?\\d+:\\s+.+$");
-    private static final Pattern INPUT_IDENTIFIER = Pattern.compile(
-            ".*vendor=0x([0-9a-fA-F]+), product=0x([0-9a-fA-F]+).*");
-
     private final Set<String> mAssociatedInputPorts = new LinkedHashSet<>();
-    private final RawMouseButtonWatcher mRawMouseButtonWatcher =
-            new RawMouseButtonWatcher();
-    private final RawKeyboardTabWatcher mRawKeyboardTabWatcher =
-            new RawKeyboardTabWatcher();
     private Object mDisplayManager;
     private Object mInputManager;
     private Class<?> mInputManagerInterface;
@@ -59,17 +31,13 @@ public final class ConsoleInputBridgeCommand {
     private Method mRemovePortAssociation;
     private Binder mPanelToken;
     private Process mGeteventProcess;
-    private final List<KeyboardDevice> mKeyboardDevices = new ArrayList<>();
-    private final List<MouseDevice> mMouseDevices = new ArrayList<>();
+    private final List<ConsoleKeyboardDevice> mKeyboardDevices = new ArrayList<>();
+    private final List<ConsoleMouseDevice> mMouseDevices = new ArrayList<>();
     private int mConsoleDisplayId = -1;
     private boolean mMouseInputSourceOverride;
-    private Binder mRightButtonMonitorToken;
-    private HandlerThread mRightButtonThread;
-    private Handler mRightButtonHandler;
-    private InputMonitor mRightButtonMonitor;
-    private RightButtonInputReceiver mRightButtonReceiver;
-    private Method mInjectInputEvent;
-    private Method mSetInputEventDisplayId;
+    private ConsoleInputEventInjector mInputEventInjector;
+    private ConsoleKeyboardTabController mKeyboardTabController;
+    private ConsoleRightButtonTranslator mRightButtonTranslator;
     private final Set<Integer> mDisabledMouseInputDeviceIds = new LinkedHashSet<>();
     private final Set<Integer> mDisabledKeyboardInputDeviceIds = new LinkedHashSet<>();
     private boolean mCleanedUp;
@@ -100,11 +68,11 @@ public final class ConsoleInputBridgeCommand {
         }
 
         if (consoleMode) {
-            for (final KeyboardDevice keyboard : mKeyboardDevices) {
+            for (final ConsoleKeyboardDevice keyboard : mKeyboardDevices) {
                 try {
                     setKeyboardTabRemapped(keyboard, true);
                     resetPhysicalKeyboardInputDevice(keyboard);
-                    startRawKeyboardTabWatcher(keyboard);
+                    mKeyboardTabController.start(keyboard);
                 } catch (Exception e) {
                     System.err.println("MAGICDESK_TAB_REMAP_UNAVAILABLE source="
                             + keyboard.path + " error=" + e);
@@ -113,7 +81,7 @@ public final class ConsoleInputBridgeCommand {
                 }
             }
             int activeMouseCount = 0;
-            for (final MouseDevice mouse : mMouseDevices) {
+            for (final ConsoleMouseDevice mouse : mMouseDevices) {
                 try {
                     setMouseRightButtonRemapped(mouse, true);
                     resetPhysicalMouseInputDevice(mouse);
@@ -126,16 +94,16 @@ public final class ConsoleInputBridgeCommand {
             }
             if (activeMouseCount > 0) {
                 try {
-                    startRightButtonTranslator();
-                    for (final MouseDevice mouse : mMouseDevices) {
-                        if (mouse.inputDeviceId >= 0) {
-                            startRawMouseButtonWatcher(mouse);
-                        }
-                    }
+                    mRightButtonTranslator = new ConsoleRightButtonTranslator(
+                            mInputManager,
+                            mInputManagerInterface,
+                            mInputEventInjector,
+                            mConsoleDisplayId,
+                            mMouseDevices);
+                    mRightButtonTranslator.start();
                 } catch (Exception e) {
                     System.err.println("MAGICDESK_RIGHT_BUTTON_UNAVAILABLE " + e);
                     e.printStackTrace(System.err);
-                    stopRawMouseButtonWatchers();
                     stopRightButtonTranslator();
                 }
             }
@@ -154,7 +122,8 @@ public final class ConsoleInputBridgeCommand {
                 + " mouseSource=" + mMouseInputSourceOverride
                 + " tabRemap=" + countRemappedKeyboards()
                 + " mouseRemap=" + countRemappedMice()
-                + " rightButton=" + (mRightButtonReceiver != null));
+                + " rightButton=" + (mRightButtonTranslator != null
+                        && mRightButtonTranslator.isReady()));
         System.out.flush();
 
         try {
@@ -185,16 +154,16 @@ public final class ConsoleInputBridgeCommand {
         mInputManager = getService("input", "android.hardware.input.IInputManager");
         mInputManagerInterface = Class.forName(
                 "android.hardware.input.IInputManager");
-        mInjectInputEvent = findInjectInputEventMethod();
-        mSetInputEventDisplayId =
-                InputEvent.class.getDeclaredMethod("setDisplayId", int.class);
-        mSetInputEventDisplayId.setAccessible(true);
+        mInputEventInjector = new ConsoleInputEventInjector(
+                mInputManager, mInputManagerInterface, mConsoleDisplayId);
+        mKeyboardTabController =
+                new ConsoleKeyboardTabController(mInputEventInjector);
         final Method addPortAssociation = mInputManagerInterface.getMethod(
                 "addPortAssociation", String.class, int.class);
         mRemovePortAssociation = mInputManagerInterface.getMethod(
                 "removePortAssociation", String.class);
-        mKeyboardDevices.addAll(findExternalKeyboardDevices());
-        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+        mKeyboardDevices.addAll(ConsoleInputDeviceDiscovery.findKeyboards());
+        for (final ConsoleKeyboardDevice keyboard : mKeyboardDevices) {
             addPortAssociation.invoke(
                     mInputManager, keyboard.location, displayPort);
             mAssociatedInputPorts.add(keyboard.location);
@@ -202,8 +171,8 @@ public final class ConsoleInputBridgeCommand {
         if (mAssociatedInputPorts.isEmpty()) {
             throw new IllegalStateException("external alphabetic keyboard input port not found");
         }
-        mMouseDevices.addAll(findExternalMouseDevices());
-        for (final MouseDevice mouse : mMouseDevices) {
+        mMouseDevices.addAll(ConsoleInputDeviceDiscovery.findMice());
+        for (final ConsoleMouseDevice mouse : mMouseDevices) {
             if (mAssociatedInputPorts.add(mouse.location)) {
                 addPortAssociation.invoke(mInputManager, mouse.location, displayPort);
             }
@@ -269,217 +238,12 @@ public final class ConsoleInputBridgeCommand {
         }
     }
 
-    private void startRightButtonTranslator() throws Exception {
-        if (mConsoleDisplayId <= 0 || countActiveMice() == 0) {
-            throw new IllegalStateException("right-button input target is unavailable");
-        }
-
-        mInjectInputEvent = findInjectInputEventMethod();
-        final Method monitorGestureInput = mInputManagerInterface.getMethod(
-                "monitorGestureInput", IBinder.class, String.class, int.class);
-        final Method setActionButton = MotionEvent.class.getMethod(
-                "setActionButton", int.class);
-
-        final HandlerThread thread = new HandlerThread("MagicDeskRightButton");
-        thread.start();
-        final Handler handler = new Handler(thread.getLooper());
-        final Binder monitorToken = new Binder();
-        mRightButtonThread = thread;
-        mRightButtonHandler = handler;
-        mRightButtonMonitorToken = monitorToken;
-
-        final CountDownLatch ready = new CountDownLatch(1);
-        final AtomicReference<Throwable> failure = new AtomicReference<>();
-        handler.post(() -> {
-            try {
-                final InputMonitor monitor = (InputMonitor) monitorGestureInput.invoke(
-                        mInputManager, monitorToken, "MagicDesk right button",
-                        Integer.valueOf(mConsoleDisplayId));
-                final RightButtonInputReceiver receiver = new RightButtonInputReceiver(
-                        monitor, mConsoleDisplayId, setActionButton);
-                mRightButtonMonitor = monitor;
-                mRightButtonReceiver = receiver;
-            } catch (Throwable e) {
-                failure.set(e);
-            } finally {
-                ready.countDown();
-            }
-        });
-        if (!ready.await(5, TimeUnit.SECONDS)) {
-            throw new IOException("timed out creating right-button input monitor");
-        }
-        if (failure.get() != null) {
-            throw new IOException("failed to create right-button input monitor", failure.get());
-        }
-    }
-
-    private Method findInjectInputEventMethod() throws NoSuchMethodException {
-        try {
-            return mInputManagerInterface.getMethod(
-                    "injectInputEvent", InputEvent.class, int.class);
-        } catch (NoSuchMethodException ignored) {
-            try {
-                return mInputManagerInterface.getMethod(
-                        "injectInputEventToTarget",
-                        InputEvent.class, int.class, int.class);
-            } catch (NoSuchMethodException ignoredAgain) {
-                return mInputManagerInterface.getMethod(
-                        "injectInputEvent",
-                        InputEvent.class, int.class, int.class);
-            }
-        }
-    }
-
-    private boolean injectSecondaryButtonEvent(final MotionEvent event) throws Exception {
-        return injectInputEvent(event);
-    }
-
-    private boolean injectInputEvent(final InputEvent event) throws Exception {
-        final Method method = mInjectInputEvent;
-        if (method == null) {
-            return false;
-        }
-        final Object result;
-        if (method.getParameterTypes().length == 2) {
-            result = method.invoke(mInputManager, event,
-                    Integer.valueOf(INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT));
-        } else {
-            result = method.invoke(mInputManager, event,
-                    Integer.valueOf(INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT),
-                    Integer.valueOf(INVALID_UID));
-        }
-        return !(result instanceof Boolean) || ((Boolean) result).booleanValue();
-    }
-
-    private void startRawKeyboardTabWatcher(final KeyboardDevice keyboard)
-            throws IOException {
-        if (keyboard.inputDeviceId < 0) {
-            throw new IOException("logical keyboard input device is unavailable");
-        }
-        mRawKeyboardTabWatcher.start(
-                keyboard.path,
-                keyboard.inputDeviceId,
-                new RawKeyboardTabWatcher.Listener() {
-                    @Override
-                    public void onTab(final int action, final int repeatCount,
-                            final int metaState) {
-                        handleRawKeyboardTabEvent(
-                                keyboard, action, repeatCount, metaState);
-                    }
-
-                    @Override
-                    public void onAltReleased() {
-                        System.out.println("MAGICDESK_ALT_TAB_COMMIT");
-                        System.out.flush();
-                    }
-                });
-    }
-
-    private void handleRawKeyboardTabEvent(
-            final KeyboardDevice keyboard,
-            final int action,
-            final int repeatCount,
-            final int metaState) {
-        if ((metaState & KeyEvent.META_ALT_ON) != 0) {
-            if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
-                final boolean reverse =
-                        (metaState & KeyEvent.META_SHIFT_ON) != 0;
-                System.out.println("MAGICDESK_ALT_TAB_ADVANCE "
-                        + (reverse ? "reverse" : "forward"));
-                System.out.flush();
-            }
-            return;
-        }
-
-        final long eventTime = SystemClock.uptimeMillis();
-        if (action == KeyEvent.ACTION_DOWN && repeatCount == 0) {
-            keyboard.tabDownTime = eventTime;
-        } else if (keyboard.tabDownTime == 0) {
-            keyboard.tabDownTime = eventTime;
-        }
-        final KeyEvent translated = new KeyEvent(
-                keyboard.tabDownTime,
-                eventTime,
-                action,
-                KeyEvent.KEYCODE_TAB,
-                repeatCount,
-                metaState,
-                KeyCharacterMap.VIRTUAL_KEYBOARD,
-                0,
-                KeyEvent.FLAG_FROM_SYSTEM | KeyEvent.FLAG_VIRTUAL_HARD_KEY,
-                InputDevice.SOURCE_KEYBOARD);
-        try {
-            mSetInputEventDisplayId.invoke(
-                    translated, Integer.valueOf(mConsoleDisplayId));
-            if (!injectInputEvent(translated)) {
-                throw new IOException("Tab injection was rejected");
-            }
-        } catch (Exception e) {
-            System.err.println("MAGICDESK_TAB_INJECTION_ERROR source="
-                    + keyboard.path + " error=" + e);
-        } finally {
-            if (action == KeyEvent.ACTION_UP) {
-                keyboard.tabDownTime = 0;
-            }
-        }
-    }
-
-    private void handleRawMouseButtonEvent(final MouseDevice mouse,
-            final boolean pressed) {
-        final Handler handler = mRightButtonHandler;
-        final RightButtonInputReceiver receiver = mRightButtonReceiver;
-        if (handler != null && receiver != null && mouse.inputDeviceId >= 0) {
-            handler.post(() -> receiver.setSecondaryButtonPressed(
-                    mouse.inputDeviceId, pressed));
-        }
-    }
-
-    private void startRawMouseButtonWatcher(final MouseDevice mouse)
-            throws IOException {
-        mRawMouseButtonWatcher.start(
-                mouse.path,
-                mouse.inputDeviceId,
-                pressed -> handleRawMouseButtonEvent(mouse, pressed));
-    }
-
-    private void stopRawMouseButtonWatchers() {
-        mRawMouseButtonWatcher.stop();
-    }
-
     private void stopRightButtonTranslator() {
-        final Handler handler = mRightButtonHandler;
-        final HandlerThread thread = mRightButtonThread;
-        if (handler != null && thread != null && thread.isAlive()) {
-            final CountDownLatch stopped = new CountDownLatch(1);
-            if (handler.post(() -> {
-                disposeRightButtonTranslator();
-                stopped.countDown();
-            })) {
-                try {
-                    stopped.await(2, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-            thread.quitSafely();
-        } else {
-            disposeRightButtonTranslator();
-        }
-        mRightButtonHandler = null;
-        mRightButtonThread = null;
-        mRightButtonMonitorToken = null;
-    }
-
-    private void disposeRightButtonTranslator() {
-        final RightButtonInputReceiver receiver = mRightButtonReceiver;
-        mRightButtonReceiver = null;
-        if (receiver != null) {
-            receiver.dispose();
-        }
-        final InputMonitor monitor = mRightButtonMonitor;
-        mRightButtonMonitor = null;
-        if (monitor != null) {
-            monitor.dispose();
+        final ConsoleRightButtonTranslator translator =
+                mRightButtonTranslator;
+        mRightButtonTranslator = null;
+        if (translator != null) {
+            translator.stop();
         }
     }
 
@@ -514,91 +278,7 @@ public final class ConsoleInputBridgeCommand {
         return -1;
     }
 
-    private List<KeyboardDevice> findExternalKeyboardDevices() throws IOException,
-            InterruptedException {
-        final Process process = new ProcessBuilder(DUMPSYS, "input")
-                .redirectErrorStream(true)
-                .start();
-        final List<KeyboardDevice> result = new ArrayList<>();
-        boolean inEventHub = false;
-        String classes = null;
-        String path = null;
-        String location = null;
-        int vendorId = -1;
-        int productId = -1;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                final String trimmed = line.trim();
-                if ("Event Hub State:".equals(trimmed)) {
-                    inEventHub = true;
-                    continue;
-                }
-                if (!inEventHub) {
-                    continue;
-                }
-                if (trimmed.startsWith("Input Reader State")) {
-                    addKeyboardDevice(result, classes, path, location,
-                            vendorId, productId);
-                    break;
-                }
-                final Matcher deviceHeader = EVENT_HUB_DEVICE.matcher(line);
-                if (deviceHeader.matches()) {
-                    addKeyboardDevice(result, classes, path, location,
-                            vendorId, productId);
-                    classes = null;
-                    path = null;
-                    location = null;
-                    vendorId = -1;
-                    productId = -1;
-                    continue;
-                }
-                if (trimmed.startsWith("Classes:")) {
-                    classes = trimmed.substring("Classes:".length()).trim();
-                } else if (trimmed.startsWith("Path:")) {
-                    path = trimmed.substring("Path:".length()).trim();
-                } else if (trimmed.startsWith("Location:")) {
-                    location = trimmed.substring("Location:".length()).trim();
-                } else if (trimmed.startsWith("Identifier:")) {
-                    final Matcher identifier = INPUT_IDENTIFIER.matcher(trimmed);
-                    if (identifier.matches()) {
-                        vendorId = Integer.parseInt(identifier.group(1), 16);
-                        productId = Integer.parseInt(identifier.group(2), 16);
-                    }
-                }
-            }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException("dumpsys input failed with exit code " + exitCode);
-        }
-        return result;
-    }
-
-    private void addKeyboardDevice(
-            final List<KeyboardDevice> result,
-            final String classes,
-            final String path,
-            final String location,
-            final int vendorId,
-            final int productId) {
-        if (classes == null || path == null || location == null
-                || vendorId < 0 || productId < 0) {
-            return;
-        }
-        if (!classes.contains("KEYBOARD")
-                || !classes.contains("ALPHAKEY")
-                || !classes.contains("EXTERNAL")
-                || !path.startsWith("/dev/input/event")
-                || location.isEmpty()) {
-            return;
-        }
-        result.add(new KeyboardDevice(
-                path, location, vendorId, productId));
-    }
-
-    private void setMouseRightButtonRemapped(final MouseDevice mouse,
+    private void setMouseRightButtonRemapped(final ConsoleMouseDevice mouse,
             final boolean remapped) throws Exception {
         final String output = runInputRemap(
                 mouse.path, remapped ? "unknown" : "right");
@@ -608,7 +288,7 @@ public final class ConsoleInputBridgeCommand {
     }
 
     private void setKeyboardTabRemapped(
-            final KeyboardDevice keyboard,
+            final ConsoleKeyboardDevice keyboard,
             final boolean remapped) throws Exception {
         if (remapped) {
             keyboard.remapped = true;
@@ -630,7 +310,7 @@ public final class ConsoleInputBridgeCommand {
     }
 
     private void restoreKeyboardTabAfterSetupFailure(
-            final KeyboardDevice keyboard) {
+            final ConsoleKeyboardDevice keyboard) {
         if (!keyboard.remapped) {
             return;
         }
@@ -670,82 +350,7 @@ public final class ConsoleInputBridgeCommand {
         return output.toString();
     }
 
-    private List<MouseDevice> findExternalMouseDevices()
-            throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(DUMPSYS, "input")
-                .redirectErrorStream(true)
-                .start();
-        final List<MouseDevice> result = new ArrayList<>();
-        boolean inEventHub = false;
-        String classes = null;
-        String path = null;
-        String location = null;
-        int vendorId = -1;
-        int productId = -1;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                final String trimmed = line.trim();
-                if ("Event Hub State:".equals(trimmed)) {
-                    inEventHub = true;
-                    continue;
-                }
-                if (!inEventHub) {
-                    continue;
-                }
-                if (trimmed.startsWith("Input Reader State")) {
-                    addMouseDevice(result, classes, path, location,
-                            vendorId, productId);
-                    break;
-                }
-                if (EVENT_HUB_DEVICE.matcher(line).matches()) {
-                    addMouseDevice(result, classes, path, location,
-                            vendorId, productId);
-                    classes = null;
-                    path = null;
-                    location = null;
-                    vendorId = -1;
-                    productId = -1;
-                    continue;
-                }
-                if (trimmed.startsWith("Classes:")) {
-                    classes = trimmed.substring("Classes:".length()).trim();
-                } else if (trimmed.startsWith("Path:")) {
-                    path = trimmed.substring("Path:".length()).trim();
-                } else if (trimmed.startsWith("Location:")) {
-                    location = trimmed.substring("Location:".length()).trim();
-                } else if (trimmed.startsWith("Identifier:")) {
-                    final Matcher identifier = INPUT_IDENTIFIER.matcher(trimmed);
-                    if (identifier.matches()) {
-                        vendorId = Integer.parseInt(identifier.group(1), 16);
-                        productId = Integer.parseInt(identifier.group(2), 16);
-                    }
-                }
-            }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException("dumpsys input failed with exit code " + exitCode);
-        }
-        return result;
-    }
-
-    private void addMouseDevice(final List<MouseDevice> result, final String classes,
-            final String path, final String location, final int vendorId, final int productId) {
-        if (classes == null || path == null || location == null
-                || vendorId < 0 || productId < 0) {
-            return;
-        }
-        if (!classes.contains("CURSOR") || !classes.contains("EXTERNAL")
-                || !path.startsWith("/dev/input/event")
-                || location.isEmpty()) {
-            return;
-        }
-        result.add(new MouseDevice(path, location, vendorId, productId));
-    }
-
-    private void resetPhysicalMouseInputDevice(final MouseDevice mouse)
+    private void resetPhysicalMouseInputDevice(final ConsoleMouseDevice mouse)
             throws Exception {
         if (mInputManager == null || mInputManagerInterface == null) {
             return;
@@ -784,7 +389,7 @@ public final class ConsoleInputBridgeCommand {
     }
 
     private void resetPhysicalKeyboardInputDevice(
-            final KeyboardDevice keyboard) throws Exception {
+            final ConsoleKeyboardDevice keyboard) throws Exception {
         if (mInputManager == null || mInputManagerInterface == null) {
             return;
         }
@@ -867,19 +472,9 @@ public final class ConsoleInputBridgeCommand {
         }
     }
 
-    private int countActiveMice() {
-        int count = 0;
-        for (final MouseDevice mouse : mMouseDevices) {
-            if (mouse.inputDeviceId >= 0) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private int countRemappedMice() {
         int count = 0;
-        for (final MouseDevice mouse : mMouseDevices) {
+        for (final ConsoleMouseDevice mouse : mMouseDevices) {
             if (mouse.remapped) {
                 count++;
             }
@@ -889,7 +484,7 @@ public final class ConsoleInputBridgeCommand {
 
     private int countRemappedKeyboards() {
         int count = 0;
-        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+        for (final ConsoleKeyboardDevice keyboard : mKeyboardDevices) {
             if (keyboard.remapped) {
                 count++;
             }
@@ -927,8 +522,10 @@ public final class ConsoleInputBridgeCommand {
         if (process != null) {
             process.destroy();
         }
-        mRawKeyboardTabWatcher.stop();
-        stopRawMouseButtonWatchers();
+        if (mKeyboardTabController != null) {
+            mKeyboardTabController.stop();
+        }
+        stopRightButtonTranslator();
     }
 
     private synchronized void cleanup() {
@@ -942,10 +539,11 @@ public final class ConsoleInputBridgeCommand {
             process.destroy();
             mGeteventProcess = null;
         }
-        mRawKeyboardTabWatcher.stop();
-        stopRawMouseButtonWatchers();
+        if (mKeyboardTabController != null) {
+            mKeyboardTabController.stop();
+        }
         stopRightButtonTranslator();
-        for (final KeyboardDevice keyboard : mKeyboardDevices) {
+        for (final ConsoleKeyboardDevice keyboard : mKeyboardDevices) {
             if (!keyboard.remapped) {
                 continue;
             }
@@ -957,7 +555,7 @@ public final class ConsoleInputBridgeCommand {
                         + keyboard.path + " error=" + e);
             }
         }
-        for (final MouseDevice mouse : mMouseDevices) {
+        for (final ConsoleMouseDevice mouse : mMouseDevices) {
             if (!mouse.remapped) {
                 continue;
             }
@@ -1000,8 +598,8 @@ public final class ConsoleInputBridgeCommand {
         mMouseDevices.clear();
         mConsoleDisplayId = -1;
         mPanelToken = null;
-        mSetInputEventDisplayId = null;
-        mInjectInputEvent = null;
+        mKeyboardTabController = null;
+        mInputEventInjector = null;
     }
 
     private static Object getService(final String name, final String interfaceName)
@@ -1025,209 +623,4 @@ public final class ConsoleInputBridgeCommand {
         return field.getInt(target);
     }
 
-    private final class RightButtonInputReceiver extends InputEventReceiver {
-        private final int mDisplayId;
-        private final Method mSetActionButton;
-        private final Map<Integer, MotionEvent> mPointerTemplates = new HashMap<>();
-        private final Set<Integer> mSecondaryButtonArmed = new LinkedHashSet<>();
-
-        RightButtonInputReceiver(final InputMonitor monitor, final int displayId,
-                final Method setActionButton) {
-            super(monitor.getInputChannel(), mRightButtonThread.getLooper());
-            mDisplayId = displayId;
-            mSetActionButton = setActionButton;
-        }
-
-        @Override
-        public void onInputEvent(final InputEvent inputEvent) {
-            try {
-                if (inputEvent instanceof MotionEvent
-                        && isActiveMouseInputDevice(inputEvent.getDeviceId())
-                        && inputEvent.isFromSource(InputDevice.SOURCE_MOUSE)) {
-                    updatePointerTemplate((MotionEvent) inputEvent);
-                }
-            } finally {
-                finishInputEvent(inputEvent, false);
-            }
-        }
-
-        private void updatePointerTemplate(final MotionEvent event) {
-            final Integer deviceId = Integer.valueOf(event.getDeviceId());
-            final MotionEvent previous = mPointerTemplates.put(
-                    deviceId, MotionEvent.obtain(event));
-            if (previous != null) {
-                previous.recycle();
-            }
-        }
-
-        void setSecondaryButtonPressed(final int inputDeviceId,
-                final boolean pressed) {
-            final Integer deviceId = Integer.valueOf(inputDeviceId);
-            if (pressed) {
-                mSecondaryButtonArmed.add(deviceId);
-                return;
-            }
-            if (!mSecondaryButtonArmed.remove(deviceId)) {
-                return;
-            }
-            final MotionEvent pointerTemplate = mPointerTemplates.get(deviceId);
-            if (pointerTemplate == null) {
-                Log.w(TAG, "right click ignored before mouse position was observed"
-                        + " device=" + inputDeviceId);
-                return;
-            }
-
-            boolean pointerDown = false;
-            final long sequenceDownTime = SystemClock.uptimeMillis();
-            try {
-                injectButtonAction(pointerTemplate, inputDeviceId,
-                        sequenceDownTime, MotionEvent.ACTION_DOWN,
-                        MotionEvent.BUTTON_SECONDARY, 0);
-                pointerDown = true;
-                injectButtonAction(pointerTemplate, inputDeviceId,
-                        sequenceDownTime, MotionEvent.ACTION_BUTTON_PRESS,
-                        MotionEvent.BUTTON_SECONDARY,
-                        MotionEvent.BUTTON_SECONDARY);
-                injectButtonAction(pointerTemplate, inputDeviceId,
-                        sequenceDownTime, MotionEvent.ACTION_BUTTON_RELEASE, 0,
-                        MotionEvent.BUTTON_SECONDARY);
-                injectButtonAction(pointerTemplate, inputDeviceId,
-                        sequenceDownTime, MotionEvent.ACTION_UP, 0, 0);
-                pointerDown = false;
-            } catch (Exception e) {
-                Log.e(TAG, "secondary click injection failed", e);
-                System.err.println("MAGICDESK_RIGHT_BUTTON_ERROR " + e);
-                if (pointerDown) {
-                    cancelSecondaryClickBestEffort(pointerTemplate,
-                            inputDeviceId, sequenceDownTime);
-                }
-            }
-        }
-
-        private void cancelSecondaryClickBestEffort(
-                final MotionEvent pointerTemplate, final int inputDeviceId,
-                final long sequenceDownTime) {
-            try {
-                injectButtonAction(pointerTemplate, inputDeviceId,
-                        sequenceDownTime, MotionEvent.ACTION_CANCEL, 0, 0);
-            } catch (Exception cancelError) {
-                Log.w(TAG, "failed to cancel partial secondary click", cancelError);
-            }
-        }
-
-        private void injectButtonAction(final MotionEvent pointerTemplate,
-                final int inputDeviceId, final long sequenceDownTime,
-                final int action, final int buttonState, final int actionButton)
-                throws Exception {
-            final MotionEvent translated = createSecondaryButtonEvent(
-                    pointerTemplate, inputDeviceId, sequenceDownTime,
-                    action, buttonState, actionButton);
-            try {
-                if (!injectSecondaryButtonEvent(translated)) {
-                    throw new IOException("secondary-button injection was rejected for "
-                            + MotionEvent.actionToString(action));
-                }
-            } finally {
-                translated.recycle();
-            }
-        }
-
-        private MotionEvent createSecondaryButtonEvent(
-                final MotionEvent source, final int inputDeviceId,
-                final long sequenceDownTime, final int action,
-                final int buttonState, final int actionButton)
-                throws ReflectiveOperationException {
-            final int pointerCount = source.getPointerCount();
-            final MotionEvent.PointerProperties[] properties =
-                    new MotionEvent.PointerProperties[pointerCount];
-            final MotionEvent.PointerCoords[] coordinates =
-                    new MotionEvent.PointerCoords[pointerCount];
-            for (int i = 0; i < pointerCount; i++) {
-                properties[i] = new MotionEvent.PointerProperties();
-                coordinates[i] = new MotionEvent.PointerCoords();
-                source.getPointerProperties(i, properties[i]);
-                source.getPointerCoords(i, coordinates[i]);
-            }
-            final long eventTime = SystemClock.uptimeMillis();
-            final MotionEvent translated = MotionEvent.obtain(
-                    sequenceDownTime,
-                    eventTime,
-                    action,
-                    pointerCount,
-                    properties,
-                    coordinates,
-                    source.getMetaState(),
-                    buttonState,
-                    source.getXPrecision(),
-                    source.getYPrecision(),
-                    inputDeviceId,
-                    source.getEdgeFlags(),
-                    source.getSource(),
-                    mDisplayId,
-                    0,
-                    source.getClassification());
-            if (actionButton != 0) {
-                mSetActionButton.invoke(translated,
-                        Integer.valueOf(actionButton));
-            }
-            return translated;
-        }
-
-        @Override
-        public void dispose() {
-            for (final MotionEvent pointerTemplate : mPointerTemplates.values()) {
-                pointerTemplate.recycle();
-            }
-            mPointerTemplates.clear();
-            mSecondaryButtonArmed.clear();
-            super.dispose();
-        }
-    }
-
-    private boolean isActiveMouseInputDevice(final int inputDeviceId) {
-        for (final MouseDevice mouse : mMouseDevices) {
-            if (mouse.inputDeviceId == inputDeviceId) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static final class MouseDevice {
-        final String path;
-        final String location;
-        final int vendorId;
-        final int productId;
-        int inputDeviceId = -1;
-        boolean remapped;
-
-        MouseDevice(final String path, final String location, final int vendorId,
-                final int productId) {
-            this.path = path;
-            this.location = location;
-            this.vendorId = vendorId;
-            this.productId = productId;
-        }
-    }
-
-    private static final class KeyboardDevice {
-        final String path;
-        final String location;
-        final int vendorId;
-        final int productId;
-        int inputDeviceId = -1;
-        long tabDownTime;
-        boolean remapped;
-
-        KeyboardDevice(
-                final String path,
-                final String location,
-                final int vendorId,
-                final int productId) {
-            this.path = path;
-            this.location = location;
-            this.vendorId = vendorId;
-            this.productId = productId;
-        }
-    }
 }

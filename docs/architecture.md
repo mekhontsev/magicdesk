@@ -102,11 +102,16 @@ kernel-loading code.
 
 ### Main APK Source Boundaries
 
-`MainActivity` is the Android lifecycle host and compatibility facade used by
-the foreground services. Feature state belongs to focused collaborators:
+`MainActivity` is the Android lifecycle host. It composes the desktop
+controllers and forwards Android callbacks instead of owning feature state:
 
 - `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
   `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
+- `DesktopInputController` translates Activity input callbacks into desktop
+  secondary-click, panel dismissal, and shortcut actions.
+- `DesktopRuntimeBridge` is the narrow process-local facade used by services
+  and receivers to reach the currently active shell. It keeps Activity
+  references weak and always posts UI work to the Activity thread.
 - `PhoneLauncherController` owns the independent phone-layout launcher.
 - `AppTaskController`, `WorkspaceController`, and `AltTabController` coordinate
   application tasks and persisted workspace state.
@@ -114,12 +119,29 @@ the foreground services. Feature state belongs to focused collaborators:
   `ConsoleControlsController` own display-specific preferences and controls.
 - `MagicDeskSessionController` owns shortcut-service restart and complete
   MagicDesk teardown.
-- `DesktopTaskController` owns the native task transition state machine, while
-  `DesktopTaskWatcher` owns its root helper process and event protocol.
-- `ConsoleModeSwitcher` coordinates Console Mode. Keyboard-layout policy,
-  Nubia touchpad integration, and raw input decoding live in
-  `HardwareKeyboardLayoutController`, `NubiaTouchpadController`, and
-  `RawKeyboardTabWatcher` / `RawMouseButtonWatcher`.
+- `DesktopTaskController` orchestrates native task transitions.
+  `DesktopTaskStateStore` owns workspace snapshots,
+  `NativeWindowBoundsController` owns freeform geometry, and
+  `DesktopPhoneUiReconciler` repairs displaced phone-side Nubia UI.
+  `DesktopTaskWatcher` owns the root helper process and event protocol.
+- `ConsoleModeSwitcher` is the serialized public facade for Console actions.
+  `ConsoleSessionController` owns desktop activation,
+  `ConsoleDisplayController` owns dynamic display discovery and geometry, and
+  `ConsoleRootShell` owns the persistent marker-delimited `su` channel.
+- `ConsoleInputBridgeCommand` coordinates physical input setup.
+  `ConsoleInputDeviceDiscovery` discovers Event Hub devices,
+  `ConsoleKeyboardTabController` handles the Alt-Tab protocol,
+  `ConsoleRightButtonTranslator` handles only secondary-button translation,
+  and `ConsoleInputEventInjector` contains hidden input injection.
+- `HardwareKeyboardLayoutController` and `NubiaTouchpadController` own keyboard
+  layout policy and Nubia touchpad integration independently of the raw bridge.
+- `DesktopNotificationListenerService` owns Android listener connection and
+  notification state; `DesktopNotificationMapper` is the isolated conversion
+  boundary from framework notifications to desktop entries.
+- `DeviceSetupManager` owns provisioning and audits,
+  `DeviceSetupView` owns setup rendering, and
+  `DeviceSetupRuntimeController` is the only setup component that starts or
+  stops MagicDesk runtime services.
 
 Repositories perform package, task, and document queries. View controllers do
 not run privileged commands directly; platform coordinators do not construct

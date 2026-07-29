@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.graphics.Point;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
@@ -10,7 +9,6 @@ import android.view.Display;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -21,41 +19,26 @@ import java.util.Set;
 final class DesktopTaskController {
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE = "io.github.mekhontsev.magicdesk";
-    private static final String TOUCHPAD_ACTIVITY =
-            "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
-    private static final String SECONDARY_HOME_ACTIVITY =
-            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
     private static final long EVENT_DEBOUNCE_MILLIS = 120;
     private static final long WATCHER_RESTART_MILLIS = 1000;
-    private static final int DESKTOP_TASKBAR_RESERVE_DP = 64;
     static final int SHORTCUT_FULLSCREEN = 1;
     static final int SHORTCUT_RESTORE = 2;
     static final int SHORTCUT_SNAP_LEFT = 3;
     static final int SHORTCUT_SNAP_RIGHT = 4;
     static final int SHORTCUT_CLOSE = 5;
-    private static final Map<Integer, List<TaskRepository.TaskEntry>> sVisibleTasksByDisplay =
-            new HashMap<>();
-    private static final Map<Integer, List<TaskRepository.TaskEntry>> sLastVisibleTasksByDisplay =
-            new HashMap<>();
-    private static final Map<Integer, Boolean> sHasVisibleAppTaskByDisplay =
-            new HashMap<>();
-    private static final Set<Integer> sFrozenLastVisibleStacks = new HashSet<>();
     private static DesktopTaskController sActiveController;
 
     private final Context mApplicationContext;
     private final Handler mHandler;
     private final DesktopTaskWatcher mTaskWatcher;
+    private final DesktopPhoneUiReconciler mPhoneUiReconciler;
+    private final NativeWindowBoundsController mNativeWindowBounds;
     private final Map<Integer, Rect> mRestoreBounds = new HashMap<>();
     private final Map<Integer, Rect> mFullscreenRestoreBounds = new HashMap<>();
-    private final Map<Integer, Rect> mLastNativeWindowBounds = new HashMap<>();
-    private final Map<Integer, Rect> mNativeMaximizeRestoreBounds = new HashMap<>();
-    private final Map<Integer, NativeBoundsTransition> mNativeBoundsTransitions =
-            new HashMap<>();
     private final Map<Integer, Boolean> mImmersiveRequests = new HashMap<>();
     private final Set<Integer> mAppRequestedFullscreenTasks = new HashSet<>();
     private final Set<Integer> mFullscreenTransitionTasks = new HashSet<>();
     private final Set<Integer> mManualImmersiveOverrides = new HashSet<>();
-    private final Set<Integer> mLastVisibleAppTaskIds = new HashSet<>();
     private final Runnable mRefreshRunnable = this::runScheduledRefresh;
 
     private Context mWindowContext;
@@ -66,13 +49,31 @@ final class DesktopTaskController {
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
     private boolean mTaskWatcherReady;
-    private Boolean mLastTouchpadVisible;
-    private boolean mTouchpadRestorePending;
-    private boolean mTouchpadRestoreAttemptInProgress;
 
     DesktopTaskController(final Context context, final Handler handler) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
+        mPhoneUiReconciler =
+                new DesktopPhoneUiReconciler(handler, () -> mRunning);
+        mNativeWindowBounds = new NativeWindowBoundsController(
+                mApplicationContext,
+                handler,
+                new NativeWindowBoundsController.RuntimeState() {
+                    @Override
+                    public int displayId() {
+                        return mDisplayId;
+                    }
+
+                    @Override
+                    public Context windowContext() {
+                        return mWindowContext;
+                    }
+
+                    @Override
+                    public void scheduleRefresh() {
+                        DesktopTaskController.this.scheduleRefresh(0);
+                    }
+                });
         mTaskWatcher = new DesktopTaskWatcher(
                 mHandler,
                 new DesktopTaskWatcher.Listener() {
@@ -167,88 +168,44 @@ final class DesktopTaskController {
         mImmersiveWatchTaskId = -1;
         mFocusingTaskId = -1;
         mTaskWatcherReady = false;
-        mLastNativeWindowBounds.clear();
-        mNativeMaximizeRestoreBounds.clear();
-        mNativeBoundsTransitions.clear();
-        mLastVisibleAppTaskIds.clear();
-        mLastTouchpadVisible = null;
-        mTouchpadRestorePending = false;
-        mTouchpadRestoreAttemptInProgress = false;
+        mNativeWindowBounds.reset();
+        mPhoneUiReconciler.reset();
         clearActiveController(this);
-        clearVisibleFreeformTasks(stoppedDisplayId);
+        DesktopTaskStateStore.clear(stoppedDisplayId);
     }
 
     static synchronized List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
-        final List<TaskRepository.TaskEntry> tasks =
-                sVisibleTasksByDisplay.get(Integer.valueOf(displayId));
-        return tasks == null ? null : new ArrayList<>(tasks);
+        return DesktopTaskStateStore.getVisibleTasks(displayId);
     }
 
     static synchronized List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
-        final List<TaskRepository.TaskEntry> tasks =
-                sLastVisibleTasksByDisplay.get(Integer.valueOf(displayId));
-        return tasks == null ? Collections.emptyList() : copyTasks(tasks);
+        return DesktopTaskStateStore.getLastVisibleTasks(displayId);
     }
 
     static synchronized Boolean hasVisibleAppTaskSnapshot(final int displayId) {
-        return sHasVisibleAppTaskByDisplay.get(Integer.valueOf(displayId));
-    }
-
-    private static synchronized void rememberVisibleFreeformTasks(final int displayId,
-            final List<TaskRepository.TaskEntry> tasks) {
-        if (displayId < 0 || tasks == null || tasks.isEmpty()) {
-            return;
-        }
-        sLastVisibleTasksByDisplay.put(Integer.valueOf(displayId),
-                Collections.unmodifiableList(copyTasks(tasks)));
+        return DesktopTaskStateStore.hasVisibleAppTask(displayId);
     }
 
     static synchronized void beginFullscreenTransition(final int displayId,
             final List<TaskRepository.TaskEntry> visibleTasks, final int excludedTaskId) {
-        if (displayId < 0) {
-            return;
-        }
-        final List<TaskRepository.TaskEntry> workspace = new ArrayList<>();
-        if (visibleTasks != null) {
-            for (final TaskRepository.TaskEntry task : visibleTasks) {
-                if (task != null && task.taskId != excludedTaskId) {
-                    workspace.add(task);
-                }
-            }
-        }
-        sLastVisibleTasksByDisplay.put(Integer.valueOf(displayId),
-                Collections.unmodifiableList(copyTasks(workspace)));
-        sFrozenLastVisibleStacks.add(Integer.valueOf(displayId));
+        DesktopTaskStateStore.beginFullscreenTransition(
+                displayId, visibleTasks, excludedTaskId);
     }
 
     static synchronized void finishFullscreenTransition(final int displayId,
             final boolean success) {
-        if (displayId < 0) {
-            return;
-        }
-        sFrozenLastVisibleStacks.remove(Integer.valueOf(displayId));
+        DesktopTaskStateStore.finishFullscreenTransition(displayId, success);
         final DesktopTaskController controller = sActiveController;
         if (controller != null && controller.mRunning
                 && controller.mDisplayId == displayId) {
             controller.scheduleRefresh(0);
         }
-        if (success) {
-            return;
-        }
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                sVisibleTasksByDisplay.get(Integer.valueOf(displayId));
-        if (visibleTasks != null) {
-            sLastVisibleTasksByDisplay.put(Integer.valueOf(displayId),
-                    Collections.unmodifiableList(copyTasks(visibleTasks)));
-        }
     }
 
     static synchronized void forgetVisibleFreeformTasks(final int displayId) {
-        if (displayId >= 0) {
-            sVisibleTasksByDisplay.put(Integer.valueOf(displayId), Collections.emptyList());
-        }
+        DesktopTaskStateStore.forgetVisibleTasks(displayId);
     }
 
     static void focusStack(final List<TaskRepository.TaskEntry> topFirstTasks,
@@ -468,12 +425,12 @@ final class DesktopTaskController {
         final Integer taskId = Integer.valueOf(task.taskId);
         if (!mRestoreBounds.containsKey(taskId)) {
             final Rect nativeRestoreBounds =
-                    mNativeMaximizeRestoreBounds.get(taskId);
+                    mNativeWindowBounds.getMaximizeRestoreBounds(task.taskId);
             mRestoreBounds.put(taskId, new Rect(nativeRestoreBounds != null
                     ? nativeRestoreBounds : task.bounds));
         }
-        requestTrackedNativeBounds(
-                task, getNativeSnappedBounds(left), true);
+        mNativeWindowBounds.requestBounds(
+                task, mNativeWindowBounds.getSnappedBounds(left), true);
     }
 
     private void snapFullscreenTask(final TaskRepository.TaskEntry task,
@@ -499,7 +456,7 @@ final class DesktopTaskController {
         if (Boolean.TRUE.equals(mImmersiveRequests.get(taskId))) {
             mManualImmersiveOverrides.add(taskId);
         }
-        final Rect targetBounds = getNativeSnappedBounds(left);
+        final Rect targetBounds = mNativeWindowBounds.getSnappedBounds(left);
         NativeDesktopController.moveTaskToDesktop(task, targetBounds,
                 (success, message) -> mHandler.post(() -> {
                     mFullscreenTransitionTasks.remove(taskId);
@@ -541,19 +498,6 @@ final class DesktopTaskController {
         }));
     }
 
-    private Rect getNativeSnappedBounds(final boolean left) {
-        final int displayWidth = mWindowContext.getResources()
-                .getDisplayMetrics().widthPixels;
-        final int displayHeight = mWindowContext.getResources()
-                .getDisplayMetrics().heightPixels;
-        final int middle = displayWidth / 2;
-        final int taskbarTop = Math.max(1,
-                displayHeight - dp(DESKTOP_TASKBAR_RESERVE_DP));
-        return left
-                ? new Rect(0, 0, middle, taskbarTop)
-                : new Rect(middle, 0, displayWidth, taskbarTop);
-    }
-
     private void makeFullscreen(final TaskRepository.TaskEntry task,
             final boolean appRequested) {
         final Integer taskId = Integer.valueOf(task.taskId);
@@ -562,9 +506,7 @@ final class DesktopTaskController {
         }
         final int displayId = mDisplayId;
         mFullscreenRestoreBounds.put(taskId, new Rect(task.bounds));
-        mLastNativeWindowBounds.remove(taskId);
-        mNativeMaximizeRestoreBounds.remove(taskId);
-        mNativeBoundsTransitions.remove(taskId);
+        mNativeWindowBounds.clearForFullscreen(task.taskId);
         if (appRequested) {
             mAppRequestedFullscreenTasks.add(taskId);
         }
@@ -682,9 +624,7 @@ final class DesktopTaskController {
         mManualImmersiveOverrides.remove(key);
         mFullscreenRestoreBounds.remove(key);
         mRestoreBounds.remove(key);
-        mLastNativeWindowBounds.remove(key);
-        mNativeMaximizeRestoreBounds.remove(key);
-        mNativeBoundsTransitions.remove(key);
+        mNativeWindowBounds.forget(taskId);
     }
 
     private void reconcileImmersiveRequests(
@@ -759,56 +699,11 @@ final class DesktopTaskController {
                 && !MAGICDESK_PACKAGE.equals(task.packageName);
     }
 
-    private static final class NativeBoundsTransition {
-        final Rect targetBounds;
-        final boolean clearsMaximizeState;
-
-        NativeBoundsTransition(final Rect targetBounds,
-                final boolean clearsMaximizeState) {
-            this.targetBounds = new Rect(targetBounds);
-            this.clearsMaximizeState = clearsMaximizeState;
-        }
-    }
-
     private static void completeFocusCallback(final TaskRepository.ActionCallback callback,
             final boolean success, final String message) {
         if (callback != null) {
             callback.onComplete(new TaskRepository.ActionResult(success, message));
         }
-    }
-
-    private static synchronized void publishVisibleFreeformTasks(final int displayId,
-            final List<TaskRepository.TaskEntry> tasks) {
-        sVisibleTasksByDisplay.put(Integer.valueOf(displayId),
-                Collections.unmodifiableList(new ArrayList<>(tasks)));
-        if (!sFrozenLastVisibleStacks.contains(Integer.valueOf(displayId))) {
-            rememberVisibleFreeformTasks(displayId, tasks);
-        }
-    }
-
-    private static synchronized void clearVisibleFreeformTasks(final int displayId) {
-        if (displayId >= 0) {
-            sVisibleTasksByDisplay.remove(Integer.valueOf(displayId));
-            sLastVisibleTasksByDisplay.remove(Integer.valueOf(displayId));
-            sHasVisibleAppTaskByDisplay.remove(Integer.valueOf(displayId));
-            sFrozenLastVisibleStacks.remove(Integer.valueOf(displayId));
-        }
-    }
-
-    private static List<TaskRepository.TaskEntry> copyTasks(
-            final List<TaskRepository.TaskEntry> tasks) {
-        final List<TaskRepository.TaskEntry> copies = new ArrayList<>(tasks.size());
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task == null) {
-                continue;
-            }
-            copies.add(new TaskRepository.TaskEntry(
-                    task.rootTaskId, task.taskId, task.displayId,
-                    task.packageName, task.componentName, task.topActivityName,
-                    task.windowingMode, task.bounds, task.home, task.visible,
-                    task.active));
-        }
-        return copies;
     }
 
     private boolean createWindowContext(final int displayId) {
@@ -852,8 +747,9 @@ final class DesktopTaskController {
         if (mWindowContext == null) {
             return;
         }
-        final Rect displayBounds = getNativeFullscreenBounds();
-        final Rect workAreaBounds = getNativeTaskbarMaximizedBounds();
+        final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
+        final Rect workAreaBounds =
+                mNativeWindowBounds.getTaskbarMaximizedBounds();
         sendWatcherCommand("watch-native-maximize " + mDisplayId + " "
                 + displayBounds.width() + " " + displayBounds.height() + " "
                 + workAreaBounds.height());
@@ -896,8 +792,11 @@ final class DesktopTaskController {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
-        reconcileNativeWindowBounds(snapshot.tasks);
-        MainActivity.syncTaskbarWithSnapshot(mDisplayId, snapshot);
+        mNativeWindowBounds.reconcile(
+                snapshot.tasks,
+                mFullscreenTransitionTasks,
+                mFullscreenRestoreBounds);
+        DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
         updateImmersiveWatch(snapshot.tasks);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         final Set<Integer> visibleAppTaskIds = new HashSet<>();
@@ -913,7 +812,7 @@ final class DesktopTaskController {
             }
         }
         final int focusingTaskId = mFocusingTaskId;
-        reconcilePhoneUi(snapshot.phoneTasks, visibleAppTaskIds,
+        mPhoneUiReconciler.reconcile(snapshot.phoneTasks, visibleAppTaskIds,
                 focusingTaskId >= 0);
         if (focusingTaskId >= 0) {
             final TaskRepository.TaskEntry focusingTask =
@@ -922,11 +821,8 @@ final class DesktopTaskController {
                 mFocusingTaskId = -1;
             }
         }
-        synchronized (DesktopTaskController.class) {
-            sHasVisibleAppTaskByDisplay.put(
-                    Integer.valueOf(mDisplayId), Boolean.valueOf(hasVisibleAppTask));
-        }
-        publishVisibleFreeformTasks(mDisplayId, visibleTasks);
+        DesktopTaskStateStore.publish(
+                mDisplayId, visibleTasks, hasVisibleAppTask);
         reconcileSubmittedAppFullscreenTransitions(snapshot.tasks);
         reconcileImmersiveRequests(snapshot.tasks, visibleTasks);
     }
@@ -967,47 +863,6 @@ final class DesktopTaskController {
         }
     }
 
-    private void reconcilePhoneUi(final List<TaskRepository.TaskEntry> phoneTasks,
-            final Set<Integer> visibleAppTaskIds,
-            final boolean focusingExternalTask) {
-        boolean touchpadVisible = false;
-        boolean secondaryHomeVisible = false;
-        for (final TaskRepository.TaskEntry task : phoneTasks) {
-            if (task == null || !task.visible || task.componentName == null) {
-                continue;
-            }
-            if (task.componentName.endsWith(TOUCHPAD_ACTIVITY)) {
-                touchpadVisible = true;
-            } else if (task.componentName.endsWith(SECONDARY_HOME_ACTIVITY)) {
-                secondaryHomeVisible = true;
-            }
-        }
-
-        boolean externalTaskMinimized = false;
-        for (final Integer taskId : mLastVisibleAppTaskIds) {
-            if (!visibleAppTaskIds.contains(taskId)) {
-                externalTaskMinimized = true;
-                break;
-            }
-        }
-        if (!focusingExternalTask
-                && externalTaskMinimized && secondaryHomeVisible && !touchpadVisible
-                && mLastTouchpadVisible != null) {
-            if (mLastTouchpadVisible.booleanValue()) {
-                Log.i(TAG, "Nubia touchpad displaced by external task minimize");
-                mTouchpadRestorePending = true;
-            } else {
-                Log.i(TAG, "restore phone Home displaced by external task minimize");
-                ConsoleModeSwitcher.restorePrimaryPhoneHome();
-            }
-        }
-        attemptPendingTouchpadRestore();
-
-        mLastVisibleAppTaskIds.clear();
-        mLastVisibleAppTaskIds.addAll(visibleAppTaskIds);
-        mLastTouchpadVisible = Boolean.valueOf(touchpadVisible);
-    }
-
     private static TaskRepository.TaskEntry findTask(
             final List<TaskRepository.TaskEntry> tasks, final int taskId) {
         if (tasks == null) {
@@ -1019,184 +874,6 @@ final class DesktopTaskController {
             }
         }
         return null;
-    }
-
-    private void attemptPendingTouchpadRestore() {
-        if (!mTouchpadRestorePending || mTouchpadRestoreAttemptInProgress) {
-            return;
-        }
-        mTouchpadRestoreAttemptInProgress = true;
-        ConsoleModeSwitcher.restoreTouchpadIfMissing((touchpadMissing, restored) ->
-                mHandler.post(() -> {
-                    mTouchpadRestoreAttemptInProgress = false;
-                    if (!mRunning) {
-                        mTouchpadRestorePending = false;
-                        return;
-                    }
-                    if (!touchpadMissing) {
-                        Log.d(TAG, "touchpad transition is still in progress");
-                        return;
-                    }
-                    mTouchpadRestorePending = !restored;
-                    if (!restored) {
-                        Log.w(TAG, "touchpad restore failed; waiting for another task event");
-                    }
-                }));
-    }
-
-    private void reconcileNativeWindowBounds(
-            final List<TaskRepository.TaskEntry> tasks) {
-        if (mWindowContext == null) {
-            return;
-        }
-        final Rect fullscreenBounds = getNativeFullscreenBounds();
-        final Rect maximizedBounds = getNativeTaskbarMaximizedBounds();
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task == null || task.displayId != mDisplayId || task.home
-                    || MAGICDESK_PACKAGE.equals(task.packageName)
-                    || !task.isFreeform() || task.bounds.isEmpty()) {
-                continue;
-            }
-            final Integer taskId = Integer.valueOf(task.taskId);
-            if (mFullscreenTransitionTasks.contains(taskId)
-                    || mFullscreenRestoreBounds.containsKey(taskId)) {
-                mLastNativeWindowBounds.remove(taskId);
-                mNativeMaximizeRestoreBounds.remove(taskId);
-                mNativeBoundsTransitions.remove(taskId);
-                continue;
-            }
-
-            final NativeBoundsTransition transition =
-                    mNativeBoundsTransitions.get(taskId);
-            if (transition != null) {
-                if (task.bounds.equals(transition.targetBounds)) {
-                    mNativeBoundsTransitions.remove(taskId);
-                    if (transition.clearsMaximizeState) {
-                        mNativeMaximizeRestoreBounds.remove(taskId);
-                        mLastNativeWindowBounds.put(
-                                taskId, new Rect(transition.targetBounds));
-                    }
-                }
-                continue;
-            }
-            if (!task.visible) {
-                continue;
-            }
-
-            final Rect restoreBounds = mNativeMaximizeRestoreBounds.get(taskId);
-            if (task.bounds.equals(fullscreenBounds)) {
-                if (restoreBounds != null) {
-                    requestTrackedNativeBounds(task, restoreBounds, true);
-                } else {
-                    Rect previousBounds = mLastNativeWindowBounds.get(taskId);
-                    if (previousBounds == null || previousBounds.isEmpty()
-                            || previousBounds.equals(fullscreenBounds)
-                            || previousBounds.equals(maximizedBounds)) {
-                        previousBounds = getDefaultNativeWindowBounds(maximizedBounds);
-                    }
-                    mNativeMaximizeRestoreBounds.put(
-                            taskId, new Rect(previousBounds));
-                    requestTrackedNativeBounds(task, maximizedBounds, false);
-                }
-                continue;
-            }
-
-            if (restoreBounds != null) {
-                if (!task.bounds.equals(maximizedBounds)) {
-                    Log.d(TAG, "preserve native maximize task=" + task.taskId
-                            + " unexpectedBounds=" + task.bounds);
-                    requestTrackedNativeBounds(task, maximizedBounds, false);
-                }
-                continue;
-            }
-
-            final Rect stableBounds = mLastNativeWindowBounds.get(taskId);
-            if (task.hasCrossPackageTopActivity()) {
-                if (stableBounds != null && !stableBounds.isEmpty()
-                        && !task.bounds.equals(stableBounds)) {
-                    Log.d(TAG, "preserve task bounds across transient activity task="
-                            + task.taskId + " current=" + task.bounds
-                            + " stable=" + stableBounds
-                            + " top=" + task.topActivityName);
-                    requestTrackedNativeBounds(task, stableBounds, true);
-                }
-                continue;
-            }
-
-            if (task.bounds.equals(maximizedBounds)) {
-                Rect previousBounds = mLastNativeWindowBounds.get(taskId);
-                if (previousBounds == null || previousBounds.isEmpty()) {
-                    previousBounds = getDefaultNativeWindowBounds(maximizedBounds);
-                }
-                mNativeMaximizeRestoreBounds.put(taskId, new Rect(previousBounds));
-            } else if (!task.bounds.equals(maximizedBounds)) {
-                mLastNativeWindowBounds.put(taskId, new Rect(task.bounds));
-            }
-        }
-    }
-
-    private void requestTrackedNativeBounds(
-            final TaskRepository.TaskEntry task, final Rect targetBounds,
-            final boolean clearsMaximizeState) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        final NativeBoundsTransition transition =
-                new NativeBoundsTransition(targetBounds, clearsMaximizeState);
-        mNativeBoundsTransitions.put(taskId, transition);
-        TaskRepository.resizeTaskBounds(task, targetBounds, result -> mHandler.post(() -> {
-            if (mNativeBoundsTransitions.get(taskId) != transition) {
-                if (result.success) {
-                    scheduleRefresh(0);
-                }
-                return;
-            }
-            if (!result.success) {
-                mNativeBoundsTransitions.remove(taskId);
-                if (!clearsMaximizeState) {
-                    mNativeMaximizeRestoreBounds.remove(taskId);
-                }
-                Log.w(TAG, "native bounds transition failed task=" + task.taskId
-                        + " message=" + result.message);
-                return;
-            }
-            scheduleRefresh(0);
-        }));
-    }
-
-    @SuppressWarnings("deprecation")
-    private Rect getNativeFullscreenBounds() {
-        final DisplayManager displayManager = mApplicationContext.getSystemService(
-                DisplayManager.class);
-        final Display display = displayManager == null
-                ? null : displayManager.getDisplay(mDisplayId);
-        if (display != null) {
-            final Point size = new Point();
-            display.getRealSize(size);
-            if (size.x > 0 && size.y > 0) {
-                return new Rect(0, 0, size.x, size.y);
-            }
-        }
-        return new Rect(0, 0,
-                mWindowContext.getResources().getDisplayMetrics().widthPixels,
-                mWindowContext.getResources().getDisplayMetrics().heightPixels);
-    }
-
-    private Rect getNativeTaskbarMaximizedBounds() {
-        final Rect bounds = getNativeFullscreenBounds();
-        bounds.bottom = Math.max(1,
-                bounds.bottom - dp(DESKTOP_TASKBAR_RESERVE_DP));
-        return bounds;
-    }
-
-    private Rect getDefaultNativeWindowBounds(final Rect workArea) {
-        final int width = Math.min(1200,
-                Math.max(Math.min(640, workArea.width()),
-                        Math.round(workArea.width() * 0.625f)));
-        final int height = Math.min(760,
-                Math.max(Math.min(420, workArea.height()),
-                        Math.round(workArea.height() * 0.72f)));
-        final int left = workArea.left + Math.max(0, (workArea.width() - width) / 2);
-        final int top = workArea.top + Math.max(0, (workArea.height() - height) / 2);
-        return new Rect(left, top, left + width, top + height);
     }
 
     private boolean isVisibleFreeformTask(final TaskRepository.TaskEntry task) {
@@ -1228,7 +905,4 @@ final class DesktopTaskController {
         refresh();
     }
 
-    private int dp(final int value) {
-        return Math.round(value * mWindowContext.getResources().getDisplayMetrics().density);
-    }
 }

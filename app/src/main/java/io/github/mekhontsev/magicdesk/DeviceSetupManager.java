@@ -40,8 +40,6 @@ final class DeviceSetupManager {
     private static final String ORIGINAL_PREFIX = "original_";
     private static final String OWNED_PREFIX = "owned_";
     private static final String VALUE_ABSENT = "__MAGICDESK_VALUE_ABSENT__";
-    private static volatile boolean sRuntimeAuthorized;
-
     private DeviceSetupManager() {
     }
 
@@ -317,49 +315,19 @@ final class DeviceSetupManager {
     }
 
     static void activateRuntime(final Context context, final Audit audit) {
-        if (audit == null) {
-            return;
-        }
-        RuntimeAccess.configure(audit.sessionProfile, audit.backend);
-        if (audit.canEnterMagicDesk()) {
-            reconcileRuntimeServices(context);
-        } else {
-            stopRuntimeServices(context);
-        }
+        DeviceSetupRuntimeController.activate(context, audit);
     }
 
     static void authorizeRuntime(final Context context) {
-        sRuntimeAuthorized = true;
-        reconcileRuntimeServices(context);
+        DeviceSetupRuntimeController.authorize(context);
     }
 
     static void revokeRuntimeAuthorization(final Context context) {
-        sRuntimeAuthorized = false;
-        stopRuntimeServices(context);
+        DeviceSetupRuntimeController.revoke(context);
     }
 
     static boolean isRuntimeAuthorized() {
-        return sRuntimeAuthorized;
-    }
-
-    private static void reconcileRuntimeServices(final Context context) {
-        if (context == null) {
-            return;
-        }
-        if (sRuntimeAuthorized
-                && RuntimeAccess.has(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH)) {
-            MagicDeskRuntimeService.start(context.getApplicationContext());
-        } else {
-            stopRuntimeServices(context);
-        }
-    }
-
-    private static void stopRuntimeServices(final Context context) {
-        RootKeyboardShortcutWatcher.stop();
-        ConsoleModeSwitcher.closeRootShell();
-        if (context != null) {
-            MagicDeskRuntimeService.stop(context.getApplicationContext());
-        }
+        return DeviceSetupRuntimeController.isAuthorized();
     }
 
     static void reboot() throws IOException {

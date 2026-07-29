@@ -13,13 +13,10 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.GestureDetector;
-import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -31,7 +28,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
-import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -54,13 +50,7 @@ public class MainActivity extends Activity {
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
-    private static WeakReference<MainActivity> sShellInstance =
-            new WeakReference<>(null);
-    private static WeakReference<MainActivity> sDesktopInstance =
-            new WeakReference<>(null);
-
     private FrameLayout mDesktopRoot;
-    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
     private DesktopUiFactory mUi;
@@ -82,16 +72,12 @@ public class MainActivity extends Activity {
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
+    private DesktopInputController mInputController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
     private boolean mDesktopMode;
-    private boolean mPanelBackDown;
-    private boolean mContextButtonDown;
-    private boolean mContextButtonTouchSequence;
     private boolean mDesktopWindowFocusable = true;
     private int mTaskRefreshGeneration;
-    private float mLastPointerX;
-    private float mLastPointerY;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -106,7 +92,7 @@ public class MainActivity extends Activity {
             finish();
             return;
         }
-        sShellInstance = new WeakReference<>(this);
+        DesktopRuntimeBridge.registerShell(this);
         mUi = new DesktopUiFactory(this);
         mCalendarController = new CalendarPanelController(
                 this,
@@ -142,10 +128,10 @@ public class MainActivity extends Activity {
                 new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
         mDesktopItemsController = new DesktopItemsController(
                 this, mUi, mDesktopFileRepository);
+        mInputController = new DesktopInputController(this);
         mDesktopMode = isDesktopMode();
         if (mDesktopMode) {
-            replaceDesktopInstance();
-            sDesktopInstance = new WeakReference<>(this);
+            DesktopRuntimeBridge.registerDesktop(this);
             setDesktopWindowFocusable(true);
         }
         setContentView(createContentView());
@@ -165,20 +151,6 @@ public class MainActivity extends Activity {
         updateConsoleControls();
         handleLaunchAction(getIntent());
         ensurePreferredConsoleDensity();
-    }
-
-    private void replaceDesktopInstance() {
-        final MainActivity previous = sDesktopInstance.get();
-        if (previous == null || previous == this) {
-            return;
-        }
-        // Nubia may migrate the phone task before the dedicated Console HOME starts.
-        Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
-                + " with task=" + getTaskId());
-        previous.releaseDesktopOverlays();
-        if (previous.getTaskId() != getTaskId() && !previous.isFinishing()) {
-            previous.finishAndRemoveTask();
-        }
     }
 
     void releaseDesktopOverlays() {
@@ -212,12 +184,7 @@ public class MainActivity extends Activity {
         }
         mLastApps = Collections.emptyList();
         releaseDesktopOverlays();
-        if (sShellInstance.get() == this) {
-            sShellInstance.clear();
-        }
-        if (sDesktopInstance.get() == this) {
-            sDesktopInstance.clear();
-        }
+        DesktopRuntimeBridge.unregister(this);
         if (mConsoleControls != null) {
             mConsoleControls.stop();
         }
@@ -226,7 +193,8 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchTouchEvent(final MotionEvent event) {
-        if (handleDesktopMouseTouchEvent(event, false)) {
+        if (mInputController != null
+                && mInputController.handleTouchEvent(event, false)) {
             return true;
         }
         return super.dispatchTouchEvent(event);
@@ -234,7 +202,8 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchGenericMotionEvent(final MotionEvent event) {
-        if (handleDesktopMouseGenericEvent(event, false)) {
+        if (mInputController != null
+                && mInputController.handleGenericMotionEvent(event, false)) {
             return true;
         }
         return super.dispatchGenericMotionEvent(event);
@@ -242,134 +211,26 @@ public class MainActivity extends Activity {
 
     boolean handleDesktopMouseTouchEvent(final MotionEvent event,
             final boolean useRawCoordinates) {
-        if (!mDesktopMode || event == null) {
-            return false;
-        }
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !hasVisiblePanel()) {
-            mAppTasks.captureInteractionStackForPanel();
-        }
-        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-            return false;
-        }
-        updateLastPointer(event, useRawCoordinates);
-        final int action = event.getActionMasked();
-        final boolean contextButtonDown = hasContextButtonState(event);
-
-        // A missing ACTION_UP must not consume the next primary click.
-        if (mContextButtonTouchSequence && action == MotionEvent.ACTION_DOWN
-                && !contextButtonDown) {
-            resetContextButtonState();
-        }
-        if (action == MotionEvent.ACTION_DOWN && contextButtonDown) {
-            mContextButtonTouchSequence = true;
-            beginContextButtonClick();
-            return true;
-        }
-        if (mContextButtonTouchSequence) {
-            if (action == MotionEvent.ACTION_UP
-                    || action == MotionEvent.ACTION_CANCEL) {
-                resetContextButtonState();
-            }
-            return true;
-        }
-        return false;
+        return mInputController != null
+                && mInputController.handleTouchEvent(event, useRawCoordinates);
     }
 
     boolean handleDesktopMouseGenericEvent(final MotionEvent event,
             final boolean useRawCoordinates) {
-        if (!mDesktopMode || event == null || !event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-            return false;
-        }
-        updateLastPointer(event, useRawCoordinates);
-
-        final int action = event.getActionMasked();
-        final boolean contextButtonState = hasContextButtonState(event);
-        final boolean contextPress = (action == MotionEvent.ACTION_BUTTON_PRESS
-                && isContextActionButton(event))
-                || (action == MotionEvent.ACTION_DOWN && contextButtonState)
-                || (contextButtonState && !mContextButtonDown);
-        if (contextPress) {
-            beginContextButtonClick();
-            return true;
-        }
-        if ((action == MotionEvent.ACTION_BUTTON_RELEASE
-                && isContextActionButton(event))
-                || (action == MotionEvent.ACTION_UP && mContextButtonDown)
-                || (mContextButtonDown && !contextButtonState)) {
-            if (!mContextButtonTouchSequence) {
-                mContextButtonDown = false;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private void updateLastPointer(final MotionEvent event, final boolean useRawCoordinates) {
-        mLastPointerX = useRawCoordinates ? event.getRawX() : event.getX();
-        mLastPointerY = useRawCoordinates ? event.getRawY() : event.getY();
-    }
-
-    private boolean hasContextButtonState(final MotionEvent event) {
-        return (event.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0;
-    }
-
-    private boolean isContextActionButton(final MotionEvent event) {
-        return event.getActionButton() == MotionEvent.BUTTON_SECONDARY;
-    }
-
-    private void beginContextButtonClick() {
-        if (mContextButtonDown) {
-            return;
-        }
-        mContextButtonDown = true;
-        captureInteractionStackForPanel();
-        handleSecondaryClick(mLastPointerX, mLastPointerY);
-    }
-
-    private void resetContextButtonState() {
-        mContextButtonTouchSequence = false;
-        mContextButtonDown = false;
+        return mInputController != null
+                && mInputController.handleGenericMotionEvent(
+                        event, useRawCoordinates);
     }
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
-        final int keyCode = event.getKeyCode();
-        if (mDesktopMode && (keyCode == KeyEvent.KEYCODE_META_LEFT
-                || keyCode == KeyEvent.KEYCODE_META_RIGHT)) {
-            if (event.getAction() == KeyEvent.ACTION_UP
-                    && !RootKeyboardShortcutWatcher.isRunning()) {
-                captureInteractionStackForPanel();
-                toggleStartMenu();
-            }
+        if (mInputController != null && mInputController.handleKeyEvent(event)) {
             return true;
-        }
-        if (mDesktopMode && keyCode == KeyEvent.KEYCODE_MENU) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                captureInteractionStackForPanel();
-                showDesktopContextMenu(
-                        getResources().getDisplayMetrics().widthPixels / 2f,
-                        getResources().getDisplayMetrics().heightPixels / 2f);
-            }
-            return true;
-        }
-        if ((keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE)
-                && (hasVisiblePanel() || mPanelBackDown)) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN
-                    && hasVisiblePanel()) {
-                mPanelBackDown = true;
-                resetAltTabState();
-                hideAllPanels();
-                return true;
-            }
-            if (event.getAction() == KeyEvent.ACTION_UP && mPanelBackDown) {
-                mPanelBackDown = false;
-                return true;
-            }
         }
         return super.dispatchKeyEvent(event);
     }
 
-    private void handleSecondaryClick(final float x, final float y) {
+    void handleSecondaryClick(final float x, final float y) {
         mContextMenuController.handleSecondaryClick(x, y);
     }
 
@@ -543,136 +404,7 @@ public class MainActivity extends Activity {
         return createLaunchIntent(context).putExtra(EXTRA_ACTION, ACTION_SHOW_START);
     }
 
-    static boolean showStartOverlayIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode || activity.mOverlayPanelController == null) {
-            return false;
-        }
-        activity.runOnUiThread(() -> {
-            activity.captureInteractionStackForPanel();
-            activity.setStartMenuVisible(true);
-        });
-        return true;
-    }
-
-    static boolean restoreLastVisibleWindowsIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode) {
-            return false;
-        }
-        activity.runOnUiThread(activity::restoreLastVisibleWindows);
-        return true;
-    }
-
-    static boolean recreateShellOnDisplayIfRunning(final int displayId) {
-        final MainActivity activity = sShellInstance.get();
-        if (activity == null
-                || activity.isFinishing()
-                || activity.isDestroyed()
-                || activity.getCurrentDisplayId() != displayId) {
-            return false;
-        }
-        activity.mMainHandler.post(() -> {
-            if (!activity.isFinishing() && !activity.isDestroyed()) {
-                activity.recreate();
-            }
-        });
-        return true;
-    }
-
-    static boolean advanceAltTabIfRunning(final boolean reverse) {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode || activity.mOverlayPanelController == null) {
-            return false;
-        }
-        activity.runOnUiThread(() -> activity.advanceAltTab(reverse));
-        return true;
-    }
-
-    static boolean finishAltTabIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode) {
-            return false;
-        }
-        activity.runOnUiThread(activity::finishAltTab);
-        return true;
-    }
-
-    static boolean cancelAltTabIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode) {
-            return false;
-        }
-        activity.runOnUiThread(() -> {
-            activity.resetAltTabState();
-            if (activity.mTaskOverviewController.isVisible()) {
-                activity.hideAllPanels();
-            }
-        });
-        return true;
-    }
-
-    static boolean toggleShortcutHelpIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode || activity.mOverlayPanelController == null) {
-            return false;
-        }
-        activity.runOnUiThread(activity::toggleShortcutHelp);
-        return true;
-    }
-
-    static boolean toggleNotificationCenterIfRunning() {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode || activity.mOverlayPanelController == null) {
-            return false;
-        }
-        activity.runOnUiThread(activity.mNotifications::toggle);
-        return true;
-    }
-
-    static boolean isDesktopReadyOnDisplay(final int displayId) {
-        final MainActivity activity = sDesktopInstance.get();
-        return activity != null
-                && !activity.isFinishing()
-                && (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR1
-                        || !activity.isDestroyed())
-                && activity.mDesktopMode
-                && activity.getCurrentDisplayId() == displayId
-                && !activity.isInMultiWindowMode();
-    }
-
-    static void syncTaskbarWithSnapshot(final int displayId,
-            final TaskRepository.Snapshot snapshot) {
-        final MainActivity activity = sDesktopInstance.get();
-        if (activity == null || snapshot == null || !snapshot.rootAvailable
-                || activity.isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && activity.isDestroyed())
-                || !activity.mDesktopMode || activity.getCurrentDisplayId() != displayId) {
-            return;
-        }
-
+    void syncTaskbarWithSnapshot(final TaskRepository.Snapshot snapshot) {
         TaskRepository.TaskEntry activeTask = null;
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
             if (task.active) {
@@ -681,19 +413,17 @@ public class MainActivity extends Activity {
             }
         }
         final boolean visible = activeTask == null || activeTask.isFreeform()
-                || activity.getPackageName().equals(activeTask.packageName);
+                || getPackageName().equals(activeTask.packageName);
         final boolean hasActiveTask = activeTask != null;
         final boolean desktopActive = hasActiveTask
-                && activity.getPackageName().equals(activeTask.packageName);
-        activity.runOnUiThread(() -> {
-            activity.mTaskSnapshot = snapshot;
-            activity.mWorkspaceController.syncSnapshot(snapshot);
-            activity.renderTaskbarPins(activity.mLastApps);
-            activity.setTaskbarVisible(visible);
-            if (hasActiveTask) {
-                activity.setDesktopWindowFocusable(desktopActive);
-            }
-        });
+                && getPackageName().equals(activeTask.packageName);
+        mTaskSnapshot = snapshot;
+        mWorkspaceController.syncSnapshot(snapshot);
+        renderTaskbarPins(mLastApps);
+        setTaskbarVisible(visible);
+        if (hasActiveTask) {
+            setDesktopWindowFocusable(desktopActive);
+        }
     }
 
     private View createContentView() {
@@ -1047,12 +777,19 @@ public class MainActivity extends Activity {
         mAppTasks.focusTask(app, task);
     }
 
-    private void advanceAltTab(final boolean reverse) {
+    void advanceAltTab(final boolean reverse) {
         mAltTabController.advance(reverse);
     }
 
-    private void finishAltTab() {
+    void finishAltTab() {
         mAltTabController.finish();
+    }
+
+    void cancelAltTabFromRuntime() {
+        resetAltTabState();
+        if (mTaskOverviewController.isVisible()) {
+            hideAllPanels();
+        }
     }
 
     void resetAltTabState() {
@@ -1090,7 +827,7 @@ public class MainActivity extends Activity {
                 decor.postOnAnimation(ConsoleModeSwitcher::captureScreenshot));
     }
 
-    private void restoreLastVisibleWindows() {
+    void restoreLastVisibleWindows() {
         mAppTasks.restoreLastVisibleWindows();
     }
 
@@ -1110,6 +847,11 @@ public class MainActivity extends Activity {
         mStartMenuController.toggle();
     }
 
+    void showStartFromRuntime() {
+        captureInteractionStackForPanel();
+        setStartMenuVisible(true);
+    }
+
     private void setStartMenuVisible(final boolean visible) {
         mStartMenuController.setVisible(visible);
     }
@@ -1127,7 +869,7 @@ public class MainActivity extends Activity {
                 options.toBundle());
     }
 
-    private void toggleShortcutHelp() {
+    void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
                 mOverlayPanelController,
                 getDesktopAreaWidth(),

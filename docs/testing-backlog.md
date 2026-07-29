@@ -15,6 +15,11 @@ successful build.
 
 ## External Display
 
+- [ ] Run the post-refactor Root Console regression pass. Verify Console Mode
+  startup, Start and Tools overlays, windowed/fullscreen transitions, taskbar
+  focus, `Alt+Tab`, `Ctrl+Space`, key repeat, right click in browsers, touchpad
+  recovery, mirror transition, and complete exit after the July 2026
+  controller split.
 - [x] Validate the controller refactor on the current device before pushing.
   Exercise phone layout, Console Mode startup, Start and Tools panels, taskbar
   task actions, floating/fullscreen transitions, hardware layout switching,

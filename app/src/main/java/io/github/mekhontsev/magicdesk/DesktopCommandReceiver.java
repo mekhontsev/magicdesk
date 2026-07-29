@@ -15,7 +15,7 @@ public final class DesktopCommandReceiver extends BroadcastReceiver {
                 || !MainActivity.BROADCAST_SHOW_START.equals(intent.getAction())) {
             return;
         }
-        if (!MainActivity.showStartOverlayIfRunning()) {
+        if (!DesktopRuntimeBridge.showStart()) {
             final ActivityOptions options = ActivityOptions.makeBasic();
             final int displayId = Settings.Global.getInt(
                     context.getContentResolver(), "app_mirror_displayid", -1);

@@ -463,7 +463,7 @@ public final class DeviceSetupActivity extends Activity {
             DeviceSetupManager.authorizeRuntime(this);
             final int currentDisplayId = currentDisplayId();
             if (resolveLaunchDisplayId() == currentDisplayId
-                    && MainActivity.recreateShellOnDisplayIfRunning(
+                    && DesktopRuntimeBridge.recreateShellOnDisplay(
                             currentDisplayId)) {
                 finish();
             } else {
