@@ -169,16 +169,22 @@ of megabytes of temporary bitmap data. App catalogs are not reloaded on every
 ## Display And Session Model
 
 Every launch resolves a session profile containing an independent privilege
-mode and display target. An Auto launch on display 0 opens the phone control
-panel. An explicit Primary or Current target opens the desktop on that display;
-an External target opens it on the resolved external display. The control
-panel can also launch the desktop on its own display, which supports tablets
-without reintroducing screen-width layout heuristics.
+mode and display target. A launch originating on display 0 always opens the
+phone control panel; the saved display target must not replace that entry point
+with the desktop shell. The control panel can explicitly launch the desktop on
+its own display, which supports tablets without reintroducing screen-width
+layout heuristics. Console activation resolves the current external display at
+runtime.
 
 On Nubia's virtual Console display, the desktop becomes the fullscreen HOME
 activity. Using HOME only there keeps the desktop surface behind native
 freeform application tasks without replacing the phone launcher. The phone
-control and external desktop use separate Android tasks and may coexist.
+control and external desktop use separate Android tasks and may coexist. A
+desktop opened on the same display as the control panel stays in the control
+task, so Nubia Recents presents one MagicDesk card. Cross-display desktop
+launches still use a separate task. Setup and desktop components also request
+exclusion from Recents, although this firmware does not reliably honor that
+flag for a live standalone task.
 
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a

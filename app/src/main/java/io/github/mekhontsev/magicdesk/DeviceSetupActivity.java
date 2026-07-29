@@ -649,9 +649,8 @@ public final class DeviceSetupActivity extends Activity {
     private void launchMagicDeskAfterPermission() {
         DeviceSetupManager.authorizeRuntime(this);
         final int currentDisplayId = currentDisplayId();
-        final boolean phoneControl = ActivityRoleResolver.opensPhoneControl(
-                mSessionProfile.displayTarget,
-                currentDisplayId);
+        final boolean phoneControl =
+                ActivityRoleResolver.opensPhoneControl(currentDisplayId);
         final int launchDisplayId = phoneControl
                 ? Display.DEFAULT_DISPLAY : resolveLaunchDisplayId();
         final Class<?> activityClass = phoneControl
@@ -672,7 +671,7 @@ public final class DeviceSetupActivity extends Activity {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(launchDisplayId);
         startActivity(target, options.toBundle());
-        finish();
+        finishAndRemoveTask();
     }
 
     private int currentDisplayId() {

@@ -45,6 +45,7 @@
 
         <activity
             android:name=".DeviceSetupActivity"
+            android:excludeFromRecents="true"
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
@@ -74,6 +75,7 @@
 
         <activity
             android:name=".DesktopActivity"
+            android:excludeFromRecents="true"
             android:exported="false"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"

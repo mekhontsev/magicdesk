@@ -127,9 +127,9 @@ device-specific failure.
 5. Review the settings Device Setup proposes and confirm the changes.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
-7. A normal Auto launch on the phone opens the compact MagicDesk control
-   panel. Select **Open desktop on this screen** to use the full desktop on a
-   tablet or directly on the phone.
+7. A normal launch on the phone opens the compact MagicDesk control panel.
+   Select **Open desktop on this screen** to use the full desktop on a tablet
+   or directly on the phone.
 
 MagicDesk starts with an external-display DPI of `192`. A different value can
 be selected under **Start > Tools** and is remembered per monitor.

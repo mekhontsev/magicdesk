@@ -61,13 +61,13 @@ successful build.
 ## Lifecycle
 
 - [ ] With an external display attached, verify the split Activity model:
-  launcher Auto opens `ControlActivity` on display 0, Start Console Mode opens
+  the launcher opens `ControlActivity` on display 0, Start Console Mode opens
   `DesktopActivity` externally, both tasks coexist, and **Phone control panel**
   from desktop Tools returns to the phone control without moving either task.
 - [x] On display 0 without external hardware, verify **Open desktop on this
-  screen** and Android Back return to the control panel. The control and
-  desktop Activities used distinct tasks, repeated activation focused the
-  existing desktop instead of duplicating it, and no crash or ANR was logged.
+  screen** and Android Back return to the control panel. The local desktop
+  stays in the control task so Nubia Recents exposes one MagicDesk card; a
+  cross-display desktop retains a separate task. No crash or ANR was logged.
 
 - [x] Reboot with a saved Root profile and verify that MagicDesk, privileged
   helpers, and its foreground service remain stopped until the user explicitly

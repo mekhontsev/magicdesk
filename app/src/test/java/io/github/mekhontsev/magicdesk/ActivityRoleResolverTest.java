@@ -7,24 +7,12 @@ import org.junit.Test;
 
 public final class ActivityRoleResolverTest {
     @Test
-    public void autoLaunchOnPrimaryDisplayOpensPhoneControl() {
-        assertTrue(ActivityRoleResolver.opensPhoneControl(
-                SessionProfile.DisplayTarget.AUTO, 0));
+    public void everyLaunchOnPrimaryDisplayOpensPhoneControl() {
+        assertTrue(ActivityRoleResolver.opensPhoneControl(0));
     }
 
     @Test
-    public void autoLaunchOnExternalDisplayOpensDesktop() {
-        assertFalse(ActivityRoleResolver.opensPhoneControl(
-                SessionProfile.DisplayTarget.AUTO, 17));
-    }
-
-    @Test
-    public void explicitDisplayTargetsAlwaysOpenDesktop() {
-        assertFalse(ActivityRoleResolver.opensPhoneControl(
-                SessionProfile.DisplayTarget.PRIMARY, 0));
-        assertFalse(ActivityRoleResolver.opensPhoneControl(
-                SessionProfile.DisplayTarget.CURRENT, 0));
-        assertFalse(ActivityRoleResolver.opensPhoneControl(
-                SessionProfile.DisplayTarget.EXTERNAL, 0));
+    public void everyLaunchOnExternalDisplayOpensDesktop() {
+        assertFalse(ActivityRoleResolver.opensPhoneControl(17));
     }
 }
