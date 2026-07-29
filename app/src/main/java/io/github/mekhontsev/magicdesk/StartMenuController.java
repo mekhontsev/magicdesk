@@ -8,6 +8,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -21,8 +22,7 @@ import java.util.Locale;
 import java.util.Set;
 
 final class StartMenuController {
-    static final int MENU_FLOATING = 0;
-    static final int MENU_FULLSCREEN = 1;
+    static final int MENU_APPS = 0;
     static final int MENU_TOOLS = 2;
     static final int MENU_PINNED = 3;
 
@@ -34,7 +34,8 @@ final class StartMenuController {
     private LinearLayout mBody;
     private EditText mSearch;
     private boolean mFocusable = true;
-    private int mMode = MENU_FLOATING;
+    private boolean mForceFullscreen;
+    private int mMode = MENU_APPS;
     private int mPage;
     private int mSearchSelection;
     private String mSearchQuery = "";
@@ -146,23 +147,19 @@ final class StartMenuController {
         final LinearLayout tabs = new LinearLayout(mActivity);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.addView(createTab(R.string.section_floating, MENU_FLOATING),
+        tabs.addView(createTab(R.string.section_apps, MENU_APPS),
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        final LinearLayout.LayoutParams fullscreenTabParams =
+        final LinearLayout.LayoutParams pinnedTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        fullscreenTabParams.setMargins(dp(8), 0, dp(8), 0);
-        tabs.addView(createTab(R.string.section_fullscreen, MENU_FULLSCREEN),
-                fullscreenTabParams);
+        pinnedTabParams.setMargins(dp(8), 0, dp(8), 0);
+        tabs.addView(createTab(R.string.section_pinned, MENU_PINNED),
+                pinnedTabParams);
         final LinearLayout.LayoutParams toolsTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        toolsTabParams.setMargins(0, 0, dp(8), 0);
         tabs.addView(createTab(R.string.section_tools, MENU_TOOLS), toolsTabParams);
-        tabs.addView(createTab(R.string.section_pinned, MENU_PINNED),
-                new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         mContent.addView(tabs, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -171,6 +168,21 @@ final class StartMenuController {
             addTools();
             return;
         }
+
+        final CheckBox fullscreen = new CheckBox(mActivity);
+        fullscreen.setText(R.string.section_fullscreen);
+        fullscreen.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        fullscreen.setTextSize(13);
+        fullscreen.setGravity(Gravity.CENTER_VERTICAL);
+        fullscreen.setChecked(mForceFullscreen);
+        fullscreen.setOnCheckedChangeListener((button, checked) ->
+                mForceFullscreen = checked);
+        final LinearLayout.LayoutParams fullscreenParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        fullscreenParams.setMargins(0, dp(8), 0, 0);
+        mContent.addView(fullscreen, fullscreenParams);
 
         if (mSearch != null) {
             final LinearLayout.LayoutParams searchParams =
@@ -435,9 +447,7 @@ final class StartMenuController {
         final List<AppItem> result = new ArrayList<>();
         final Set<String> pinnedPackages = mActivity.getPinnedPackages();
         for (final AppItem app : mActivity.getLauncherApps()) {
-            if (mMode == MENU_FLOATING && app.canFloat) {
-                result.add(app);
-            } else if (mMode == MENU_FULLSCREEN) {
+            if (mMode == MENU_APPS) {
                 result.add(app);
             } else if (mMode == MENU_PINNED
                     && pinnedPackages.contains(app.packageName)) {
@@ -525,9 +535,7 @@ final class StartMenuController {
     }
 
     private void launchForCurrentMode(final AppItem app) {
-        if (mMode == MENU_FLOATING) {
-            mActivity.launchFloating(app);
-        } else if (mMode == MENU_FULLSCREEN) {
+        if (mForceFullscreen) {
             mActivity.launchFullscreen(app);
         } else {
             mActivity.launchDefault(app);

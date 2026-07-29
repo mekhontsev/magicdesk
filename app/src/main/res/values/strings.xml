@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">MagicDesk</string>
     <string name="section_dock">Dock</string>
+    <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
     <string name="section_floating">Floating</string>
     <string name="section_fullscreen">Fullscreen</string>
