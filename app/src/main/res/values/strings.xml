@@ -3,7 +3,6 @@
     <string name="section_dock">Dock</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
-    <string name="section_floating">Floating</string>
     <string name="section_fullscreen">Fullscreen</string>
     <string name="section_pinned">Pinned</string>
     <string name="action_refresh">Refresh</string>
@@ -34,7 +33,6 @@
     <string name="action_hide_desktop_folder">Hide desktop folder</string>
     <string name="action_keep_in_workspace">Keep in workspace</string>
     <string name="action_remove_from_workspace">Remove from workspace</string>
-    <string name="action_fullscreen_short">Full</string>
     <string name="action_restart_shortcuts">Restart shortcuts</string>
     <string name="action_device_setup">Device setup</string>
     <string name="action_diagnostics">Diagnostics</string>
@@ -71,7 +69,7 @@
     <string name="dpi_value">%1$d</string>
     <string name="density_unknown">DPI unknown</string>
     <string name="status_loading">Loading apps...</string>
-    <string name="status_ready">Floating: %1$d | Fullscreen: %2$d | Display: %3$d</string>
+    <string name="status_ready">Apps: %1$d | Display: %2$d</string>
     <string name="status_no_apps">No launcher apps found</string>
     <string name="status_launching_window">Opening window: %1$s</string>
     <string name="status_launching_fullscreen">Opening full screen: %1$s</string>

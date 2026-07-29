@@ -15,6 +15,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -30,6 +31,7 @@ final class PhoneLauncherController {
 
     private LinearLayout mContent;
     private TextView mStatus;
+    private boolean mForceFullscreen;
 
     PhoneLauncherController(
             final MainActivity activity,
@@ -173,17 +175,11 @@ final class PhoneLauncherController {
         if (mContent == null) {
             return;
         }
-        final List<AppItem> floating = new ArrayList<>();
-        for (final AppItem app : apps) {
-            if (app.canFloat) {
-                floating.add(app);
-            }
-        }
         mContent.removeAllViews();
         addDock(apps);
         addTools();
-        addSection(R.string.section_floating, floating, true);
-        addSection(R.string.section_fullscreen, apps, false);
+        addLaunchMode();
+        addSection(apps);
     }
 
     void setStatus(final String text) {
@@ -293,15 +289,29 @@ final class PhoneLauncherController {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private void addSection(
-            final int titleResId,
-            final List<AppItem> apps,
-            final boolean floating) {
+    private void addLaunchMode() {
+        final CheckBox fullscreen = new CheckBox(mActivity);
+        fullscreen.setText(R.string.section_fullscreen);
+        fullscreen.setTextColor(COLOR_TEXT);
+        fullscreen.setTextSize(13);
+        fullscreen.setGravity(Gravity.CENTER_VERTICAL);
+        fullscreen.setChecked(mForceFullscreen);
+        fullscreen.setOnCheckedChangeListener((button, checked) ->
+                mForceFullscreen = checked);
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(16), 0, 0);
+        mContent.addView(fullscreen, params);
+    }
+
+    private void addSection(final List<AppItem> apps) {
         if (apps.isEmpty()) {
             return;
         }
 
-        final TextView title = mUi.sectionTitle(titleResId);
+        final TextView title = mUi.sectionTitle(R.string.section_apps);
         final LinearLayout.LayoutParams titleParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -315,7 +325,7 @@ final class PhoneLauncherController {
         final int tileWidth = getTileWidth(grid.getColumnCount());
         for (final AppItem app : apps) {
             grid.addView(
-                    createAppTile(app, floating),
+                    createAppTile(app),
                     createTileParams(tileWidth));
         }
         mContent.addView(
@@ -325,9 +335,7 @@ final class PhoneLauncherController {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private View createAppTile(
-            final AppItem app,
-            final boolean floating) {
+    private View createAppTile(final AppItem app) {
         final LinearLayout tile = new LinearLayout(mActivity);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER);
@@ -336,10 +344,10 @@ final class PhoneLauncherController {
                 mUi.rounded(
                         COLOR_PANEL,
                         dp(14),
-                        floating ? COLOR_CYAN : COLOR_PANEL_ALT));
+                        COLOR_PANEL_ALT));
         tile.setClickable(true);
         tile.setFocusable(true);
-        tile.setOnClickListener(view -> launch(app, floating));
+        tile.setOnClickListener(view -> launch(app));
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(app.icon);
@@ -365,31 +373,15 @@ final class PhoneLauncherController {
         actions.setGravity(Gravity.CENTER);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         final Button primary = mUi.smallButton(
-                floating
-                        ? R.string.badge_window
-                        : R.string.action_open,
-                floating ? COLOR_CYAN : COLOR_PANEL_ALT);
-        primary.setOnClickListener(view -> launch(app, floating));
+                R.string.action_open,
+                COLOR_PANEL_ALT);
+        primary.setOnClickListener(view -> launch(app));
         actions.addView(
                 primary,
                 new LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1));
-        if (floating) {
-            final Button fullscreenButton = mUi.smallButton(
-                    R.string.action_fullscreen_short,
-                    COLOR_PANEL_ALT);
-            fullscreenButton.setOnClickListener(
-                    view -> mActivity.launchFullscreen(app));
-            final LinearLayout.LayoutParams fullscreenParams =
-                    new LinearLayout.LayoutParams(
-                            0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            1);
-            fullscreenParams.setMargins(dp(6), 0, 0, 0);
-            actions.addView(fullscreenButton, fullscreenParams);
-        }
         final LinearLayout.LayoutParams actionParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -399,11 +391,11 @@ final class PhoneLauncherController {
         return tile;
     }
 
-    private void launch(final AppItem app, final boolean floating) {
-        if (floating) {
-            mActivity.launchFloating(app);
-        } else {
+    private void launch(final AppItem app) {
+        if (mForceFullscreen) {
             mActivity.launchFullscreen(app);
+        } else {
+            mActivity.launchDefault(app);
         }
     }
 

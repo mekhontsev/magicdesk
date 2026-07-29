@@ -635,14 +635,6 @@ public class MainActivity extends Activity {
         final List<AppItem> apps =
                 mLauncherApps.load(isUniversalFreeformEnabled());
         mLastApps = apps;
-        final List<AppItem> floating = new ArrayList<>();
-        final List<AppItem> fullscreen = new ArrayList<>();
-        for (final AppItem app : apps) {
-            if (app.canFloat) {
-                floating.add(app);
-            }
-            fullscreen.add(app);
-        }
 
         if (apps.isEmpty()) {
             setStatus(R.string.status_no_apps);
@@ -650,8 +642,7 @@ public class MainActivity extends Activity {
         }
 
         setStatus(getString(R.string.status_ready,
-                Integer.valueOf(floating.size()),
-                Integer.valueOf(fullscreen.size()),
+                Integer.valueOf(apps.size()),
                 Integer.valueOf(getCurrentDisplayId())));
         if (mDesktopMode) {
             renderDesktop(apps);
