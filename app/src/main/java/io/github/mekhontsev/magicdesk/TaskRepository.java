@@ -255,7 +255,7 @@ final class TaskRepository {
     }
 
     static void sendBackToDisplay(final int displayId, final ActionCallback callback) {
-        if (displayId <= 0) {
+        if (displayId < 0) {
             complete(callback, false, "invalid display");
             return;
         }

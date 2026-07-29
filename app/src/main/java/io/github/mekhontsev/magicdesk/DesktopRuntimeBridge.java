@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
+import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -37,6 +38,7 @@ final class DesktopRuntimeBridge {
             }
         }
         sDesktop = new WeakReference<>(activity);
+        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
     }
 
     static void unregister(final DesktopShellActivity activity) {
@@ -45,7 +47,31 @@ final class DesktopRuntimeBridge {
         }
         if (sDesktop.get() == activity) {
             sDesktop.clear();
+            MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
         }
+    }
+
+    static int getActiveDesktopDisplayId() {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity == null ? -1 : activity.getCurrentDisplayId();
+    }
+
+    static DesktopViewport getDesktopViewport(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || activity.getCurrentDisplayId() != displayId) {
+            return null;
+        }
+        return activity.getDesktopViewport();
+    }
+
+    static Rect getDesktopWorkAreaBounds(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || activity.getCurrentDisplayId() != displayId) {
+            return null;
+        }
+        final DesktopViewport viewport = activity.getDesktopViewport();
+        return viewport == null ? null
+                : viewport.workAreaBounds(activity.getTaskbarHeight());
     }
 
     static boolean showStart() {

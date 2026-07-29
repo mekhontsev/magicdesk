@@ -186,11 +186,27 @@ launches still use a separate task. Setup and desktop components also request
 exclusion from Recents, although this firmware does not reliably honor that
 flag for a live standalone task.
 
-The taskbar is a persistent overlay on the external desktop so it remains
-available above native freeform tasks. On the primary display, the desktop
-Activity owns its visibility lifecycle: stopping the Activity hides the
-taskbar and open panels so they cannot cover an unrelated fullscreen phone
-application. Resuming the desktop restores the taskbar.
+The desktop uses one viewport model on every display. `WindowMetrics` supplies
+the physical display bounds and current `systemBars()` insets. Desktop content
+and overlays occupy the inset content rectangle; native maximize and snap
+reserve the MagicDesk taskbar inside that rectangle. A dedicated external
+display normally reports zero system-bar insets and therefore fills the whole
+screen, while a phone or tablet keeps Android's status and navigation areas.
+
+When Android's own desktop mode causes the MagicDesk host task to inherit a
+freeform windowing mode, `DesktopHostWindowController` normalizes that host
+task back to fullscreen through the client-preserving task transition. It
+makes one attempt per multi-window episode and requires the `TASK_CONTROL`
+capability; application window transitions remain owned by
+`DesktopWindowTransitionController`.
+There is no display-0 layout fork.
+
+The taskbar is a persistent display-scoped overlay so it remains available
+above native freeform tasks. The task watcher follows whichever display owns
+the live desktop, including display 0. It leaves the taskbar visible for the
+desktop and freeform applications, and hides it while an unrelated fullscreen
+application owns that display. The same rule replaces Activity-lifecycle
+special cases on the primary display.
 
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a
@@ -357,7 +373,8 @@ close or force-stop application processes.
 ## Task Observation
 
 A root `TaskStackListener` helper receives lifecycle events from
-ActivityTaskManager. After a short debounce it reads one task snapshot. This
+ActivityTaskManager for the display that currently owns the desktop. After a
+short debounce it reads one task snapshot. This
 drives:
 
 - taskbar state
@@ -372,7 +389,7 @@ service stops.
 
 `TaskStackListener` does not report changes to a task's
 `requestedVisibleTypes`. While a non-MagicDesk application is visible, the same
-helper checks only that task among the eight upper Console tasks every 150 ms.
+helper checks only that task among the upper desktop tasks every 150 ms.
 It emits data only when the value changes. When the desktop is frontmost, this
 bounded immersive-mode monitor waits without a timer. Task removal and general
 task snapshots remain event-driven.

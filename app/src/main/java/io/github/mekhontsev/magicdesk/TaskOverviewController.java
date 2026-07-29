@@ -169,8 +169,9 @@ final class TaskOverviewController {
         final int height = Math.min(
                 dp(520),
                 areaHeight - mActivity.getTaskbarHeight() - dp(32));
-        final int left = Math.max(0, (areaWidth - width) / 2);
-        final int top = Math.max(
+        final int left = mActivity.getDesktopAreaLeft()
+                + Math.max(0, (areaWidth - width) / 2);
+        final int top = mActivity.getDesktopAreaTop() + Math.max(
                 0,
                 (areaHeight - mActivity.getTaskbarHeight() - height) / 2);
         final OverlayPanelController overlays = mActivity.overlayPanels();

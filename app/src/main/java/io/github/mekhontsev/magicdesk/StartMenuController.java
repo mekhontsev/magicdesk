@@ -251,10 +251,12 @@ final class StartMenuController {
         render();
         final int width = getWidth();
         final int height = getHeight();
-        final int left = mUi.desktopDp(
+        final int left = mActivity.getDesktopAreaLeft() + mUi.desktopDp(
                 16, 6, mActivity.isCompactDesktopPreview());
-        final int top = Math.max(0, mActivity.getDesktopAreaHeight()
-                - mActivity.getTaskbarHeight() - height);
+        final int top = mActivity.getDesktopAreaTop() + Math.max(
+                0,
+                mActivity.getDesktopAreaHeight()
+                        - mActivity.getTaskbarHeight() - height);
         if (!overlays.show(mPanel, left, top, width, height,
                 focusable, "MagicDesk Start")) {
             mActivity.setErrorStatus(

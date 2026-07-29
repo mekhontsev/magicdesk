@@ -91,6 +91,14 @@ public final class MagicDeskRuntimeService extends Service
         }
     }
 
+    static void refreshDesktopTasksIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return;
+        }
+        service.mHandler.post(service::updateDesktopTasks);
+    }
+
     private static void startForegroundService(final Context context, final Intent intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent);
@@ -539,8 +547,9 @@ public final class MagicDeskRuntimeService extends Service
         if (mDesktopTasks == null) {
             return;
         }
-        final int displayId = mConsoleDisplayId;
-        if (displayId > 0
+        final int displayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        if (displayId >= 0
                 && RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS)) {
             mDesktopTasks.start(displayId);
         } else {

@@ -6,6 +6,7 @@ import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL_ALT;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -98,8 +99,7 @@ final class CalendarPanelController {
 
     void toggle(
             final OverlayPanelController overlays,
-            final int areaWidth,
-            final int areaHeight,
+            final Rect contentBounds,
             final int taskbarHeight) {
         if (overlays == null || mPanel == null) {
             return;
@@ -109,12 +109,16 @@ final class CalendarPanelController {
             return;
         }
         mCaptureInteractionStack.run();
+        final int areaWidth = contentBounds.width();
+        final int areaHeight = contentBounds.height();
         final int width = Math.max(1, Math.min(dp(380), areaWidth - dp(16)));
         final int availableHeight =
                 Math.max(1, areaHeight - taskbarHeight - dp(16));
         final int height = Math.min(dp(430), availableHeight);
-        final int left = Math.max(0, areaWidth - width - dp(8));
-        final int top = Math.max(0, areaHeight - taskbarHeight - height);
+        final int left = contentBounds.left
+                + Math.max(0, areaWidth - width - dp(8));
+        final int top = contentBounds.top
+                + Math.max(0, areaHeight - taskbarHeight - height);
         if (!overlays.show(
                 mPanel, left, top, width, height,
                 false, "MagicDesk calendar")) {

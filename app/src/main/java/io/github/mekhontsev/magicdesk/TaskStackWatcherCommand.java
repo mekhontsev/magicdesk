@@ -141,13 +141,13 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             }
             return;
         }
-        if (arguments.length == 5 && "watch-native-maximize".equals(arguments[0])) {
+        if (arguments.length == 10
+                && "watch-native-maximize".equals(arguments[0])) {
             try {
                 mTaskStateMonitor.watchDisplayBounds(
                         parseNonNegative(arguments[1], "display id"),
-                        parseNonNegative(arguments[2], "display width"),
-                        parseNonNegative(arguments[3], "display height"),
-                        parseNonNegative(arguments[4], "work area height"));
+                        parseBounds(arguments, 2),
+                        parseBounds(arguments, 6));
             } catch (RuntimeException e) {
                 System.err.println("invalid native maximize watch command: " + line);
             }
@@ -209,6 +209,20 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         return parsed;
     }
 
+    private static Rect parseBounds(
+            final String[] arguments,
+            final int startIndex) {
+        final Rect bounds = new Rect(
+                Integer.parseInt(arguments[startIndex]),
+                Integer.parseInt(arguments[startIndex + 1]),
+                Integer.parseInt(arguments[startIndex + 2]),
+                Integer.parseInt(arguments[startIndex + 3]));
+        if (bounds.isEmpty()) {
+            throw new IllegalArgumentException("empty bounds");
+        }
+        return bounds;
+    }
+
     private static final class TaskStateMonitor {
         private static final long POLL_INTERVAL_MILLIS = 150;
         private static final int MAX_TASKS_TO_SCAN = 16;
@@ -262,23 +276,24 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             }
         }
 
-        void watchDisplayBounds(final int displayId, final int width, final int height,
-                final int workAreaHeight) {
-            if (width <= 0 || height <= 0
-                    || workAreaHeight <= 0 || workAreaHeight > height) {
+        void watchDisplayBounds(
+                final int displayId,
+                final Rect displayBounds,
+                final Rect workAreaBounds) {
+            if (displayBounds == null || displayBounds.isEmpty()
+                    || workAreaBounds == null || workAreaBounds.isEmpty()
+                    || !displayBounds.contains(workAreaBounds)) {
                 throw new IllegalArgumentException("empty display bounds");
             }
             synchronized (mLock) {
-                final Rect bounds = new Rect(0, 0, width, height);
-                final Rect workAreaBounds = new Rect(0, 0, width, workAreaHeight);
                 if (mBoundsDisplayId == displayId
-                        && mDisplayBounds.equals(bounds)
+                        && mDisplayBounds.equals(displayBounds)
                         && mWorkAreaBounds.equals(workAreaBounds)) {
                     return;
                 }
                 mBoundsDisplayId = displayId;
-                mDisplayBounds = bounds;
-                mWorkAreaBounds = workAreaBounds;
+                mDisplayBounds = new Rect(displayBounds);
+                mWorkAreaBounds = new Rect(workAreaBounds);
                 mFullscreenTasks.clear();
                 mMaximizedTasks.clear();
                 mLock.notifyAll();

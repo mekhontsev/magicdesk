@@ -10,6 +10,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
+import android.graphics.Insets;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,7 +22,9 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.view.WindowMetrics;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
@@ -52,6 +56,8 @@ public abstract class DesktopShellActivity extends Activity
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private FrameLayout mDesktopRoot;
+    private LinearLayout mTaskbarView;
+    private DesktopViewport mDesktopViewport;
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
     private DesktopUiFactory mUi;
@@ -73,6 +79,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopFileRepository mDesktopFileRepository;
     private DesktopItemsController mDesktopItemsController;
     private DesktopInputController mInputController;
+    private DesktopHostWindowController mHostWindowController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
     private boolean mDesktopWindowFocusable = true;
@@ -92,6 +99,7 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         DesktopRuntimeBridge.registerShell(this);
+        mDesktopViewport = readDesktopViewport();
         mUi = new DesktopUiFactory(this);
         mCalendarController = new CalendarPanelController(
                 this,
@@ -127,9 +135,11 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopItemsController = new DesktopItemsController(
                 this, mUi, mDesktopFileRepository);
         mInputController = new DesktopInputController(this);
+        mHostWindowController = new DesktopHostWindowController(this);
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        mDesktopRoot.post(mHostWindowController::ensureFullscreen);
         mNotifications.start();
         mConsoleControls.start();
         mDisplayProfiles.start();
@@ -151,6 +161,7 @@ public abstract class DesktopShellActivity extends Activity
             mOverlayPanelController.release();
             mOverlayPanelController = null;
         }
+        mTaskbarView = null;
         if (mDesktopWallpaperController != null) {
             mDesktopWallpaperController.stop();
             mDesktopWallpaperController = null;
@@ -173,6 +184,9 @@ public abstract class DesktopShellActivity extends Activity
             mDisplayProfiles.stop();
         }
         mLastApps = Collections.emptyList();
+        if (mHostWindowController != null) {
+            mHostWindowController.release();
+        }
         releaseDesktopOverlays();
         DesktopRuntimeBridge.unregister(this);
         if (mConsoleControls != null) {
@@ -321,15 +335,19 @@ public abstract class DesktopShellActivity extends Activity
         updateConsoleControls();
         mNotifications.refresh();
         ensurePreferredConsoleDensity();
+        if (mHostWindowController != null) {
+            mHostWindowController.ensureFullscreen();
+        }
     }
 
     @Override
-    protected void onStop() {
-        if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
-            hideAllPanels();
-            setTaskbarVisible(false);
+    public void onMultiWindowModeChanged(
+            final boolean inMultiWindowMode,
+            final Configuration newConfig) {
+        super.onMultiWindowModeChanged(inMultiWindowMode, newConfig);
+        if (mHostWindowController != null) {
+            mHostWindowController.onMultiWindowModeChanged(inMultiWindowMode);
         }
-        super.onStop();
     }
 
     @Override
@@ -424,6 +442,20 @@ public abstract class DesktopShellActivity extends Activity
         mOverlayPanelController = new OverlayPanelController(
                 this, getCurrentDisplayId());
         root.setBackgroundColor(COLOR_BACKGROUND);
+        applyViewportPadding(root);
+        root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            final WindowMetrics metrics =
+                    getWindowManager().getCurrentWindowMetrics();
+            final Insets bars = windowInsets.getInsets(
+                    WindowInsets.Type.systemBars());
+            applyDesktopViewport(new DesktopViewport(
+                    metrics.getBounds(),
+                    bars.left,
+                    bars.top,
+                    bars.right,
+                    bars.bottom));
+            return windowInsets;
+        });
 
         final ImageView wallpaper = new ImageView(this);
         wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -490,11 +522,15 @@ public abstract class DesktopShellActivity extends Activity
 
         mStartMenuController.create();
         final LinearLayout taskbar = mTaskbarController.create();
+        mTaskbarView = taskbar;
         final int taskbarHeight = getTaskbarHeight();
-        final int taskbarWidth = Math.max(1, getDesktopAreaWidth());
-        final int taskbarTop = getTaskbarTop(getDesktopAreaHeight());
+        final Rect taskbarBounds =
+                mDesktopViewport.taskbarBounds(taskbarHeight);
         if (!mOverlayPanelController.attachPersistent(taskbar,
-                0, taskbarTop, taskbarWidth, taskbarHeight,
+                taskbarBounds.left,
+                taskbarBounds.top,
+                taskbarBounds.width(),
+                taskbarBounds.height(),
                 "MagicDesk taskbar")) {
             setErrorStatus("OVERLAY-001",
                     getString(R.string.status_overlay_panel_unavailable));
@@ -511,8 +547,7 @@ public abstract class DesktopShellActivity extends Activity
     void toggleCalendarPanel() {
         mCalendarController.toggle(
                 mOverlayPanelController,
-                getDesktopAreaWidth(),
-                getDesktopAreaHeight(),
+                mDesktopViewport.contentBounds(),
                 getTaskbarHeight());
     }
 
@@ -670,9 +705,13 @@ public abstract class DesktopShellActivity extends Activity
                                 || isDestroyed()) {
                             return;
                         }
-                        mTaskSnapshot = snapshot;
-                        mWorkspaceController.syncSnapshot(snapshot);
-                        renderTaskbarPins(mLastApps);
+                        if (snapshot.rootAvailable) {
+                            syncTaskbarWithSnapshot(snapshot);
+                        } else {
+                            mTaskSnapshot = snapshot;
+                            mWorkspaceController.syncSnapshot(snapshot);
+                            renderTaskbarPins(mLastApps);
+                        }
                         updateConsoleControls();
                     }
                 });
@@ -852,8 +891,7 @@ public abstract class DesktopShellActivity extends Activity
     void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
                 mOverlayPanelController,
-                getDesktopAreaWidth(),
-                getDesktopAreaHeight(),
+                mDesktopViewport.contentBounds(),
                 getTaskbarHeight());
     }
 
@@ -864,23 +902,78 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     int getDesktopAreaWidth() {
-        return mDesktopRoot != null && mDesktopRoot.getWidth() > 0
-                ? mDesktopRoot.getWidth()
-                : getResources().getDisplayMetrics().widthPixels;
+        return mDesktopViewport.contentBounds().width();
     }
 
     int getDesktopAreaHeight() {
-        return mDesktopRoot != null && mDesktopRoot.getHeight() > 0
-                ? mDesktopRoot.getHeight()
-                : getResources().getDisplayMetrics().heightPixels;
+        return mDesktopViewport.contentBounds().height();
+    }
+
+    int getDesktopAreaLeft() {
+        return mDesktopViewport.contentBounds().left;
+    }
+
+    int getDesktopAreaTop() {
+        return mDesktopViewport.contentBounds().top;
     }
 
     int getTaskbarHeight() {
         return desktopDp(TASKBAR_HEIGHT_DP, COMPACT_TASKBAR_HEIGHT_DP);
     }
 
-    private int getTaskbarTop(final int areaHeight) {
-        return Math.max(0, areaHeight - getTaskbarHeight());
+    DesktopViewport getDesktopViewport() {
+        return mDesktopViewport;
+    }
+
+    private DesktopViewport readDesktopViewport() {
+        try {
+            return DesktopViewport.fromWindowMetrics(
+                    getWindowManager().getCurrentWindowMetrics());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "failed to read desktop viewport", e);
+            final int width = Math.max(
+                    1, getResources().getDisplayMetrics().widthPixels);
+            final int height = Math.max(
+                    1, getResources().getDisplayMetrics().heightPixels);
+            return new DesktopViewport(
+                    new Rect(0, 0, width, height), 0, 0, 0, 0);
+        }
+    }
+
+    private void applyViewportPadding(final View view) {
+        if (view == null || mDesktopViewport == null) {
+            return;
+        }
+        view.setPadding(
+                mDesktopViewport.insetLeft(),
+                mDesktopViewport.insetTop(),
+                mDesktopViewport.insetRight(),
+                mDesktopViewport.insetBottom());
+    }
+
+    private void applyDesktopViewport(final DesktopViewport viewport) {
+        if (viewport == null || viewport.equals(mDesktopViewport)) {
+            return;
+        }
+        mDesktopViewport = viewport;
+        applyViewportPadding(mDesktopRoot);
+        hideAllPanels();
+        updateTaskbarBounds();
+        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+    }
+
+    private void updateTaskbarBounds() {
+        if (mTaskbarView == null || mOverlayPanelController == null
+                || mDesktopViewport == null) {
+            return;
+        }
+        final Rect bounds =
+                mDesktopViewport.taskbarBounds(getTaskbarHeight());
+        mOverlayPanelController.updatePersistentBounds(
+                bounds.left,
+                bounds.top,
+                bounds.width(),
+                bounds.height());
     }
 
     void updateConsoleControls() {

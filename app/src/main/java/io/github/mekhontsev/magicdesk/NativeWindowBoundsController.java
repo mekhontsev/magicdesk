@@ -17,6 +17,7 @@ final class NativeWindowBoundsController {
     interface RuntimeState {
         int displayId();
         Context windowContext();
+        DesktopViewport viewport();
         void scheduleRefresh();
     }
 
@@ -64,20 +65,26 @@ final class NativeWindowBoundsController {
     }
 
     Rect getSnappedBounds(final boolean left) {
-        final Context windowContext = mRuntimeState.windowContext();
-        final int displayWidth = windowContext.getResources()
-                .getDisplayMetrics().widthPixels;
-        final int displayHeight = windowContext.getResources()
-                .getDisplayMetrics().heightPixels;
-        final int middle = displayWidth / 2;
-        final int taskbarTop = Math.max(
-                1, displayHeight - dp(windowContext, TASKBAR_RESERVE_DP));
+        final Rect workArea = getTaskbarMaximizedBounds();
+        final int middle = workArea.left + workArea.width() / 2;
         return left
-                ? new Rect(0, 0, middle, taskbarTop)
-                : new Rect(middle, 0, displayWidth, taskbarTop);
+                ? new Rect(
+                        workArea.left,
+                        workArea.top,
+                        middle,
+                        workArea.bottom)
+                : new Rect(
+                        middle,
+                        workArea.top,
+                        workArea.right,
+                        workArea.bottom);
     }
 
     Rect getFullscreenBounds() {
+        final DesktopViewport viewport = mRuntimeState.viewport();
+        if (viewport != null) {
+            return viewport.displayBounds();
+        }
         final int displayId = mRuntimeState.displayId();
         final DisplayManager displayManager =
                 mApplicationContext.getSystemService(DisplayManager.class);
@@ -99,6 +106,11 @@ final class NativeWindowBoundsController {
     }
 
     Rect getTaskbarMaximizedBounds() {
+        final DesktopViewport viewport = mRuntimeState.viewport();
+        if (viewport != null) {
+            return viewport.workAreaBounds(dp(
+                    mRuntimeState.windowContext(), TASKBAR_RESERVE_DP));
+        }
         final Rect bounds = getFullscreenBounds();
         bounds.bottom = Math.max(
                 1,

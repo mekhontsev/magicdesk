@@ -30,15 +30,20 @@ final class FloatingWindowController {
     }
 
     static Rect getDefaultWindowBounds(final int displayId) throws IOException {
-        final Rect display = getDisplayBounds(displayId);
+        final Rect desktopWorkArea =
+                DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
+        final Rect display = desktopWorkArea == null
+                ? getDisplayBounds(displayId) : desktopWorkArea;
         final int width = Math.min(1200,
                 Math.max(Math.min(640, display.width()),
                         Math.round(display.width() * 0.625f)));
         final int height = Math.min(840,
                 Math.max(Math.min(520, display.height()),
                         Math.round(display.height() * 0.72f)));
-        final int left = (display.width() - width) / 2;
-        final int top = (display.height() - height) / 2;
+        final int left =
+                display.left + (display.width() - width) / 2;
+        final int top =
+                display.top + (display.height() - height) / 2;
         return new Rect(left, top, left + width, top + height);
     }
 

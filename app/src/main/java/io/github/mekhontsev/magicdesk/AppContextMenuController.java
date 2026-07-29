@@ -340,19 +340,26 @@ final class AppContextMenuController {
                         Math.max(1, maxHeight - dp(16)),
                         View.MeasureSpec.AT_MOST));
         final int menuHeight = mPanel.getMeasuredHeight();
-        final int rootWidth = mActivity.getDesktopAreaWidth();
+        final int areaLeft = mActivity.getDesktopAreaLeft();
+        final int areaTop = mActivity.getDesktopAreaTop();
+        final int areaRight =
+                areaLeft + mActivity.getDesktopAreaWidth();
+        final int areaBottom =
+                areaTop + mActivity.getDesktopAreaHeight();
         int left = Math.round(pointerX) + dp(8);
         int top = Math.round(pointerY) + dp(8);
-        if (left + width > rootWidth - dp(8)) {
+        if (left + width > areaRight - dp(8)) {
             left = Math.round(pointerX) - width - dp(8);
         }
-        if (top + menuHeight > maxHeight - dp(8)) {
+        if (top + menuHeight > areaBottom - dp(8)) {
             top = Math.round(pointerY) - menuHeight - dp(8);
         }
         left = Math.max(
-                dp(8), Math.min(left, rootWidth - width - dp(8)));
+                areaLeft + dp(8),
+                Math.min(left, areaRight - width - dp(8)));
         top = Math.max(
-                dp(8), Math.min(top, maxHeight - menuHeight - dp(8)));
+                areaTop + dp(8),
+                Math.min(top, areaBottom - menuHeight - dp(8)));
 
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (overlays == null || !overlays.show(

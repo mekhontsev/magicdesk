@@ -67,6 +67,12 @@ final class DesktopTaskController {
                     }
 
                     @Override
+                    public DesktopViewport viewport() {
+                        return DesktopRuntimeBridge.getDesktopViewport(
+                                mDisplayId);
+                    }
+
+                    @Override
                     public void scheduleRefresh() {
                         DesktopTaskController.this.scheduleRefresh(0);
                     }
@@ -150,11 +156,12 @@ final class DesktopTaskController {
     }
 
     void start(final int displayId) {
-        if (displayId <= 0) {
+        if (displayId < 0) {
             stop();
             return;
         }
         if (mRunning && mDisplayId == displayId) {
+            sendNativeMaximizeWatchCommand();
             scheduleRefresh(0);
             return;
         }
@@ -300,7 +307,7 @@ final class DesktopTaskController {
 
     private void sendSystemBackInternal() {
         final int displayId = mDisplayId;
-        if (!mRunning || displayId <= 0) {
+        if (!mRunning || displayId < 0) {
             return;
         }
         TaskRepository.sendBackToDisplay(displayId, result -> {
@@ -464,9 +471,15 @@ final class DesktopTaskController {
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
-        sendWatcherCommand("watch-native-maximize " + mDisplayId + " "
-                + displayBounds.width() + " " + displayBounds.height() + " "
-                + workAreaBounds.height());
+        sendWatcherCommand("watch-native-maximize " + mDisplayId
+                + " " + displayBounds.left
+                + " " + displayBounds.top
+                + " " + displayBounds.right
+                + " " + displayBounds.bottom
+                + " " + workAreaBounds.left
+                + " " + workAreaBounds.top
+                + " " + workAreaBounds.right
+                + " " + workAreaBounds.bottom);
     }
 
     private void updateImmersiveWatch(
@@ -526,8 +539,12 @@ final class DesktopTaskController {
             }
         }
         final int focusingTaskId = mFocusingTaskId;
-        mPhoneUiReconciler.reconcile(snapshot.phoneTasks, visibleAppTaskIds,
-                focusingTaskId >= 0);
+        if (mDisplayId != Display.DEFAULT_DISPLAY) {
+            mPhoneUiReconciler.reconcile(
+                    snapshot.phoneTasks,
+                    visibleAppTaskIds,
+                    focusingTaskId >= 0);
+        }
         if (focusingTaskId >= 0) {
             final TaskRepository.TaskEntry focusingTask =
                     findTask(snapshot.tasks, focusingTaskId);

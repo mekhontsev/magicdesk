@@ -245,6 +245,36 @@ final class OverlayPanelController {
         }
     }
 
+    void updatePersistentBounds(
+            final int left,
+            final int top,
+            final int width,
+            final int height) {
+        if (!mPersistentAdded || mPersistentView == null
+                || mWindowManager == null) {
+            return;
+        }
+        final WindowManager.LayoutParams params =
+                (WindowManager.LayoutParams) mPersistentView.getLayoutParams();
+        params.x = left;
+        params.y = top;
+        params.width = width;
+        params.height = height;
+        try {
+            mWindowManager.updateViewLayout(mPersistentView, params);
+            mPersistentBounds.set(
+                    left, top, left + width, top + height);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "failed to update persistent overlay bounds", e);
+            CompatibilityDiagnostics.record(
+                    "OVERLAY-007",
+                    "The MagicDesk taskbar could not be repositioned",
+                    "bounds=" + left + "," + top + " "
+                            + width + "x" + height,
+                    e);
+        }
+    }
+
     void hide(final View panel) {
         if (panel != null && panel == mVisiblePanel) {
             hideAll();

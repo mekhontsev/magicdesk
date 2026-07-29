@@ -69,6 +69,14 @@ successful build.
   Android Back return to the control panel. The local desktop stays in the
   control task so Nubia Recents exposes one MagicDesk card; a cross-display
   desktop retains a separate task. No crash or ANR was logged.
+- [x] On display 0, verify the unified viewport and taskbar lifecycle: the
+  desktop remains below Android system bars, freeform applications keep the
+  taskbar visible, fullscreen applications hide it, and returning to the
+  desktop restores it without an Activity-lifecycle workaround. Also enter
+  Android's native desktop mode first and verify that **Open desktop here**
+  normalizes the MagicDesk host task from inherited freeform bounds to
+  fullscreen. Verified with Chrome in freeform, Golly in fullscreen, and a
+  same-task Back transition to the phone control panel.
 
 - [x] Reboot with a saved Root profile and verify that MagicDesk, privileged
   helpers, and its foreground service remain stopped until the user explicitly

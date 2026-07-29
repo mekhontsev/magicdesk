@@ -137,8 +137,10 @@ final class NotificationCenterController {
                 Math.min(dp(420), Math.max(dp(280), areaWidth - dp(16)));
         final int height = Math.max(
                 dp(180), areaHeight - mActivity.getTaskbarHeight() - dp(16));
-        final int left = Math.max(0, areaWidth - width - dp(8));
-        if (!overlays.show(mPanel, left, dp(8), width, height,
+        final int left = mActivity.getDesktopAreaLeft()
+                + Math.max(0, areaWidth - width - dp(8));
+        final int top = mActivity.getDesktopAreaTop() + dp(8);
+        if (!overlays.show(mPanel, left, top, width, height,
                 false, "MagicDesk notifications")) {
             mActivity.setErrorStatus("OVERLAY-001", mActivity.getString(
                     R.string.status_overlay_panel_unavailable));
@@ -513,9 +515,12 @@ final class NotificationCenterController {
                                 - mActivity.getTaskbarHeight() - dp(24)),
                         View.MeasureSpec.AT_MOST));
         final int height = Math.max(dp(92), popup.getMeasuredHeight());
-        final int left = Math.max(0, areaWidth - width - dp(12));
-        final int top = Math.max(dp(12), areaHeight
-                - mActivity.getTaskbarHeight() - height - dp(12));
+        final int left = mActivity.getDesktopAreaLeft()
+                + Math.max(0, areaWidth - width - dp(12));
+        final int top = mActivity.getDesktopAreaTop() + Math.max(
+                dp(12),
+                areaHeight - mActivity.getTaskbarHeight()
+                        - height - dp(12));
         if (!overlays.showTransient(
                 popup, left, top, width, height, 7000L,
                 "MagicDesk notification")) {
