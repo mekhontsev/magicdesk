@@ -193,7 +193,6 @@ The taskbar Tools panel provides:
 - Wake or dim the phone display
 - External-display DPI selection
 - External-display screenshot
-- Shortcut-service restart
 - Device Setup and Diagnostics
 - Optional Kernel Fixes entry
 - Clean MagicDesk exit

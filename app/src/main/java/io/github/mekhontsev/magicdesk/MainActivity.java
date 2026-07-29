@@ -1010,10 +1010,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    void restartConsoleShortcuts() {
-        mSessionController.restartConsoleShortcuts();
-    }
-
     Button createKernelFixesAction() {
         final Button action = createActionButton(
                 R.string.action_kernel_fixes, COLOR_AMBER);

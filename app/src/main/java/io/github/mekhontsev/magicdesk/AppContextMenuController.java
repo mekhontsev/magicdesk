@@ -156,14 +156,6 @@ final class AppContextMenuController {
                 true,
                 view -> mActivity.setLayoutMode(
                         DesktopPreferences.LAYOUT_DESKTOP));
-        addAction(
-                R.string.action_restart_shortcuts,
-                DesktopUiFactory.COLOR_AMBER,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.restartConsoleShortcuts();
-                });
         positionAndShow(x, y);
     }
 

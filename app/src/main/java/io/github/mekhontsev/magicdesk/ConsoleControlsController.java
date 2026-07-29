@@ -136,15 +136,6 @@ final class ConsoleControlsController {
         consoleMode.setOnClickListener(view -> toggleConsoleMode());
         addActionButton(actionGrid, consoleMode);
 
-        final Button restartShortcuts = mUi.actionButton(
-                R.string.action_restart_shortcuts,
-                DesktopUiFactory.COLOR_AMBER);
-        restartShortcuts.setOnClickListener(view ->
-                mActivity.restartConsoleShortcuts());
-        restartShortcuts.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.GLOBAL_INPUT));
-        addActionButton(actionGrid, restartShortcuts);
-
         final Button deviceSetup = mUi.actionButton(
                 R.string.action_device_setup,
                 DesktopUiFactory.COLOR_CYAN);

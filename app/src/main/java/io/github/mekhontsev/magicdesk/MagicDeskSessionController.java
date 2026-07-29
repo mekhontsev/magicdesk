@@ -9,59 +9,12 @@ final class MagicDeskSessionController {
     private static final String AM = "/system/bin/am";
     private static final String KEYBOARD_WATCHER_SERVICE =
             "io.github.mekhontsev.magicdesk/.MagicDeskRuntimeService";
-    private static final long SHORTCUT_RESTART_DELAY_MILLIS = 800;
 
     private final MainActivity mActivity;
     private boolean mExitInProgress;
 
     MagicDeskSessionController(final MainActivity activity) {
         mActivity = activity;
-    }
-
-    void restartConsoleShortcuts() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)) {
-            return;
-        }
-        mActivity.setStatus(R.string.status_restarting_shortcuts);
-        final Thread worker = new Thread(
-                () -> {
-                    try {
-                        runRootCommandBestEffort(
-                                AM + " stopservice -n "
-                                        + KEYBOARD_WATCHER_SERVICE);
-                        Thread.sleep(SHORTCUT_RESTART_DELAY_MILLIS);
-                        runRootCommand(
-                                AM + " start-foreground-service -n "
-                                        + KEYBOARD_WATCHER_SERVICE);
-                        mActivity.runOnUiThread(() -> {
-                            mActivity.setStatus(
-                                    R.string.status_shortcuts_restarted);
-                            mActivity.updateConsoleControls();
-                            mActivity.refreshTaskSnapshot();
-                        });
-                    } catch (IOException e) {
-                        mActivity.runOnUiThread(() ->
-                                mActivity.setErrorStatus(
-                                        "SHORTCUTS-001",
-                                        mActivity.getString(
-                                                R.string.status_root_failed,
-                                                e.getMessage()),
-                                        "",
-                                        e));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        mActivity.runOnUiThread(() ->
-                                mActivity.setErrorStatus(
-                                        "SHORTCUTS-002",
-                                        mActivity.getString(
-                                                R.string.status_root_failed,
-                                                "interrupted"),
-                                        "",
-                                        e));
-                    }
-                },
-                "MagicDeskRestartShortcuts");
-        worker.start();
     }
 
     void exit() {

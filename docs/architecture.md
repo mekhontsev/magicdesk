@@ -117,8 +117,7 @@ controllers and forwards Android callbacks instead of owning feature state:
   application tasks and persisted workspace state.
 - `DisplayProfileController`, `DisplayDensityController`, and
   `ConsoleControlsController` own display-specific preferences and controls.
-- `MagicDeskSessionController` owns shortcut-service restart and complete
-  MagicDesk teardown.
+- `MagicDeskSessionController` owns complete MagicDesk teardown.
 - `DesktopTaskController` orchestrates native task transitions.
   `DesktopTaskStateStore` owns workspace snapshots,
   `NativeWindowBoundsController` owns freeform geometry, and

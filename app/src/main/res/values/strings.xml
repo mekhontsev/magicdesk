@@ -33,7 +33,6 @@
     <string name="action_hide_desktop_folder">Hide desktop folder</string>
     <string name="action_keep_in_workspace">Keep in workspace</string>
     <string name="action_remove_from_workspace">Remove from workspace</string>
-    <string name="action_restart_shortcuts">Restart shortcuts</string>
     <string name="action_device_setup">Device setup</string>
     <string name="action_diagnostics">Diagnostics</string>
     <string name="action_kernel_fixes">Kernel fixes</string>
@@ -79,8 +78,6 @@
     <string name="status_notification_action_failed">Notification action failed</string>
     <string name="status_switch_done">Switched to %1$s</string>
     <string name="status_switch_failed">Switch failed: %1$s</string>
-    <string name="status_restarting_shortcuts">Restarting shortcuts...</string>
-    <string name="status_shortcuts_restarted">Shortcuts restarted</string>
     <string name="status_kernel_fixes_unavailable">Kernel fixes add-on is unavailable or has a different signature</string>
     <string name="status_app_pinned">%1$s pinned to taskbar</string>
     <string name="status_app_unpinned">%1$s unpinned from taskbar</string>
