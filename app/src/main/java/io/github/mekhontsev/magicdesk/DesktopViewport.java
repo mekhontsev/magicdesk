@@ -10,9 +10,8 @@ import java.util.Objects;
 /**
  * Display-relative desktop geometry after system bars have been reserved.
  *
- * <p>The same model is used on every display. Phone and tablet displays
- * normally report non-zero system-bar insets, while a dedicated external
- * desktop display normally reports none.</p>
+ * <p>Phone and tablet desktops reserve status and navigation bars. A dedicated
+ * external desktop owns the full display and provides its own taskbar.</p>
  */
 final class DesktopViewport {
     private final int mDisplayLeft;
@@ -28,8 +27,24 @@ final class DesktopViewport {
         if (metrics == null) {
             return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
         }
-        final Insets insets = metrics.getWindowInsets().getInsets(
-                WindowInsets.Type.systemBars());
+        return fromWindowMetrics(metrics, metrics.getWindowInsets());
+    }
+
+    static DesktopViewport fromDisplayBounds(final Rect bounds) {
+        return new DesktopViewport(bounds, 0, 0, 0, 0);
+    }
+
+    static DesktopViewport fromWindowMetrics(
+            final WindowMetrics metrics,
+            final WindowInsets windowInsets) {
+        if (metrics == null) {
+            return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
+        }
+        final Insets insets = windowInsets == null
+                ? Insets.NONE
+                : windowInsets.getInsets(
+                        WindowInsets.Type.statusBars()
+                                | WindowInsets.Type.navigationBars());
         return new DesktopViewport(
                 metrics.getBounds(),
                 insets.left,

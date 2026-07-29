@@ -18,6 +18,7 @@ final class NativeWindowBoundsController {
         int displayId();
         Context windowContext();
         DesktopViewport viewport();
+        Rect workAreaBounds();
         void scheduleRefresh();
     }
 
@@ -106,10 +107,9 @@ final class NativeWindowBoundsController {
     }
 
     Rect getTaskbarMaximizedBounds() {
-        final DesktopViewport viewport = mRuntimeState.viewport();
-        if (viewport != null) {
-            return viewport.workAreaBounds(dp(
-                    mRuntimeState.windowContext(), TASKBAR_RESERVE_DP));
+        final Rect workArea = mRuntimeState.workAreaBounds();
+        if (workArea != null && !workArea.isEmpty()) {
+            return new Rect(workArea);
         }
         final Rect bounds = getFullscreenBounds();
         bounds.bottom = Math.max(

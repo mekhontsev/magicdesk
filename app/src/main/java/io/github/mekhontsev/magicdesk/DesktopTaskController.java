@@ -73,6 +73,15 @@ final class DesktopTaskController {
                     }
 
                     @Override
+                    public Rect workAreaBounds() {
+                        // A display context can retain Nubia's physical phone
+                        // density after the virtual display is overridden.
+                        // Reuse the taskbar geometry measured by the shell.
+                        return DesktopRuntimeBridge.getDesktopWorkAreaBounds(
+                                mDisplayId);
+                    }
+
+                    @Override
                     public void scheduleRefresh() {
                         DesktopTaskController.this.scheduleRefresh(0);
                     }

@@ -12,6 +12,7 @@ public final class DesktopViewportTest {
 
         assertContentBounds(viewport, 0, 0, 1920, 1080);
         assertEquals(1016, viewport.taskbarTop(64));
+        assertEquals(1003, viewport.taskbarTop(77));
     }
 
     @Test

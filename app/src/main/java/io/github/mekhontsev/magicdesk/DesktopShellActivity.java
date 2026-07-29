@@ -11,7 +11,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
-import android.graphics.Insets;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -22,7 +21,6 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.WindowMetrics;
 import android.widget.Button;
@@ -449,14 +447,9 @@ public abstract class DesktopShellActivity extends Activity
         root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             final WindowMetrics metrics =
                     getWindowManager().getCurrentWindowMetrics();
-            final Insets bars = windowInsets.getInsets(
-                    WindowInsets.Type.systemBars());
-            applyDesktopViewport(new DesktopViewport(
-                    metrics.getBounds(),
-                    bars.left,
-                    bars.top,
-                    bars.right,
-                    bars.bottom));
+            applyDesktopViewport(getCurrentDisplayId() == Display.DEFAULT_DISPLAY
+                    ? DesktopViewport.fromWindowMetrics(metrics, windowInsets)
+                    : DesktopViewport.fromDisplayBounds(metrics.getBounds()));
             return windowInsets;
         });
 
@@ -1003,8 +996,11 @@ public abstract class DesktopShellActivity extends Activity
 
     private DesktopViewport readDesktopViewport() {
         try {
-            return DesktopViewport.fromWindowMetrics(
-                    getWindowManager().getCurrentWindowMetrics());
+            final WindowMetrics metrics =
+                    getWindowManager().getCurrentWindowMetrics();
+            return getCurrentDisplayId() == Display.DEFAULT_DISPLAY
+                    ? DesktopViewport.fromWindowMetrics(metrics)
+                    : DesktopViewport.fromDisplayBounds(metrics.getBounds());
         } catch (RuntimeException e) {
             Log.w(TAG, "failed to read desktop viewport", e);
             final int width = Math.max(
