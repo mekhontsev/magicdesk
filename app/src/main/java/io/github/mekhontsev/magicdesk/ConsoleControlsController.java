@@ -24,6 +24,7 @@ final class ConsoleControlsController {
     private static final String TAG = "MagicDesk";
     private static final String PHONE_SCREEN_OFF_STATE =
             "nubia_screen_off_tp";
+    private static final int ACTION_BUTTON_HEIGHT_DP = 48;
 
     private final MainActivity mActivity;
     private final DesktopUiFactory mUi;
@@ -396,11 +397,16 @@ final class ConsoleControlsController {
             final Button button) {
         button.setSingleLine(false);
         button.setMaxLines(2);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(8), dp(3), dp(8), dp(3));
         button.setGravity(Gravity.CENTER);
         final GridLayout.LayoutParams params =
                 new GridLayout.LayoutParams();
         params.width = 0;
-        params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
+        params.height = dp(ACTION_BUTTON_HEIGHT_DP);
+        params.rowSpec =
+                GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL);
         params.columnSpec =
                 GridLayout.spec(GridLayout.UNDEFINED, 1f);
         params.setMargins(dp(3), dp(3), dp(3), dp(3));
