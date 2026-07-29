@@ -1,14 +1,14 @@
 # MagicDesk
 
 MagicDesk is an open-source, DeX-style desktop environment for REDMAGIC
-devices. It turns REDMAGIC Console Mode into a practical external-display
+devices. It turns REDMAGIC external-display support into a practical desktop
 workspace with native Android windows, a taskbar, Start menu, desktop
 shortcuts, global keyboard controls, notifications, and phone-based touchpad
 support.
 
 MagicDesk is intended to be the REDMAGIC counterpart to Samsung DeX. It is not
 a port of DeX and is not affiliated with Samsung. It builds on Android's own
-desktop window manager and the Console Mode services already present in
+desktop window manager and the external-display services already present in
 REDMAGIC firmware.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
@@ -24,8 +24,8 @@ REDMAGIC firmware.
 
 ## Why MagicDesk
 
-REDMAGIC phones can drive an external display, but their stock Console Mode
-does not provide the complete desktop workflow available in Samsung DeX.
+REDMAGIC phones can drive an external display, but their stock interface does
+not provide the complete desktop workflow available in Samsung DeX.
 MagicDesk supplies that missing shell while continuing to use native Android
 tasks and REDMAGIC's existing projection stack.
 
@@ -73,16 +73,17 @@ tasks managed by the firmware's WMShell.
   notification popups.
 - Calendar panel, battery and charging state, active keyboard-layout indicator,
   phone-screen control, and screenshot capture.
-- Automatic Console Mode entry and workspace restoration through `Win+D`.
+- Automatic external-desktop startup and workspace restoration through
+  `Win+D`.
 - REDMAGIC Touch Panel launch from MagicDesk's persistent phone notification.
 
 ### Physical input
 
 - Native key repeat and physical keyboard layouts on the external display.
 - `Ctrl+Space` cycles through layouts configured in Android, in system order.
-- In Root Console Mode, `Alt+Tab` bypasses REDMAGIC's broken system Recents
-  path while ordinary `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal
-  application input.
+- In Root mode on the external desktop, `Alt+Tab` bypasses REDMAGIC's broken
+  system Recents path while ordinary `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain
+  normal application input.
 - Right click reaches Chrome, Firefox, MagicDesk, and other applications instead
   of being converted to Android Back by REDMAGIC firmware.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are handled
@@ -103,9 +104,9 @@ MagicDesk is intentionally REDMAGIC/ZTE-specific.
 
 - A device identifying as ZTE, nubia, or REDMAGIC
 - Android 16 / API 36 or newer
-- USB-C DisplayPort output and REDMAGIC Console Mode
+- USB-C DisplayPort output and REDMAGIC external-display support
 
-Root is required for the complete REDMAGIC Console experience. Basic mode can
+Root is required for the complete REDMAGIC desktop experience. Basic mode can
 run without root with reduced task, input, and display control.
 
 Other models and OTA versions are treated as unverified. They can continue
@@ -128,8 +129,8 @@ device-specific failure.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 7. A normal launch on the phone opens the compact MagicDesk control panel.
-   Select **Open desktop on this screen** to use the full desktop on a tablet
-   or directly on the phone.
+   Select **Open desktop here** to use the full desktop on a tablet or directly
+   on the phone.
 
 MagicDesk starts with an external-display DPI of `192`. A different value can
 be selected under **Start > Tools** and is remembered per monitor.
@@ -147,11 +148,11 @@ notify an application before it is uninstalled.
 2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 3. Launch MagicDesk on the phone.
 4. Grant root access if Android or the root manager requests it.
-5. Select **Start Console mode** in the phone control panel, or press `Win+D`
-   on the physical keyboard.
-6. To leave Console Mode, select **Switch to mirror** in the phone control
-   panel or desktop Tools. Select **Exit MagicDesk** instead to stop MagicDesk
-   and its background services completely.
+5. Select **Start external desktop** in the phone control panel, or press
+   `Win+D` on the physical keyboard.
+6. To leave the external desktop, select **Switch to screen mirroring** in the
+   phone control panel or desktop Tools. Select **Exit MagicDesk** instead to
+   stop MagicDesk and its background services completely.
 
 ### Phone Notification
 
@@ -159,8 +160,8 @@ MagicDesk keeps a persistent notification on the phone. It is particularly
 useful when no physical keyboard or mouse is connected:
 
 - Tap the MagicDesk notification itself to perform the same context-sensitive
-  action as `Win+D`: enter Console Mode, show the desktop, or restore the
-  previous window workspace.
+  action as `Win+D`: start the external desktop, show the desktop, or restore
+  the previous window workspace.
 - Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone
   and control the external display from the touchscreen.
 
@@ -168,7 +169,7 @@ useful when no physical keyboard or mouse is connected:
 
 | Shortcut | Action |
 | --- | --- |
-| `Win+D` | Enter Console Mode, show the desktop, or restore the previous window workspace |
+| `Win+D` | Start the external desktop, show it, or restore the previous window workspace |
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore fullscreen/maximized task to a window; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
@@ -187,20 +188,20 @@ Global shortcuts require the Root runtime input bridge. In Shizuku mode use
 the equivalent taskbar and Tools actions; **Screenshot** captures the external
 display without leaving the Tools panel in the image.
 
-## Phone And Console Controls
+## Phone And External Display Controls
 
 The phone control panel provides the daily session actions without loading the
 desktop application catalog:
 
 - Open the full desktop on the phone or tablet display
-- Start Console Mode and Switch to mirror
+- Start the external desktop or switch to screen mirroring
 - Open REDMAGIC Touch Panel
 - Wake or dim the phone display
 - Device Setup, Diagnostics, and clean MagicDesk exit
 
 The desktop taskbar Tools panel additionally provides:
 
-- Start Console Mode and Switch to mirror
+- Start the external desktop or switch to screen mirroring
 - Open REDMAGIC Touch Panel
 - Open the phone control panel
 - Wake or dim the phone display
@@ -217,14 +218,14 @@ returns the phone to its normal launcher state.
 ## Privileges And Trust
 
 Root remains necessary for the complete feature set because Android does not
-expose low-level physical input control and all REDMAGIC Console hooks to an
-ordinary third-party application. Basic mode never invokes `su` and keeps the
+expose low-level physical input control and all REDMAGIC external-display hooks
+to an ordinary third-party application. Basic mode never invokes `su` and keeps the
 desktop shell, public application launching, desktop content, notifications,
 and calendar with explicit limitations. Strict Shizuku mode uses the official
 Shizuku UserService API. A server started through ADB or wireless debugging
 runs MagicDesk commands as Android shell UID 2000 and enables task inspection,
 window operations, display density, and screenshots. It does not enable the
-root input bridge, right-click remapping, kernel fixes, or full Console Mode
+root input bridge, right-click remapping, kernel fixes, or full external-desktop
 automation.
 
 The trust boundaries are deliberately narrow:

@@ -219,16 +219,16 @@ final class PhoneControlPanelController {
     private void addDesktopActions(final LinearLayout parent) {
         addSectionTitle(parent, R.string.control_section_desktop, dp(22));
 
-        final Button desktopHere = actionButton(
-                R.string.action_desktop_this_screen, COLOR_CYAN);
-        desktopHere.setOnClickListener(view -> mActions.openDesktopHere());
-        parent.addView(desktopHere, fullWidthActionParams());
-
-        final GridLayout actions = actionGrid();
         mConsoleMode = actionButton(
                 R.string.action_start_console_mode, COLOR_CYAN);
         mConsoleMode.setOnClickListener(view -> mActions.toggleConsoleMode());
-        addGridAction(actions, mConsoleMode);
+        parent.addView(mConsoleMode, fullWidthActionParams());
+
+        final GridLayout actions = actionGrid();
+        final Button desktopHere = actionButton(
+                R.string.action_desktop_this_screen, COLOR_CYAN);
+        desktopHere.setOnClickListener(view -> mActions.openDesktopHere());
+        addGridAction(actions, desktopHere);
 
         mTouchpad = actionButton(
                 R.string.action_open_touchpad, COLOR_CYAN);

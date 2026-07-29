@@ -57,7 +57,7 @@ final class ConsoleDisplayController {
             Log.w(TAG, "Console mode request failed output=" + output);
             CompatibilityDiagnostics.record(
                     "NUBIA-CONSOLE-003",
-                    "The firmware rejected the Console mode request",
+                    "The firmware rejected the external desktop request",
                     output);
             return false;
         }

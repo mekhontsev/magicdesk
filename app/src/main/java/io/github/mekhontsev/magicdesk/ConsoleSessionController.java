@@ -31,7 +31,7 @@ final class ConsoleSessionController {
                         "cannot start Console mode: no physical external display");
                 CompatibilityDiagnostics.record(
                         "NUBIA-CONSOLE-001",
-                        "Cannot start Console mode",
+                        "Cannot start the external desktop",
                         "No physical external display was reported");
                 return;
             }
@@ -47,8 +47,8 @@ final class ConsoleSessionController {
                         "Console mode did not create an app mirror display");
                 CompatibilityDiagnostics.record(
                         "NUBIA-CONSOLE-002",
-                        "Console mode did not start",
-                        "The firmware did not create app_mirror_displayid within "
+                        "The external desktop did not start",
+                        "Nubia Console Mode did not create app_mirror_displayid within "
                                 + ConsoleDisplayController.START_TIMEOUT_MS
                                 + " ms");
                 return;
@@ -123,7 +123,8 @@ final class ConsoleSessionController {
             CompatibilityDiagnostics.record(
                     "SHIZUKU-CONSOLE-001",
                     "Cannot open MagicDesk on the external display",
-                    "Start Nubia Console Mode before using the MagicDesk notification");
+                    "Enable REDMAGIC's extended external display before using "
+                            + "the MagicDesk notification");
             return;
         }
         try {

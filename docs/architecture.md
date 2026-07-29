@@ -272,8 +272,8 @@ the SurfaceFlinger option unchanged.
 
 ### Teardown
 
-**Switch to mirror**, physical display removal, and explicit exit share one
-cleanup path:
+**Switch to screen mirroring**, physical display removal, and explicit exit
+share one cleanup path:
 
 - remove display-scoped overlays and task captions
 - stop the Console task watcher
