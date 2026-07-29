@@ -120,6 +120,8 @@ controllers and forwards Android callbacks instead of owning feature state:
 - `MagicDeskSessionController` owns complete MagicDesk teardown.
 - `DesktopTaskController` orchestrates native task transitions.
   `DesktopTaskStateStore` owns workspace snapshots,
+  `DesktopWindowTransitionController` owns shortcut-driven window state,
+  fullscreen/restore transitions, and immersive requests,
   `NativeWindowBoundsController` owns freeform geometry, and
   `DesktopPhoneUiReconciler` repairs displaced phone-side Nubia UI.
   `DesktopTaskWatcher` owns the root helper process and event protocol.
