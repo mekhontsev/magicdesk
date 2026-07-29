@@ -21,9 +21,16 @@ successful build.
 
 ## External Display
 
-- [ ] Validate the new DeX-style task controls: switch among all four desktop
+- [x] Validate the new DeX-style task controls: switch among all four desktop
   spaces with overlapping windows, verify inactive tasks remain alive, and
   move one task external -> phone -> external without Activity recreation.
+  Golly and Chrome survived a four-space cycle with the same task ids,
+  processes, freeform bounds, and Z-order. Golly also moved from Console
+  display 5 to display 0 and back as task 1832 with the same ActivityRecord and
+  process. The pass exposed two REDMAGIC-specific requirements now handled by
+  the implementation: an empty space must expose the MagicDesk HOME task in
+  the organizer transaction, and restored application tasks need a normal
+  bottom-to-top focus pass to raise their physical-display surfaces.
 - [ ] Validate the Tools audio section with phone, HDMI, USB, and Bluetooth
   output where available.
 - [ ] Validate REDMAGIC monitoring values against sysfs, then test each fan and

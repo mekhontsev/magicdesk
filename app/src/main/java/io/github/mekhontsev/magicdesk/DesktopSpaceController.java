@@ -61,6 +61,13 @@ final class DesktopSpaceController {
                 DesktopSpaceStateStore.tasksInSpace(
                         displayId, targetSpace, snapshot.tasks,
                         mActivity.getPackageName());
+        final List<Integer> restoreTaskIds = taskIds(restoreTasks);
+        if (restoreTaskIds.isEmpty()) {
+            // Keep the Console display alive by exposing its HOME task in the
+            // same organizer transaction that hides the previous workspace.
+            // Nubia treats a later AppTask.moveToFront() as leaving app mirror.
+            restoreTaskIds.add(Integer.valueOf(mActivity.getTaskId()));
+        }
 
         mSwitchInProgress = true;
         DesktopSpaceStateStore.setActiveSpace(displayId, targetSpace);
@@ -72,10 +79,10 @@ final class DesktopSpaceController {
         TaskRepository.switchDesktopSpace(
                 displayId,
                 taskIds(hideTasks),
-                taskIds(restoreTasks),
+                restoreTaskIds,
                 result -> mActivity.runOnUiThread(() -> {
-                    mSwitchInProgress = false;
                     if (!result.success) {
+                        mSwitchInProgress = false;
                         DesktopSpaceStateStore.setActiveSpace(
                                 displayId, previousSpace);
                         mActivity.setErrorStatus(
@@ -87,13 +94,25 @@ final class DesktopSpaceController {
                         return;
                     }
                     if (restoreTasks.isEmpty()) {
-                        DesktopRuntimeBridge.focusDesktopOnDisplay(
-                                displayId);
+                        finishSwitch(targetSpace);
+                        return;
                     }
-                    mActivity.setStatus(mActivity.getString(
-                            R.string.status_desktop_space_active,
-                            Integer.valueOf(targetSpace + 1)));
-                    mActivity.refreshTaskSnapshot();
+                    TaskRepository.bringStackToFront(
+                            restoreTasks,
+                            restoreTasks.get(0),
+                            focusResult -> mActivity.runOnUiThread(() -> {
+                                if (!focusResult.success) {
+                                    mSwitchInProgress = false;
+                                    mActivity.setErrorStatus(
+                                            "DESKTOP-SPACE-002",
+                                            mActivity.getString(
+                                                    R.string.status_switch_failed,
+                                                    focusResult.message));
+                                    mActivity.refreshTaskSnapshot();
+                                    return;
+                                }
+                                finishSwitch(targetSpace);
+                            }));
                 }));
     }
 
@@ -111,6 +130,14 @@ final class DesktopSpaceController {
     private void updateUi() {
         mActivity.taskbar().updateDesktopSpace(activeSpace());
         mActivity.updateDesktopSpaceControls(activeSpace());
+    }
+
+    private void finishSwitch(final int targetSpace) {
+        mSwitchInProgress = false;
+        mActivity.setStatus(mActivity.getString(
+                R.string.status_desktop_space_active,
+                Integer.valueOf(targetSpace + 1)));
+        mActivity.refreshTaskSnapshot();
     }
 
     private static List<Integer> taskIds(

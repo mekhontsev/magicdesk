@@ -401,7 +401,13 @@ current group and restores the selected group bottom-to-top. It does not
 relaunch or force-stop applications. Task ids are intentionally not persisted
 across process death because Android does not guarantee their identity after a
 reboot. A visible task focused from another shell surface joins the active
-space.
+space. An empty space exposes the MagicDesk HOME task in that same organizer
+transaction. Focusing the HOME task later through `AppTask.moveToFront()` is
+not equivalent on REDMAGIC firmware: Nubia interprets it as leaving app-mirror
+mode and removes the Console display. Restored application stacks receive a
+normal bottom-to-top task focus pass after the organizer transaction because
+Nubia can otherwise report a back-ordered freeform task as visible without
+raising its physical-display surface.
 
 The application context menu can move an existing root task between display 0
 and the currently active Console display with ActivityTaskManager's
