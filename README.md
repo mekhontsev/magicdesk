@@ -53,6 +53,10 @@ tasks managed by the firmware's WMShell.
 - Launch applications in Windowed or Fullscreen mode.
 - Keep multiple overlapping windows visible and switch exact tasks from the
   taskbar or with `Alt+Tab`.
+- Organize live Android tasks across four session-scoped desktop spaces without
+  relaunching their activities.
+- Send an existing task between the phone and active external desktop from its
+  context menu.
 - Snap windows left or right, maximize them above the taskbar, or enter true
   fullscreen.
 - Pin applications to the taskbar or place shortcuts on the desktop.
@@ -73,6 +77,11 @@ tasks managed by the firmware's WMShell.
   notification popups.
 - Calendar panel, battery and charging state, active keyboard-layout indicator,
   phone-screen control, and screenshot capture.
+- Media-volume, connected audio-output, and REDMAGIC Touch Panel controls in
+  the desktop Tools panel.
+- Capability-probed REDMAGIC fan, liquid-pump, temperature, and RPM monitoring
+  in Root mode, with manual profiles and an optional temperature-driven fan
+  curve.
 - Automatic external-desktop startup and workspace restoration through
   `Win+D`.
 - REDMAGIC Touch Panel launch from MagicDesk's persistent phone notification.
@@ -170,6 +179,7 @@ useful when no physical keyboard or mouse is connected:
 | Shortcut | Action |
 | --- | --- |
 | `Win+D` | Start the external desktop, show it, or restore the previous window workspace |
+| `Win+Ctrl+Left` / `Win+Ctrl+Right` | Switch among the four desktop spaces |
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore fullscreen/maximized task to a window; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
@@ -207,13 +217,20 @@ The desktop taskbar Tools panel additionally provides:
 - Wake or dim the phone display
 - External-display DPI selection
 - External-display screenshot
+- Four session desktop spaces
+- Media volume, mute, output monitoring, and sound settings
+- REDMAGIC CPU/GPU/skin/battery temperatures, fan RPM, fan profiles, and
+  liquid-pump profiles when compatible control nodes are detected
 - Device Setup and Diagnostics
 - Optional Kernel Fixes entry
 - Clean MagicDesk exit
 
 **Exit MagicDesk** stops its foreground service and root input bridge, restores
 the physical mouse mapping and phone-side services it temporarily changed, and
-returns the phone to its normal launcher state.
+returns the phone to its normal launcher state. If MagicDesk changed fan or
+pump settings, it also restores the values captured before the first write.
+After an interrupted process, that hardware baseline is recovered at the next
+manual MagicDesk start.
 
 ## Privileges And Trust
 

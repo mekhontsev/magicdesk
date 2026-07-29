@@ -261,6 +261,19 @@ final class AppContextMenuController {
                         mActivity.openTaskFullscreen(app, task);
                     }
                 });
+        final int otherDisplayId =
+                mActivity.getOtherDisplayId(task);
+        if (task != null && otherDisplayId >= 0) {
+            addAction(
+                    otherDisplayId == 0
+                            ? R.string.action_send_to_phone
+                            : R.string.action_send_to_external_display,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    RuntimeAccess.has(
+                            RuntimeAccess.Capability.TASK_CONTROL),
+                    view -> mActivity.moveTaskToOtherDisplay(
+                            app, task));
+        }
 
         final boolean pinned =
                 mActivity.getPinnedPackages().contains(app.packageName);

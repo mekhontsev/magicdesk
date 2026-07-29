@@ -24,9 +24,13 @@ final class ConsoleControlsController {
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
+    private final DesktopAudioPanelController mAudio;
+    private final RedmagicHardwarePanelController mHardware;
     private final Set<Button> mConsoleModeActions =
             Collections.newSetFromMap(
                     new WeakHashMap<Button, Boolean>());
+    private final Button[] mDesktopSpaceActions =
+            new Button[DesktopSpaceStateStore.SPACE_COUNT];
 
     private Button mPhoneScreenAction;
     private TextView mToolsStatus;
@@ -40,11 +44,15 @@ final class ConsoleControlsController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
+        mAudio = new DesktopAudioPanelController(activity, ui);
+        mHardware = new RedmagicHardwarePanelController(activity, ui);
     }
 
     void start() {
         registerBatteryReceiver();
         registerSettingsObserver();
+        mAudio.start();
+        mHardware.start();
     }
 
     void stop() {
@@ -61,6 +69,8 @@ final class ConsoleControlsController {
             }
             mBatteryReceiver = null;
         }
+        mAudio.stop();
+        mHardware.stop();
     }
 
     void setActivityStatus(final String text) {
@@ -71,6 +81,37 @@ final class ConsoleControlsController {
     }
 
     void populate(final LinearLayout parent, final int spacing) {
+        final TextView desktopSpacesLabel = new TextView(mActivity);
+        desktopSpacesLabel.setText(R.string.desktop_spaces);
+        desktopSpacesLabel.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        desktopSpacesLabel.setTextSize(14);
+        parent.addView(desktopSpacesLabel, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final GridLayout spacesGrid = new GridLayout(mActivity);
+        spacesGrid.setColumnCount(DesktopSpaceStateStore.SPACE_COUNT);
+        for (int space = 0;
+                space < DesktopSpaceStateStore.SPACE_COUNT;
+                space++) {
+            final int selectedSpace = space;
+            final Button button = mUi.actionButton(
+                    mActivity.getString(
+                            R.string.desktop_space_number,
+                            Integer.valueOf(space + 1)),
+                    DesktopUiFactory.COLOR_PANEL_ALT);
+            button.setOnClickListener(view ->
+                    mActivity.switchDesktopSpace(selectedSpace));
+            button.setEnabled(RuntimeAccess.has(
+                    RuntimeAccess.Capability.TASK_CONTROL));
+            mDesktopSpaceActions[space] = button;
+            spacesGrid.addView(button, createDpiButtonParams());
+        }
+        parent.addView(spacesGrid, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        updateDesktopSpace(mActivity.getActiveDesktopSpace());
+
         final TextView dpiLabel = new TextView(mActivity);
         dpiLabel.setText(R.string.dpi_label);
         dpiLabel.setTextColor(DesktopUiFactory.COLOR_TEXT);
@@ -115,6 +156,9 @@ final class ConsoleControlsController {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         activityStatusParams.setMargins(0, spacing, 0, 0);
         parent.addView(mToolsActivityStatus, activityStatusParams);
+
+        mAudio.populate(parent, spacing);
+        mHardware.populate(parent, spacing);
 
         final GridLayout actionGrid = new GridLayout(mActivity);
         actionGrid.setColumnCount(2);
@@ -228,6 +272,17 @@ final class ConsoleControlsController {
         mActivity.taskbar().updateSystemStatus(
                 consoleModeActive,
                 RootKeyboardShortcutWatcher.isRunning());
+    }
+
+    void updateDesktopSpace(final int activeSpace) {
+        for (int space = 0;
+                space < mDesktopSpaceActions.length;
+                space++) {
+            final Button button = mDesktopSpaceActions[space];
+            if (button != null) {
+                button.setAlpha(space == activeSpace ? 1f : 0.65f);
+            }
+        }
     }
 
     void togglePhoneScreen() {

@@ -150,6 +150,17 @@ final class DesktopRuntimeBridge {
         return true;
     }
 
+    static boolean switchDesktopSpace(final boolean previous) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null) {
+            return false;
+        }
+        activity.runOnUiThread(previous
+                ? activity::previousDesktopSpace
+                : activity::nextDesktopSpace);
+        return true;
+    }
+
     static boolean isDesktopReadyOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null

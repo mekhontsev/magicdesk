@@ -41,10 +41,15 @@ public final class TaskWindowingCommand {
                 restoreStack(parseInt(args[1], "display id"), taskIds);
                 return;
             }
+            if (args.length >= 4 && "switch-space".equals(args[0])) {
+                switchSpace(args);
+                return;
+            }
             System.err.println("usage: TaskWindowingCommand "
                     + "<freeform display task left top right bottom"
                     + "|minimize display task|restore display task"
-                    + "|restore-stack display task...>");
+                    + "|restore-stack display task..."
+                    + "|switch-space display hide-count hide... restore-count restore...>");
             System.exit(64);
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
@@ -101,6 +106,54 @@ public final class TaskWindowingCommand {
         }
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
         System.out.println("task-stack-restored=" + taskIds.length);
+    }
+
+    private static void switchSpace(final String[] args)
+            throws ReflectiveOperationException {
+        final int displayId = parseInt(args[1], "display id");
+        final int hideCount = parseInt(args[2], "hide count");
+        final int restoreCountIndex = 3 + hideCount;
+        if (restoreCountIndex >= args.length) {
+            throw new IllegalArgumentException("missing restore count");
+        }
+        final int restoreCount =
+                parseInt(args[restoreCountIndex], "restore count");
+        if (restoreCountIndex + 1 + restoreCount != args.length) {
+            throw new IllegalArgumentException("invalid task counts");
+        }
+
+        final Object service = getActivityTaskManagerService();
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Method reorderToBack = transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE);
+        final Method reorderToFront = transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE);
+        for (int index = 0; index < hideCount; index++) {
+            reorderToBack.invoke(
+                    transaction,
+                    findTaskToken(
+                            service, displayId,
+                            parseInt(args[3 + index], "hidden task id")),
+                    Boolean.FALSE);
+        }
+        for (int index = restoreCount - 1; index >= 0; index--) {
+            reorderToFront.invoke(
+                    transaction,
+                    findTaskToken(
+                            service, displayId,
+                            parseInt(
+                                    args[restoreCountIndex + 1 + index],
+                                    "restored task id")),
+                    Boolean.TRUE, Boolean.TRUE);
+        }
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+        System.out.println("desktop-space-switched=" + restoreCount);
     }
 
     private static void apply(final int displayId, final int taskId,

@@ -63,8 +63,9 @@ mode for the complete feature set.
 
 Root mode enables exact task observation and transitions, Console Mode
 automation, global shortcuts, physical input correction, display overrides,
-screenshots, phone-screen controls, and the optional separately installed
-Kernel Fixes add-on.
+screenshots, phone-screen controls, capability-probed REDMAGIC hardware
+monitoring/control, and the optional separately installed Kernel Fixes add-on.
+Fan and pump writes are never available to Basic or Shizuku shell sessions.
 
 ### Auto
 

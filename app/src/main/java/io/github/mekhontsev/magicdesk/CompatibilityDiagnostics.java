@@ -265,6 +265,24 @@ final class CompatibilityDiagnostics {
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.RIGHT_CLICK_REMAP))
                 .append(", displayOverrides=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES))
+                .append(", hardwareControl=")
+                .append(RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL))
+                .append('\n');
+        final RedmagicHardwareSnapshot hardware =
+                RedmagicHardwareController.snapshot();
+        report.append("REDMAGIC hardware: fan=")
+                .append(hardware.fanAvailable)
+                .append(" enabled=").append(hardware.fanEnabled)
+                .append(" level=").append(hardware.fanLevel)
+                .append(" rpm=").append(hardware.fanRpm)
+                .append(", pump=").append(hardware.pumpAvailable)
+                .append(" enabled=").append(hardware.pumpEnabled)
+                .append(" speed=").append(hardware.pumpSpeed)
+                .append(", cpuMilliC=").append(hardware.cpuMilliCelsius)
+                .append(", gpuMilliC=").append(hardware.gpuMilliCelsius)
+                .append(", skinMilliC=").append(hardware.skinMilliCelsius)
+                .append(", batteryMilliC=")
+                .append(hardware.batteryMilliCelsius)
                 .append('\n');
         report.append("Console display setting: ")
                 .append(Settings.Global.getString(

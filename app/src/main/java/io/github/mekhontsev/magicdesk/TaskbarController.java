@@ -28,7 +28,9 @@ final class TaskbarController {
 
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
+    private TextView mDesktopSpace;
     private TextView mKeyboardLayout;
+    private TextView mHardwareStatus;
     private TextView mBatteryStatus;
     private ImageButton mConsoleButton;
     private ImageButton mPhoneScreenButton;
@@ -124,6 +126,26 @@ final class TaskbarController {
                 desktopDp(108, 72),
                 LinearLayout.LayoutParams.MATCH_PARENT));
 
+        mDesktopSpace = new TextView(mActivity);
+        mDesktopSpace.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        mDesktopSpace.setTextSize(
+                mActivity.isCompactDesktopPreview() ? 11 : 13);
+        mDesktopSpace.setTypeface(
+                android.graphics.Typeface.DEFAULT_BOLD);
+        mDesktopSpace.setGravity(Gravity.CENTER);
+        mDesktopSpace.setClickable(true);
+        mDesktopSpace.setFocusable(true);
+        mDesktopSpace.setBackground(mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                desktopDp(8, 6),
+                DesktopUiFactory.COLOR_CYAN));
+        mDesktopSpace.setOnClickListener(view ->
+                mActivity.nextDesktopSpace());
+        taskbar.addView(mDesktopSpace, new LinearLayout.LayoutParams(
+                desktopDp(44, 36),
+                LinearLayout.LayoutParams.MATCH_PARENT));
+        updateDesktopSpace(mActivity.getActiveDesktopSpace());
+
         final HorizontalScrollView taskScroll =
                 new HorizontalScrollView(mActivity);
         taskScroll.setHorizontalScrollBarEnabled(false);
@@ -206,6 +228,21 @@ final class TaskbarController {
                 mActivity.toggleToolsMenu());
         addButton(taskbar, mConsoleButton);
 
+        mHardwareStatus = new TextView(mActivity);
+        mHardwareStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mHardwareStatus.setTextSize(
+                mActivity.isCompactDesktopPreview() ? 9 : 11);
+        mHardwareStatus.setGravity(Gravity.CENTER);
+        mHardwareStatus.setSingleLine(true);
+        mHardwareStatus.setClickable(true);
+        mHardwareStatus.setFocusable(true);
+        mHardwareStatus.setOnClickListener(view ->
+                mActivity.toggleToolsMenu());
+        taskbar.addView(mHardwareStatus, new LinearLayout.LayoutParams(
+                desktopDp(64, 48),
+                LinearLayout.LayoutParams.MATCH_PARENT));
+        updateHardware(RedmagicHardwareController.snapshot());
+
         mBatteryStatus = new TextView(mActivity);
         mBatteryStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mBatteryStatus.setTextSize(
@@ -245,7 +282,9 @@ final class TaskbarController {
     void release() {
         mTaskbar = null;
         mPins = null;
+        mDesktopSpace = null;
         mKeyboardLayout = null;
+        mHardwareStatus = null;
         mBatteryStatus = null;
         mConsoleButton = null;
         mPhoneScreenButton = null;
@@ -262,6 +301,23 @@ final class TaskbarController {
         if (mPhoneScreenButton != null) {
             mPhoneScreenButton.setEnabled(enabled);
         }
+    }
+
+    void updateDesktopSpace(final int activeSpace) {
+        if (mDesktopSpace == null) {
+            return;
+        }
+        mDesktopSpace.setText(Integer.toString(activeSpace + 1));
+        final String description = mActivity.getString(
+                R.string.desktop_space_description,
+                Integer.valueOf(activeSpace + 1),
+                Integer.valueOf(DesktopSpaceStateStore.SPACE_COUNT));
+        mDesktopSpace.setContentDescription(description);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            mDesktopSpace.setTooltipText(description);
+        }
+        mDesktopSpace.setEnabled(RuntimeAccess.has(
+                RuntimeAccess.Capability.TASK_CONTROL));
     }
 
     void renderPins(final List<AppItem> apps) {
@@ -391,6 +447,55 @@ final class TaskbarController {
         mConsoleButton.setContentDescription(description);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             mConsoleButton.setTooltipText(description);
+        }
+    }
+
+    void updateHardware(final RedmagicHardwareSnapshot snapshot) {
+        if (mHardwareStatus == null) {
+            return;
+        }
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_CONTROL)) {
+            mHardwareStatus.setVisibility(View.GONE);
+            return;
+        }
+        mHardwareStatus.setVisibility(View.VISIBLE);
+        final int temperature = snapshot.controlTemperatureMilliCelsius();
+        final int roundedCelsius = temperature
+                == RedmagicHardwareSnapshot.UNKNOWN
+                        ? RedmagicHardwareSnapshot.UNKNOWN
+                        : Math.round(temperature / 1000f);
+        final String text = mActivity.getString(
+                R.string.hardware_compact,
+                roundedCelsius == RedmagicHardwareSnapshot.UNKNOWN
+                        ? "--" : Integer.toString(roundedCelsius),
+                snapshot.fanRpm == RedmagicHardwareSnapshot.UNKNOWN
+                        ? "--" : Integer.toString(snapshot.fanRpm));
+        mHardwareStatus.setText(text);
+        mHardwareStatus.setTextColor(
+                roundedCelsius != RedmagicHardwareSnapshot.UNKNOWN
+                        && roundedCelsius >= 80
+                        ? DesktopUiFactory.COLOR_RED
+                        : (roundedCelsius
+                                        != RedmagicHardwareSnapshot.UNKNOWN
+                                && roundedCelsius >= 65
+                                ? DesktopUiFactory.COLOR_AMBER
+                                : DesktopUiFactory.COLOR_MUTED));
+        mHardwareStatus.setContentDescription(
+                roundedCelsius == RedmagicHardwareSnapshot.UNKNOWN
+                        ? mActivity.getString(
+                                R.string.hardware_unavailable)
+                        : mActivity.getString(
+                                R.string.hardware_taskbar_description,
+                                Integer.valueOf(roundedCelsius),
+                                snapshot.fanRpm
+                                        == RedmagicHardwareSnapshot.UNKNOWN
+                                                ? "--"
+                                                : Integer.toString(
+                                                        snapshot.fanRpm)));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            mHardwareStatus.setTooltipText(
+                    mHardwareStatus.getContentDescription());
         }
     }
 

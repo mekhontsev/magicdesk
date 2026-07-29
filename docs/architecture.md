@@ -121,8 +121,9 @@ The user-facing lifecycle is split into explicit roles:
 - `DesktopRuntimeBridge` is the narrow process-local facade used by services
   and receivers to reach the currently active shell. It keeps Activity
   references weak and always posts UI work to the Activity thread.
-- `AppTaskController`, `WorkspaceController`, and `AltTabController` coordinate
-  application tasks and persisted workspace state.
+- `AppTaskController`, `WorkspaceController`, `DesktopSpaceController`, and
+  `AltTabController` coordinate application tasks, persisted workspace state,
+  and session-scoped virtual desktops.
 - `DisplayProfileController`, `DisplayDensityController`, and
   `ConsoleControlsController` own display-specific preferences and controls.
 - `MagicDeskSessionController` owns complete MagicDesk teardown through the
@@ -146,6 +147,9 @@ The user-facing lifecycle is split into explicit roles:
   and `ConsoleInputEventInjector` contains hidden input injection.
 - `HardwareKeyboardLayoutController` and `NubiaTouchpadController` own keyboard
   layout policy and Nubia touchpad integration independently of the raw bridge.
+- `RedmagicHardwareController` owns capability probing, monitoring, validated
+  fan/pump writes, and baseline restoration. Its UI and parser do not issue
+  privileged commands.
 - `DesktopNotificationListenerService` owns Android listener connection and
   notification state; `DesktopNotificationMapper` is the isolated conversion
   boundary from framework notifications to desktop entries.
@@ -369,6 +373,55 @@ not forced back into the freeform workspace.
 
 Show Desktop stores exact task ids, bounds, and top-first ordering. It does not
 close or force-stop application processes.
+
+Four session-scoped desktop spaces group live task ids on each display.
+Switching spaces submits one `WindowContainerTransaction` that back-orders the
+current group and restores the selected group bottom-to-top. It does not
+relaunch or force-stop applications. Task ids are intentionally not persisted
+across process death because Android does not guarantee their identity after a
+reboot. A visible task focused from another shell surface joins the active
+space.
+
+The application context menu can move an existing root task between display 0
+and the currently active Console display with ActivityTaskManager's
+`display move-stack` command. This preserves the Activity instance and avoids
+the REDMAGIC behavior where a public cross-display relaunch kills the old
+process.
+
+## Audio And REDMAGIC Hardware
+
+Tools uses public `AudioManager` APIs for media volume, mute state, and
+connected output reporting. Android does not expose a reliable global route
+selector to a normal application, so MagicDesk opens the system sound settings
+for route changes instead of presenting a selector that may affect only its
+own process. REDMAGIC Touch Panel remains the phone-side companion input
+surface.
+
+Root mode probes actual hardware nodes rather than accepting a model name as
+proof of support. The verified REDMAGIC 11 Pro interfaces are:
+
+```text
+/sys/kernel/fan/fan_enable
+/sys/kernel/fan/fan_speed_level
+/sys/kernel/fan/fan_speed_count
+/proc/driver/micropump/enable
+/proc/driver/micropump/freq
+/proc/driver/micropump/speed
+```
+
+One dedicated marker-delimited root shell reads all nodes and thermal zones in
+a single polling command every four seconds while the manually started
+MagicDesk runtime is alive. The parser accepts bounded numeric values,
+classifies CPU/GPU/skin/battery sensors by thermal-zone type, and rejects
+hardware trip thresholds, BCL levels, and invalid temperatures.
+
+Before the first hardware write, MagicDesk atomically records the current fan
+and pump values. Explicit **System** actions and normal **Exit MagicDesk**
+restore that baseline. The ownership marker is persisted so the next manual
+start first restores state left by a process crash. MagicDesk has no boot
+receiver and does not apply a hardware profile merely because Android starts.
+Auto fan control is opt-in, uses levels 0 through 5 with temperature
+hysteresis, and stops when the runtime stops.
 
 ## Task Observation
 

@@ -30,6 +30,26 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
+        if (RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_CONTROL)) {
+            RedmagicHardwareController.restoreChangedState(
+                    success -> {
+                        if (!success) {
+                            abort(
+                                    "REDMAGIC-HW-RESTORE-001",
+                                    mActivity.getString(
+                                            R.string.hardware_restore_failed),
+                                    null);
+                            return;
+                        }
+                        continueExit();
+                    });
+            return;
+        }
+        continueExit();
+    }
+
+    private void continueExit() {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             finishUnprivilegedExit();

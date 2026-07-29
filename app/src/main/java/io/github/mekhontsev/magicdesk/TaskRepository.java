@@ -214,6 +214,22 @@ final class TaskRepository {
                 "restore " + task.displayId + " " + task.taskId), callback);
     }
 
+    static void switchDesktopSpace(
+            final int displayId,
+            final List<Integer> hideTaskIds,
+            final List<Integer> restoreTaskIds,
+            final ActionCallback callback) {
+        if (displayId < 0) {
+            complete(callback, false, "invalid display");
+            return;
+        }
+        final StringBuilder arguments = new StringBuilder(
+                "switch-space ").append(displayId);
+        appendTaskIds(arguments, hideTaskIds);
+        appendTaskIds(arguments, restoreTaskIds);
+        runAction(createTaskWindowingCommand(arguments.toString()), callback);
+    }
+
     static void setFullscreen(final TaskEntry task, final ActionCallback callback) {
         if (!isUsableTask(task)) {
             complete(callback, false, "invalid task");
@@ -261,6 +277,21 @@ final class TaskRepository {
         }
         runAction("/system/bin/input -d " + displayId
                 + " keyevent KEYCODE_BACK", callback);
+    }
+
+    static void moveTaskToDisplay(
+            final TaskEntry task,
+            final int targetDisplayId,
+            final ActionCallback callback) {
+        if (!isUsableTask(task) || targetDisplayId < 0
+                || targetDisplayId == task.displayId) {
+            complete(callback, false, "invalid target display");
+            return;
+        }
+        runAction(
+                CMD + " activity display move-stack "
+                        + task.rootTaskId + " " + targetDisplayId,
+                callback);
     }
 
     static void forceStop(final String packageName, final ActionCallback callback) {
@@ -365,6 +396,28 @@ final class TaskRepository {
             final String message) {
         if (callback != null) {
             callback.onComplete(new ActionResult(success, message));
+        }
+    }
+
+    private static void appendTaskIds(
+            final StringBuilder command,
+            final List<Integer> taskIds) {
+        int count = 0;
+        if (taskIds != null) {
+            for (final Integer taskId : taskIds) {
+                if (taskId != null && taskId.intValue() >= 0) {
+                    count++;
+                }
+            }
+        }
+        command.append(' ').append(count);
+        if (taskIds == null) {
+            return;
+        }
+        for (final Integer taskId : taskIds) {
+            if (taskId != null && taskId.intValue() >= 0) {
+                command.append(' ').append(taskId.intValue());
+            }
         }
     }
 

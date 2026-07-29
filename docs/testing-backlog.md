@@ -15,6 +15,15 @@ successful build.
 
 ## External Display
 
+- [ ] Validate the new DeX-style task controls: switch among all four desktop
+  spaces with overlapping windows, verify inactive tasks remain alive, and
+  move one task external -> phone -> external without Activity recreation.
+- [ ] Validate the Tools audio section with phone, HDMI, USB, and Bluetooth
+  output where available.
+- [ ] Validate REDMAGIC monitoring values against sysfs, then test each fan and
+  pump profile. Confirm **System**, **Exit MagicDesk**, and a simulated process
+  interruption restore the exact pre-control baseline.
+
 - [ ] Run the post-refactor Root Console regression pass. Verify Console Mode
   startup, Start and Tools overlays, windowed/fullscreen transitions, taskbar
   focus, `Alt+Tab`, `Ctrl+Space`, key repeat, right click in browsers, touchpad

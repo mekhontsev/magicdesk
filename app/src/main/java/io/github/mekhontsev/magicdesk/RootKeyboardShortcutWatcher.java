@@ -210,6 +210,19 @@ final class RootKeyboardShortcutWatcher {
             return;
         }
 
+        if (isCtrlMetaOnlyDown()) {
+            if ("KEY_LEFT".equals(keyName)) {
+                Log.i(TAG, "root Ctrl+Meta+Left");
+                ConsoleModeSwitcher.switchDesktopSpace(true);
+                return;
+            }
+            if ("KEY_RIGHT".equals(keyName)) {
+                Log.i(TAG, "root Ctrl+Meta+Right");
+                ConsoleModeSwitcher.switchDesktopSpace(false);
+                return;
+            }
+        }
+
         if (isMetaOnlyDown()) {
             if ("KEY_BACKSPACE".equals(keyName)) {
                 Log.i(TAG, "root Meta+Backspace");
@@ -314,7 +327,13 @@ final class RootKeyboardShortcutWatcher {
 
     private static boolean isCtrlOnlyDown() {
         synchronized (LOCK) {
-            return sCtrlDown && !sAltDown && !sShiftDown;
+            return sCtrlDown && !sAltDown && !sShiftDown && !sMetaDown;
+        }
+    }
+
+    private static boolean isCtrlMetaOnlyDown() {
+        synchronized (LOCK) {
+            return sCtrlDown && sMetaDown && !sAltDown && !sShiftDown;
         }
     }
 

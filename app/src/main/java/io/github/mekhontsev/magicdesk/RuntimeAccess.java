@@ -24,6 +24,7 @@ final class RuntimeAccess {
         PHONE_SCREEN_CONTROL,
         SCREENSHOT,
         NOTIFICATION_CONTROL,
+        HARDWARE_CONTROL,
         KERNEL_FIXES
     }
 

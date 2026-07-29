@@ -70,6 +70,7 @@ public abstract class DesktopShellActivity extends Activity
     private AppContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
     private AltTabController mAltTabController;
+    private DesktopSpaceController mDesktopSpaces;
     private WorkspaceController mWorkspaceController;
     private AppTaskController mAppTasks;
     private DisplayDensityController mDisplayDensityController;
@@ -124,6 +125,7 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController = new AppContextMenuController(this, mUi);
         mTaskbarController = new TaskbarController(this, mUi);
         mAltTabController = new AltTabController(this);
+        mDesktopSpaces = new DesktopSpaceController(this);
         mWorkspaceController = new WorkspaceController(this);
         mAppTasks = new AppTaskController(this);
         mDisplayDensityController = new DisplayDensityController(this);
@@ -428,6 +430,7 @@ public abstract class DesktopShellActivity extends Activity
         final boolean desktopActive = hasActiveTask
                 && getPackageName().equals(activeTask.packageName);
         mTaskSnapshot = snapshot;
+        mDesktopSpaces.sync(snapshot);
         mWorkspaceController.syncSnapshot(snapshot);
         renderTaskbarPins(mLastApps);
         setTaskbarVisible(visible);
@@ -731,7 +734,8 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
         return task != null && !task.home && task.packageName != null
-                && !getPackageName().equals(task.packageName);
+                && !getPackageName().equals(task.packageName)
+                && mDesktopSpaces.isInActiveSpace(task);
     }
 
     AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
@@ -811,6 +815,52 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.openTaskFullscreen(app, task);
     }
 
+    int getOtherDisplayId(final TaskRepository.TaskEntry task) {
+        if (task == null) {
+            return -1;
+        }
+        if (task.displayId != Display.DEFAULT_DISPLAY) {
+            return Display.DEFAULT_DISPLAY;
+        }
+        final int externalDisplayId =
+                ConsoleModeState.activeDisplayId(this);
+        return externalDisplayId > 0 ? externalDisplayId : -1;
+    }
+
+    void moveTaskToOtherDisplay(
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        final int targetDisplayId = getOtherDisplayId(task);
+        if (targetDisplayId < 0) {
+            return;
+        }
+        hideAllPanels();
+        setStatus(getString(
+                R.string.status_moving_to_display,
+                app.label,
+                Integer.valueOf(targetDisplayId)));
+        TaskRepository.moveTaskToDisplay(
+                task,
+                targetDisplayId,
+                result -> runOnUiThread(() -> {
+                    if (result.success) {
+                        setStatus(getString(
+                                R.string.status_moved_to_display,
+                                app.label,
+                                Integer.valueOf(targetDisplayId)));
+                    } else {
+                        setErrorStatus(
+                                "TASK-DISPLAY-001",
+                                getString(
+                                        R.string.status_move_to_display_failed,
+                                        result.message));
+                    }
+                    refreshTaskSnapshot();
+                    MagicDeskRuntimeService
+                            .refreshDesktopTasksIfRunning();
+                }));
+    }
+
     void closeTask(final AppItem app, final TaskRepository.TaskEntry task) {
         mAppTasks.closeTask(app, task);
     }
@@ -822,6 +872,28 @@ public abstract class DesktopShellActivity extends Activity
     void toggleDesktopWorkspace() {
         hideAllPanels();
         ConsoleModeSwitcher.showMagicDesk();
+    }
+
+    void switchDesktopSpace(final int space) {
+        mDesktopSpaces.switchTo(space);
+    }
+
+    void nextDesktopSpace() {
+        mDesktopSpaces.next();
+    }
+
+    void previousDesktopSpace() {
+        mDesktopSpaces.previous();
+    }
+
+    int getActiveDesktopSpace() {
+        return mDesktopSpaces.activeSpace();
+    }
+
+    void updateDesktopSpaceControls(final int activeSpace) {
+        if (mConsoleControls != null) {
+            mConsoleControls.updateDesktopSpace(activeSpace);
+        }
     }
 
     void captureDesktopScreenshot() {
