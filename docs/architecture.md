@@ -186,6 +186,12 @@ launches still use a separate task. Setup and desktop components also request
 exclusion from Recents, although this firmware does not reliably honor that
 flag for a live standalone task.
 
+The taskbar is a persistent overlay on the external desktop so it remains
+available above native freeform tasks. On the primary display, the desktop
+Activity owns its visibility lifecycle: stopping the Activity hides the
+taskbar and open panels so they cannot cover an unrelated fullscreen phone
+application. Resuming the desktop restores the taskbar.
+
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a
 successful audit before launching MagicDesk. A device reboot never starts

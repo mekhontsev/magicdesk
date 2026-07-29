@@ -324,6 +324,15 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     @Override
+    protected void onStop() {
+        if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
+            hideAllPanels();
+            setTaskbarVisible(false);
+        }
+        super.onStop();
+    }
+
+    @Override
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
