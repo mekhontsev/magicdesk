@@ -35,7 +35,8 @@ final class AppTaskController {
                 + " canFloat=" + app.canFloat
                 + " fullscreenReason=" + app.fullscreenReason
                 + " display=" + mActivity.getCurrentDisplayId());
-        if (app.canFloat
+        if (canControlWindowing()
+                && app.canFloat
                 && AppItem.FULLSCREEN_REASON_NONE.equals(
                         app.fullscreenReason)) {
             launchFloating(app, false);
@@ -45,6 +46,10 @@ final class AppTaskController {
     }
 
     void launchFloating(final AppItem app, final boolean rootColdLaunch) {
+        if (!canControlWindowing()) {
+            launchFullscreen(app);
+            return;
+        }
         Log.i(TAG, "launch floating package=" + app.packageName
                 + " display=" + mActivity.getCurrentDisplayId());
         mActivity.setTaskbarVisible(true);
@@ -123,6 +128,10 @@ final class AppTaskController {
                     options,
                     "setLaunchDisplayId",
                     mActivity.getCurrentDisplayId());
+            DesktopShellActivity.invokeIntOption(
+                    options,
+                    "setLaunchWindowingMode",
+                    1);
             mActivity.startActivity(
                     launchIntent, options.toBundle());
             DesktopTaskController.finishFullscreenTransition(
@@ -145,6 +154,10 @@ final class AppTaskController {
             mActivity.setTaskbarVisible(true);
             mActivity.showLaunchFailure(e);
         }
+    }
+
+    private static boolean canControlWindowing() {
+        return RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
     }
 
     void focusTask(

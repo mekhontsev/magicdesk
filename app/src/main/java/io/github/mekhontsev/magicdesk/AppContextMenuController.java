@@ -239,7 +239,9 @@ final class AppContextMenuController {
                         mActivity.focusTask(app, task);
                     }
                 });
-        if (app.canFloat) {
+        final boolean windowControl = RuntimeAccess.has(
+                RuntimeAccess.Capability.TASK_CONTROL);
+        if (app.canFloat && windowControl) {
             addAction(
                     R.string.action_open_floating,
                     DesktopUiFactory.COLOR_PANEL_ALT,
@@ -306,7 +308,7 @@ final class AppContextMenuController {
                 workspaceApp
                         ? DesktopUiFactory.COLOR_AMBER
                         : DesktopUiFactory.COLOR_PANEL_ALT,
-                workspaceApp || app.canFloat,
+                windowControl && (workspaceApp || app.canFloat),
                 view -> {
                     mActivity.hideAllPanels();
                     mActivity.setWorkspaceApp(app, task, !workspaceApp);

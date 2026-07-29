@@ -24,6 +24,7 @@ import java.util.Set;
 
 final class StartMenuController {
     static final int MENU_APPS = 0;
+    static final int MENU_HARDWARE = 1;
     static final int MENU_TOOLS = 2;
     static final int MENU_PINNED = 3;
 
@@ -154,13 +155,19 @@ final class StartMenuController {
         final LinearLayout.LayoutParams pinnedTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        pinnedTabParams.setMargins(dp(8), 0, dp(8), 0);
+        pinnedTabParams.setMargins(dp(5), 0, dp(5), 0);
         tabs.addView(createTab(R.string.section_pinned, MENU_PINNED),
                 pinnedTabParams);
         final LinearLayout.LayoutParams toolsTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        toolsTabParams.setMargins(0, 0, dp(5), 0);
         tabs.addView(createTab(R.string.section_tools, MENU_TOOLS), toolsTabParams);
+        tabs.addView(createTab(
+                        R.string.section_hardware,
+                        MENU_HARDWARE),
+                new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         mContent.addView(tabs, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -169,13 +176,20 @@ final class StartMenuController {
             addTools();
             return;
         }
+        if (mMode == MENU_HARDWARE) {
+            addHardware();
+            return;
+        }
 
         final CheckBox fullscreen = new CheckBox(mActivity);
         fullscreen.setText(R.string.section_fullscreen);
         fullscreen.setTextColor(DesktopUiFactory.COLOR_TEXT);
         fullscreen.setTextSize(13);
         fullscreen.setGravity(Gravity.CENTER_VERTICAL);
-        fullscreen.setChecked(mForceFullscreen);
+        final boolean windowControl = RuntimeAccess.has(
+                RuntimeAccess.Capability.TASK_CONTROL);
+        fullscreen.setChecked(mForceFullscreen || !windowControl);
+        fullscreen.setEnabled(windowControl);
         fullscreen.setOnCheckedChangeListener((button, checked) ->
                 mForceFullscreen = checked);
         final LinearLayout.LayoutParams fullscreenParams =
@@ -235,6 +249,17 @@ final class StartMenuController {
         showSection(MENU_TOOLS, false);
     }
 
+    void toggleHardware() {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        if (overlays != null
+                && overlays.isVisible(mPanel)
+                && mMode == MENU_HARDWARE) {
+            setVisible(false);
+            return;
+        }
+        showSection(MENU_HARDWARE, false);
+    }
+
     void setVisible(final boolean visible) {
         setVisible(visible, true);
     }
@@ -271,7 +296,7 @@ final class StartMenuController {
     }
 
     private void focusSearch() {
-        if (!mFocusable || mMode == MENU_TOOLS || mSearch == null) {
+        if (!mFocusable || isUtilityMode(mMode) || mSearch == null) {
             return;
         }
         mSearch.requestFocus();
@@ -322,17 +347,24 @@ final class StartMenuController {
                 mMode == mode
                         ? DesktopUiFactory.COLOR_CYAN
                         : DesktopUiFactory.COLOR_PANEL_ALT);
-        button.setTextSize(12);
+        button.setTextSize(11);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(
+                dp(4),
+                button.getPaddingTop(),
+                dp(4),
+                button.getPaddingBottom());
         button.setOnClickListener(view -> {
             mMode = mode;
             mPage = 0;
-            if (mode == MENU_TOOLS) {
+            if (isUtilityMode(mode)) {
                 mSearchQuery = "";
                 if (mSearch != null && mSearch.length() > 0) {
                     mSearch.setText("");
                 }
             }
-            if (!mFocusable && mode != MENU_TOOLS) {
+            if (!mFocusable && !isUtilityMode(mode)) {
                 mPanel.post(() -> setVisible(true, true));
                 return;
             }
@@ -354,6 +386,25 @@ final class StartMenuController {
                 ScrollView.LayoutParams.WRAP_CONTENT));
         mContent.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private void addHardware() {
+        final LinearLayout hardware = new LinearLayout(mActivity);
+        hardware.setOrientation(LinearLayout.VERTICAL);
+        hardware.setPadding(0, dp(14), 0, 0);
+        mActivity.populateHardwareControls(hardware, dp(10));
+
+        final ScrollView scroll = new ScrollView(mActivity);
+        scroll.setFillViewport(true);
+        scroll.addView(hardware, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        mContent.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private static boolean isUtilityMode(final int mode) {
+        return mode == MENU_TOOLS || mode == MENU_HARDWARE;
     }
 
     private View createAppTile(final AppItem app, final boolean selected) {

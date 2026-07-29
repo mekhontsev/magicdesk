@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Display;
 
 import java.lang.ref.WeakReference;
 
@@ -27,6 +28,11 @@ final class DesktopRuntimeBridge {
 
     static void registerDesktop(final DesktopShellActivity activity) {
         final DesktopShellActivity previous = sDesktop.get();
+        final boolean previousWasLocal =
+                previous != null
+                        && previous != activity
+                        && previous.getCurrentDisplayId()
+                                == Display.DEFAULT_DISPLAY;
         if (previous != null && previous != activity) {
             // Nubia may migrate the phone task before the dedicated Console HOME starts.
             Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
@@ -38,7 +44,15 @@ final class DesktopRuntimeBridge {
             }
         }
         sDesktop = new WeakReference<>(activity);
+        if (activity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY
+                && RuntimeAccess.has(
+                        RuntimeAccess.Capability.TASK_CONTROL)) {
+            LocalDesktopSessionState.markCleanupPending(activity);
+        }
         MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+        if (previousWasLocal) {
+            MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+        }
     }
 
     static void unregister(final DesktopShellActivity activity) {
@@ -46,8 +60,12 @@ final class DesktopRuntimeBridge {
             sShell.clear();
         }
         if (sDesktop.get() == activity) {
+            final int displayId = activity.getCurrentDisplayId();
             sDesktop.clear();
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+            }
         }
     }
 

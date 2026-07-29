@@ -52,7 +52,7 @@ final class MagicDeskSessionController {
     private void continueExit() {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.CONSOLE_CONTROL)) {
-            finishUnprivilegedExit();
+            cleanupPhoneTasksBeforeExit(this::finishUnprivilegedExit);
             return;
         }
         ConsoleModeSwitcher.setPhoneScreenOff(
@@ -75,36 +75,39 @@ final class MagicDeskSessionController {
                                             null);
                                     return;
                                 }
-                                ConsoleModeSwitcher.switchToMirror(
-                                        mirrorActive -> {
-                                            if (!mirrorActive) {
-                                                abort(
-                                                        "EXIT-003",
-                                                        "Could not restore"
-                                                                + " mirror mode",
-                                                        null);
-                                                return;
-                                            }
-                                            finishPrivilegedExit();
-                                        });
+                                cleanupPhoneTasksBeforeExit(
+                                        () -> ConsoleModeSwitcher.switchToMirror(
+                                                mirrorActive -> {
+                                                    if (!mirrorActive) {
+                                                        abort(
+                                                                "EXIT-003",
+                                                                "Could not restore"
+                                                                        + " mirror mode",
+                                                                null);
+                                                        return;
+                                                    }
+                                                    finishPrivilegedExit();
+                                                }));
                             });
                 });
     }
 
     private void finishUnprivilegedExit() {
-        DeviceSetupManager.revokeRuntimeAuthorization(mActivity);
-        MagicDeskRuntimeService.stop(mActivity);
-        mHost.releaseSessionUi();
-        mExitInProgress = false;
-        final ActivityManager manager = (ActivityManager)
-                mActivity.getSystemService(Context.ACTIVITY_SERVICE);
-        if (manager != null) {
-            for (final ActivityManager.AppTask task : manager.getAppTasks()) {
-                task.finishAndRemoveTask();
+        mActivity.runOnUiThread(() -> {
+            DeviceSetupManager.revokeRuntimeAuthorization(mActivity);
+            MagicDeskRuntimeService.stop(mActivity);
+            mHost.releaseSessionUi();
+            mExitInProgress = false;
+            final ActivityManager manager = (ActivityManager)
+                    mActivity.getSystemService(Context.ACTIVITY_SERVICE);
+            if (manager != null) {
+                for (final ActivityManager.AppTask task : manager.getAppTasks()) {
+                    task.finishAndRemoveTask();
+                }
+            } else {
+                mActivity.finishAndRemoveTask();
             }
-        } else {
-            mActivity.finishAndRemoveTask();
-        }
+        });
     }
 
     private void finishPrivilegedExit() {
@@ -129,6 +132,26 @@ final class MagicDeskSessionController {
                             e.getMessage()),
                     e);
         }
+    }
+
+    private void cleanupPhoneTasksBeforeExit(
+            final Runnable continuation) {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+            continuation.run();
+            return;
+        }
+        TaskRepository.normalizePhoneFreeformTasks(result -> {
+            if (!result.success) {
+                abort(
+                        "EXIT-005",
+                        "Could not clean local desktop tasks: "
+                                + result.message,
+                        null);
+                return;
+            }
+            LocalDesktopSessionState.clearCleanupPending(mActivity);
+            continuation.run();
+        });
     }
 
     private void abort(

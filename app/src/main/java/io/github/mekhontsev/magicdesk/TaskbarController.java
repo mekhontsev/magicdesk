@@ -246,7 +246,7 @@ final class TaskbarController {
         mHardwareStatus.setClickable(true);
         mHardwareStatus.setFocusable(true);
         mHardwareStatus.setOnClickListener(view ->
-                mActivity.toggleToolsMenu());
+                mActivity.toggleHardwareMenu());
         taskbar.addView(mHardwareStatus, new LinearLayout.LayoutParams(
                 desktopDp(64, 48),
                 LinearLayout.LayoutParams.MATCH_PARENT));
@@ -258,6 +258,10 @@ final class TaskbarController {
                 mActivity.isCompactDesktopPreview() ? 10 : 12);
         mBatteryStatus.setGravity(Gravity.CENTER);
         mBatteryStatus.setSingleLine(true);
+        mBatteryStatus.setClickable(true);
+        mBatteryStatus.setFocusable(true);
+        mBatteryStatus.setOnClickListener(view ->
+                mActivity.toggleHardwareMenu());
         taskbar.addView(mBatteryStatus, new LinearLayout.LayoutParams(
                 desktopDp(58, 44),
                 LinearLayout.LayoutParams.MATCH_PARENT));

@@ -942,6 +942,10 @@ public abstract class DesktopShellActivity extends Activity
         mStartMenuController.toggleTools();
     }
 
+    void toggleHardwareMenu() {
+        mStartMenuController.toggleHardware();
+    }
+
     void openDeviceSetup() {
         hideAllPanels();
         final ActivityOptions options = ActivityOptions.makeBasic();
@@ -1059,7 +1063,13 @@ public abstract class DesktopShellActivity extends Activity
     void populateToolsControls(
             final LinearLayout parent,
             final int spacing) {
-        mConsoleControls.populate(parent, spacing);
+        mConsoleControls.populateTools(parent, spacing);
+    }
+
+    void populateHardwareControls(
+            final LinearLayout parent,
+            final int spacing) {
+        mConsoleControls.populateHardware(parent, spacing);
     }
 
     int getPreferredDesktopDpi() {

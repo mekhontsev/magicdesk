@@ -92,6 +92,11 @@ successful build.
   normalizes the MagicDesk host task from inherited freeform bounds to
   fullscreen. Verified with Chrome in freeform, Golly in fullscreen, and a
   same-task Back transition to the phone control panel.
+- [ ] On display 0, leave two applications in freeform mode, return from the
+  local desktop with Android Back, and verify that both tasks become fullscreen
+  before opening HOME or Recents. Repeat with **Exit MagicDesk**, confirm that
+  Nubia Quickstep does not crash in `DesktopTaskView`, and verify that launcher
+  shortcuts remain unchanged.
 
 - [x] Reboot with a saved Root profile and verify that MagicDesk, privileged
   helpers, and its foreground service remain stopped until the user explicitly

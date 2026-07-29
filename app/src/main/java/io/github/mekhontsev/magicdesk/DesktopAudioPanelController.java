@@ -129,15 +129,6 @@ final class DesktopAudioPanelController {
         });
         addAction(actions, soundSettings);
 
-        final Button touchpad = actionButton(
-                R.string.action_open_touchpad);
-        touchpad.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.CONSOLE_CONTROL));
-        touchpad.setOnClickListener(view -> {
-            mActivity.hideAllPanels();
-            ConsoleModeSwitcher.openTouchpad();
-        });
-        addAction(actions, touchpad);
         parent.addView(actions, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));

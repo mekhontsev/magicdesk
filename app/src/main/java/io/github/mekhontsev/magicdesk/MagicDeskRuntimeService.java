@@ -41,6 +41,7 @@ public final class MagicDeskRuntimeService extends Service
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
     private static final long DEVICE_CHANGE_DEBOUNCE_MILLIS = 600;
     private static final long MIRROR_INPUT_RETRY_MILLIS = 1_000;
+    private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
@@ -64,11 +65,14 @@ public final class MagicDeskRuntimeService extends Service
     private Boolean mMirrorInputProxyEnabled;
     private boolean mDestroyed;
     private boolean mInitialized;
+    private boolean mLocalDesktopCleanupInFlight;
 
     private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
     private final Runnable mMirrorInputRetryRunnable = this::syncMirrorInputProxyState;
     private final Runnable mPhoneHomeRecoveryRunnable =
             this::restorePrimaryPhoneHomeIfNeeded;
+    private final Runnable mLocalDesktopCleanupRunnable =
+            this::cleanupClosedLocalDesktop;
 
     public static void start(final Context context) {
         final Intent intent = new Intent(context, MagicDeskRuntimeService.class);
@@ -97,6 +101,14 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         service.mHandler.post(service::updateDesktopTasks);
+    }
+
+    static void scheduleLocalDesktopCleanupIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return;
+        }
+        service.scheduleLocalDesktopCleanup();
     }
 
     private static void startForegroundService(final Context context, final Intent intent) {
@@ -148,6 +160,9 @@ public final class MagicDeskRuntimeService extends Service
         syncMirrorInputProxyState();
         updateRootWatcher();
         updateDesktopTasks();
+        if (LocalDesktopSessionState.isCleanupPending(this)) {
+            scheduleLocalDesktopCleanup();
+        }
         RedmagicHardwareController.start(this);
         schedulePhoneHomeRecovery();
         logInputState();
@@ -203,6 +218,7 @@ public final class MagicDeskRuntimeService extends Service
             mHandler.removeCallbacks(mDeviceChangeRunnable);
             mHandler.removeCallbacks(mMirrorInputRetryRunnable);
             mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
+            mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         }
         if (mDesktopTasks != null) {
             mDesktopTasks.stop();
@@ -559,6 +575,51 @@ public final class MagicDeskRuntimeService extends Service
         } else {
             mDesktopTasks.stop();
         }
+    }
+
+    private void scheduleLocalDesktopCleanup() {
+        if (mDestroyed || mHandler == null) {
+            return;
+        }
+        mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
+        mHandler.postDelayed(
+                mLocalDesktopCleanupRunnable,
+                LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS);
+    }
+
+    private void cleanupClosedLocalDesktop() {
+        if (mDestroyed
+                || mLocalDesktopCleanupInFlight
+                || !LocalDesktopSessionState.isCleanupPending(this)
+                || DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        == android.view.Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+            Log.w(TAG, "pending phone freeform cleanup requires"
+                    + " Root or Shizuku task control");
+            return;
+        }
+        mLocalDesktopCleanupInFlight = true;
+        TaskRepository.normalizePhoneFreeformTasks(result ->
+                mHandler.post(() -> {
+                    mLocalDesktopCleanupInFlight = false;
+                    if (mDestroyed) {
+                        return;
+                    }
+                    if (result.success) {
+                        LocalDesktopSessionState.clearCleanupPending(this);
+                        Log.i(TAG, "cleaned phone freeform tasks after local desktop");
+                    } else {
+                        Log.w(TAG, "phone freeform cleanup failed: "
+                                + result.message);
+                        CompatibilityDiagnostics.record(
+                                "NUBIA-HOME-003",
+                                "Could not clean local desktop tasks before"
+                                        + " returning to the phone launcher",
+                                result.message);
+                    }
+                }));
     }
 
     private void logInputState() {

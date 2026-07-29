@@ -32,6 +32,8 @@ final class TaskRepository {
             "io.github.mekhontsev.magicdesk.TaskCaptionInsetsCommand";
     private static final String TASK_WINDOWING_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
+    private static final String PHONE_FREEFORM_CLEANUP_COMMAND =
+            "io.github.mekhontsev.magicdesk.PhoneFreeformCleanupCommand";
     private static final Pattern ROOT_TASK_PATTERN =
             Pattern.compile("RootTask id=(\\d+).* displayId=(\\d+)");
     private static final Pattern WINDOWING_MODE_PATTERN =
@@ -212,6 +214,18 @@ final class TaskRepository {
         }
         runAction(createTaskWindowingCommand(
                 "restore " + task.displayId + " " + task.taskId), callback);
+    }
+
+    static void normalizePhoneFreeformTasks(
+            final ActionCallback callback) {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+            complete(callback, true, "task cleanup unavailable");
+            return;
+        }
+        runAction(
+                createAppProcessCommand(
+                        PHONE_FREEFORM_CLEANUP_COMMAND, ""),
+                callback);
     }
 
     static void switchDesktopSpace(

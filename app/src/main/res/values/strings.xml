@@ -3,6 +3,7 @@
     <string name="section_dock">Dock</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
+    <string name="section_hardware">Hardware</string>
     <string name="desktop_spaces">Desktop spaces</string>
     <string name="desktop_space_number">Desktop %1$d</string>
     <string name="desktop_space_description">Desktop %1$d of %2$d; activate for next desktop</string>
@@ -50,7 +51,7 @@
     <string name="action_open_control_panel">Phone control panel</string>
     <string name="action_dpi_reset">Reset</string>
     <string name="action_exit">Exit MagicDesk</string>
-    <string name="audio_section_title">Audio and companion</string>
+    <string name="audio_section_title">Audio</string>
     <string name="audio_status">Connected output: %1$s | Media volume %2$d/%3$d</string>
     <string name="audio_mute">Mute</string>
     <string name="audio_unmute">Unmute</string>
@@ -102,6 +103,7 @@
     <string name="battery_state_charging">charging</string>
     <string name="battery_state_full">fully charged</string>
     <string name="battery_state_discharging">not charging</string>
+    <string name="battery_panel_status">Battery %1$s | %2$s</string>
     <string name="page_status">%1$d / %2$d</string>
     <string name="density_status">DPI %1$d</string>
     <string name="dpi_label">Display DPI</string>

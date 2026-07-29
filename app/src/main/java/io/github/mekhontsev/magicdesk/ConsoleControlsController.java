@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.ContentObserver;
+import android.os.BatteryManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -33,10 +34,12 @@ final class ConsoleControlsController {
             new Button[DesktopSpaceStateStore.SPACE_COUNT];
 
     private Button mPhoneScreenAction;
+    private TextView mHardwareBatteryStatus;
     private TextView mToolsStatus;
     private TextView mToolsActivityStatus;
     private ContentObserver mSettingsObserver;
     private BroadcastReceiver mBatteryReceiver;
+    private Intent mLastBatteryIntent;
     private String mLastStatusText;
 
     ConsoleControlsController(
@@ -80,7 +83,7 @@ final class ConsoleControlsController {
         }
     }
 
-    void populate(final LinearLayout parent, final int spacing) {
+    void populateTools(final LinearLayout parent, final int spacing) {
         final TextView desktopSpacesLabel = new TextView(mActivity);
         desktopSpacesLabel.setText(R.string.desktop_spaces);
         desktopSpacesLabel.setTextColor(DesktopUiFactory.COLOR_TEXT);
@@ -161,9 +164,6 @@ final class ConsoleControlsController {
         activityStatusParams.setMargins(0, spacing, 0, 0);
         parent.addView(mToolsActivityStatus, activityStatusParams);
 
-        mAudio.populate(parent, spacing);
-        mHardware.populate(parent, spacing);
-
         final GridLayout actionGrid = new GridLayout(mActivity);
         actionGrid.setColumnCount(2);
 
@@ -180,6 +180,17 @@ final class ConsoleControlsController {
         mConsoleModeActions.add(consoleMode);
         consoleMode.setOnClickListener(view -> toggleConsoleMode());
         addActionButton(actionGrid, consoleMode);
+
+        final Button touchpad = mUi.actionButton(
+                R.string.action_open_touchpad,
+                DesktopUiFactory.COLOR_CYAN);
+        touchpad.setEnabled(RuntimeAccess.has(
+                RuntimeAccess.Capability.CONSOLE_CONTROL));
+        touchpad.setOnClickListener(view -> {
+            mActivity.hideAllPanels();
+            ConsoleModeSwitcher.openTouchpad();
+        });
+        addActionButton(actionGrid, touchpad);
 
         final Button deviceSetup = mUi.actionButton(
                 R.string.action_device_setup,
@@ -231,6 +242,22 @@ final class ConsoleControlsController {
         actionGridParams.setMargins(0, spacing, 0, 0);
         parent.addView(actionGrid, actionGridParams);
         update();
+    }
+
+    void populateHardware(
+            final LinearLayout parent,
+            final int spacing) {
+        mHardwareBatteryStatus = new TextView(mActivity);
+        mHardwareBatteryStatus.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        mHardwareBatteryStatus.setTextSize(14);
+        parent.addView(
+                mHardwareBatteryStatus,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+        updateHardwareBatteryStatus(mLastBatteryIntent);
+        mAudio.populate(parent, spacing);
+        mHardware.populate(parent, spacing);
     }
 
     void update() {
@@ -370,15 +397,56 @@ final class ConsoleControlsController {
             public void onReceive(
                     final Context context,
                     final Intent intent) {
+                mLastBatteryIntent = intent;
                 mActivity.taskbar().updateBattery(intent);
+                updateHardwareBatteryStatus(intent);
             }
         };
         final Intent battery = mActivity.registerReceiver(
                 mBatteryReceiver,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (battery != null) {
+            mLastBatteryIntent = battery;
             mActivity.taskbar().updateBattery(battery);
+            updateHardwareBatteryStatus(battery);
         }
+    }
+
+    private void updateHardwareBatteryStatus(final Intent battery) {
+        if (mHardwareBatteryStatus == null) {
+            return;
+        }
+        if (battery == null) {
+            mHardwareBatteryStatus.setText(
+                    R.string.battery_status_unknown);
+            return;
+        }
+        final int level = battery.getIntExtra(
+                BatteryManager.EXTRA_LEVEL, -1);
+        final int scale = battery.getIntExtra(
+                BatteryManager.EXTRA_SCALE, 100);
+        final int percent = level < 0 || scale <= 0
+                ? -1
+                : Math.max(
+                        0,
+                        Math.min(
+                                100,
+                                Math.round(level * 100f / scale)));
+        final int status = battery.getIntExtra(
+                BatteryManager.EXTRA_STATUS,
+                BatteryManager.BATTERY_STATUS_UNKNOWN);
+        final int stateResId;
+        if (status == BatteryManager.BATTERY_STATUS_CHARGING) {
+            stateResId = R.string.battery_state_charging;
+        } else if (status == BatteryManager.BATTERY_STATUS_FULL) {
+            stateResId = R.string.battery_state_full;
+        } else {
+            stateResId = R.string.battery_state_discharging;
+        }
+        mHardwareBatteryStatus.setText(mActivity.getString(
+                R.string.battery_panel_status,
+                percent < 0 ? "--%" : percent + "%",
+                mActivity.getString(stateResId)));
     }
 
     private void registerSettingsObserver() {

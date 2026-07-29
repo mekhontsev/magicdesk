@@ -212,6 +212,20 @@ desktop and freeform applications, and hides it while an unrelated fullscreen
 application owns that display. The same rule replaces Activity-lifecycle
 special cases on the primary display.
 
+Nubia Quickstep cannot safely bind a Recents desktop group containing freeform
+tasks on display 0. A local desktop session therefore records a pending cleanup
+before opening any windows. Closing that desktop or exiting MagicDesk converts
+all standard display-0 freeform tasks to fullscreen in one synchronous
+`WindowContainerTransaction` before the phone launcher is exposed. The marker
+survives a MagicDesk process failure and is reconciled on the next manual
+launch. This prevents Quickstep's crash recovery from replacing the user's
+launcher workspace with its factory layout.
+
+Basic sessions cannot submit a corrective task transaction, so they never
+request native freeform launches. Their application actions resolve to
+fullscreen instead. Root and Shizuku sessions expose windowed launches because
+both can atomically normalize those tasks during cleanup.
+
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a
 successful audit before launching MagicDesk. A device reboot never starts
@@ -465,6 +479,13 @@ One display-scoped application-overlay controller owns:
 
 These overlays stay above freeform tasks without focusing the MagicDesk HOME
 task. The taskbar is hidden when an application owns true fullscreen.
+
+Start separates application navigation from operational controls. `Tools`
+contains desktop spaces, display density, runtime state, diagnostics, and
+session actions, including the Nubia touchpad entry point. `Hardware` contains
+battery state, audio routing, and REDMAGIC fan/pump monitoring and controls.
+Both the taskbar hardware monitor and battery percentage open the same Hardware
+tab.
 
 Start uses a focusable overlay for its application search and requests the
 search field only after the overlay receives window focus. Tools remains
