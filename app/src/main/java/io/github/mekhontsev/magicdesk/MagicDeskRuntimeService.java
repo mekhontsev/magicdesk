@@ -21,7 +21,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.Display;
 import android.view.InputDevice;
 
 import java.lang.ref.WeakReference;
@@ -238,9 +237,8 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public void onDisplayChanged(final int displayId) {
         handleConsoleStateMaybeChanged();
-        if (displayId == Display.DEFAULT_DISPLAY) {
-            schedulePhoneHomeRecovery();
-        }
+        // This also fires for brightness and refresh-rate changes. Home recovery
+        // is intentionally tied to startup, display removal, and Console exit.
     }
 
     private void scheduleDeviceStateCheck() {
