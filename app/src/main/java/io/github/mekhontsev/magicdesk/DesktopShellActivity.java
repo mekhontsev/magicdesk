@@ -863,11 +863,7 @@ public abstract class DesktopShellActivity extends Activity
 
     void openControlPanel() {
         hideAllPanels();
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-        startActivity(
-                ControlActivity.createLaunchIntent(this),
-                options.toBundle());
+        PhoneControlPanelLauncher.open(this);
     }
 
     void toggleShortcutHelp() {

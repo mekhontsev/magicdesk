@@ -82,11 +82,15 @@ successful build.
 
 ## Lifecycle
 
-- [ ] With an external display attached, verify the split Activity model:
+- [x] With an external display attached, verify the split Activity model:
   the launcher opens `ControlActivity` on display 0, **Start external desktop**
   opens `DesktopActivity` externally, both tasks coexist, and **Phone control
   panel** from desktop Tools returns to the phone control without moving either
-  task.
+  task. On the REDMAGIC 11 Pro, the ordinary cross-display
+  `Activity.startActivity()` path removed the external HOME task when Nubia
+  Touch Panel was on top. An explicit privileged launch on display 0 now
+  performs the transition while preserving control task 1847 and desktop task
+  1848 on display 5.
 - [x] On display 0 without external hardware, verify **Open desktop here** and
   Android Back return to the control panel. The local desktop stays in the
   control task so Nubia Recents exposes one MagicDesk card; a cross-display
