@@ -227,10 +227,11 @@ The desktop taskbar Tools panel additionally provides:
 
 **Exit MagicDesk** stops its foreground service and root input bridge, restores
 the physical mouse mapping and phone-side services it temporarily changed, and
-returns the phone to its normal launcher state. If MagicDesk changed fan or
-pump settings, it also restores the values captured before the first write.
-After an interrupted process, that hardware baseline is recovered at the next
-manual MagicDesk start.
+returns the phone to its normal launcher state. If MagicDesk changed the fan
+or pump, it independently restores each affected subsystem to the values
+captured before its first write. The same restoration runs when the runtime
+stops; after an interrupted process, any remaining baseline is recovered at
+the next manual MagicDesk start.
 
 ## Privileges And Trust
 

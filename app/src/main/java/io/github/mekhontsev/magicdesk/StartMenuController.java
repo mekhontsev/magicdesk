@@ -13,6 +13,7 @@ import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -345,7 +346,13 @@ final class StartMenuController {
         tools.setOrientation(LinearLayout.VERTICAL);
         tools.setPadding(0, dp(14), 0, 0);
         mActivity.populateToolsControls(tools, dp(10));
-        mContent.addView(tools, new LinearLayout.LayoutParams(
+
+        final ScrollView scroll = new ScrollView(mActivity);
+        scroll.setFillViewport(true);
+        scroll.addView(tools, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        mContent.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
     }
 

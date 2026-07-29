@@ -49,7 +49,8 @@ final class RedmagicHardwarePanelController
 
         addLabel(parent, R.string.hardware_fan);
         final GridLayout fanGrid = new GridLayout(mActivity);
-        fanGrid.setColumnCount(4);
+        fanGrid.setColumnCount(
+                mActivity.isCompactDesktopPreview() ? 2 : 4);
         addFanButton(fanGrid, R.string.hardware_system,
                 RedmagicHardwareController.FanMode.SYSTEM);
         addFanButton(fanGrid, R.string.hardware_auto,
@@ -70,7 +71,8 @@ final class RedmagicHardwarePanelController
 
         addLabel(parent, R.string.hardware_pump);
         final GridLayout pumpGrid = new GridLayout(mActivity);
-        pumpGrid.setColumnCount(4);
+        pumpGrid.setColumnCount(
+                mActivity.isCompactDesktopPreview() ? 2 : 4);
         addPumpButton(pumpGrid, R.string.hardware_system,
                 RedmagicHardwareController.PumpMode.SYSTEM);
         addPumpButton(pumpGrid, R.string.state_off,

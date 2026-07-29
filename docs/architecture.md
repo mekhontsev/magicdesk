@@ -415,13 +415,16 @@ MagicDesk runtime is alive. The parser accepts bounded numeric values,
 classifies CPU/GPU/skin/battery sensors by thermal-zone type, and rejects
 hardware trip thresholds, BCL levels, and invalid temperatures.
 
-Before the first hardware write, MagicDesk atomically records the current fan
-and pump values. Explicit **System** actions and normal **Exit MagicDesk**
-restore that baseline. The ownership marker is persisted so the next manual
-start first restores state left by a process crash. MagicDesk has no boot
-receiver and does not apply a hardware profile merely because Android starts.
-Auto fan control is opt-in, uses levels 0 through 5 with temperature
-hysteresis, and stops when the runtime stops.
+Before the first write to a subsystem, MagicDesk atomically records that
+subsystem's current values and takes ownership of it independently. Changing
+the fan therefore cannot later restore or overwrite a pump state that
+MagicDesk never changed, and vice versa. Explicit **System** actions, normal
+**Exit MagicDesk**, and runtime shutdown restore the owned baseline. Ownership
+markers are persisted so the next manual start first restores state left by a
+process crash. MagicDesk has no boot receiver and does not apply a hardware
+profile merely because Android starts. Auto fan control is opt-in, uses levels
+0 through 5 with temperature hysteresis, verifies the actual node state on
+each poll, and restores the pre-control fan state when the runtime stops.
 
 ## Task Observation
 

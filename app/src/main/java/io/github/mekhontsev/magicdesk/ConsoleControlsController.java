@@ -95,10 +95,13 @@ final class ConsoleControlsController {
                 space < DesktopSpaceStateStore.SPACE_COUNT;
                 space++) {
             final int selectedSpace = space;
-            final Button button = mUi.actionButton(
-                    mActivity.getString(
+            final String label = mActivity.isCompactDesktopPreview()
+                    ? Integer.toString(space + 1)
+                    : mActivity.getString(
                             R.string.desktop_space_number,
-                            Integer.valueOf(space + 1)),
+                            Integer.valueOf(space + 1));
+            final Button button = mUi.actionButton(
+                    label,
                     DesktopUiFactory.COLOR_PANEL_ALT);
             button.setOnClickListener(view ->
                     mActivity.switchDesktopSpace(selectedSpace));
@@ -124,7 +127,8 @@ final class ConsoleControlsController {
         parent.addView(dpiLabel, dpiLabelParams);
 
         final GridLayout dpiGrid = new GridLayout(mActivity);
-        dpiGrid.setColumnCount(5);
+        dpiGrid.setColumnCount(
+                mActivity.isCompactDesktopPreview() ? 4 : 5);
         addDpiButton(dpiGrid, 160);
         addDpiButton(dpiGrid, 192);
         addDpiButton(dpiGrid, 240);

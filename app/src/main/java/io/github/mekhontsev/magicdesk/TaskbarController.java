@@ -162,6 +162,9 @@ final class TaskbarController {
         pinsParams.setMargins(
                 desktopDp(10, 4), 0, desktopDp(10, 4), 0);
         taskbar.addView(taskScroll, pinsParams);
+        if (mActivity.isCompactDesktopPreview()) {
+            taskScroll.setVisibility(View.GONE);
+        }
 
         final ImageButton showDesktop = taskbarButton(
                 R.drawable.ic_show_desktop,
@@ -211,6 +214,9 @@ final class TaskbarController {
         taskbar.addView(mKeyboardLayout, new LinearLayout.LayoutParams(
                 desktopDp(48, 38),
                 LinearLayout.LayoutParams.MATCH_PARENT));
+        if (mActivity.isCompactDesktopPreview()) {
+            mKeyboardLayout.setVisibility(View.GONE);
+        }
 
         mPhoneScreenButton = taskbarButton(
                 R.drawable.ic_phone_screen_off,
@@ -220,6 +226,9 @@ final class TaskbarController {
         mPhoneScreenButton.setEnabled(RuntimeAccess.has(
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
         addButton(taskbar, mPhoneScreenButton);
+        if (mActivity.isCompactDesktopPreview()) {
+            mPhoneScreenButton.setVisibility(View.GONE);
+        }
 
         mConsoleButton = taskbarButton(
                 android.R.drawable.ic_menu_manage,
@@ -454,8 +463,9 @@ final class TaskbarController {
         if (mHardwareStatus == null) {
             return;
         }
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_CONTROL)) {
+        if (mActivity.isCompactDesktopPreview()
+                || !RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_CONTROL)) {
             mHardwareStatus.setVisibility(View.GONE);
             return;
         }

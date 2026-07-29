@@ -12,6 +12,12 @@ successful build.
   process or foreground watcher service. Verify that a 162-app catalog retains
   one bounded icon bitmap per app after startup cleanup and is not reloaded on
   `onResume`.
+- [x] On the phone display in Root mode, cycle a live Golly task through all
+  four desktop spaces and back. The same task id and freeform bounds survived,
+  and the task was hidden on inactive spaces without a relaunch.
+- [x] Verify the compact taskbar and scrollable Tools layout at phone density.
+  Read-only REDMAGIC monitoring matched the fan/pump nodes and did not create
+  a hardware ownership baseline or alter any node value.
 
 ## External Display
 

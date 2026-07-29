@@ -34,4 +34,18 @@ final class RedmagicFanCurve {
                 < currentStart - HYSTERESIS_MILLI_CELSIUS
                 ? target : normalizedCurrent;
     }
+
+    static boolean needsApply(
+            final int targetLevel,
+            final int appliedLevel,
+            final int actualEnabled,
+            final int actualLevel) {
+        if (targetLevel != appliedLevel) {
+            return true;
+        }
+        if (targetLevel == 0) {
+            return actualEnabled != 0;
+        }
+        return actualEnabled != 1 || actualLevel != targetLevel;
+    }
 }

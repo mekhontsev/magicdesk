@@ -114,7 +114,8 @@ final class DesktopAudioPanelController {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
         final GridLayout actions = new GridLayout(mActivity);
-        actions.setColumnCount(3);
+        actions.setColumnCount(
+                mActivity.isCompactDesktopPreview() ? 2 : 3);
         mMute = actionButton(R.string.audio_mute);
         mMute.setOnClickListener(view -> toggleMute());
         addAction(actions, mMute);
