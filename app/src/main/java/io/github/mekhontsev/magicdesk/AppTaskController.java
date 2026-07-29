@@ -12,11 +12,11 @@ import java.util.List;
 final class AppTaskController {
     private static final String TAG = "MagicDesk";
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
             Collections.emptyList();
 
-    AppTaskController(final MainActivity activity) {
+    AppTaskController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 
@@ -59,7 +59,7 @@ final class AppTaskController {
                     getTaskIds(visibleTasks),
                     rootColdLaunch);
             final ActivityOptions options = ActivityOptions.makeBasic();
-            MainActivity.invokeIntOption(
+            DesktopShellActivity.invokeIntOption(
                     options,
                     "setLaunchDisplayId",
                     mActivity.getCurrentDisplayId());
@@ -119,7 +119,7 @@ final class AppTaskController {
             }
             launchIntent.addFlags(getFullscreenLaunchFlags());
             final ActivityOptions options = ActivityOptions.makeBasic();
-            MainActivity.invokeIntOption(
+            DesktopShellActivity.invokeIntOption(
                     options,
                     "setLaunchDisplayId",
                     mActivity.getCurrentDisplayId());
@@ -172,7 +172,7 @@ final class AppTaskController {
                     }
                     mActivity.setTaskSnapshot(snapshot);
                     final TaskRepository.TaskEntry currentTask =
-                            MainActivity.findTask(
+                            DesktopShellActivity.findTask(
                                     snapshot, task.taskId);
                     if (currentTask == null) {
                         mActivity.setStatus(mActivity.getString(

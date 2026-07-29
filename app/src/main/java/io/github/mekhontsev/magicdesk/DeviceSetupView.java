@@ -47,7 +47,7 @@ final class DeviceSetupView {
                 dp(20),
                 dp(18),
                 dp(20),
-                dp(18 + MainActivity.TASKBAR_HEIGHT_DP));
+                dp(18 + DesktopShellActivity.TASKBAR_HEIGHT_DP));
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);

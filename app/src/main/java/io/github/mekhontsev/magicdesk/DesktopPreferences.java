@@ -10,13 +10,9 @@ import java.util.List;
 import java.util.Set;
 
 final class DesktopPreferences {
-    static final int LAYOUT_AUTO = 0;
-    static final int LAYOUT_DESKTOP = 1;
-    static final int LAYOUT_PHONE = 2;
     static final int DEFAULT_DESKTOP_DPI = 192;
 
     private static final String PREFS = "magicdesk";
-    private static final String PREF_LAYOUT_MODE = "layout_mode";
     private static final String PREF_DESKTOP_DPI = "desktop_dpi";
     private static final String PREF_PINNED_PACKAGES = "pinned_packages";
     private static final List<String> FAVORITE_PACKAGES =
@@ -49,16 +45,6 @@ final class DesktopPreferences {
             final Context context, final Set<String> packages) {
         preferences(context).edit()
                 .putStringSet(PREF_PINNED_PACKAGES, packages)
-                .apply();
-    }
-
-    static int legacyLayoutMode(final Context context) {
-        return preferences(context).getInt(PREF_LAYOUT_MODE, LAYOUT_AUTO);
-    }
-
-    static void saveLegacyLayoutMode(final Context context, final int mode) {
-        preferences(context).edit()
-                .putInt(PREF_LAYOUT_MODE, mode)
                 .apply();
     }
 

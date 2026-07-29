@@ -19,7 +19,8 @@ final class PhoneHomeRecoveryController {
     private static final String PRIMARY_PHONE_HOME =
             "com.zte.mifavor.launcher/"
                     + "com.android.launcher3.uioverrides.QuickstepLauncher";
-    private static final String MAGICDESK_MAIN_ACTIVITY =
+    // Kept so an in-place APK update can recover a task created by MagicDesk 1.0.
+    private static final String LEGACY_MAGICDESK_ACTIVITY =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.MainActivity";
     private static final String MAGICDESK_DESKTOP_ACTIVITY =
@@ -93,7 +94,7 @@ final class PhoneHomeRecoveryController {
                     && SECONDARY_PHONE_HOME.equals(task.topActivityName);
             final boolean migratedMagicDesk =
                     includeMigratedMagicDesk
-                            && (MAGICDESK_MAIN_ACTIVITY.equals(
+                            && (LEGACY_MAGICDESK_ACTIVITY.equals(
                                     task.topActivityName)
                                     || MAGICDESK_DESKTOP_ACTIVITY.equals(
                                             task.topActivityName));

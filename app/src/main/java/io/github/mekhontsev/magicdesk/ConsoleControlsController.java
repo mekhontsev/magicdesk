@@ -9,7 +9,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.GridLayout;
@@ -21,12 +20,9 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 final class ConsoleControlsController {
-    private static final String TAG = "MagicDesk";
-    private static final String PHONE_SCREEN_OFF_STATE =
-            "nubia_screen_off_tp";
     private static final int ACTION_BUTTON_HEIGHT_DP = 48;
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final Set<Button> mConsoleModeActions =
             Collections.newSetFromMap(
@@ -40,7 +36,7 @@ final class ConsoleControlsController {
     private String mLastStatusText;
 
     ConsoleControlsController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
@@ -143,6 +139,13 @@ final class ConsoleControlsController {
         deviceSetup.setOnClickListener(view ->
                 mActivity.openDeviceSetup());
         addActionButton(actionGrid, deviceSetup);
+
+        final Button controlPanel = mUi.actionButton(
+                R.string.action_open_control_panel,
+                DesktopUiFactory.COLOR_CYAN);
+        controlPanel.setOnClickListener(view ->
+                mActivity.openControlPanel());
+        addActionButton(actionGrid, controlPanel);
 
         final Button diagnostics = mUi.actionButton(
                 R.string.action_diagnostics,
@@ -295,27 +298,11 @@ final class ConsoleControlsController {
     }
 
     private boolean isPhoneScreenOff() {
-        try {
-            return Settings.Global.getInt(
-                    mActivity.getContentResolver(),
-                    PHONE_SCREEN_OFF_STATE,
-                    0) == 1;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot read phone screen state", e);
-            return false;
-        }
+        return ConsoleModeState.isPhoneScreenOff(mActivity);
     }
 
     private boolean isConsoleModeActive() {
-        try {
-            return Settings.Global.getInt(
-                    mActivity.getContentResolver(),
-                    "app_mirror_displayid",
-                    -1) > 0;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "Cannot read Console Mode state", e);
-            return false;
-        }
+        return ConsoleModeState.isActive(mActivity);
     }
 
     private void registerBatteryReceiver() {
@@ -344,11 +331,11 @@ final class ConsoleControlsController {
                 mActivity.scheduleDisplayProfileRefresh();
             }
         };
-        registerSetting(MainActivity.HARDWARE_LAYOUT_STATE);
-        registerSetting(MainActivity.HARDWARE_LAYOUT_LABEL_STATE);
-        registerSetting(MainActivity.HARDWARE_LAYOUT_NAME_STATE);
-        registerSetting(PHONE_SCREEN_OFF_STATE);
-        registerSetting("app_mirror_displayid");
+        registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_STATE);
+        registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_LABEL_STATE);
+        registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_NAME_STATE);
+        registerSetting(ConsoleModeState.PHONE_SCREEN_OFF_SETTING);
+        registerSetting(ConsoleModeState.DISPLAY_ID_SETTING);
     }
 
     private void registerSetting(final String key) {

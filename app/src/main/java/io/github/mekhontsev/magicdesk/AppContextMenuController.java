@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 
 final class AppContextMenuController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final Map<View, ContextTarget> mTargets = new WeakHashMap<>();
 
@@ -21,7 +21,7 @@ final class AppContextMenuController {
     private View mHoveredTargetView;
 
     AppContextMenuController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
@@ -144,18 +144,6 @@ final class AppContextMenuController {
                 true,
                 view -> mActivity.showStartSection(
                         StartMenuController.MENU_PINNED));
-        addAction(
-                R.string.action_layout_auto,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> mActivity.setLayoutMode(
-                        DesktopPreferences.LAYOUT_AUTO));
-        addAction(
-                R.string.action_layout_desktop,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> mActivity.setLayoutMode(
-                        DesktopPreferences.LAYOUT_DESKTOP));
         positionAndShow(x, y);
     }
 

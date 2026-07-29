@@ -17,7 +17,7 @@ final class DisplayProfileController {
     private static final String TAG = "MagicDeskDisplayProfile";
     private static final long DISPLAY_SETTLE_MILLIS = 1_000L;
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mRefresh = this::refreshAfterDisplayChange;
 
@@ -27,7 +27,7 @@ final class DisplayProfileController {
     private String mMonitorProfileKey;
     private boolean mMonitorIdentityRequested;
 
-    DisplayProfileController(final MainActivity activity) {
+    DisplayProfileController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 
@@ -81,7 +81,6 @@ final class DisplayProfileController {
                 mActivity,
                 monitorKey,
                 DesktopPreferences.legacyDesktopDpi(mActivity),
-                DesktopPreferences.legacyLayoutMode(mActivity),
                 DesktopPreferences.legacyPinnedPackages(mActivity),
                 defaults);
         mActivity.onWorkspaceProfileReset();
@@ -214,7 +213,6 @@ final class DisplayProfileController {
                         mActivity,
                         monitorKey,
                         previous.dpi,
-                        previous.layoutMode,
                         previous.taskbarPackages,
                         previous.desktopPackages);
         if (!existed) {

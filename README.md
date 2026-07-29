@@ -127,6 +127,9 @@ device-specific failure.
 5. Review the settings Device Setup proposes and confirm the changes.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
+7. A normal Auto launch on the phone opens the compact MagicDesk control
+   panel. Select **Open desktop on this screen** to use the full desktop on a
+   tablet or directly on the phone.
 
 MagicDesk starts with an external-display DPI of `192`. A different value can
 be selected under **Start > Tools** and is remembered per monitor.
@@ -144,11 +147,11 @@ notify an application before it is uninstalled.
 2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 3. Launch MagicDesk on the phone.
 4. Grant root access if Android or the root manager requests it.
-5. Open **Tools** with the wrench button and select **Start Console Mode**, or
-   press `Win+D` on the physical keyboard.
-6. To leave Console Mode, open **Tools** and select **Switch to mirror**. Select
-   **Exit MagicDesk** instead to stop MagicDesk and its background services
-   completely.
+5. Select **Start Console mode** in the phone control panel, or press `Win+D`
+   on the physical keyboard.
+6. To leave Console Mode, select **Switch to mirror** in the phone control
+   panel or desktop Tools. Select **Exit MagicDesk** instead to stop MagicDesk
+   and its background services completely.
 
 ### Phone Notification
 
@@ -186,10 +189,20 @@ display without leaving the Tools panel in the image.
 
 ## Phone And Console Controls
 
-The taskbar Tools panel provides:
+The phone control panel provides the daily session actions without loading the
+desktop application catalog:
+
+- Open the full desktop on the phone or tablet display
+- Start Console Mode and Switch to mirror
+- Open REDMAGIC Touch Panel
+- Wake or dim the phone display
+- Device Setup, Diagnostics, and clean MagicDesk exit
+
+The desktop taskbar Tools panel additionally provides:
 
 - Start Console Mode and Switch to mirror
 - Open REDMAGIC Touch Panel
+- Open the phone control panel
 - Wake or dim the phone display
 - External-display DPI selection
 - External-display screenshot

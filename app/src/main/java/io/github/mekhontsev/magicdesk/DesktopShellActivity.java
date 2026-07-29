@@ -34,7 +34,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class MainActivity extends Activity {
+public abstract class DesktopShellActivity extends Activity
+        implements MagicDeskSessionHost {
     private static final String TAG = "MagicDesk";
     static final String HARDWARE_LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
@@ -67,7 +68,6 @@ public class MainActivity extends Activity {
     private AppTaskController mAppTasks;
     private DisplayDensityController mDisplayDensityController;
     private ConsoleControlsController mConsoleControls;
-    private PhoneLauncherController mPhoneLauncherController;
     private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
     private DesktopFileRepository mDesktopFileRepository;
@@ -75,7 +75,6 @@ public class MainActivity extends Activity {
     private DesktopInputController mInputController;
     private TaskRepository.Snapshot mTaskSnapshot = new TaskRepository.Snapshot(
             Collections.<TaskRepository.TaskEntry>emptyList(), false, "not loaded");
-    private boolean mDesktopMode;
     private boolean mDesktopWindowFocusable = true;
     private int mTaskRefreshGeneration;
     private List<AppItem> mLastApps = Collections.emptyList();
@@ -121,7 +120,6 @@ public class MainActivity extends Activity {
         mAppTasks = new AppTaskController(this);
         mDisplayDensityController = new DisplayDensityController(this);
         mConsoleControls = new ConsoleControlsController(this, mUi);
-        mPhoneLauncherController = new PhoneLauncherController(this, mUi);
         mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mDesktopFileRepository =
@@ -129,15 +127,10 @@ public class MainActivity extends Activity {
         mDesktopItemsController = new DesktopItemsController(
                 this, mUi, mDesktopFileRepository);
         mInputController = new DesktopInputController(this);
-        mDesktopMode = isDesktopMode();
-        if (mDesktopMode) {
-            DesktopRuntimeBridge.registerDesktop(this);
-            setDesktopWindowFocusable(true);
-        }
-        setContentView(createContentView());
-        if (mDesktopMode) {
-            mNotifications.start();
-        }
+        DesktopRuntimeBridge.registerDesktop(this);
+        setDesktopWindowFocusable(true);
+        setContentView(createDesktopContentView());
+        mNotifications.start();
         mConsoleControls.start();
         mDisplayProfiles.start();
         MagicDeskRuntimeService.start(this);
@@ -178,9 +171,6 @@ public class MainActivity extends Activity {
         }
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
-        }
-        if (mPhoneLauncherController != null) {
-            mPhoneLauncherController.release();
         }
         mLastApps = Collections.emptyList();
         releaseDesktopOverlays();
@@ -244,7 +234,7 @@ public class MainActivity extends Activity {
     }
 
     boolean isDesktopShell() {
-        return mDesktopMode;
+        return true;
     }
 
     boolean isActivityUnavailable() {
@@ -324,14 +314,12 @@ public class MainActivity extends Activity {
         setTaskbarVisible(true);
         if (mLastApps.isEmpty()) {
             renderApps();
-        } else if (mDesktopMode) {
+        } else {
             refreshTaskSnapshot();
         }
         refreshDesktopFolder(true);
         updateConsoleControls();
-        if (mDesktopMode) {
-            mNotifications.refresh();
-        }
+        mNotifications.refresh();
         ensurePreferredConsoleDensity();
     }
 
@@ -352,7 +340,7 @@ public class MainActivity extends Activity {
     }
 
     private void setDesktopWindowFocusable(final boolean focusable) {
-        if (!mDesktopMode || mDesktopWindowFocusable == focusable) {
+        if (mDesktopWindowFocusable == focusable) {
             return;
         }
         mDesktopWindowFocusable = focusable;
@@ -370,9 +358,7 @@ public class MainActivity extends Activity {
             refreshWorkspaceProfileForDisplay();
             resolveMonitorIdentityAsync();
         }
-        if (mDesktopMode) {
-            refreshTaskSnapshot();
-        }
+        refreshTaskSnapshot();
     }
 
     @Override
@@ -383,7 +369,7 @@ public class MainActivity extends Activity {
     }
 
     private void handleLaunchAction(final Intent intent) {
-        if (intent == null || !mDesktopMode) {
+        if (intent == null) {
             return;
         }
         final String action = intent.getStringExtra(EXTRA_ACTION);
@@ -396,12 +382,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    static Intent createLaunchIntent(final android.content.Context context) {
-        return DeviceSetupActivity.createLaunchIntent(context);
-    }
-
     static Intent createShowStartIntent(final Context context) {
-        return createLaunchIntent(context).putExtra(EXTRA_ACTION, ACTION_SHOW_START);
+        return DesktopActivity.createLaunchIntent(context)
+                .putExtra(EXTRA_ACTION, ACTION_SHOW_START);
     }
 
     void syncTaskbarWithSnapshot(final TaskRepository.Snapshot snapshot) {
@@ -424,10 +407,6 @@ public class MainActivity extends Activity {
         if (hasActiveTask) {
             setDesktopWindowFocusable(desktopActive);
         }
-    }
-
-    private View createContentView() {
-        return mDesktopMode ? createDesktopContentView() : createPhoneContentView();
     }
 
     private View createDesktopContentView() {
@@ -627,10 +606,6 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private View createPhoneContentView() {
-        return mPhoneLauncherController.createView();
-    }
-
     void renderApps() {
         final List<AppItem> apps =
                 mLauncherApps.load(isUniversalFreeformEnabled());
@@ -644,11 +619,7 @@ public class MainActivity extends Activity {
         setStatus(getString(R.string.status_ready,
                 Integer.valueOf(apps.size()),
                 Integer.valueOf(getCurrentDisplayId())));
-        if (mDesktopMode) {
-            renderDesktop(apps);
-            return;
-        }
-        mPhoneLauncherController.render(apps);
+        renderDesktop(apps);
     }
 
     private void renderDesktop(final List<AppItem> apps) {
@@ -860,6 +831,15 @@ public class MainActivity extends Activity {
                 options.toBundle());
     }
 
+    void openControlPanel() {
+        hideAllPanels();
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+        startActivity(
+                ControlActivity.createLaunchIntent(this),
+                options.toBundle());
+    }
+
     void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
                 mOverlayPanelController,
@@ -906,35 +886,6 @@ public class MainActivity extends Activity {
             final LinearLayout parent,
             final int spacing) {
         mConsoleControls.populate(parent, spacing);
-    }
-
-    private boolean isDesktopMode() {
-        final SessionProfile.DisplayTarget displayTarget =
-                RuntimeAccess.profile().displayTarget;
-        if (displayTarget == SessionProfile.DisplayTarget.PRIMARY
-                || displayTarget == SessionProfile.DisplayTarget.EXTERNAL) {
-            return true;
-        }
-        final int override = getLayoutMode();
-        if (override == DesktopPreferences.LAYOUT_DESKTOP) {
-            return true;
-        }
-        if (override == DesktopPreferences.LAYOUT_PHONE) {
-            return false;
-        }
-        return getResources().getConfiguration().screenWidthDp >= 700;
-    }
-
-    private int getLayoutMode() {
-        return getWorkspaceProfile().layoutMode;
-    }
-
-    void setLayoutMode(final int mode) {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
-        profile.layoutMode = mode;
-        saveWorkspaceProfile();
-        DesktopPreferences.saveLegacyLayoutMode(this, mode);
-        recreate();
     }
 
     int getPreferredDesktopDpi() {
@@ -1005,9 +956,7 @@ public class MainActivity extends Activity {
     }
 
     void setTaskbarVisible(final boolean visible) {
-        if (mDesktopMode) {
-            mTaskbarController.setVisible(visible);
-        }
+        mTaskbarController.setVisible(visible);
     }
 
     Button createKernelFixesAction() {
@@ -1128,7 +1077,6 @@ public class MainActivity extends Activity {
     }
 
     void setStatus(final String text) {
-        mPhoneLauncherController.setStatus(text);
         if (mConsoleControls != null) {
             mConsoleControls.setActivityStatus(text);
         }
@@ -1144,7 +1092,30 @@ public class MainActivity extends Activity {
     }
 
     boolean isCompactDesktopPreview() {
-        return mDesktopMode && getResources().getConfiguration().screenWidthDp < 700;
+        return getResources().getConfiguration().screenWidthDp < 700;
+    }
+
+    @Override
+    public Activity sessionActivity() {
+        return this;
+    }
+
+    @Override
+    public void showSessionStatus(final String message) {
+        setStatus(message);
+    }
+
+    @Override
+    public void showSessionError(
+            final String code,
+            final String message,
+            final Throwable error) {
+        setErrorStatus(code, message, "", error);
+    }
+
+    @Override
+    public void releaseSessionUi() {
+        releaseDesktopOverlays();
     }
 
 }

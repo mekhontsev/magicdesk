@@ -26,7 +26,7 @@ final class StartMenuController {
     static final int MENU_TOOLS = 2;
     static final int MENU_PINNED = 3;
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
 
     private LinearLayout mPanel;
@@ -41,7 +41,7 @@ final class StartMenuController {
     private String mSearchQuery = "";
 
     StartMenuController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;

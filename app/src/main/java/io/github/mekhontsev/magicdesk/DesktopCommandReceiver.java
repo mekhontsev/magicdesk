@@ -12,7 +12,7 @@ public final class DesktopCommandReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(final Context context, final Intent intent) {
         if (intent == null
-                || !MainActivity.BROADCAST_SHOW_START.equals(intent.getAction())) {
+                || !DesktopShellActivity.BROADCAST_SHOW_START.equals(intent.getAction())) {
             return;
         }
         if (!DesktopRuntimeBridge.showStart()) {
@@ -24,7 +24,7 @@ public final class DesktopCommandReceiver extends BroadcastReceiver {
                 setIntOption(options, "setLaunchActivityType", 2);
             }
             setIntOption(options, "setLaunchWindowingMode", 1);
-            context.startActivity(MainActivity.createShowStartIntent(context),
+            context.startActivity(DesktopShellActivity.createShowStartIntent(context),
                     options.toBundle());
         }
     }

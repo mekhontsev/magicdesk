@@ -89,7 +89,7 @@ immersive mode must preserve the current Activity instance.
 
 | Component | Package or path | Responsibility |
 | --- | --- | --- |
-| Main application | `io.github.mekhontsev.magicdesk` | Desktop shell, taskbar, overlays, setup, diagnostics, and services |
+| Main application | `io.github.mekhontsev.magicdesk` | Phone control panel, desktop shell, taskbar, overlays, setup, diagnostics, and services |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Optional, explicitly confirmed firmware-specific kernel fixes |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Input remap helper | `native/magicdesk_mouse_remap.c` | Short-lived physical HID keymap adjustment |
@@ -102,8 +102,17 @@ kernel-loading code.
 
 ### Main APK Source Boundaries
 
-`MainActivity` is the Android lifecycle host. It composes the desktop
-controllers and forwards Android callbacks instead of owning feature state:
+The user-facing lifecycle is split into explicit roles:
+
+- `ControlActivity` and `PhoneControlPanelController` provide a compact phone
+  control surface. They do not enumerate launcher applications or create
+  desktop task, taskbar, wallpaper, or overlay controllers.
+- `DesktopActivity` is the only concrete desktop Activity.
+  `DesktopShellActivity` composes its controllers and forwards Android
+  callbacks instead of owning feature state. It can run on the Console display
+  or explicitly on display 0 for a tablet or phone-hosted desktop.
+- `DeviceSetupActivity` owns onboarding and selects one of those roles after a
+  successful runtime audit.
 
 - `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
   `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
@@ -112,12 +121,13 @@ controllers and forwards Android callbacks instead of owning feature state:
 - `DesktopRuntimeBridge` is the narrow process-local facade used by services
   and receivers to reach the currently active shell. It keeps Activity
   references weak and always posts UI work to the Activity thread.
-- `PhoneLauncherController` owns the independent phone-layout launcher.
 - `AppTaskController`, `WorkspaceController`, and `AltTabController` coordinate
   application tasks and persisted workspace state.
 - `DisplayProfileController`, `DisplayDensityController`, and
   `ConsoleControlsController` own display-specific preferences and controls.
-- `MagicDeskSessionController` owns complete MagicDesk teardown.
+- `MagicDeskSessionController` owns complete MagicDesk teardown through the
+  small `MagicDeskSessionHost` contract shared by the control and desktop
+  Activities.
 - `DesktopTaskController` orchestrates native task transitions.
   `DesktopTaskStateStore` owns workspace snapshots,
   `DesktopWindowTransitionController` owns shortcut-driven window state,
@@ -159,11 +169,16 @@ of megabytes of temporary bitmap data. App catalogs are not reloaded on every
 ## Display And Session Model
 
 Every launch resolves a session profile containing an independent privilege
-mode and display target. MagicDesk can render its desktop shell on Android's
-primary display, remain on the current display, or become the fullscreen HOME
-activity on Nubia's virtual Console display. Using HOME only on that external
-display keeps the desktop surface behind native freeform application tasks
-without replacing the phone launcher.
+mode and display target. An Auto launch on display 0 opens the phone control
+panel. An explicit Primary or Current target opens the desktop on that display;
+an External target opens it on the resolved external display. The control
+panel can also launch the desktop on its own display, which supports tablets
+without reintroducing screen-width layout heuristics.
+
+On Nubia's virtual Console display, the desktop becomes the fullscreen HOME
+activity. Using HOME only there keeps the desktop surface behind native
+freeform application tasks without replacing the phone launcher. The phone
+control and external desktop use separate Android tasks and may coexist.
 
 Runtime audits report the backend available for a requested profile but do not
 change the active process backend. `DeviceSetupActivity` explicitly activates a
@@ -174,13 +189,11 @@ concurrent background audits must never activate a backend, promote a Basic or
 Shizuku session to Root, or trigger a first-run superuser prompt.
 
 Manual Device Setup runs in a separate Android task pinned to the display where
-it was opened. A shell launch targeting another display also receives a separate
-task. Do not place activity records from two displays in the same task: this
+it was opened. Control and desktop launches also use separate tasks. Do not
+place activity records from two displays in the same task: this
 REDMAGIC firmware can move the setup activity to display 0 while leaving the
 desktop activity visible elsewhere, then report no focused application window
-and raise an input-dispatch ANR. A same-display profile change recreates the
-existing shell activity so its phone/desktop layout is recalculated without
-creating a duplicate task.
+and raise an input-dispatch ANR.
 
 Display ids are runtime values and are never persisted as fixed constants.
 When Console Mode is activated, MagicDesk waits for Android to publish the real
@@ -196,7 +209,6 @@ stable EDID identity when the background root read completes.
 Profiles store:
 
 - preferred desktop DPI
-- layout mode
 - taskbar pins
 - desktop shortcut order
 - selected desktop-folder URI
@@ -269,8 +281,8 @@ A `DisplayManager.DisplayListener` validates the actual display lifecycle
 instead of trusting only Nubia's global settings.
 
 When Nubia removes the virtual Console display, the firmware may reparent
-`SecondaryDisplayLauncher`, `MainActivity`, or `DesktopActivity` to display 0
-and leave the phone in landscape. MagicDesk restores `QuickstepLauncher`
+`SecondaryDisplayLauncher` or the MagicDesk desktop task to display 0 and leave
+the phone in landscape. MagicDesk restores `QuickstepLauncher`
 after a confirmed Console-to-mirror transition. Root and Shizuku first inspect
 the exact phone task; Basic uses the confirmed transition itself because it
 cannot inspect system tasks. The privileged check uses the visible

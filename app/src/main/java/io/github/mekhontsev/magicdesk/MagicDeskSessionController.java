@@ -1,5 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.Activity;
+import android.app.ActivityManager;
+import android.content.Context;
 import android.util.Log;
 
 import java.io.IOException;
@@ -10,11 +13,13 @@ final class MagicDeskSessionController {
     private static final String KEYBOARD_WATCHER_SERVICE =
             "io.github.mekhontsev.magicdesk/.MagicDeskRuntimeService";
 
-    private final MainActivity mActivity;
+    private final MagicDeskSessionHost mHost;
+    private final Activity mActivity;
     private boolean mExitInProgress;
 
-    MagicDeskSessionController(final MainActivity activity) {
-        mActivity = activity;
+    MagicDeskSessionController(final MagicDeskSessionHost host) {
+        mHost = host;
+        mActivity = host.sessionActivity();
     }
 
     void exit() {
@@ -23,7 +28,8 @@ final class MagicDeskSessionController {
         }
         mExitInProgress = true;
         Log.i(TAG, "full MagicDesk exit requested");
-        mActivity.setStatus(R.string.status_exiting);
+        mHost.showSessionStatus(
+                mActivity.getString(R.string.status_exiting));
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             finishUnprivilegedExit();
@@ -67,9 +73,18 @@ final class MagicDeskSessionController {
 
     private void finishUnprivilegedExit() {
         DeviceSetupManager.revokeRuntimeAuthorization(mActivity);
-        mActivity.releaseDesktopOverlays();
+        MagicDeskRuntimeService.stop(mActivity);
+        mHost.releaseSessionUi();
         mExitInProgress = false;
-        mActivity.finishAndRemoveTask();
+        final ActivityManager manager = (ActivityManager)
+                mActivity.getSystemService(Context.ACTIVITY_SERVICE);
+        if (manager != null) {
+            for (final ActivityManager.AppTask task : manager.getAppTasks()) {
+                task.finishAndRemoveTask();
+            }
+        } else {
+            mActivity.finishAndRemoveTask();
+        }
     }
 
     private void finishPrivilegedExit() {
@@ -103,7 +118,7 @@ final class MagicDeskSessionController {
         Log.w(TAG, "MagicDesk exit aborted: " + message, error);
         mActivity.runOnUiThread(() -> {
             mExitInProgress = false;
-            mActivity.setErrorStatus(code, message, "", error);
+            mHost.showSessionError(code, message, error);
         });
     }
 

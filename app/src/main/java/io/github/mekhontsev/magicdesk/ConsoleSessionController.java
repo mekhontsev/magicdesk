@@ -99,8 +99,8 @@ final class ConsoleSessionController {
                         + " -a android.intent.action.MAIN"
                         + " -c android.intent.category.LAUNCHER"
                         + (restoreWindows
-                                ? " --es " + MainActivity.EXTRA_ACTION + " "
-                                        + MainActivity.ACTION_RESTORE_WINDOWS
+                                ? " --es " + DesktopShellActivity.EXTRA_ACTION + " "
+                                        + DesktopShellActivity.ACTION_RESTORE_WINDOWS
                                 : "")
                         + " -n " + launchComponent).trim();
         Log.i(TAG, "MagicDesk launch output="
@@ -153,9 +153,9 @@ final class ConsoleSessionController {
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.LAUNCHER"
                             + (restoreWindows
-                                    ? " --es " + MainActivity.EXTRA_ACTION
+                                    ? " --es " + DesktopShellActivity.EXTRA_ACTION
                                             + " "
-                                            + MainActivity.ACTION_RESTORE_WINDOWS
+                                            + DesktopShellActivity.ACTION_RESTORE_WINDOWS
                                     : "")
                             + " -n io.github.mekhontsev.magicdesk/.DeviceSetupActivity")
                     .trim();

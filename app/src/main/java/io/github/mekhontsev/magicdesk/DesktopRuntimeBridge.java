@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -11,20 +12,20 @@ final class DesktopRuntimeBridge {
     private static final Handler MAIN_HANDLER =
             new Handler(Looper.getMainLooper());
 
-    private static WeakReference<MainActivity> sShell =
+    private static WeakReference<DesktopShellActivity> sShell =
             new WeakReference<>(null);
-    private static WeakReference<MainActivity> sDesktop =
+    private static WeakReference<DesktopShellActivity> sDesktop =
             new WeakReference<>(null);
 
     private DesktopRuntimeBridge() {
     }
 
-    static void registerShell(final MainActivity activity) {
+    static void registerShell(final DesktopShellActivity activity) {
         sShell = new WeakReference<>(activity);
     }
 
-    static void registerDesktop(final MainActivity activity) {
-        final MainActivity previous = sDesktop.get();
+    static void registerDesktop(final DesktopShellActivity activity) {
+        final DesktopShellActivity previous = sDesktop.get();
         if (previous != null && previous != activity) {
             // Nubia may migrate the phone task before the dedicated Console HOME starts.
             Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
@@ -38,7 +39,7 @@ final class DesktopRuntimeBridge {
         sDesktop = new WeakReference<>(activity);
     }
 
-    static void unregister(final MainActivity activity) {
+    static void unregister(final DesktopShellActivity activity) {
         if (sShell.get() == activity) {
             sShell.clear();
         }
@@ -48,7 +49,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean showStart() {
-        final MainActivity activity = usableDesktop(true);
+        final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
@@ -57,7 +58,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean restoreLastVisibleWindows() {
-        final MainActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {
             return false;
         }
@@ -66,7 +67,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean recreateShellOnDisplay(final int displayId) {
-        final MainActivity activity = sShell.get();
+        final DesktopShellActivity activity = sShell.get();
         if (!isUsable(activity) || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
@@ -79,7 +80,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean advanceAltTab(final boolean reverse) {
-        final MainActivity activity = usableDesktop(true);
+        final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
@@ -88,7 +89,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean finishAltTab() {
-        final MainActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {
             return false;
         }
@@ -97,7 +98,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean cancelAltTab() {
-        final MainActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {
             return false;
         }
@@ -106,7 +107,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean toggleShortcutHelp() {
-        final MainActivity activity = usableDesktop(true);
+        final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
@@ -115,7 +116,7 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean toggleNotificationCenter() {
-        final MainActivity activity = usableDesktop(true);
+        final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
@@ -124,16 +125,41 @@ final class DesktopRuntimeBridge {
     }
 
     static boolean isDesktopReadyOnDisplay(final int displayId) {
-        final MainActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && !activity.isInMultiWindowMode();
     }
 
+    static boolean focusDesktopOnDisplay(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        final ActivityManager manager =
+                activity.getSystemService(ActivityManager.class);
+        if (manager == null) {
+            return false;
+        }
+        for (final ActivityManager.AppTask task : manager.getAppTasks()) {
+            try {
+                final ActivityManager.RecentTaskInfo info = task.getTaskInfo();
+                if (info != null && info.taskId == activity.getTaskId()) {
+                    task.moveToFront();
+                    return true;
+                }
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Could not focus the desktop task", error);
+            }
+        }
+        return false;
+    }
+
     static void syncTaskbarWithSnapshot(
             final int displayId,
             final TaskRepository.Snapshot snapshot) {
-        final MainActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || snapshot == null || !snapshot.rootAvailable
                 || activity.getCurrentDisplayId() != displayId) {
             return;
@@ -141,8 +167,8 @@ final class DesktopRuntimeBridge {
         activity.runOnUiThread(() -> activity.syncTaskbarWithSnapshot(snapshot));
     }
 
-    private static MainActivity usableDesktop(final boolean requireOverlay) {
-        final MainActivity activity = sDesktop.get();
+    private static DesktopShellActivity usableDesktop(final boolean requireOverlay) {
+        final DesktopShellActivity activity = sDesktop.get();
         if (!isUsable(activity) || !activity.isDesktopShell()
                 || (requireOverlay && activity.overlayPanels() == null)) {
             return null;
@@ -150,7 +176,7 @@ final class DesktopRuntimeBridge {
         return activity;
     }
 
-    private static boolean isUsable(final MainActivity activity) {
+    private static boolean isUsable(final DesktopShellActivity activity) {
         return activity != null
                 && !activity.isFinishing()
                 && !activity.isDestroyed();

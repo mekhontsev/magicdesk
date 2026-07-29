@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 
 final class AltTabController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
 
     private boolean mActive;
     private boolean mLoadInProgress;
@@ -15,7 +15,7 @@ final class AltTabController {
     private List<TaskRepository.TaskEntry> mTasks =
             Collections.emptyList();
 
-    AltTabController(final MainActivity activity) {
+    AltTabController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 

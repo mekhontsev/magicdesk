@@ -18,12 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class TaskOverviewController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private LinearLayout mPanel;
 
     TaskOverviewController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;

@@ -3,13 +3,13 @@
     <string name="section_dock">Dock</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
+    <string name="control_section_desktop">Desktop session</string>
+    <string name="control_section_system">System</string>
     <string name="section_fullscreen">Fullscreen</string>
     <string name="section_pinned">Pinned</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>
     <string name="action_close">Close</string>
-    <string name="action_layout_auto">Auto</string>
-    <string name="action_layout_desktop">Desktop</string>
     <string name="action_previous">Prev</string>
     <string name="action_next">Next</string>
     <string name="action_open">Open</string>
@@ -40,6 +40,9 @@
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to mirror</string>
     <string name="action_start_console_mode">Start Console mode</string>
+    <string name="action_desktop_this_screen">Open desktop on this screen</string>
+    <string name="action_open_touchpad">Open touchpad</string>
+    <string name="action_open_control_panel">Phone control panel</string>
     <string name="action_dpi_reset">Reset</string>
     <string name="action_exit">Exit MagicDesk</string>
     <string name="badge_window">Window</string>
@@ -101,6 +104,8 @@
     <string name="status_phone_screen_on">Phone screen turned on</string>
     <string name="status_phone_screen_failed">Phone screen command failed</string>
     <string name="status_console_starting">Starting Console mode...</string>
+    <string name="status_desktop_opening">Opening desktop on this screen...</string>
+    <string name="status_touchpad_opening">Opening Nubia touchpad...</string>
     <string name="status_mirror_switching">Switching to mirror...</string>
     <string name="status_mirror_active">Mirror mode active</string>
     <string name="status_mirror_failed">Could not switch to mirror</string>
@@ -124,6 +129,11 @@
     <string name="notification_hw_connected">Hardware keyboard connected</string>
     <string name="notification_hw_disconnected">No hardware keyboard</string>
     <string name="notification_open_touchpad">Open touchpad</string>
+    <string name="control_panel_subtitle">Phone control panel</string>
+    <string name="control_status_ready">Ready</string>
+    <string name="control_status_console_active">Console mode active</string>
+    <string name="control_runtime_status">Runtime: %1$s</string>
+    <string name="control_display_status">This display: %1$d | Console: %2$s</string>
     <string name="search_apps_hint">Search apps</string>
     <string name="search_no_results">No matching apps</string>
     <string name="taskbar_running_description">%1$s, task %2$d</string>

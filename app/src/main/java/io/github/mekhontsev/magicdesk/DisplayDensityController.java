@@ -14,10 +14,10 @@ final class DisplayDensityController {
     private static final Set<String> APPLY_KEYS =
             Collections.synchronizedSet(new HashSet<String>());
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private boolean mApplyStarted;
 
-    DisplayDensityController(final MainActivity activity) {
+    DisplayDensityController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 

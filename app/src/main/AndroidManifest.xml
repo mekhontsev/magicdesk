@@ -61,7 +61,7 @@
         </activity>
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ControlActivity"
             android:exported="false"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
@@ -69,13 +69,20 @@
             android:logo="@mipmap/ic_launcher"
             android:launchMode="singleTop"
             android:roundIcon="@mipmap/ic_launcher"
-            android:resizeableActivity="true" />
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.control" />
 
         <activity
             android:name=".DesktopActivity"
             android:exported="false"
+            android:banner="@mipmap/ic_launcher"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
             android:launchMode="singleTop"
-            android:resizeableActivity="true" />
+            android:logo="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.desktop" />
 
         <activity
             android:name=".DiagnosticsActivity"

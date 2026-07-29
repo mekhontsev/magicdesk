@@ -35,7 +35,7 @@ import java.util.Date;
 final class NotificationCenterController {
     private static final String TAG = "MagicDeskNotificationsUi";
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final DesktopNotificationListenerService.Listener mListener =
             new DesktopNotificationListenerService.Listener() {
@@ -59,7 +59,7 @@ final class NotificationCenterController {
     private ImageButton mButton;
 
     NotificationCenterController(
-            final MainActivity activity, final DesktopUiFactory ui) {
+            final DesktopShellActivity activity, final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
     }

@@ -26,7 +26,7 @@ final class DesktopItemsController {
     static final int REQUEST_FOLDER = 1001;
     private static final String TAG = "MagicDesk";
 
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final DesktopFileRepository mFilesRepository;
 
@@ -36,7 +36,7 @@ final class DesktopItemsController {
     private List<DesktopFile> mFiles = Collections.emptyList();
 
     DesktopItemsController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui,
             final DesktopFileRepository filesRepository) {
         mActivity = activity;
@@ -472,7 +472,7 @@ final class DesktopItemsController {
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();
-        MainActivity.invokeIntOption(
+        DesktopShellActivity.invokeIntOption(
                 options,
                 "setLaunchDisplayId",
                 mActivity.getCurrentDisplayId());

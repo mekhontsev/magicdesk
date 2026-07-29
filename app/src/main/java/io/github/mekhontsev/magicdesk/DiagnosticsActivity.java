@@ -50,7 +50,7 @@ public final class DiagnosticsActivity extends Activity {
         page.setOrientation(LinearLayout.VERTICAL);
         final int bottomPadding = dp(16)
                 + (getDisplayId() == Display.DEFAULT_DISPLAY
-                        ? 0 : dp(MainActivity.TASKBAR_HEIGHT_DP));
+                        ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
         page.setPadding(dp(18), dp(16), dp(18), bottomPadding);
         page.setBackgroundColor(COLOR_BACKGROUND);
 

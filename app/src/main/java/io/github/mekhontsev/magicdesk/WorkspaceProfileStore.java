@@ -26,7 +26,7 @@ final class WorkspaceProfileStore {
     }
 
     static Profile load(final Context context, final String monitorKey,
-            final int defaultDpi, final int defaultLayoutMode,
+            final int defaultDpi,
             final Collection<String> defaultTaskbarPackages,
             final Collection<String> defaultDesktopPackages) {
         final String stored = preferences(context).getString(storageKey(monitorKey), null);
@@ -43,7 +43,6 @@ final class WorkspaceProfileStore {
 
         final Profile profile = new Profile(monitorKey);
         profile.dpi = defaultDpi;
-        profile.layoutMode = defaultLayoutMode;
         addDistinct(profile.taskbarPackages, defaultTaskbarPackages);
         addDistinct(profile.desktopPackages, defaultDesktopPackages);
         save(context, profile);
@@ -109,7 +108,6 @@ final class WorkspaceProfileStore {
         json.put("version", VERSION);
         json.put("monitor", profile.monitorKey);
         json.put("dpi", profile.dpi);
-        json.put("layoutMode", profile.layoutMode);
         json.put("taskbar", toJsonArray(profile.taskbarPackages));
         json.put("desktop", toJsonArray(profile.desktopPackages));
         if (profile.folderUri != null && profile.folderUri.length() > 0) {
@@ -132,7 +130,6 @@ final class WorkspaceProfileStore {
     private static Profile fromJson(final JSONObject json) throws JSONException {
         final Profile profile = new Profile(json.getString("monitor"));
         profile.dpi = json.optInt("dpi", 192);
-        profile.layoutMode = json.optInt("layoutMode", 0);
         addDistinct(profile.taskbarPackages, fromJsonArray(json.optJSONArray("taskbar")));
         addDistinct(profile.desktopPackages, fromJsonArray(json.optJSONArray("desktop")));
         profile.folderUri = emptyToNull(json.optString("folderUri", null));
@@ -194,7 +191,6 @@ final class WorkspaceProfileStore {
     static final class Profile {
         final String monitorKey;
         int dpi;
-        int layoutMode;
         final Set<String> taskbarPackages = new LinkedHashSet<>();
         final List<String> desktopPackages = new ArrayList<>();
         String folderUri;

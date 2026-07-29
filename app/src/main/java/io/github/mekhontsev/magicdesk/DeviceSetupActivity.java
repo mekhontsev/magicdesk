@@ -648,21 +648,26 @@ public final class DeviceSetupActivity extends Activity {
 
     private void launchMagicDeskAfterPermission() {
         DeviceSetupManager.authorizeRuntime(this);
-        final int launchDisplayId = resolveLaunchDisplayId();
         final int currentDisplayId = currentDisplayId();
-        final Class<?> activityClass = launchDisplayId > Display.DEFAULT_DISPLAY
-                ? DesktopActivity.class : MainActivity.class;
+        final boolean phoneControl = ActivityRoleResolver.opensPhoneControl(
+                mSessionProfile.displayTarget,
+                currentDisplayId);
+        final int launchDisplayId = phoneControl
+                ? Display.DEFAULT_DISPLAY : resolveLaunchDisplayId();
+        final Class<?> activityClass = phoneControl
+                ? ControlActivity.class : DesktopActivity.class;
         final Intent target = new Intent(this, activityClass)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         if (launchDisplayId != currentDisplayId) {
             target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
         }
         mSessionProfile.writeToIntent(target);
-        final String action = getIntent().getStringExtra(MainActivity.EXTRA_ACTION);
+        final String action = getIntent().getStringExtra(DesktopShellActivity.EXTRA_ACTION);
         if (action != null) {
-            target.putExtra(MainActivity.EXTRA_ACTION, action);
+            target.putExtra(DesktopShellActivity.EXTRA_ACTION, action);
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(launchDisplayId);

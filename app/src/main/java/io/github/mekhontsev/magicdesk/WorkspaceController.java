@@ -7,11 +7,11 @@ import java.util.List;
 import java.util.Set;
 
 final class WorkspaceController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private boolean mRestoreAttempted;
     private boolean mBoundsRestorePending;
 
-    WorkspaceController(final MainActivity activity) {
+    WorkspaceController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 

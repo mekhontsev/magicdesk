@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Set;
 
 final class TaskbarController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
 
     private LinearLayout mTaskbar;
@@ -34,7 +34,7 @@ final class TaskbarController {
     private ImageButton mPhoneScreenButton;
 
     TaskbarController(
-            final MainActivity activity,
+            final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
@@ -315,10 +315,10 @@ final class TaskbarController {
         }
         final String layout = Settings.Global.getString(
                 mActivity.getContentResolver(),
-                MainActivity.HARDWARE_LAYOUT_STATE);
+                DesktopShellActivity.HARDWARE_LAYOUT_STATE);
         String layoutLabel = Settings.Global.getString(
                 mActivity.getContentResolver(),
-                MainActivity.HARDWARE_LAYOUT_LABEL_STATE);
+                DesktopShellActivity.HARDWARE_LAYOUT_LABEL_STATE);
         if (layoutLabel == null || layoutLabel.isEmpty()) {
             layoutLabel = "russian".equals(layout)
                     ? "RU"
@@ -326,7 +326,7 @@ final class TaskbarController {
         }
         final String layoutName = Settings.Global.getString(
                 mActivity.getContentResolver(),
-                MainActivity.HARDWARE_LAYOUT_NAME_STATE);
+                DesktopShellActivity.HARDWARE_LAYOUT_NAME_STATE);
         mKeyboardLayout.setText(layoutLabel);
         final String description = mActivity.getString(
                 R.string.keyboard_layout_description,

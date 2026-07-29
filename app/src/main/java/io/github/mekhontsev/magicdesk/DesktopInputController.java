@@ -5,7 +5,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 final class DesktopInputController {
-    private final MainActivity mActivity;
+    private final DesktopShellActivity mActivity;
 
     private boolean mPanelBackDown;
     private boolean mContextButtonDown;
@@ -13,7 +13,7 @@ final class DesktopInputController {
     private float mLastPointerX;
     private float mLastPointerY;
 
-    DesktopInputController(final MainActivity activity) {
+    DesktopInputController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 
