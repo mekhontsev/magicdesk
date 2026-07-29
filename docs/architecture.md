@@ -124,6 +124,10 @@ The user-facing lifecycle is split into explicit roles:
 - `AppTaskController`, `WorkspaceController`, `DesktopSpaceController`, and
   `AltTabController` coordinate application tasks, persisted workspace state,
   and session-scoped virtual desktops.
+- `DesktopLayoutController` owns system-inset policy, desktop viewport changes,
+  and persistent taskbar geometry. `DesktopTaskSnapshotController` owns the
+  current task snapshot, serialized refresh generations, and taskbar task
+  filtering.
 - `DisplayProfileController`, `DisplayDensityController`, and
   `ConsoleControlsController` own display-specific preferences and controls.
 - `MagicDeskSessionController` owns complete MagicDesk teardown through the
@@ -199,9 +203,12 @@ screen, while a phone or tablet keeps Android's status and navigation areas.
 
 When Android's own desktop mode causes the MagicDesk host task to inherit a
 freeform windowing mode, `DesktopHostWindowController` normalizes that host
-task back to fullscreen through the client-preserving task transition. It
-makes one attempt per multi-window episode and requires the `TASK_CONTROL`
-capability; application window transitions remain owned by
+task through the same-display recreating fullscreen transition. Nubia forces
+the initial freeform caption inset into `DecorView`; preserving that client
+would leave the caption-height margin after the task becomes fullscreen. The
+controller makes one attempt per multi-window episode and requires the
+`TASK_CONTROL` capability. Application-requested immersive transitions still
+preserve their existing client and remain owned by
 `DesktopWindowTransitionController`.
 There is no display-0 layout fork.
 

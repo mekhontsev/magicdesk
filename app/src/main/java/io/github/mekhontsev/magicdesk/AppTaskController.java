@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.app.ActivityOptions;
 import android.content.Intent;
 import android.util.Log;
+import android.view.Display;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -240,6 +241,52 @@ final class AppTaskController {
                 mActivity.refreshTaskSnapshot();
             });
         });
+    }
+
+    int getOtherDisplayId(final TaskRepository.TaskEntry task) {
+        if (task == null) {
+            return -1;
+        }
+        if (task.displayId != Display.DEFAULT_DISPLAY) {
+            return Display.DEFAULT_DISPLAY;
+        }
+        final int externalDisplayId =
+                ConsoleModeState.activeDisplayId(mActivity);
+        return externalDisplayId > 0 ? externalDisplayId : -1;
+    }
+
+    void moveTaskToOtherDisplay(
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        final int targetDisplayId = getOtherDisplayId(task);
+        if (targetDisplayId < 0) {
+            return;
+        }
+        mActivity.hideAllPanels();
+        mActivity.setStatus(mActivity.getString(
+                R.string.status_moving_to_display,
+                app.label,
+                Integer.valueOf(targetDisplayId)));
+        TaskRepository.moveTaskToDisplay(
+                task,
+                targetDisplayId,
+                result -> mActivity.runOnUiThread(() -> {
+                    if (result.success) {
+                        mActivity.setStatus(mActivity.getString(
+                                R.string.status_moved_to_display,
+                                app.label,
+                                Integer.valueOf(targetDisplayId)));
+                    } else {
+                        mActivity.setErrorStatus(
+                                "TASK-DISPLAY-001",
+                                mActivity.getString(
+                                        R.string.status_move_to_display_failed,
+                                        result.message));
+                    }
+                    mActivity.refreshTaskSnapshot();
+                    MagicDeskRuntimeService
+                            .refreshDesktopTasksIfRunning();
+                }));
     }
 
     void closeTask(

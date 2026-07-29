@@ -1,10 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.view.View;
-
 /**
  * Keeps MagicDesk's desktop host fullscreen when Android desktop mode tries to
  * inherit a freeform windowing mode from the task that launched it.
+ *
+ * <p>The full transition deliberately recreates the client. Nubia otherwise
+ * leaves the initial freeform caption inset on the fullscreen DecorView.</p>
  */
 final class DesktopHostWindowController {
     private static final String DIAGNOSTIC_CODE = "TASKS-001";
@@ -54,7 +55,7 @@ final class DesktopHostWindowController {
                                         + ": " + snapshot.error);
                         return;
                     }
-                    TaskRepository.setAppRequestedFullscreen(task, result ->
+                    TaskRepository.setFullscreen(task, result ->
                             mActivity.runOnUiThread(() -> {
                                 if (!isCurrent(generation)) {
                                     return;
@@ -68,9 +69,6 @@ final class DesktopHostWindowController {
                                                     + result.message);
                                     return;
                                 }
-                                final View decor =
-                                        mActivity.getWindow().getDecorView();
-                                decor.requestApplyInsets();
                                 mActivity.refreshTaskSnapshot();
                             }));
                 }));
