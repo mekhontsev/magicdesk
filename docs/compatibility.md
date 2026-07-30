@@ -49,6 +49,9 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - selected runtime backend, root/Shizuku status, and required
   desktop-windowing values;
+- for an active Shizuku backend, a read-only UserService capability probe
+  covering its actual UID, SELinux domain, relevant Binder permissions,
+  raw-input read/write access, task APIs, and REDMAGIC hardware-node access;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
 - current displays and external input-device descriptors;
@@ -59,6 +62,11 @@ The report excludes notification title/body text, user files, account data,
 clipboard contents, and the installed-app list. MagicDesk-only logs can still
 contain package names, task ids, display ids, and filenames involved in a
 failed operation. Review the text before publishing it.
+
+The Shizuku probe does not read input events, inject a real event, change a
+keyboard layout, alter display state, or write a hardware node. Permissioned
+write paths are tested with rejected null arguments after Android performs its
+permission check.
 
 On some Nubia firmware, Android keeps notification-listener access enabled
 after an app process or package restart but does not bind the service again.

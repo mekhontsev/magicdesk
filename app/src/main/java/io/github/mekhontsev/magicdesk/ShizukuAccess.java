@@ -122,6 +122,20 @@ final class ShizukuAccess {
         return output;
     }
 
+    static String probeCapabilities() throws IOException {
+        try {
+            final String report = requireService().probeCapabilities();
+            if (report == null || report.isEmpty()) {
+                throw new IOException("Shizuku capability probe returned no report");
+            }
+            return report;
+        } catch (RemoteException | RuntimeException error) {
+            clearService();
+            throw new IOException("Shizuku capability probe failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     static void requestPermission() {
         final Snapshot snapshot = inspect();
         if (!snapshot.running) {

@@ -123,6 +123,7 @@ final class CompatibilityDiagnostics {
 
         appendDevice(report);
         appendCompatibility(report, appContext, audit);
+        appendShizukuProbe(report, audit);
         appendDisplays(report, appContext);
         appendInputDevices(report);
         appendEvents(report, appContext);
@@ -324,6 +325,28 @@ final class CompatibilityDiagnostics {
                     .append('x').append(metrics.heightPixels)
                     .append(" dpi=").append(metrics.densityDpi)
                     .append(" rotation=").append(display.getRotation())
+                    .append('\n');
+        }
+        report.append('\n');
+    }
+
+    private static void appendShizukuProbe(
+            final StringBuilder report,
+            final DeviceSetupManager.Audit audit) {
+        if (audit.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                && audit.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+            return;
+        }
+        report.append("## Shizuku capability probe\n");
+        try {
+            report.append(ShizukuAccess.probeCapabilities());
+        } catch (IOException | RuntimeException error) {
+            report.append("probe=failed | ")
+                    .append(cleanSingleLine(
+                            error.getMessage() == null
+                                    ? error.getClass().getSimpleName()
+                                    : error.getMessage(),
+                            600))
                     .append('\n');
         }
         report.append('\n');

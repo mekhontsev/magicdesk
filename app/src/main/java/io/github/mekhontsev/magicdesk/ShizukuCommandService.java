@@ -8,13 +8,15 @@ import java.io.IOException;
 
 public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private static final String TAG = "MagicDeskShizuku";
+    private final Context mContext;
 
     public ShizukuCommandService() {
-        Log.i(TAG, "command service started uid=" + Os.getuid());
+        this(null);
     }
 
     public ShizukuCommandService(final Context context) {
-        this();
+        mContext = context;
+        Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
     @Override
@@ -45,6 +47,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 process.destroy();
             }
         }
+    }
+
+    @Override
+    public String probeCapabilities() {
+        return ShizukuCapabilityProbe.run(mContext);
     }
 
     @Override

@@ -6,4 +6,6 @@ interface IShizukuCommandService {
     int uid() = 1;
 
     String execute(String command) = 2;
+
+    String probeCapabilities() = 3;
 }

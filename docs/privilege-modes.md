@@ -49,12 +49,17 @@ native freeform launches and captions on an already-active Console display,
 display density overrides, and screenshots. Caption visibility uses Nubia's
 exported projection provider to preserve the user's wired-privacy preference
 before invoking the narrow vendor SurfaceFlinger option. Shizuku cannot access
-`/dev/input`, load kernel modules, or use the complete set of REDMAGIC
-root/vendor controls, so the global shortcut bridge, physical-key repeat
-correction, keyboard-layout cycling, right-click remapping, phone-screen
-controls, and Console Mode automation remain disabled. It can control stock
-REDMAGIC bypass charging through the firmware's global setting; Nubia's system
-service still enforces power and battery safety policy.
+kernel modules or the complete set of REDMAGIC root/vendor controls. On the
+verified firmware, shell can read raw `/dev/input/event*`, inject input, change
+physical-keyboard layouts, and register a task listener. It cannot open raw
+input for writing, acquire `MONITOR_INPUT`, or read the private InputManager
+state XML. MagicDesk's current Shizuku UserService supports finite commands,
+not the long-lived event stream needed by the global shortcut bridge.
+Therefore global shortcuts, physical-key repeat correction, keyboard-layout
+cycling, right-click remapping, phone-screen controls, and Console Mode
+automation remain disabled in the current Shizuku runtime. It can control
+stock REDMAGIC bypass charging through the firmware's global setting; Nubia's
+system service still enforces power and battery safety policy.
 
 On REDMAGIC firmware, the physical right mouse button becomes Android Back
 before an application overlay can consume it. Use a long left-button press for

@@ -61,6 +61,12 @@ successful build.
   HOME task focus, and absence of the root watcher were verified on a REDMAGIC
   11 Pro Console display. Display-density controls and a 1920x1080 screenshot
   captured from the Tools panel were also verified.
+- [x] Probe a real ADB-style Shizuku UserService (`uid=2000`,
+  `u:r:shell:s0`, no capabilities). On the verified firmware it can read raw
+  input, inject events, write physical-keyboard layouts, inspect/listen to
+  tasks, and use display commands. It cannot open raw input for writing,
+  acquire `MONITOR_INPUT`, read the private InputManager XML, or access
+  fan/pump nodes.
 - [x] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in
