@@ -16,6 +16,8 @@ final class HardwareKeyboardLayoutController {
             "magicdesk_hardware_keyboard_layout_label";
     private static final String LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
+    private static final String LAYOUTS_STATE =
+            "magicdesk_hardware_keyboard_layouts";
     private static final String LAYOUT_COMMAND =
             "io.github.mekhontsev.magicdesk.HardwareKeyboardLayoutCommand";
     private static final AtomicBoolean REFRESH_IN_PROGRESS =
@@ -53,9 +55,11 @@ final class HardwareKeyboardLayoutController {
 
     private static void apply(final String mode) {
         final String command = "CURRENT=$(" + SETTINGS + " get global "
-                + LAYOUT_STATE + "); "
+                + LAYOUT_STATE + "); LAYOUTS=$(" + SETTINGS + " get global "
+                + LAYOUTS_STATE + "); "
                 + AppProcessCommand.run(
-                        LAYOUT_COMMAND, mode + " \"$CURRENT\"");
+                        LAYOUT_COMMAND,
+                        mode + " \"$CURRENT\" \"$LAYOUTS\"");
         final String output;
         try {
             output = PrivilegedCommandRunner.run(command).trim();
@@ -67,7 +71,9 @@ final class HardwareKeyboardLayoutController {
                 parseOutputValue(output, "descriptor");
         final String code = parseOutputValue(output, "code");
         final String name64 = parseOutputValue(output, "name64");
-        if (descriptor == null || code == null || name64 == null) {
+        final String layouts64 = parseOutputValue(output, "layouts64");
+        if (descriptor == null || code == null
+                || name64 == null || layouts64 == null) {
             Log.w(TAG,
                     "hardware keyboard layout command failed output="
                             + output);
@@ -96,6 +102,9 @@ final class HardwareKeyboardLayoutController {
             PrivilegedCommandRunner.run(
                     SETTINGS + " put global " + LAYOUT_STATE
                             + " " + shellQuote(descriptor));
+            PrivilegedCommandRunner.run(
+                    SETTINGS + " put global " + LAYOUTS_STATE
+                            + " " + shellQuote(layouts64));
         } catch (IOException e) {
             Log.w(TAG, "cannot persist hardware keyboard layout state", e);
             return;

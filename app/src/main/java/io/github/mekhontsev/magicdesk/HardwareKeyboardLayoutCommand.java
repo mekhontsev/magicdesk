@@ -24,10 +24,11 @@ public final class HardwareKeyboardLayoutCommand {
     }
 
     public static void main(final String[] args) {
-        if ((args.length < 1 || args.length > 2)
+        if ((args.length < 1 || args.length > 3)
                 || !("next".equals(args[0]) || "sync".equals(args[0]))) {
             System.err.println(
-                    "usage: HardwareKeyboardLayoutCommand <next|sync> [current-descriptor]");
+                    "usage: HardwareKeyboardLayoutCommand <next|sync>"
+                            + " [current-descriptor] [layouts64]");
             System.exit(64);
             return;
         }
@@ -48,21 +49,46 @@ public final class HardwareKeyboardLayoutCommand {
             final Method getKeyboardLayout = inputManagerInterface.getMethod(
                     "getKeyboardLayout", String.class);
             final ImeState imeState = getImeState();
-            final List<LayoutInfo> layouts = resolveConfiguredLayouts(
+            final List<LayoutInfo> discoveredLayouts = resolveConfiguredLayouts(
                     inputManager, inputManagerInterface, getKeyboardLayout,
                     keyboardLayoutClass, keyboards.get(0), imeState);
+            final List<LayoutInfo> persistedLayouts = args.length >= 3
+                    ? resolvePersistedLayouts(
+                            args[2], inputManager, getKeyboardLayout,
+                            keyboardLayoutClass)
+                    : new ArrayList<>();
+            final List<LayoutInfo> layouts;
+            // Android may switch the active IME before this command runs. Keep
+            // cycling the complete list captured before that subtype race.
+            if (!persistedLayouts.isEmpty()
+                    && ("next".equals(args[0])
+                            || discoveredLayouts.size() < 2)) {
+                layouts = persistedLayouts;
+            } else {
+                layouts = discoveredLayouts;
+            }
             if (layouts.isEmpty()) {
                 System.err.println("no configured hardware keyboard layouts found");
                 System.exit(3);
                 return;
             }
 
-            String current = getSelectedLayoutDescriptor(
-                    inputManager, inputManagerInterface,
-                    keyboards.get(0), imeState.inputMethod,
-                    imeState.currentSubtype);
-            if (current == null && args.length >= 2) {
-                current = args[1];
+            final String persistedCurrent = args.length >= 2
+                    ? args[1] : null;
+            String current = null;
+            // The persisted descriptor represents the pre-shortcut state.
+            if ("next".equals(args[0])
+                    && findCurrentIndex(layouts, persistedCurrent) >= 0) {
+                current = persistedCurrent;
+            }
+            if (current == null) {
+                current = getSelectedLayoutDescriptor(
+                        inputManager, inputManagerInterface,
+                        keyboards.get(0), imeState.inputMethod,
+                        imeState.currentSubtype);
+            }
+            if (current == null) {
+                current = persistedCurrent;
             }
             final int currentIndex = findCurrentIndex(layouts, current);
             final int localeIndex = findLocaleIndex(layouts, imeState.currentSubtype);
@@ -80,6 +106,7 @@ public final class HardwareKeyboardLayoutCommand {
             System.out.println("code=" + compactCode(layouts, selectedIndex));
             System.out.println("name64=" + Base64.encodeToString(
                     selected.label.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+            System.out.println("layouts64=" + encodeLayoutDescriptors(layouts));
             System.out.println("devices=" + keyboards.size());
             System.out.println("layouts=" + layouts.size());
             System.out.println("ime=" + imeState.imeId);
@@ -107,7 +134,17 @@ public final class HardwareKeyboardLayoutCommand {
                 descriptors.add(descriptor);
             }
         }
+        return resolveLayouts(
+                descriptors, inputManager, getKeyboardLayout,
+                keyboardLayoutClass);
+    }
 
+    private static List<LayoutInfo> resolveLayouts(
+            final Iterable<String> descriptors,
+            final Object inputManager,
+            final Method getKeyboardLayout,
+            final Class<?> keyboardLayoutClass)
+            throws ReflectiveOperationException {
         final Method getDescriptor = keyboardLayoutClass.getMethod("getDescriptor");
         final Method getLabel = keyboardLayoutClass.getMethod("getLabel");
         final Method getLocales = keyboardLayoutClass.getMethod("getLocales");
@@ -123,6 +160,50 @@ public final class HardwareKeyboardLayoutCommand {
             layouts.add(new LayoutInfo(resolvedDescriptor, label, firstLocale(locales)));
         }
         return layouts;
+    }
+
+    private static List<LayoutInfo> resolvePersistedLayouts(
+            final String encodedDescriptors,
+            final Object inputManager,
+            final Method getKeyboardLayout,
+            final Class<?> keyboardLayoutClass) throws ReflectiveOperationException {
+        if (encodedDescriptors == null
+                || encodedDescriptors.isEmpty()
+                || "null".equals(encodedDescriptors)) {
+            return new ArrayList<>();
+        }
+        final String decoded;
+        try {
+            decoded = new String(
+                    Base64.decode(encodedDescriptors, Base64.DEFAULT),
+                    StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException error) {
+            return new ArrayList<>();
+        }
+        final Set<String> descriptors = new LinkedHashSet<>();
+        for (final String descriptor : decoded.split("\\n")) {
+            final String trimmed = descriptor.trim();
+            if (!trimmed.isEmpty()) {
+                descriptors.add(trimmed);
+            }
+        }
+        return resolveLayouts(
+                descriptors, inputManager, getKeyboardLayout,
+                keyboardLayoutClass);
+    }
+
+    private static String encodeLayoutDescriptors(
+            final List<LayoutInfo> layouts) {
+        final StringBuilder descriptors = new StringBuilder();
+        for (final LayoutInfo layout : layouts) {
+            if (descriptors.length() > 0) {
+                descriptors.append('\n');
+            }
+            descriptors.append(layout.descriptor);
+        }
+        return Base64.encodeToString(
+                descriptors.toString().getBytes(StandardCharsets.UTF_8),
+                Base64.NO_WRAP);
     }
 
     private static String getSelectedLayoutDescriptor(
