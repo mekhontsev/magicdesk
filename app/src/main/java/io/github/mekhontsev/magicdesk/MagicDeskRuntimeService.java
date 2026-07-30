@@ -155,12 +155,8 @@ public final class MagicDeskRuntimeService extends Service
         }
         registerConfigurationReceiver();
         registerConsoleModeObserver();
-        if (mConsoleModeActive
-                && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+        if (mConsoleModeActive && RuntimeAccess.allowsRootCommands()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(true);
-        } else if (RuntimeAccess.allowsShizukuCommands()) {
-            ShizukuCaptionPolicyController.setCaptionsVisible(
-                    this, mConsoleModeActive);
         }
         syncMirrorInputProxyState();
         updateKeyboardWatcher();
@@ -485,11 +481,8 @@ public final class MagicDeskRuntimeService extends Service
                 mConsoleExitRecoveryPending = false;
             }
         }
-        if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+        if (RuntimeAccess.allowsRootCommands()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
-        } else if (RuntimeAccess.allowsShizukuCommands()) {
-            ShizukuCaptionPolicyController.setCaptionsVisible(
-                    this, consoleModeActive);
         }
         updateDesktopTasks();
         if (wasConsoleModeActive && !consoleModeActive

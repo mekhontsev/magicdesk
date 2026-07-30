@@ -19,7 +19,7 @@ final class ConsoleSessionController {
     private static final String SURFACE_FLINGER_OPTION_COMMAND =
             "io.github.mekhontsev.magicdesk.SurfaceFlingerOptionCommand";
     private static final Pattern DESKTOP_HOME_TASK_ID_PATTERN =
-            Pattern.compile("desktop-home-task-id=(\\d+)");
+            Pattern.compile("desktop-home-task-id=(-?\\d+)");
 
     private ConsoleSessionController() {
     }
@@ -137,25 +137,52 @@ final class ConsoleSessionController {
     }
 
     static void showWithShizuku(final int displayId) {
-        if (displayId <= 0) {
-            Log.w(TAG,
-                    "cannot show MagicDesk with Shizuku: Console Mode is inactive");
-            CompatibilityDiagnostics.record(
-                    "SHIZUKU-CONSOLE-001",
-                    "Cannot open MagicDesk on the external display",
-                    "Enable REDMAGIC's extended external display before using "
-                            + "the MagicDesk notification");
-            return;
-        }
+        int consoleDisplayId = displayId > 0
+                ? displayId : ConsoleDisplayController.getActiveConsoleDisplayId();
+        boolean startedConsoleMode = false;
+        boolean seedStarted = false;
+        int physicalDisplayId = -1;
         try {
-            ConsoleDisplayController.ensureLandscapeWithShizuku(displayId);
+            if (consoleDisplayId <= 0) {
+                physicalDisplayId =
+                        ConsoleDisplayController.findExternalDisplayId();
+                if (physicalDisplayId <= 0) {
+                    throw new IOException(
+                            "no physical external display was reported");
+                }
+                if (ConsoleDisplayController.isMirrorMode()
+                        && !hasVisibleAppTaskWithShizuku(0)) {
+                    seedStarted = startConsoleSeedTaskWithShizuku();
+                    if (!seedStarted) {
+                        return;
+                    }
+                }
+                if (!ConsoleDisplayController.requestConsoleMode(
+                        physicalDisplayId)) {
+                    return;
+                }
+                consoleDisplayId =
+                        ConsoleDisplayController.waitForConsoleDisplay();
+                if (consoleDisplayId <= 0) {
+                    throw new IOException(
+                            "Nubia Console Mode did not create an app mirror display");
+                }
+                startedConsoleMode = true;
+            }
+            ConsoleDisplayController.ensureLandscapeWithShizuku(
+                    consoleDisplayId);
+            if (startedConsoleMode) {
+                prepareConsoleDisplayDensity(
+                        consoleDisplayId, physicalDisplayId);
+            }
             final Boolean visibleTaskSnapshot =
-                    DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
+                    DesktopTaskController.hasVisibleAppTaskSnapshot(
+                            consoleDisplayId);
             final boolean restoreWindows =
                     visibleTaskSnapshot != null
                             && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId =
-                    findDesktopHomeTaskWithShizuku(displayId);
+                    findDesktopHomeTaskWithShizuku(consoleDisplayId);
             if (desktopTaskId >= 0) {
                 final String focusOutput = PrivilegedCommandRunner.run(
                         AM + " task focus " + desktopTaskId).trim();
@@ -164,10 +191,13 @@ final class ConsoleSessionController {
                 if (restoreWindows) {
                     DesktopRuntimeBridge.restoreLastVisibleWindows();
                 }
+                if (startedConsoleMode) {
+                    NubiaTouchpadController.refreshOrOpen();
+                }
                 return;
             }
             final String output = PrivilegedCommandRunner.run(
-                    AM + " start -W --display " + displayId
+                    AM + " start -W --display " + consoleDisplayId
                             + " --windowingMode 1"
                             + " --activityType 2"
                             + " -f 0x18000000"
@@ -178,6 +208,10 @@ final class ConsoleSessionController {
                                             + " "
                                             + DesktopShellActivity.ACTION_RESTORE_WINDOWS
                                     : "")
+                            + " --es " + SessionProfile.EXTRA_PRIVILEGE_MODE
+                            + " shizuku"
+                            + " --es " + SessionProfile.EXTRA_DISPLAY_TARGET
+                            + " external"
                             + " -n io.github.mekhontsev.magicdesk/.DeviceSetupActivity")
                     .trim();
             if (output.startsWith("Error:")
@@ -185,18 +219,27 @@ final class ConsoleSessionController {
                             "Exception occurred while executing")) {
                 throw new IOException(output);
             }
-            Log.i(TAG, "Shizuku MagicDesk launch display=" + displayId
+            Log.i(TAG, "Shizuku MagicDesk launch display=" + consoleDisplayId
                     + " output=" + output.replace('\n', ' '));
+            if (startedConsoleMode
+                    && waitForDesktopReadyWithShizuku(consoleDisplayId)) {
+                NubiaTouchpadController.refreshOrOpen();
+            }
         } catch (IOException error) {
             Log.w(TAG, "Shizuku MagicDesk launch failed", error);
             CompatibilityDiagnostics.record(
                     "SHIZUKU-CONSOLE-002",
                     "Could not open MagicDesk on the Console display",
                     error.getMessage());
+        } finally {
+            finishConsoleSeedTask(seedStarted);
         }
     }
 
     static boolean setExternalTaskCaptionsEnabled(final boolean enabled) {
+        if (!RuntimeAccess.allowsRootCommands()) {
+            return true;
+        }
         final String operation =
                 enabled ? "enable-captions" : "restore-privacy";
         final String output = ConsoleModeSwitcher.runRootCommand(
@@ -229,6 +272,57 @@ final class ConsoleSessionController {
                     "could not query MagicDesk HOME task: " + output.trim());
         }
         return Integer.parseInt(matcher.group(1));
+    }
+
+    private static boolean hasVisibleAppTaskWithShizuku(final int displayId)
+            throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                AppProcessCommand.run(
+                        TASK_CONTROL_COMMAND,
+                        "has-visible-app " + displayId)).trim();
+        if (output.contains("visible-app-task=true")) {
+            return true;
+        }
+        if (output.contains("visible-app-task=false")) {
+            return false;
+        }
+        throw new IOException(
+                "could not query visible tasks: " + output);
+    }
+
+    private static boolean startConsoleSeedTaskWithShizuku()
+            throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                AM + " start -W --display 0"
+                        + " --windowingMode 1"
+                        + " --activity-reorder-to-front"
+                        + " --activity-single-top"
+                        + " -n " + SEED_COMPONENT).trim();
+        if (output.contains("Status: ok")) {
+            Log.i(TAG, "prepared Shizuku Console seed task");
+            return true;
+        }
+        CompatibilityDiagnostics.record(
+                "NUBIA-CONSOLE-004",
+                "The external desktop needs a foreground application",
+                output);
+        return false;
+    }
+
+    private static boolean waitForDesktopReadyWithShizuku(
+            final int displayId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + ConsoleDisplayController.START_TIMEOUT_MS;
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (!ConsoleDisplayController.displayExists(displayId)) {
+                return false;
+            }
+            if (findDesktopHomeTaskWithShizuku(displayId) >= 0) {
+                return true;
+            }
+            SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+        }
+        return false;
     }
 
     private static boolean waitForDesktopReady(final int displayId) {

@@ -195,7 +195,8 @@ final class DeviceSetupManager {
                 configurationReady,
                 rebootRequired,
                 acknowledged,
-                hasManagedChanges(preferences));
+                hasManagedChanges(preferences),
+                hasManagedWindowingChanges(preferences));
     }
 
     static Audit configure(final Context context) throws IOException {
@@ -264,6 +265,61 @@ final class DeviceSetupManager {
         return after;
     }
 
+    static Audit configureShizuku(
+            final Context context,
+            final SessionProfile sessionProfile) throws IOException {
+        final Audit before = audit(context, sessionProfile);
+        if (before.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                && before.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+            throw new IOException(
+                    "a running Shizuku shell backend is required");
+        }
+        if (!before.compatibleDevice) {
+            throw new IOException(
+                    "requires a ZTE/nubia device with Android 16 or newer");
+        }
+
+        RuntimeAccess.configure(before.sessionProfile, before.backend);
+        final SharedPreferences preferences = preferences(context);
+        final SharedPreferences.Editor originals = preferences.edit();
+        final List<String> commands = new ArrayList<>();
+        addGlobalSettingChange(
+                preferences,
+                originals,
+                commands,
+                ITEM_FREEFORM,
+                FREEFORM_SETTING,
+                before.freeformValue,
+                before.freeformEnabled);
+        addGlobalSettingChange(
+                preferences,
+                originals,
+                commands,
+                ITEM_RESIZABLE,
+                RESIZABLE_SETTING,
+                before.resizableValue,
+                before.resizableEnabled);
+        originals.putInt(KEY_APPROVED_VERSION, SETUP_VERSION);
+        if (!commands.isEmpty()) {
+            originals.putString(
+                    KEY_PENDING_BOOT_ID,
+                    before.bootId.isEmpty()
+                            ? "unknown-current-boot" : before.bootId);
+        }
+        if (!originals.commit()) {
+            throw new IOException("could not save Shizuku setup state");
+        }
+        if (!commands.isEmpty()) {
+            PrivilegedCommandRunner.run(joinCommands(commands));
+        }
+        final Audit after = audit(context, sessionProfile);
+        if (!after.hasUserWindowingOptions()) {
+            throw new IOException(
+                    "Shizuku could not enable Android freeform windowing");
+        }
+        return after;
+    }
+
     static Audit restoreManagedChanges(final Context context) throws IOException {
         final Audit before = audit(context);
         if (!before.rootAvailable) {
@@ -304,6 +360,46 @@ final class DeviceSetupManager {
         return audit(context);
     }
 
+    static Audit restoreShizukuManagedChanges(
+            final Context context,
+            final SessionProfile sessionProfile) throws IOException {
+        final Audit before = audit(context, sessionProfile);
+        if (before.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
+                && before.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+            throw new IOException(
+                    "a running Shizuku shell backend is required");
+        }
+        RuntimeAccess.configure(before.sessionProfile, before.backend);
+
+        final SharedPreferences preferences = preferences(context);
+        final List<String> commands = new ArrayList<>();
+        addGlobalSettingRestore(
+                preferences, commands, ITEM_FREEFORM, FREEFORM_SETTING);
+        addGlobalSettingRestore(
+                preferences, commands, ITEM_RESIZABLE, RESIZABLE_SETTING);
+        if (!commands.isEmpty()) {
+            PrivilegedCommandRunner.run(joinCommands(commands));
+        }
+
+        final SharedPreferences.Editor editor = preferences.edit()
+                .remove(KEY_APPROVED_VERSION);
+        clearManagedItem(editor, ITEM_FREEFORM);
+        clearManagedItem(editor, ITEM_RESIZABLE);
+        if (!commands.isEmpty()) {
+            editor.putString(
+                    KEY_PENDING_BOOT_ID,
+                    before.bootId.isEmpty()
+                            ? "unknown-current-boot" : before.bootId);
+        } else {
+            editor.remove(KEY_PENDING_BOOT_ID);
+        }
+        if (!editor.commit()) {
+            throw new IOException(
+                    "could not save restored Shizuku setup state");
+        }
+        return audit(context, sessionProfile);
+    }
+
     static void acknowledgeReadyConfiguration(final Context context) {
         preferences(context).edit()
                 .putInt(KEY_APPROVED_VERSION, SETUP_VERSION)
@@ -331,7 +427,15 @@ final class DeviceSetupManager {
     }
 
     static void reboot() throws IOException {
-        PrivilegedCommandRunner.runRootSetup("/system/bin/reboot");
+        if (RuntimeAccess.allowsRootCommands()) {
+            PrivilegedCommandRunner.runRootSetup("/system/bin/reboot");
+            return;
+        }
+        if (RuntimeAccess.allowsShizukuCommands()) {
+            PrivilegedCommandRunner.run("/system/bin/svc power reboot");
+            return;
+        }
+        throw new IOException("reboot requires Root or Shizuku");
     }
 
     private static void requireRootAndCompatibility(final Audit audit) throws IOException {
@@ -444,10 +548,15 @@ final class DeviceSetupManager {
     }
 
     private static boolean hasManagedChanges(final SharedPreferences preferences) {
-        return preferences.getBoolean(OWNED_PREFIX + ITEM_FREEFORM, false)
-                || preferences.getBoolean(OWNED_PREFIX + ITEM_RESIZABLE, false)
+        return hasManagedWindowingChanges(preferences)
                 || preferences.getBoolean(OWNED_PREFIX + ITEM_RESTRICTIONS, false)
                 || preferences.getBoolean(OWNED_PREFIX + ITEM_ROUNDED_CORNERS, false);
+    }
+
+    private static boolean hasManagedWindowingChanges(
+            final SharedPreferences preferences) {
+        return preferences.getBoolean(OWNED_PREFIX + ITEM_FREEFORM, false)
+                || preferences.getBoolean(OWNED_PREFIX + ITEM_RESIZABLE, false);
     }
 
     private static String buildAuditCommand() {
@@ -583,6 +692,7 @@ final class DeviceSetupManager {
         final boolean rebootRequired;
         final boolean acknowledged;
         final boolean hasManagedChanges;
+        final boolean hasManagedWindowingChanges;
 
         Audit(
                 final boolean rootAvailable,
@@ -608,7 +718,8 @@ final class DeviceSetupManager {
                 final boolean configurationReady,
                 final boolean rebootRequired,
                 final boolean acknowledged,
-                final boolean hasManagedChanges) {
+                final boolean hasManagedChanges,
+                final boolean hasManagedWindowingChanges) {
             this.rootAvailable = rootAvailable;
             this.rootError = rootError;
             this.shizuku = shizuku;
@@ -633,6 +744,8 @@ final class DeviceSetupManager {
             this.rebootRequired = rebootRequired;
             this.acknowledged = acknowledged;
             this.hasManagedChanges = hasManagedChanges;
+            this.hasManagedWindowingChanges =
+                    hasManagedWindowingChanges;
         }
 
         boolean canEnterMagicDesk() {

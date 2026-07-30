@@ -99,7 +99,7 @@ public final class FreeformLauncherActivity extends Activity {
             final boolean existingTask =
                     ExistingTaskController.taskExists(packageName, displayId);
             if (!existingTask) {
-                if (rootColdLaunch) {
+                if (rootColdLaunch && RuntimeAccess.allowsRootCommands()) {
                     finish();
                     overridePendingTransition(0, 0);
                     LAUNCH_EXECUTOR.execute(() -> launchAsRootAndConvert(
@@ -114,7 +114,7 @@ public final class FreeformLauncherActivity extends Activity {
             }
             finish();
             overridePendingTransition(0, 0);
-            LAUNCH_EXECUTOR.execute(() -> convertToNativeDesktop(appContext,
+            LAUNCH_EXECUTOR.execute(() -> convertToDesktopWindow(appContext,
                     packageName, displayId, preservedTaskIds, !existingTask));
         } catch (IOException | RuntimeException e) {
             Log.w(TAG, "cannot prepare native desktop launch package=" + packageName, e);
@@ -159,7 +159,7 @@ public final class FreeformLauncherActivity extends Activity {
         try {
             ExistingTaskController.startActivityAsRoot(
                     launchIntent.getComponent(), displayId);
-            convertToNativeDesktop(
+            convertToDesktopWindow(
                     context, packageName, displayId, preservedTaskIds, true);
         } catch (IOException | RuntimeException e) {
             Log.w(TAG, "root cold launch failed package=" + packageName, e);
@@ -167,21 +167,29 @@ public final class FreeformLauncherActivity extends Activity {
         }
     }
 
-    private static void convertToNativeDesktop(final Context context,
+    private static void convertToDesktopWindow(final Context context,
             final String packageName, final int displayId, final int[] preservedTaskIds,
             final boolean waitForVisibleTask) {
         try {
-            final ExistingTaskController.ReuseResult reuseResult =
-                    ExistingTaskController.reuseNativeDesktopIfExists(
+            final boolean nativeDesktop =
+                    RuntimeAccess.allowsRootCommands()
+                            || (RuntimeAccess.allowsShizukuCommands()
+                                    && NativeDesktopController.isAvailable());
+            final ExistingTaskController.ReuseResult reuseResult = nativeDesktop
+                    ? ExistingTaskController.reuseNativeDesktopIfExists(
+                            packageName, displayId, preservedTaskIds,
+                            waitForVisibleTask)
+                    : ExistingTaskController.reuseFreeformIfExists(
                             packageName, displayId, preservedTaskIds,
                             waitForVisibleTask);
             if (!reuseResult.found) {
                 throw new IOException("task not found");
             }
-            Log.i(TAG, "native desktop ready package=" + packageName
+            Log.i(TAG, (nativeDesktop ? "native desktop" : "freeform")
+                    + " ready package=" + packageName
                     + " display=" + displayId);
         } catch (IOException | RuntimeException e) {
-            Log.w(TAG, "native desktop launch failed package=" + packageName, e);
+            Log.w(TAG, "desktop window launch failed package=" + packageName, e);
             showToast(context, "Window launch failed: " + usefulMessage(e));
         }
     }

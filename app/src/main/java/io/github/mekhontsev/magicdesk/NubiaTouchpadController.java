@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class NubiaTouchpadController {
@@ -116,7 +117,7 @@ final class NubiaTouchpadController {
     static void restorePrimaryPhoneHome() {
         ConsoleModeSwitcher.executeSerialized(() -> {
             try {
-                ConsoleModeSwitcher.runRootCommand(
+                runConsoleCommand(
                         PhoneHomeRecoveryController.primaryHomeCommand());
             } finally {
                 ConsoleModeSwitcher.closeRootShell();
@@ -125,6 +126,10 @@ final class NubiaTouchpadController {
     }
 
     static boolean refreshOrOpen() {
+        if (RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()) {
+            return requestWithShizuku();
+        }
         if (!setMirrorInputProxyEnabledInternal(true)) {
             Log.w(TAG,
                     "cannot refresh Nubia touchpad: input proxy could not be enabled");
@@ -190,6 +195,10 @@ final class NubiaTouchpadController {
     }
 
     private static boolean request() {
+        if (RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()) {
+            return requestWithShizuku();
+        }
         if (!setMirrorInputProxyEnabledInternal(true)) {
             Log.w(TAG,
                     "cannot open Nubia touchpad: input proxy could not be enabled");
@@ -220,6 +229,34 @@ final class NubiaTouchpadController {
         return true;
     }
 
+    private static boolean requestWithShizuku() {
+        final String touchpadOutput = runConsoleCommand(
+                AppProcessCommand.run(
+                        CONSOLE_DISPLAY_COMMAND,
+                        "touchpad 0")).trim();
+        if (!touchpadOutput.contains("display-command=touchpad")) {
+            Log.w(TAG,
+                    "Shizuku touchpad command failed output="
+                            + touchpadOutput);
+            return false;
+        }
+        final String viewportOutput = runConsoleCommand(
+                AppProcessCommand.run(
+                        MOUSE_VIEWPORT_COMMAND)).trim();
+        if (!viewportOutput.contains("mouse-viewport=updated")) {
+            Log.w(TAG,
+                    "Shizuku mouse viewport update failed output="
+                            + viewportOutput);
+            return false;
+        }
+        final boolean visible = waitForActivity(true);
+        if (!visible) {
+            Log.w(TAG,
+                    "Nubia touchpad did not appear after Shizuku request");
+        }
+        return visible;
+    }
+
     private static String touchpadServiceCommand(final String reason) {
         return AM + " start-service --user 0"
                 + " -a " + MIRROR_INPUT_ACTION
@@ -241,11 +278,26 @@ final class NubiaTouchpadController {
     }
 
     private static boolean isActivityPresent() {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runConsoleCommand(
                 "/system/bin/dumpsys activity activities"
                         + " | /system/bin/grep -F -m 1 "
                         + shellQuote(MIRROR_INPUT_ACTIVITY));
         return output.contains(MIRROR_INPUT_ACTIVITY);
+    }
+
+    private static String runConsoleCommand(final String command) {
+        if (RuntimeAccess.allowsRootCommands()) {
+            return ConsoleModeSwitcher.runRootCommand(command);
+        }
+        if (!RuntimeAccess.allowsShizukuCommands()) {
+            return "";
+        }
+        try {
+            return PrivilegedCommandRunner.run(command);
+        } catch (IOException error) {
+            Log.w(TAG, "Console command failed: " + command, error);
+            return "";
+        }
     }
 
     private static String shellQuote(final String value) {

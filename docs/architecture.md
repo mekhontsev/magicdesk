@@ -114,8 +114,10 @@ The user-facing lifecycle is split into explicit roles:
 - `DeviceSetupActivity` owns onboarding and selects one of those roles after a
   successful runtime audit.
 - `ConsoleSeedActivity` is an internal opaque foreground task used only for
-  Nubia's Root Mirror-to-Console handshake. It never appears in Recents and is
-  removed as soon as the external desktop HOME task is ready.
+  Nubia's Mirror-to-Console handshake. It is exported behind
+  `MANAGE_ACTIVITY_TASKS` so either Root or the Shizuku shell service can launch
+  it, never appears in Recents, and is removed as soon as the external desktop
+  HOME task is ready.
 
 - `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
   `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
@@ -141,7 +143,8 @@ The user-facing lifecycle is split into explicit roles:
   fullscreen/restore transitions, and immersive requests,
   `NativeWindowBoundsController` owns freeform geometry, and
   `DesktopPhoneUiReconciler` repairs displaced phone-side Nubia UI.
-  `DesktopTaskWatcher` owns the root helper process and event protocol.
+  `DesktopTaskWatcher` owns the selected privileged helper and its
+  bidirectional event/control protocol.
 - `ConsoleModeSwitcher` is the serialized public facade for Console actions.
   `ConsoleSessionController` owns desktop activation,
   `ConsoleDisplayController` owns dynamic display discovery and geometry, and
@@ -279,9 +282,10 @@ vendor extension:
 DisplayManager.setCmdToDisplay(1, physicalDisplayId, 0, null)
 ```
 
-MagicDesk invokes the same Binder method from a short-lived root `app_process`
-helper. It does not synthesize Console Mode by writing
-`app_mirror_status` or `app_mirror_displayid`.
+MagicDesk invokes the same Binder method from a short-lived privileged
+`app_process` helper. Root starts it directly; Shizuku starts the same command
+as Android shell UID 2000. MagicDesk does not synthesize Console Mode by
+writing `app_mirror_status` or `app_mirror_displayid`.
 
 On `Win+D`, MagicDesk:
 
@@ -297,8 +301,9 @@ On `Win+D`, MagicDesk:
    EDID-specific DPI before creating desktop UI.
 6. Audits the existing MagicDesk task.
 7. Creates `DesktopActivity` directly as a fullscreen HOME task, or recreates
-   only a MagicDesk task that Nubia converted to ordinary freeform. The Root
-   path does not route an already-approved session through Device Setup.
+   only a MagicDesk task that Nubia converted to ordinary freeform. An
+   already-approved Root or Shizuku session is not routed back through Device
+   Setup.
 8. Focuses an already-correct desktop task without recreation.
 9. Restores the saved visible freeform window layout.
 
@@ -318,14 +323,11 @@ The firmware then removes external-output layers whose debug names contain
 receive input but may be invisible. After Console Mode becomes ready,
 MagicDesk calls `setSFOption(1102, 0)` through a short-lived privileged helper.
 
-Root mode reads NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference
-directly when restoring the option. Shizuku shell cannot read another
-application's private files, so it queries the exported
-`cn.nubia.touping.TouPingProvider` `CALL_5` endpoint instead. MagicDesk records
-the returned value before applying the override and restores the latest Nubia
-preference, or the recorded value if the provider is temporarily unavailable.
-If the preference cannot be read before the first override, MagicDesk leaves
-the SurfaceFlinger option unchanged.
+This SurfaceFlinger option is Root-only. Root reads
+NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference before changing it,
+records the value, and restores the latest Nubia preference or the recorded
+value when the provider is temporarily unavailable. A clean Shizuku session
+does not touch this option and does not claim native caption support.
 
 ### Teardown
 
@@ -355,23 +357,31 @@ tasks marked visible inside the same Home root task after recovery.
 ## Window And Task Management
 
 Android does not expose `DesktopTasksController` as a public application API.
-This firmware provides a root shell entry point:
+When Root provisioning disables desktop-mode device restrictions, this
+firmware provides a shell entry point:
 
 ```sh
 cmd statusbar wmshell-passthrough desktopmode moveTaskToDesk <task-id>
 ```
 
-MagicDesk probes the command before using it. A new application starts on the
-Console display through a short-lived transparent dispatcher. The dispatcher
-immediately closes; `DesktopTaskController` waits until
-ActivityTaskManager reports the target task, then asks WMShell to move that
-exact task to the desktop. Existing tasks are moved and reused without
-relaunching their activities.
+MagicDesk probes the command before using it. Root uses this path for native
+WMShell captions. A clean Shizuku installation keeps firmware device
+restrictions enabled, so `DesktopTasksController` is not initialized and the
+command is unavailable. In that case MagicDesk submits the required
+`WindowContainerTransaction` directly through its UID-2000 UserService.
+
+A new application starts on the Console display through a short-lived
+transparent dispatcher. The dispatcher immediately closes;
+`DesktopTaskController` waits until ActivityTaskManager reports the target
+task, then selects the probed WMShell path or the direct transaction path.
+Existing tasks are moved and reused without relaunching their activities.
 
 The system `ShellTaskOrganizer` remains the only organizer.
 `DesktopTaskRepository` owns active, visible, minimized, and Z-ordered desktop
-tasks. `DesktopModeWindowDecorViewModel` owns native captions and resize
-behavior.
+tasks. In Root-provisioned mode `DesktopModeWindowDecorViewModel` owns native
+captions and resize behavior. Clean Shizuku mode intentionally has no
+replacement caption overlay; window actions remain available from MagicDesk's
+taskbar and shortcuts.
 
 ### Fullscreen And Maximize
 
@@ -405,9 +415,9 @@ is not forced back into the saved freeform layout.
 Show Desktop stores exact task ids, bounds, and top-first ordering. It does not
 close or force-stop application processes.
 
-The application context menu can move an existing root task between display 0
-and the currently active Console display with ActivityTaskManager's
-`display move-stack` command. This preserves the Activity instance and avoids
+The application context menu can move an existing privileged task between
+display 0 and the currently active Console display through
+ActivityTaskManager. This preserves the Activity instance and avoids
 the REDMAGIC behavior where a public cross-display relaunch kills the old
 process.
 
@@ -671,13 +681,15 @@ Basic mode does not invoke `su` and may enter a degraded desktop when the
 windowing configuration is incomplete. Root mode remains strict and does not
 fall back when `su` is unavailable. Auto currently resolves to Root when
 available and Basic otherwise. Explicit Shizuku mode binds an official
-Shizuku UserService and dispatches finite shell commands through AIDL. A
-separate `ParcelFileDescriptor` pipe carries the read-only `Ctrl+Space` input
-stream and is closed together with its remote process when the watcher stops.
-Shizuku mode does not fall back when the server or permission is unavailable
-and never starts the root input helpers.
+Shizuku UserService and dispatches finite shell commands through AIDL.
+Lifecycle-bound `ParcelFileDescriptor` streams carry read-only physical-key
+events and task events. The task stream is bidirectional: MagicDesk writes
+focus/watch commands back to the same child helper through the UserService.
+Streams and their remote processes are closed together when their watcher
+stops. Shizuku mode does not fall back when the server or permission is
+unavailable and never starts the root input helpers.
 
-After explicit confirmation it applies only missing values:
+After explicit confirmation Root applies only missing values:
 
 ```sh
 su -c 'settings put global enable_freeform_support 1'
@@ -690,13 +702,18 @@ The first two correspond to Android's **Enable freeform windows** and **Force
 activities to be resizable** developer options. MagicDesk does not enable the
 Developer Options master switch.
 
+Shizuku applies and records only those first two global settings through shell
+`WRITE_SECURE_SETTINGS`. It cannot modify either persistent property. This is
+the intentional clean Shizuku profile: direct task transactions are available,
+while WMShell native captions are not.
+
 No other `persist.wm.debug.desktop_*` value is currently required. MagicDesk
 does not force desktop mode on every freeform display, enable cross-display
 window dragging, override density globally, change maximum task count, or
 replace Android's resize animation.
 
 WMShell and ActivityTaskManager cache these values. Device Setup records the
-boot id and requires a real reboot after a change. Manual verification:
+boot id and requires a real reboot after a change. Root verification:
 
 ```sh
 su -c 'settings get global enable_freeform_support'
@@ -705,7 +722,8 @@ su -c 'getprop persist.wm.debug.desktop_mode_enforce_device_restrictions'
 su -c 'getprop persist.wm.debug.desktop_use_rounded_corners'
 ```
 
-Expected values are `1`, `1`, `false`, and `false`.
+Expected Root values are `1`, `1`, `false`, and `false`. Expected clean
+Shizuku values are `1`, `1`, `true`, and `true`.
 
 Previous values are stored only for settings MagicDesk changes. **Restore
 previous values** restores those owned values and requests another reboot.

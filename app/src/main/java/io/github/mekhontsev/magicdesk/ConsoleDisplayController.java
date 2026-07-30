@@ -37,7 +37,7 @@ final class ConsoleDisplayController {
     }
 
     static int findExternalDisplayId() {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 DISPLAY + " get-displays --ids-only --type external");
         for (final String line : output.split("\\r?\\n")) {
             try {
@@ -53,7 +53,7 @@ final class ConsoleDisplayController {
     }
 
     static boolean requestConsoleMode(final int externalDisplayId) {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 AppProcessCommand.run(
                         CONSOLE_DISPLAY_COMMAND,
                         "expand " + externalDisplayId)).trim();
@@ -69,7 +69,7 @@ final class ConsoleDisplayController {
     }
 
     static boolean requestMirrorMode() {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 AppProcessCommand.run(
                         CONSOLE_DISPLAY_COMMAND,
                         "mirror 0")).trim();
@@ -81,7 +81,7 @@ final class ConsoleDisplayController {
     }
 
     static boolean isMirrorMode() {
-        return "0".equals(ConsoleModeSwitcher.runRootCommand(
+        return "0".equals(runCommand(
                 SETTINGS + " get global app_mirror_status").trim());
     }
 
@@ -109,7 +109,7 @@ final class ConsoleDisplayController {
     }
 
     static boolean displayExists(final int displayId) {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 DISPLAY + " get-displays --ids-only");
         for (final String line : output.split("\\r?\\n")) {
             if (line.trim().equals(Integer.toString(displayId))) {
@@ -136,7 +136,7 @@ final class ConsoleDisplayController {
         Log.i(TAG, "force Console display landscape display=" + displayId
                 + " size=" + size[0] + "x" + size[1]
                 + " target=" + targetWidth + "x" + targetHeight);
-        ConsoleModeSwitcher.runRootCommand(
+        runCommand(
                 WM + " size " + targetWidth + "x" + targetHeight
                         + " -d " + displayId);
 
@@ -166,15 +166,14 @@ final class ConsoleDisplayController {
         final String command = dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI
                 ? WM + " density reset -d " + displayId
                 : WM + " density " + dpi + " -d " + displayId;
-        final String output =
-                ConsoleModeSwitcher.runRootCommand(command).trim();
+        final String output = runCommand(command).trim();
         Log.i(TAG, "prepared Console display density display=" + displayId
                 + " dpi=" + dpi + " output="
                 + output.replace('\n', ' '));
         final long deadline =
                 SystemClock.uptimeMillis() + DENSITY_APPLY_TIMEOUT_MS;
         while (SystemClock.uptimeMillis() < deadline) {
-            final String state = ConsoleModeSwitcher.runRootCommand(
+            final String state = runCommand(
                     WM + " density -d " + displayId);
             final Matcher matcher = WM_DENSITY_PATTERN.matcher(state);
             final boolean hasOverride = matcher.find();
@@ -225,7 +224,7 @@ final class ConsoleDisplayController {
     }
 
     private static int[] getDisplaySize(final int displayId) {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 DISPLAY + " get-displays");
         for (final String line : output.split("\\r?\\n")) {
             final Matcher matcher = DISPLAY_REAL_SIZE_PATTERN.matcher(line);
@@ -247,13 +246,28 @@ final class ConsoleDisplayController {
     }
 
     private static int getMirrorDisplayId() {
-        final String output = ConsoleModeSwitcher.runRootCommand(
+        final String output = runCommand(
                 SETTINGS + " get global app_mirror_displayid");
         try {
             return Integer.parseInt(output.trim());
         } catch (NumberFormatException error) {
             Log.w(TAG, "bad app_mirror_displayid: " + output);
             return -1;
+        }
+    }
+
+    private static String runCommand(final String command) {
+        if (RuntimeAccess.allowsRootCommands()) {
+            return ConsoleModeSwitcher.runRootCommand(command);
+        }
+        if (!RuntimeAccess.allowsShizukuCommands()) {
+            return "";
+        }
+        try {
+            return PrivilegedCommandRunner.run(command);
+        } catch (IOException error) {
+            Log.w(TAG, "display command failed: " + command, error);
+            return "";
         }
     }
 

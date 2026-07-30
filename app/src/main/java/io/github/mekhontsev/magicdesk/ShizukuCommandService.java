@@ -6,9 +6,12 @@ import android.system.Os;
 import android.util.Log;
 
 import java.io.Closeable;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -111,6 +114,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void writeStream(final long requestId, final String line) {
+        final StreamSession session =
+                mStreams.get(Long.valueOf(requestId));
+        if (session == null) {
+            throw new IllegalStateException(
+                    "Shizuku stream is not active: " + requestId);
+        }
+        try {
+            session.writeLine(line);
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot write Shizuku stream: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
     public void destroy() {
         Log.i(TAG, "command service stopped");
         for (final StreamSession session
@@ -142,6 +163,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final Process process;
         final ParcelFileDescriptor writeSide;
         final Thread thread;
+        final BufferedWriter commandWriter;
         volatile boolean stopped;
 
         StreamSession(
@@ -151,6 +173,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             this.requestId = requestId;
             this.process = process;
             this.writeSide = writeSide;
+            commandWriter = new BufferedWriter(new OutputStreamWriter(
+                    process.getOutputStream(), StandardCharsets.UTF_8));
             thread = new Thread(this, "MagicDeskShizukuStream-" + requestId);
             thread.setDaemon(true);
         }
@@ -161,9 +185,19 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
         void stop() {
             stopped = true;
+            closeQuietly(commandWriter);
             closeQuietly(writeSide);
             process.destroy();
             thread.interrupt();
+        }
+
+        synchronized void writeLine(final String line) throws IOException {
+            if (stopped) {
+                throw new IOException("stream is stopped");
+            }
+            commandWriter.write(line == null ? "" : line);
+            commandWriter.newLine();
+            commandWriter.flush();
         }
 
         @Override

@@ -206,9 +206,8 @@ final class DesktopWindowTransitionController {
         }
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
-        NativeDesktopController.moveTaskToDesktop(
-                task,
-                targetBounds,
+        moveTaskToDesktopWindow(
+                task, targetBounds,
                 (success, message) -> mHandler.post(() -> {
                     mFullscreenTransitionTasks.remove(taskId);
                     if (!success) {
@@ -328,11 +327,32 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
-        NativeDesktopController.moveTaskToDesktop(
-                task,
-                targetBounds,
+        moveTaskToDesktopWindow(
+                task, targetBounds,
                 (success, message) -> mHandler.post(() ->
                         finishFullscreenRestore(task, success, message)));
+    }
+
+    private void moveTaskToDesktopWindow(
+            final TaskRepository.TaskEntry task,
+            final Rect bounds,
+            final NativeDesktopController.Callback callback) {
+        if (RuntimeAccess.allowsRootCommands()
+                || (RuntimeAccess.allowsShizukuCommands()
+                        && NativeDesktopController.isAvailable())) {
+            NativeDesktopController.moveTaskToDesktop(
+                    task, bounds, callback);
+            return;
+        }
+        TaskRepository.setFreeform(
+                task,
+                bounds,
+                result -> {
+                    if (callback != null) {
+                        callback.onComplete(
+                                result.success, result.message);
+                    }
+                });
     }
 
     private void finishFullscreenRestore(

@@ -44,6 +44,13 @@ final class ExistingTaskController {
                 preservedTopFirstTaskIds, true, waitForTask);
     }
 
+    static ReuseResult reuseFreeformIfExists(final String packageName,
+            final int targetDisplayId, final int[] preservedTopFirstTaskIds,
+            final boolean waitForTask) throws IOException {
+        return reuseIfExists(packageName, targetDisplayId, true,
+                preservedTopFirstTaskIds, false, waitForTask);
+    }
+
     static boolean taskExists(final String packageName, final int targetDisplayId)
             throws IOException {
         return findBestTask(packageName, targetDisplayId, true) != null;
@@ -111,6 +118,7 @@ final class ExistingTaskController {
         } else if (targetFreeform && taskIsFullscreen) {
             Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
             setFreeform(task.taskId, targetDisplayId);
+            waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
         } else if (!targetFreeform && taskIsFreeform) {
             Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
             setFullscreen(task, targetDisplayId);
@@ -168,7 +176,8 @@ final class ExistingTaskController {
             SystemClock.sleep(TASK_STATE_POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + taskId
-                + " did not enter native desktop mode on display " + displayId);
+                + " did not enter " + windowingMode
+                + " mode on display " + displayId);
     }
 
     private static void bringTaskStackToFrontBestEffort(final TaskInfo task,

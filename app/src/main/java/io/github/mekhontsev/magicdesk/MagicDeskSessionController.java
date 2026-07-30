@@ -55,6 +55,11 @@ final class MagicDeskSessionController {
             cleanupPhoneTasksBeforeExit(this::finishUnprivilegedExit);
             return;
         }
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+            continueConsoleExit();
+            return;
+        }
         ConsoleModeSwitcher.setPhoneScreenOff(
                 false,
                 success -> {
@@ -65,30 +70,32 @@ final class MagicDeskSessionController {
                                 null);
                         return;
                     }
-                    ConsoleModeSwitcher.returnConsoleTasksToPhone(
-                            tasksReturned -> {
-                                if (!tasksReturned) {
-                                    abort(
-                                            "EXIT-002",
-                                            "Could not return Console tasks"
-                                                    + " to the phone",
-                                            null);
-                                    return;
-                                }
-                                cleanupPhoneTasksBeforeExit(
-                                        () -> ConsoleModeSwitcher.switchToMirror(
-                                                mirrorActive -> {
-                                                    if (!mirrorActive) {
-                                                        abort(
-                                                                "EXIT-003",
-                                                                "Could not restore"
-                                                                        + " mirror mode",
-                                                                null);
-                                                        return;
-                                                    }
-                                                    finishPrivilegedExit();
-                                                }));
-                            });
+                    continueConsoleExit();
+                });
+    }
+
+    private void continueConsoleExit() {
+        ConsoleModeSwitcher.returnConsoleTasksToPhone(
+                tasksReturned -> {
+                    if (!tasksReturned) {
+                        abort(
+                                "EXIT-002",
+                                "Could not return Console tasks to the phone",
+                                null);
+                        return;
+                    }
+                    cleanupPhoneTasksBeforeExit(
+                            () -> ConsoleModeSwitcher.switchToMirror(
+                                    mirrorActive -> {
+                                        if (!mirrorActive) {
+                                            abort(
+                                                    "EXIT-003",
+                                                    "Could not restore mirror mode",
+                                                    null);
+                                            return;
+                                        }
+                                        finishPrivilegedExit();
+                                    }));
                 });
     }
 

@@ -60,12 +60,14 @@ successful build.
   disabled and visually distinct.
 - [x] Run Shizuku shell mode on a physical external display.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
-  controls, screenshots, and the absence of root-only input services.
-  Existing-task reuse, native freeform launch, landscape correction, native
-  caption visibility, fullscreen/freeform transitions, notification-driven
-  HOME task focus, and absence of the root watcher were verified on a REDMAGIC
-  11 Pro Console display. Display-density controls and a 1920x1080 screenshot
-  captured from the Tools panel were also verified.
+  controls, screenshots, and the absence of root-only input services. After a
+  clean reboot, the two global windowing settings were `1` while both
+  Root-only persistent desktop properties remained `true`. The UID-2000
+  Shizuku backend activated Console Mode, launched Touch Panel, corrected the
+  display to 1920x1080 at 160 DPI, reused fullscreen Chrome as freeform, cold
+  launched Gmail as freeform, and promoted Gmail to true fullscreen. The
+  bidirectional task watcher remained alive for focus commands. Native WMShell
+  captions were correctly absent; no Root helper was used.
 - [x] Probe a real ADB-style Shizuku UserService (`uid=2000`,
   `u:r:shell:s0`, no capabilities). On the verified firmware it can read raw
   input, inject events, write physical-keyboard layouts, inspect/listen to
@@ -140,7 +142,10 @@ successful build.
 
 - [ ] Test Basic mode on a ZTE/nubia Android 16 device whose desktop flags have
   not previously been provisioned with root.
-- [ ] Test Shizuku shell mode on a device without working `su`.
+- [ ] Test Shizuku onboarding on a device without working `su`. Runtime
+  behavior has been exercised as the real UID-2000 shell service with
+  Root-only properties restored, but this device still used local ADB started
+  through Root to bootstrap Shizuku.
 - [x] Verify permission denial and later recovery for overlays, notifications,
   and Shizuku authorization. Overlay denial left the manual setup available
   with a clear limited-mode explanation. Denying `POST_NOTIFICATIONS` did not

@@ -49,8 +49,8 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - selected runtime backend, root/Shizuku status, and required
   desktop-windowing values;
-- for an active Shizuku backend, a read-only UserService capability probe
-  covering its actual UID, SELinux domain, relevant Binder permissions,
+- for an active Shizuku backend, a non-destructive UserService capability
+  probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, task APIs, and REDMAGIC hardware-node access;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
@@ -67,6 +67,13 @@ The Shizuku probe does not read input events, inject a real event, change a
 keyboard layout, alter display state, or write a hardware node. Permissioned
 write paths are tested with rejected null arguments after Android performs its
 permission check.
+
+On a clean Shizuku installation the issue report should show global freeform
+and resizable-activity settings enabled, both
+`persist.wm.debug.desktop_*` properties still enabled, and WMShell desktopmode
+unavailable. That combination is expected: MagicDesk uses direct
+ActivityTaskManager and WindowOrganizer transactions rather than native
+WMShell captions.
 
 On some Nubia firmware, Android keeps notification-listener access enabled
 after an app process or package restart but does not bind the service again.

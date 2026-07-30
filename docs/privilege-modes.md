@@ -44,27 +44,32 @@ is strict: a missing/stopped server, denied permission, or failed UserService
 does not fall back to Root or Basic.
 
 A Shizuku server started through ADB or wireless debugging runs the service as
-Android shell UID 2000. It enables exact task snapshots, task/window commands,
-native freeform launches and captions on an already-active Console display,
-display density overrides, and screenshots. Caption visibility uses Nubia's
-exported projection provider to preserve the user's wired-privacy preference
-before invoking the narrow vendor SurfaceFlinger option. Shizuku cannot access
-kernel modules or the complete set of REDMAGIC root/vendor controls. On the
-verified firmware, shell can read raw `/dev/input/event*`, inject input, change
-physical-keyboard layouts, and register a task listener. It cannot open raw
-input for writing, acquire `MONITOR_INPUT`, or read the private InputManager
-state XML. MagicDesk's current Shizuku UserService supports finite commands
-plus a lifecycle-bound read-only `/dev/input` stream. That stream recognizes
-only `Ctrl+Space`; it does not claim the complete global shortcut capability.
-Other global shortcuts, physical-key repeat correction, right-click remapping,
-phone-screen controls, and Console Mode automation remain disabled in the
-current Shizuku runtime. Physical-keyboard layouts can be cycled with
-`Ctrl+Space` or manually from the taskbar language indicator. MagicDesk queries
-`IInputManager` for the selected layout of every enabled IME subtype, matching
-Android's own layout-mapping model without reading private InputManager files.
-Shizuku can also control stock REDMAGIC bypass charging through the firmware's
-global setting; Nubia's system service still enforces power and battery safety
-policy.
+Android shell UID 2000. On the verified firmware it can activate REDMAGIC
+Console Mode, launch Touch Panel, correct external-display geometry and DPI,
+reuse exact tasks, apply freeform/fullscreen `WindowContainerTransaction`
+changes, register a live task listener, take screenshots, and control stock
+REDMAGIC bypass charging. The UserService exposes finite commands plus
+lifecycle-bound streams for task events and read-only physical-key events.
+
+A clean Shizuku-only installation cannot disable the firmware's
+`desktop_mode_enforce_device_restrictions` property. WMShell therefore does not
+create `DesktopTasksController` or its system captions. MagicDesk falls back at
+the capability boundary to direct Android task transactions; window launch,
+fullscreen, restore, snap, minimize, focus, and close remain available through
+the taskbar and other MagicDesk controls, but the native draggable caption is
+absent. If the device was provisioned previously and WMShell's desktop command
+is genuinely available to shell, MagicDesk can use that native path without
+granting runtime root.
+
+Shell can read raw `/dev/input/event*`, inject Android input, change
+physical-keyboard layouts, and register task listeners. It cannot modify the
+physical input device's keymap or safely suppress an event already being
+handled by Android. The read-only keyboard stream therefore handles
+`Ctrl+Space` only. Other global shortcuts, physical right-click correction,
+and the REDMAGIC-safe phone-screen dimming sequence remain Root-only.
+MagicDesk queries `IInputManager` for the selected layout of every enabled IME
+subtype, matching Android's own layout-mapping model without reading private
+InputManager files.
 
 On REDMAGIC firmware, the physical right mouse button becomes Android Back
 before an application overlay can consume it. Use a long left-button press for
@@ -128,16 +133,19 @@ setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
 
 The first two values map to **Enable freeform windows** and **Force activities
-to be resizable** in Android Developer options and can be enabled without Root
-or Shizuku. The persistent properties remain privileged: disabling device
-restrictions enables the complete WMShell desktop path on this firmware, while
-disabling rounded corners is a cosmetic consistency setting.
+to be resizable** in Android Developer options. Basic users can enable them
+manually; Shizuku can apply and restore them through `WRITE_SECURE_SETTINGS`.
+The persistent properties remain Root-only: disabling device restrictions
+enables the complete WMShell desktop path on this firmware, while disabling
+rounded corners is a cosmetic consistency setting.
 
-WMShell and ActivityTaskManager cache this configuration, so changing it
-requires a real reboot. Shizuku shell cannot apply the persistent property
-changes. A device configured previously with Root can later run MagicDesk in
-Basic or Shizuku mode without granting root at runtime. Diagnostics reports
-both the active backend and whether system provisioning was already complete.
+WMShell and ActivityTaskManager cache this configuration, so Device Setup asks
+for a real reboot after changing the two global settings or the Root-only
+properties. Shizuku cannot apply the persistent property changes. A device
+configured previously with Root can later run MagicDesk in Shizuku mode
+without granting root at runtime; a clean Shizuku installation uses direct
+task transactions instead of WMShell desktop captions. Diagnostics reports
+both the active backend and the effective provisioning state.
 
 Launch overrides are available for development:
 

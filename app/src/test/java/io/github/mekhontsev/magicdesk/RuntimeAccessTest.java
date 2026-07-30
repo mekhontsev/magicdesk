@@ -36,6 +36,7 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.TASK_CONTROL,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT,
+                RuntimeAccess.Capability.CONSOLE_CONTROL,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
                 RuntimeAccess.Capability.SCREENSHOT,
                 RuntimeAccess.Capability.CHARGE_SEPARATION);
@@ -50,8 +51,6 @@ public final class RuntimeAccessTest {
                         RuntimeAccess.Backend.SHIZUKU_ROOT));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.GLOBAL_INPUT));
-        assertFalse(expected.contains(
-                RuntimeAccess.Capability.CONSOLE_CONTROL));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.KERNEL_FIXES));
     }

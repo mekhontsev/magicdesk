@@ -5,7 +5,9 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
@@ -37,6 +39,7 @@ final class DesktopTaskWatcher {
 
     private long mNextFocusSequence;
     private Process mProcess;
+    private ShizukuAccess.StreamHandle mShizukuStream;
     private BufferedWriter mWriter;
 
     DesktopTaskWatcher(final Handler handler, final Listener listener) {
@@ -50,35 +53,40 @@ final class DesktopTaskWatcher {
 
     synchronized void stop() {
         failPendingFocusCallbacks("task watcher stopped");
-        if (mProcess == null) {
-            return;
-        }
-        try {
-            if (mWriter != null) {
+        if (mWriter != null) {
+            try {
                 mWriter.close();
-            } else {
-                mProcess.getOutputStream().close();
+            } catch (IOException ignored) {
+                // Process destruction is sufficient if the pipe is closed.
             }
-        } catch (IOException ignored) {
-            // Process destruction is sufficient if the pipe is closed.
+        } else if (mProcess != null) {
+            try {
+                mProcess.getOutputStream().close();
+            } catch (IOException ignored) {
+                // Process destruction is sufficient if the pipe is closed.
+            }
         }
-        mProcess.destroy();
+        closeQuietly(mShizukuStream);
+        if (mProcess != null) {
+            mProcess.destroy();
+        }
         mProcess = null;
+        mShizukuStream = null;
         mWriter = null;
     }
 
     synchronized boolean sendCommand(final String command) {
-        if (mWriter == null) {
+        if (mWriter == null && mShizukuStream == null) {
             return false;
         }
         try {
-            mWriter.write(command);
-            mWriter.newLine();
-            mWriter.flush();
+            writeCommand(command);
             return true;
         } catch (IOException e) {
             Log.w(TAG, "failed to send task watcher command: " + command, e);
             mWriter = null;
+            closeQuietly(mShizukuStream);
+            mShizukuStream = null;
             if (mProcess != null) {
                 mProcess.destroy();
             }
@@ -103,14 +111,14 @@ final class DesktopTaskWatcher {
             for (final Integer taskId : taskIds) {
                 command.append(' ').append(taskId.intValue());
             }
-            mWriter.write(command.toString());
-            mWriter.newLine();
-            mWriter.flush();
+            writeCommand(command.toString());
         } catch (IOException e) {
             mFocusCallbacks.remove(Long.valueOf(sequence));
             completeFocusCallback(callback, false, "task watcher write failed");
             Log.w(TAG, "failed to send task stack focus", e);
             mWriter = null;
+            closeQuietly(mShizukuStream);
+            mShizukuStream = null;
             if (mProcess != null) {
                 mProcess.destroy();
             }
@@ -133,28 +141,48 @@ final class DesktopTaskWatcher {
         final String command = AppProcessCommand.exec(
                 "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand");
         Process process = null;
+        ShizukuAccess.StreamHandle shizukuStream = null;
         try {
-            process = PrivilegedCommandRunner.start(command);
+            final boolean useShizuku =
+                    RuntimeAccess.allowsShizukuCommands()
+                            && !RuntimeAccess.allowsRootCommands();
+            final InputStream input;
+            if (useShizuku) {
+                shizukuStream = ShizukuAccess.openStream(command);
+                input = shizukuStream.inputStream();
+            } else {
+                process = PrivilegedCommandRunner.start(command);
+                input = process.getInputStream();
+            }
             synchronized (this) {
                 if (!mListener.isActive(generation)) {
-                    process.getOutputStream().close();
-                    process.destroy();
+                    closeQuietly(shizukuStream);
+                    if (process != null) {
+                        process.getOutputStream().close();
+                        process.destroy();
+                    }
                     return;
                 }
                 mProcess = process;
-                mWriter = new BufferedWriter(
-                        new OutputStreamWriter(process.getOutputStream()));
+                mShizukuStream = shizukuStream;
+                if (process != null) {
+                    mWriter = new BufferedWriter(
+                            new OutputStreamWriter(
+                                    process.getOutputStream()));
+                }
             }
             try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
+                    new InputStreamReader(input))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     handleLine(line, generation);
                 }
             }
-            final int exitCode = process.waitFor();
-            if (mListener.isActive(generation)) {
-                Log.w(TAG, "task watcher exited code=" + exitCode);
+            if (process != null) {
+                final int exitCode = process.waitFor();
+                if (mListener.isActive(generation)) {
+                    Log.w(TAG, "task watcher exited code=" + exitCode);
+                }
             }
         } catch (IOException e) {
             if (mListener.isActive(generation)) {
@@ -168,10 +196,14 @@ final class DesktopTaskWatcher {
                     mProcess = null;
                     mWriter = null;
                 }
+                if (mShizukuStream == shizukuStream) {
+                    mShizukuStream = null;
+                }
             }
             if (process != null) {
                 process.destroy();
             }
+            closeQuietly(shizukuStream);
             if (mListener.isActive(generation)) {
                 mHandler.post(() -> {
                     if (mListener.isActive(generation)) {
@@ -180,6 +212,31 @@ final class DesktopTaskWatcher {
                     }
                 });
             }
+        }
+    }
+
+    private void writeCommand(final String command) throws IOException {
+        if (mWriter != null) {
+            mWriter.write(command);
+            mWriter.newLine();
+            mWriter.flush();
+            return;
+        }
+        if (mShizukuStream != null) {
+            mShizukuStream.writeLine(command);
+            return;
+        }
+        throw new IOException("task watcher unavailable");
+    }
+
+    private static void closeQuietly(final Closeable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+            // Stream shutdown is best effort.
         }
     }
 

@@ -105,6 +105,7 @@ final class RuntimeAccess {
                     Capability.TASK_CONTROL,
                     Capability.KEYBOARD_LAYOUT_CONTROL,
                     Capability.KEYBOARD_LAYOUT_SHORTCUT,
+                    Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
@@ -116,6 +117,7 @@ final class RuntimeAccess {
                     Capability.TASK_CONTROL,
                     Capability.KEYBOARD_LAYOUT_CONTROL,
                     Capability.KEYBOARD_LAYOUT_SHORTCUT,
+                    Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);

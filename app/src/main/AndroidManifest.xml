@@ -77,8 +77,9 @@
         <activity
             android:name=".ConsoleSeedActivity"
             android:excludeFromRecents="true"
-            android:exported="false"
+            android:exported="true"
             android:launchMode="singleTop"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.consoleseed"
             android:theme="@style/ConsoleSeedTheme" />

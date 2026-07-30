@@ -32,7 +32,9 @@ tasks and REDMAGIC's existing projection stack.
 The result is a familiar desktop model:
 
 - Android applications run in overlapping, resizable system windows.
-- Native captions provide move, resize, snap, maximize, minimize, and close.
+- Root mode uses native WMShell captions for move, resize, snap, maximize,
+  minimize, and close. Shizuku uses direct Android task transactions and the
+  MagicDesk taskbar controls when WMShell desktop mode is unavailable.
 - A persistent taskbar tracks real Android tasks and pinned applications.
 - Start, desktop shortcuts, a desktop folder, task switching, and Show Desktop
   provide normal mouse-driven navigation.
@@ -44,7 +46,7 @@ The result is a familiar desktop model:
 
 MagicDesk does not emulate Android applications, host them inside custom views,
 or replace Android's task organizer. Applications remain ordinary Android
-tasks managed by the firmware's WMShell.
+tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
 
 ## Highlights
 
@@ -133,10 +135,11 @@ device-specific failure.
 2. Launch MagicDesk on the phone.
 3. Select **Auto**, **Basic**, **Shizuku**, or **Root** runtime privileges and
    choose the Primary, Current, External, or Auto display target.
-4. In Root mode, grant root when Device Setup requests it.
-5. Review the settings Device Setup proposes and confirm the changes. In Basic
-   mode, use its **Open developer options** action to enable Android's freeform
-   windows and resizable activities options.
+4. In Root mode, grant root when Device Setup requests it. In Shizuku mode,
+   install and start the official Shizuku manager, then grant MagicDesk access.
+5. Review the settings Device Setup proposes and confirm the changes. Shizuku
+   can enable the freeform and resizable-activity settings directly; Basic
+   opens the corresponding Android Developer options.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 7. A normal launch on the phone opens the compact MagicDesk control panel.
@@ -158,7 +161,7 @@ notify an application before it is uninstalled.
 1. Connect the phone to an external display.
 2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 3. Launch MagicDesk on the phone.
-4. Grant root access if Android or the root manager requests it.
+4. Grant the selected Root or Shizuku access when requested.
 5. Select **Start external desktop** in the phone control panel, or press
    `Win+D` on the physical keyboard.
 6. To leave the external desktop, select **Switch to screen mirroring** in the
@@ -240,16 +243,19 @@ the next manual MagicDesk start.
 ## Privileges And Trust
 
 Root remains necessary for the complete feature set because Android does not
-expose low-level physical input control and all REDMAGIC external-display hooks
-to an ordinary third-party application. Basic mode never invokes `su` and keeps the
+expose low-level physical input control and all REDMAGIC hardware hooks to an
+ordinary third-party application. Basic mode never invokes `su` and keeps the
 desktop shell, public application launching, desktop content, notifications,
 and calendar with explicit limitations. Strict Shizuku mode uses the official
 Shizuku UserService API. A server started through ADB or wireless debugging
-runs MagicDesk commands as Android shell UID 2000 and enables task inspection,
-window operations, display density, screenshots, and physical-keyboard layout
-control from both `Ctrl+Space` and the taskbar. It does not enable the complete
-global shortcut bridge, right-click remapping, kernel fixes, or full
-external-desktop automation.
+runs MagicDesk commands as Android shell UID 2000 and enables REDMAGIC Console
+Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
+window operations, display density, screenshots, bypass charging, and
+physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
+System WMShell captions require device provisioning unavailable to a clean
+Shizuku-only installation; taskbar window controls remain available. Shizuku
+does not enable the complete global shortcut bridge, right-click remapping,
+phone-screen dimming, fan/pump controls, or kernel fixes.
 
 The trust boundaries are deliberately narrow:
 

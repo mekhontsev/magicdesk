@@ -233,12 +233,16 @@ final class CompatibilityDiagnostics {
                                 : notificationSnapshot.connectionIssueCode);
         final boolean taskControl =
                 RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
+        final boolean nativeDesktopRequired =
+                RuntimeAccess.allowsRootCommands();
         appendCheck(report, "NATIVE-DESKTOP-001",
-                !taskControl || NativeDesktopController.isAvailable(),
+                !nativeDesktopRequired || NativeDesktopController.isAvailable(),
                 "WMShell desktopmode command",
-                taskControl
+                nativeDesktopRequired
                         ? "wmshell-passthrough desktopmode"
-                        : "disabled by the selected runtime backend");
+                        : taskControl
+                                ? "not required; shell task transactions active"
+                                : "disabled by the selected runtime backend");
         appendCheck(report, "NUBIA-INPUT-001",
                 hasPackage(context, "cn.nubia.keymapcenter"),
                 "Nubia mirror input package", "cn.nubia.keymapcenter");

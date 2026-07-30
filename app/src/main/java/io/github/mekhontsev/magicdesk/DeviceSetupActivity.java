@@ -266,8 +266,15 @@ public final class DeviceSetupActivity extends Activity {
 
         mSetupView.primaryAction().setVisibility(View.VISIBLE);
         mSetupView.secondaryAction().setVisibility(View.VISIBLE);
+        final boolean shizukuBackend =
+                audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
+                        || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
+        final boolean canRestore =
+                (audit.rootAvailable && audit.hasManagedChanges)
+                        || (shizukuBackend
+                        && audit.hasManagedWindowingChanges);
         mSetupView.restoreAction().setVisibility(
-                audit.rootAvailable && audit.hasManagedChanges ? View.VISIBLE : View.GONE);
+                canRestore ? View.VISIBLE : View.GONE);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
@@ -332,7 +339,9 @@ public final class DeviceSetupActivity extends Activity {
             return;
         }
         if (audit.rebootRequired
-                && (audit.configurationReady || !audit.hasManagedChanges)) {
+                && (audit.configurationReady
+                        || audit.hasUserWindowingOptions()
+                        || !audit.hasManagedChanges)) {
             mSetupView.summary().setText(R.string.setup_status_reboot_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_reboot_now);
@@ -347,6 +356,17 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_configure);
             mSetupView.primaryAction().setOnClickListener(view -> configureDevice());
+            setCloseAction();
+            return;
+        }
+        if (!audit.hasUserWindowingOptions() && shizukuBackend) {
+            mSetupView.summary().setText(
+                    R.string.setup_status_configuration_required);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(
+                    R.string.setup_action_configure);
+            mSetupView.primaryAction().setOnClickListener(
+                    view -> configureShizuku());
             setCloseAction();
             return;
         }
@@ -477,6 +497,13 @@ public final class DeviceSetupActivity extends Activity {
                         getApplicationContext(), mSessionProfile));
     }
 
+    private void configureShizuku() {
+        runOperation(
+                R.string.setup_status_applying,
+                () -> DeviceSetupManager.configureShizuku(
+                        getApplicationContext(), mSessionProfile));
+    }
+
     private void continueFromSetup() {
         DeviceSetupManager.acknowledgeReadyConfiguration(this);
         if (mManual) {
@@ -539,8 +566,14 @@ public final class DeviceSetupActivity extends Activity {
                 .setPositiveButton(R.string.setup_action_restore,
                         (dialog, which) -> runOperation(
                                 R.string.setup_status_restoring,
-                                () -> DeviceSetupManager.restoreManagedChanges(
-                                        getApplicationContext())))
+                                () -> RuntimeAccess.allowsShizukuCommands()
+                                        && !RuntimeAccess.allowsRootCommands()
+                                        ? DeviceSetupManager
+                                                .restoreShizukuManagedChanges(
+                                                        getApplicationContext(),
+                                                        mSessionProfile)
+                                        : DeviceSetupManager.restoreManagedChanges(
+                                                getApplicationContext())))
                 .show();
     }
 

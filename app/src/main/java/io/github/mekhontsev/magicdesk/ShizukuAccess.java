@@ -344,6 +344,28 @@ final class ShizukuAccess {
             return mInput;
         }
 
+        void writeLine(final String line) throws IOException {
+            if (mClosed.get()) {
+                throw new IOException("Shizuku stream is closed");
+            }
+            final IShizukuCommandService service;
+            synchronized (LOCK) {
+                service = sService;
+            }
+            if (service == null || !service.asBinder().pingBinder()) {
+                throw new IOException(
+                        "Shizuku command service disconnected");
+            }
+            try {
+                service.writeStream(mRequestId, line);
+            } catch (RemoteException | RuntimeException error) {
+                throw new IOException(
+                        "Shizuku stream write failed: "
+                                + usefulMessage(error),
+                        error);
+            }
+        }
+
         @Override
         public void close() {
             if (!mClosed.compareAndSet(false, true)) {

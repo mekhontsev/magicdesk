@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
+import android.os.Process;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -9,6 +10,8 @@ import java.lang.reflect.Method;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskControlCommand {
     private static final String PACKAGE_NAME = "io.github.mekhontsev.magicdesk";
+    private static final String SHELL_PACKAGE_NAME = "com.android.shell";
+    private static final int SHELL_UID = 2000;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int ACTIVITY_TYPE_HOME = 2;
 
@@ -122,7 +125,7 @@ public final class TaskControlCommand {
                 arguments[i] = Integer.valueOf(taskIdAssigned ? 0 : taskId);
                 taskIdAssigned = true;
             } else if (type == String.class && !packageAssigned) {
-                arguments[i] = "io.github.mekhontsev.magicdesk";
+                arguments[i] = callingPackageForUid(Process.myUid());
                 packageAssigned = true;
             } else if (type == Boolean.TYPE) {
                 arguments[i] = Boolean.FALSE;
@@ -134,6 +137,10 @@ public final class TaskControlCommand {
             throw new NoSuchMethodException("moveTaskToFront task id");
         }
         target.invoke(service, arguments);
+    }
+
+    static String callingPackageForUid(final int uid) {
+        return uid == SHELL_UID ? SHELL_PACKAGE_NAME : PACKAGE_NAME;
     }
 
     private static Throwable usefulFailure(final Throwable error) {

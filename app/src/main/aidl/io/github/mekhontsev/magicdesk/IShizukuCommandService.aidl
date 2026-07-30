@@ -14,4 +14,6 @@ interface IShizukuCommandService {
     ParcelFileDescriptor openStream(String command, long requestId) = 4;
 
     void closeStream(long requestId) = 5;
+
+    void writeStream(long requestId, String line) = 6;
 }

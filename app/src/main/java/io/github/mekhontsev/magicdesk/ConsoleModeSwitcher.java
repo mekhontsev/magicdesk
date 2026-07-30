@@ -179,7 +179,7 @@ final class ConsoleModeSwitcher {
                             }
                         }
                     }
-                    if (success) {
+                    if (success && RuntimeAccess.allowsRootCommands()) {
                         ConsoleSessionController
                                 .setExternalTaskCaptionsEnabled(false);
                     }
@@ -205,7 +205,7 @@ final class ConsoleModeSwitcher {
                         success = true;
                         return;
                     }
-                    final String output = runRootCommand(
+                    final String output = PrivilegedCommandRunner.run(
                             AppProcessCommand.run(
                                     CONSOLE_TASK_RETURN_COMMAND,
                                     Integer.toString(displayId))).trim();
@@ -213,6 +213,8 @@ final class ConsoleModeSwitcher {
                     if (!success) {
                         Log.w(TAG, "Console task return failed output=" + output);
                     }
+                } catch (IOException error) {
+                    Log.w(TAG, "Console task return failed", error);
                 } finally {
                     closeRootShell();
                     if (callback != null) {
