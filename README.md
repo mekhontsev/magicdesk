@@ -92,9 +92,9 @@ tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
 
 - Native key repeat and physical keyboard layouts on the external display.
 - `Ctrl+Space` cycles through layouts configured in Android, in system order.
-- In Root mode on the external desktop, `Alt+Tab` bypasses REDMAGIC's broken
-  system Recents path while ordinary `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain
-  normal application input.
+- In Root or Shizuku mode on the external desktop, `Alt+Tab` bypasses
+  REDMAGIC's broken system Recents path while ordinary `Tab`, `Shift+Tab`, and
+  `Ctrl+Tab` remain normal application input.
 - Right click reaches Chrome, Firefox, MagicDesk, and other applications instead
   of being converted to Android Back by REDMAGIC firmware.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are handled
@@ -197,13 +197,12 @@ useful when no physical keyboard or mouse is connected:
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
 
-The unmodified Win key is deliberately unused.
-Global shortcuts other than `Ctrl+Space` require the Root runtime input
-bridge. Shizuku uses a read-only physical-key stream for `Ctrl+Space` and can
-also cycle the same configured layouts from the taskbar language indicator.
-Use the equivalent taskbar and Tools actions for other shortcuts in Shizuku
-mode. **Screenshot** captures the external display without leaving the Tools
-panel in the image.
+The unmodified Win key is deliberately unused. Root and Shizuku both provide
+global desktop shortcuts in Console Mode. Shizuku keeps `Win+L` on Android's
+normal input path because locking the phone is a Root-only operation; use the
+phone's lock control instead. The taskbar language indicator cycles the same
+configured layouts as `Ctrl+Space`. **Screenshot** captures the external
+display without leaving the Tools panel in the image.
 
 ## Phone And External Display Controls
 
@@ -255,8 +254,9 @@ physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
 System WMShell captions require device provisioning unavailable to a clean
 Shizuku-only installation; taskbar window controls remain available. Shizuku
 also corrects REDMAGIC's physical-right-button-to-Back conversion through a
-lifecycle-bound virtual mouse bridge. It does not enable the complete global
-shortcut bridge, phone-screen dimming, fan/pump controls, or kernel fixes.
+lifecycle-bound virtual mouse bridge and provides global desktop shortcuts
+through an equivalent virtual-keyboard bridge. It does not enable phone-screen
+dimming, fan/pump controls, kernel fixes, or `Win+L`.
 
 The trust boundaries are deliberately narrow:
 
@@ -267,9 +267,10 @@ The trust boundaries are deliberately narrow:
 - MagicDesk changes only the documented desktop settings accepted in Device
   Setup and stores their previous values for restoration.
 - The system `ShellTaskOrganizer` remains the only task organizer.
-- Native input helpers `libmagicdesk_mouse_remap.so` and
-  `libmagicdesk_uinput_bridge.so` are rebuilt from their C sources in every CI
-  build; no prebuilt helper is checked in.
+- Native input helpers `libmagicdesk_mouse_remap.so`,
+  `libmagicdesk_uinput_bridge.so`, and `libmagicdesk_keyboard_bridge.so` are
+  rebuilt from their C sources in every CI build; no prebuilt helper is checked
+  in.
 - The main APK contains no kernel module or kernel-module loader.
 - Device and firmware mismatches are reported through structured Diagnostics
   codes instead of silently assuming compatibility.

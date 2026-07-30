@@ -87,6 +87,11 @@ successful build.
   active. Both direct Binder execution and the lifecycle-bound Shizuku
   `Ctrl+Space` watcher applied EN -> RU -> EN to the connected ProtoArc
   keyboard without reading private InputManager state.
+- [x] Provide global Console shortcuts through the Shizuku shell backend.
+  A source-identity `/dev/uinput` keyboard associated with the Console display
+  preserved ordinary typing and repeat, consumed MagicDesk shortcuts, and
+  switched EN -> RU -> EN without leaking the first post-switch key through the
+  previous layout. The bridge remained heartbeat-bound and fail-open.
 - [x] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in

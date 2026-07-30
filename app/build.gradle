@@ -23,7 +23,8 @@ android {
             useLegacyPackaging = true
             keepDebugSymbols += [
                     '**/libmagicdesk_mouse_remap.so',
-                    '**/libmagicdesk_uinput_bridge.so'
+                    '**/libmagicdesk_uinput_bridge.so',
+                    '**/libmagicdesk_keyboard_bridge.so'
             ]
         }
     }
@@ -43,6 +44,10 @@ def mouseRemapOutput = file(
 def uinputBridgeSource = rootProject.file('native/magicdesk_uinput_bridge.c')
 def uinputBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_uinput_bridge.so")
+def keyboardBridgeSource =
+        rootProject.file('native/magicdesk_keyboard_bridge.c')
+def keyboardBridgeOutput = file(
+        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_keyboard_bridge.so")
 
 def resolveNativeCompilerCommand = {
     if (termuxCompiler.isFile()
@@ -95,9 +100,26 @@ tasks.register('buildMagicDeskUinputBridge', Exec) {
     }
 }
 
+tasks.register('buildMagicDeskKeyboardBridge', Exec) {
+    inputs.file(keyboardBridgeSource)
+    outputs.file(keyboardBridgeOutput)
+    doFirst {
+        keyboardBridgeOutput.parentFile.mkdirs()
+        def compilerCommand = resolveNativeCompilerCommand()
+        compilerCommand.addAll([
+                '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
+                '-fPIE', '-pie', '-Wl,-z,noexecstack',
+                '-o', keyboardBridgeOutput.absolutePath,
+                keyboardBridgeSource.absolutePath
+        ])
+        commandLine compilerCommand
+    }
+}
+
 tasks.named('preBuild').configure {
     dependsOn tasks.named('buildMagicDeskMouseRemap')
     dependsOn tasks.named('buildMagicDeskUinputBridge')
+    dependsOn tasks.named('buildMagicDeskKeyboardBridge')
 }
 
 dependencies {

@@ -27,21 +27,40 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void toggle() {
+        toggle(null);
+    }
+
+    static void toggle(final Runnable completion) {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
             Log.w(TAG, "hardware keyboard layout control unavailable");
+            runCompletion(completion);
             return;
         }
-        ConsoleModeSwitcher.executeSerialized(() -> apply("next"));
+        ConsoleModeSwitcher.executeSerialized(() -> {
+            try {
+                apply("next");
+            } finally {
+                runCompletion(completion);
+            }
+        });
     }
 
     static void refresh() {
+        refresh(null);
+    }
+
+    static void refresh(final Runnable completion) {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+            runCompletion(completion);
             return;
         }
         if (!REFRESH_IN_PROGRESS.compareAndSet(false, true)) {
             Log.d(TAG, "hardware keyboard layout refresh already pending");
+            if (completion != null) {
+                ConsoleModeSwitcher.executeSerialized(completion);
+            }
             return;
         }
         ConsoleModeSwitcher.executeSerialized(() -> {
@@ -49,8 +68,15 @@ final class HardwareKeyboardLayoutController {
                 apply("sync");
             } finally {
                 REFRESH_IN_PROGRESS.set(false);
+                runCompletion(completion);
             }
         });
+    }
+
+    private static void runCompletion(final Runnable completion) {
+        if (completion != null) {
+            completion.run();
+        }
     }
 
     private static void apply(final String mode) {

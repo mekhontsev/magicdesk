@@ -19,6 +19,8 @@ public final class HardwareKeyboardLayoutCommand {
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
     private static final String LEGACY_ENGLISH_SUFFIX = "/keyboard_layout_english_us";
     private static final String LEGACY_RUSSIAN_SUFFIX = "/keyboard_layout_russian";
+    private static final String MAGICDESK_VIRTUAL_KEYBOARD =
+            "MagicDesk Shizuku Keyboard";
 
     private HardwareKeyboardLayoutCommand() {
     }
@@ -34,12 +36,15 @@ public final class HardwareKeyboardLayoutCommand {
         }
 
         try {
-            final List<InputDevice> keyboards = getExternalAlphabeticKeyboards();
-            if (keyboards.isEmpty()) {
+            final List<InputDevice> physicalKeyboards =
+                    getExternalAlphabeticKeyboards();
+            if (physicalKeyboards.isEmpty()) {
                 System.err.println("no external alphabetic keyboard found");
                 System.exit(2);
                 return;
             }
+            final List<InputDevice> managedKeyboards =
+                    getManagedKeyboards(physicalKeyboards);
 
             final Object inputManager = getInputManagerService();
             final Class<?> inputManagerInterface =
@@ -51,7 +56,7 @@ public final class HardwareKeyboardLayoutCommand {
             final ImeState imeState = getImeState();
             final List<LayoutInfo> discoveredLayouts = resolveConfiguredLayouts(
                     inputManager, inputManagerInterface, getKeyboardLayout,
-                    keyboardLayoutClass, keyboards.get(0), imeState);
+                    keyboardLayoutClass, physicalKeyboards.get(0), imeState);
             final List<LayoutInfo> persistedLayouts = args.length >= 3
                     ? resolvePersistedLayouts(
                             args[2], inputManager, getKeyboardLayout,
@@ -84,7 +89,7 @@ public final class HardwareKeyboardLayoutCommand {
             if (current == null) {
                 current = getSelectedLayoutDescriptor(
                         inputManager, inputManagerInterface,
-                        keyboards.get(0), imeState.inputMethod,
+                        physicalKeyboards.get(0), imeState.inputMethod,
                         imeState.currentSubtype);
             }
             if (current == null) {
@@ -97,17 +102,16 @@ public final class HardwareKeyboardLayoutCommand {
                     ? (baseIndex + 1) % layouts.size()
                     : Math.max(0, baseIndex);
             final LayoutInfo selected = layouts.get(selectedIndex);
-            if ("next".equals(args[0])) {
-                setKeyboardLayout(inputManager, inputManagerInterface,
-                        keyboards, imeState, selected.descriptor);
-            }
+            setKeyboardLayout(inputManager, inputManagerInterface,
+                    managedKeyboards, imeState, selected.descriptor);
 
             System.out.println("descriptor=" + selected.descriptor);
             System.out.println("code=" + compactCode(layouts, selectedIndex));
             System.out.println("name64=" + Base64.encodeToString(
                     selected.label.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
             System.out.println("layouts64=" + encodeLayoutDescriptors(layouts));
-            System.out.println("devices=" + keyboards.size());
+            System.out.println("devices=" + managedKeyboards.size());
+            System.out.println("physicalDevices=" + physicalKeyboards.size());
             System.out.println("layouts=" + layouts.size());
             System.out.println("ime=" + imeState.imeId);
             System.out.println("subtype=" + imeState.currentSubtype.hashCode());
@@ -239,13 +243,40 @@ public final class HardwareKeyboardLayoutCommand {
     }
 
     private static boolean isExternalAlphabeticKeyboard(final InputDevice device) {
-        if (device == null || device.isVirtual() || !device.isExternal()) {
+        if (device == null
+                || device.isVirtual()
+                || !device.isExternal()
+                || MAGICDESK_VIRTUAL_KEYBOARD.equals(device.getName())) {
             return false;
         }
         final boolean hasKeyboardSource =
                 (device.getSources() & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
         return hasKeyboardSource
                 && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
+    private static List<InputDevice> getManagedKeyboards(
+            final List<InputDevice> physicalKeyboards) {
+        final List<InputDevice> keyboards =
+                new ArrayList<>(physicalKeyboards);
+        for (final int deviceId : InputDevice.getDeviceIds()) {
+            final InputDevice device = InputDevice.getDevice(deviceId);
+            if (isMagicDeskVirtualKeyboard(device)) {
+                keyboards.add(device);
+            }
+        }
+        return keyboards;
+    }
+
+    private static boolean isMagicDeskVirtualKeyboard(
+            final InputDevice device) {
+        if (device == null
+                || !MAGICDESK_VIRTUAL_KEYBOARD.equals(
+                        device.getName())) {
+            return false;
+        }
+        return (device.getSources() & InputDevice.SOURCE_KEYBOARD)
+                == InputDevice.SOURCE_KEYBOARD;
     }
 
     private static Object getInputManagerService() throws ReflectiveOperationException {
@@ -323,6 +354,9 @@ public final class HardwareKeyboardLayoutCommand {
         final Class<?> identifierClass =
                 Class.forName("android.hardware.input.InputDeviceIdentifier");
         final Method getIdentifier = InputDevice.class.getMethod("getIdentifier");
+        final Method setOverride = inputManagerInterface.getMethod(
+                "setKeyboardLayoutOverrideForInputDevice",
+                identifierClass, String.class);
         final Method setLayout = inputManagerInterface.getMethod(
                 "setKeyboardLayoutForInputDevice",
                 identifierClass, int.class, InputMethodInfo.class,
@@ -333,6 +367,10 @@ public final class HardwareKeyboardLayoutCommand {
                 InputMethodSubtype.class);
         for (final InputDevice keyboard : keyboards) {
             final Object identifier = getIdentifier.invoke(keyboard);
+            // The Console bridge uses its own external virtual keyboard.
+            // Apply the device-wide override as well as the active
+            // IME-specific mapping so InputReader selects the same layout.
+            setOverride.invoke(inputManager, identifier, descriptor);
             setLayout.invoke(inputManager, identifier, 0,
                     imeState.inputMethod, imeState.currentSubtype, descriptor);
             final Object selection = getLayout.invoke(inputManager, identifier, 0,

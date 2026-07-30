@@ -34,6 +34,7 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.PUBLIC_APP_LAUNCH,
                 RuntimeAccess.Capability.EXACT_TASKS,
                 RuntimeAccess.Capability.TASK_CONTROL,
+                RuntimeAccess.Capability.GLOBAL_INPUT,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT,
                 RuntimeAccess.Capability.RIGHT_CLICK_REMAP,
@@ -50,7 +51,7 @@ public final class RuntimeAccessTest {
                 expected,
                 RuntimeAccess.capabilitiesFor(
                         RuntimeAccess.Backend.SHIZUKU_ROOT));
-        assertFalse(expected.contains(
+        assertTrue(expected.contains(
                 RuntimeAccess.Capability.GLOBAL_INPUT));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.KERNEL_FIXES));

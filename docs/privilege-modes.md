@@ -49,7 +49,7 @@ Console Mode, launch Touch Panel, correct external-display geometry and DPI,
 reuse exact tasks, apply freeform/fullscreen `WindowContainerTransaction`
 changes, register a live task listener, take screenshots, and control stock
 REDMAGIC bypass charging. The UserService exposes finite commands plus
-lifecycle-bound streams for task events and read-only physical-key events.
+lifecycle-bound streams for task events and fail-open physical-input bridges.
 
 A clean Shizuku-only installation cannot disable the firmware's
 `desktop_mode_enforce_device_restrictions` property. WMShell therefore does not
@@ -61,11 +61,14 @@ absent. If the device was provisioned previously and WMShell's desktop command
 is genuinely available to shell, MagicDesk can use that native path without
 granting runtime root.
 
-Shell can read raw `/dev/input/event*`, create a `/dev/uinput` pointer, change
-physical-keyboard layouts, and register task listeners. It cannot modify the
-physical input device's keymap, so the read-only keyboard stream handles
-`Ctrl+Space` only and other global shortcuts remain Root-only. For a physical
-mouse, MagicDesk uses `EVIOCGRAB` before Nubia converts `BTN_RIGHT` to Back and
+Shell can read raw `/dev/input/event*`, acquire `EVIOCGRAB`, create
+`/dev/uinput` devices, change physical-keyboard layouts, and register task
+listeners. In Console Mode, MagicDesk forwards the complete keyboard stream
+through an external virtual keyboard associated with the Console display. The
+bridge consumes only MagicDesk shortcuts, preserves ordinary combinations and
+key repeat, and pauses briefly during `Ctrl+Space` so the first subsequent key
+uses the newly selected layout. `Win+L` remains Root-only. For a physical mouse,
+MagicDesk grabs the source before Nubia converts `BTN_RIGHT` to Back and
 forwards the complete pointer stream through an internal virtual mouse. This
 restores standard Android secondary-click behavior in both MagicDesk and
 ordinary applications.
@@ -73,13 +76,14 @@ MagicDesk queries `IInputManager` for the selected layout of every enabled IME
 subtype, matching Android's own layout-mapping model without reading private
 InputManager files.
 
-The mouse bridge is active only while Shizuku Console Mode and a physical mouse
-are both present. A heartbeat makes it fail open: if the APK, UserService, or
-control stream disappears, the native helper destroys the virtual mouse and
-releases every physical device within six seconds. Input-device hot-plug
-restarts the bridge with a fresh device inventory. Screenshots remain available
-from **Tools > Screenshot**; the panel is synchronously detached and the
-capture is queued against display frames rather than a fixed delay.
+The keyboard and mouse bridges are active only while Shizuku Console Mode and
+the corresponding physical device are present. Heartbeats make them fail open:
+if the APK, UserService, or control stream disappears, each native helper
+destroys its virtual device and releases every physical source within six
+seconds. Input-device hot-plug restarts the bridges with a fresh device
+inventory. Screenshots remain available from **Tools > Screenshot**; the panel
+is synchronously detached and the capture is queued against display frames
+rather than a fixed delay.
 
 MagicDesk does not download, install, or start Shizuku. The user must install
 the official manager, start its server, and grant MagicDesk. A Shizuku/Sui

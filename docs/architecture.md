@@ -105,6 +105,7 @@ immersive mode must preserve the current Activity instance.
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Input remap helper | `native/magicdesk_mouse_remap.c` | Short-lived physical HID keymap adjustment |
 | Shizuku mouse helper | `native/magicdesk_uinput_bridge.c` | Heartbeat-bound physical-to-virtual pointer forwarding |
+| Shizuku keyboard helper | `native/magicdesk_keyboard_bridge.c` | Heartbeat-bound keyboard forwarding and shortcut interception |
 | Root Java helpers | Main application classes | Short-lived `app_process` access to framework and vendor Binder APIs |
 
 The main app and add-on are independent APKs. The main app resolves the add-on
@@ -549,11 +550,30 @@ or change the selected input method. Layout discovery mirrors Android's
 physical layout of every enabled IME subtype and de-duplicates the resulting
 descriptors in system order. This avoids direct access to
 `/data/system/input-manager-state.xml` and lets both Root and Shizuku shell
-sessions use the same Binder implementation. Shizuku invokes the cycle from
-the taskbar or from a lifecycle-bound read-only `getevent` stream. The Shizuku
-watcher recognizes only `Ctrl+Space`; shortcuts that conflict with Android
-system gestures remain on the root bridge, where MagicDesk can also remap or
-suppress the original low-level event.
+sessions use the same Binder implementation.
+
+In Shizuku Console Mode, `libmagicdesk_keyboard_bridge.so` opens every physical
+alphabetic keyboard read-only, creates one `/dev/uinput` keyboard with the
+source identity and a stable input-port location, then waits. A separate
+`app_process` routing session associates both physical and virtual keyboard
+ports with the external display, holds Nubia's input-panel Binder token, and
+selects the vendor mouse input source. Only after EventHub reports the virtual
+device, routing succeeds, and Android applies the selected layout to it does
+the helper acquire `EVIOCGRAB`.
+
+The helper forwards ordinary events unchanged, including repeat and modifier
+combinations. It consumes MagicDesk shortcuts before Android's global gesture
+handling. During `Ctrl+Space`, events arriving while the Binder layout update
+runs are queued and released only after the new layout is active; this avoids
+the first character using the previous language. The unmodified Meta key is
+suppressed, while `Win+L` stays on the normal Android path because phone locking
+is outside the Shizuku capability boundary. Outside Console Mode, Shizuku keeps
+the read-only `getevent` layout shortcut without grabbing the keyboard.
+
+Both Shizuku processes require a heartbeat. Closing either stream, losing
+Shizuku, or stopping MagicDesk releases every grabbed source, destroys the
+virtual keyboard, removes input-port associations, and clears the vendor
+routing state within six seconds.
 
 The global shortcut watcher handles desktop operations while another
 application owns focus. Shortcuts operate on exact task ids and the current
@@ -698,11 +718,11 @@ windowing configuration is incomplete. Root mode remains strict and does not
 fall back when `su` is unavailable. Auto currently resolves to Root when
 available and Basic otherwise. Explicit Shizuku mode binds an official
 Shizuku UserService and dispatches finite shell commands through AIDL.
-Lifecycle-bound `ParcelFileDescriptor` streams carry read-only physical-key
-events and task events. The task stream is bidirectional: MagicDesk writes
-focus/watch commands back to the same child helper through the UserService.
-Streams and their remote processes are closed together when their watcher
-stops. Shizuku mode does not fall back when the server or permission is
+Lifecycle-bound `ParcelFileDescriptor` streams carry task events and control
+the fail-open physical-input helpers. The task stream is bidirectional:
+MagicDesk writes focus/watch commands back to the same child helper through the
+UserService. Streams and their remote processes are closed together when their
+watcher stops. Shizuku mode does not fall back when the server or permission is
 unavailable and never starts the root input helpers.
 
 After explicit confirmation Root applies only missing values:

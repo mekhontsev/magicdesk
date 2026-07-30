@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
-import android.os.Binder;
 import android.os.IBinder;
 import android.view.InputDevice;
 
@@ -9,7 +8,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -18,23 +16,14 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 public final class ConsoleInputBridgeCommand {
-    private static final int DISPLAY_TYPE_EXTERNAL = 2;
     private static final String GETEVENT = "/system/bin/getevent";
-    private static final String DUMPSYS = "/system/bin/dumpsys";
-    private static final String SETTINGS = "/system/bin/settings";
-    private static final String CONSOLE_DISPLAY_SETTING = "app_mirror_displayid";
-    private final Set<String> mAssociatedInputPorts = new LinkedHashSet<>();
-    private Object mDisplayManager;
     private Object mInputManager;
     private Class<?> mInputManagerInterface;
-    private Method mNotePanelStatus;
-    private Method mRemovePortAssociation;
-    private Binder mPanelToken;
     private Process mGeteventProcess;
     private final List<ConsoleKeyboardDevice> mKeyboardDevices = new ArrayList<>();
     private final List<ConsoleMouseDevice> mMouseDevices = new ArrayList<>();
     private int mConsoleDisplayId = -1;
-    private boolean mMouseInputSourceOverride;
+    private ConsoleInputRoutingSession mInputRouting;
     private ConsoleInputEventInjector mInputEventInjector;
     private ConsoleKeyboardTabController mKeyboardTabController;
     private ConsoleRightButtonTranslator mRightButtonTranslator;
@@ -120,9 +109,10 @@ public final class ConsoleInputBridgeCommand {
         stopThread.start();
 
         System.out.println("MAGICDESK_INPUT_BRIDGE_READY console=" + consoleMode
-                + " associations=" + mAssociatedInputPorts.size()
-                + " panel=" + (mPanelToken != null)
-                + " mouseSource=" + mMouseInputSourceOverride
+                + " associations=" + (mInputRouting == null
+                        ? 0 : mInputRouting.associationCount())
+                + " panel=" + (mInputRouting != null)
+                + " mouseSource=" + (mInputRouting != null)
                 + " tabRemap=" + countRemappedKeyboards()
                 + " mouseRemap=" + countRemappedMice()
                 + " rightButton=" + (mRightButtonTranslator != null
@@ -148,12 +138,13 @@ public final class ConsoleInputBridgeCommand {
 
     @SuppressLint("BlockedPrivateApi")
     private void configureConsoleInput() throws Exception {
-        final int displayPort = findExternalDisplayPort();
-        if (displayPort < 0) {
-            throw new IllegalStateException("external physical display port not found");
-        }
-        mConsoleDisplayId = findConsoleDisplayId();
-
+        mKeyboardDevices.addAll(
+                ConsoleInputDeviceDiscovery.findKeyboards());
+        mMouseDevices.addAll(
+                ConsoleInputDeviceDiscovery.findMice());
+        mInputRouting = ConsoleInputRoutingSession.open(
+                mKeyboardDevices, mMouseDevices);
+        mConsoleDisplayId = mInputRouting.consoleDisplayId();
         mInputManager = getService("input", "android.hardware.input.IInputManager");
         mInputManagerInterface = Class.forName(
                 "android.hardware.input.IInputManager");
@@ -161,84 +152,6 @@ public final class ConsoleInputBridgeCommand {
                 mInputManager, mInputManagerInterface, mConsoleDisplayId);
         mKeyboardTabController =
                 new ConsoleKeyboardTabController(mInputEventInjector);
-        final Method addPortAssociation = mInputManagerInterface.getMethod(
-                "addPortAssociation", String.class, int.class);
-        mRemovePortAssociation = mInputManagerInterface.getMethod(
-                "removePortAssociation", String.class);
-        mKeyboardDevices.addAll(ConsoleInputDeviceDiscovery.findKeyboards());
-        for (final ConsoleKeyboardDevice keyboard : mKeyboardDevices) {
-            addPortAssociation.invoke(
-                    mInputManager, keyboard.location, displayPort);
-            mAssociatedInputPorts.add(keyboard.location);
-        }
-        if (mAssociatedInputPorts.isEmpty()) {
-            throw new IllegalStateException("external alphabetic keyboard input port not found");
-        }
-        mMouseDevices.addAll(ConsoleInputDeviceDiscovery.findMice());
-        for (final ConsoleMouseDevice mouse : mMouseDevices) {
-            if (mAssociatedInputPorts.add(mouse.location)) {
-                addPortAssociation.invoke(mInputManager, mouse.location, displayPort);
-            }
-        }
-
-        mDisplayManager = getService("display", "android.hardware.display.IDisplayManager");
-        final Class<?> displayManagerInterface = Class.forName(
-                "android.hardware.display.IDisplayManager");
-        mNotePanelStatus = displayManagerInterface.getMethod(
-                "noteMirrorInputPanelStatus", IBinder.class);
-        mPanelToken = new Binder();
-        mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
-        setMouseInputSourceOverride(true);
-    }
-
-    private void setMouseInputSourceOverride(final boolean enabled)
-            throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(DUMPSYS, "display", "dmctrl",
-                "inputSource", enabled ? "mouse" : "none")
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (output.length() > 0) {
-                    output.append('\n');
-                }
-                output.append(line);
-            }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException("display mirror input source failed " + exitCode
-                    + ": " + output);
-        }
-        mMouseInputSourceOverride = enabled;
-    }
-
-    private int findConsoleDisplayId() throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(
-                SETTINGS, "get", "global", CONSOLE_DISPLAY_SETTING)
-                .redirectErrorStream(true)
-                .start();
-        String value;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            value = reader.readLine();
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException("failed to read Console display setting: " + exitCode);
-        }
-        try {
-            final int displayId = Integer.parseInt(value == null ? "" : value.trim());
-            if (displayId <= 0) {
-                throw new NumberFormatException("display id must be positive");
-            }
-            return displayId;
-        } catch (NumberFormatException e) {
-            throw new IOException("invalid Console display id: " + value, e);
-        }
     }
 
     private void stopRightButtonTranslator() {
@@ -248,37 +161,6 @@ public final class ConsoleInputBridgeCommand {
         if (translator != null) {
             translator.stop();
         }
-    }
-
-    private int findExternalDisplayPort() throws Exception {
-        final Object displayManager = getService(
-                "display", "android.hardware.display.IDisplayManager");
-        final Class<?> displayManagerInterface = Class.forName(
-                "android.hardware.display.IDisplayManager");
-        final Method getDisplayIds = displayManagerInterface.getMethod(
-                "getDisplayIds", boolean.class);
-        final Method getDisplayInfo = displayManagerInterface.getMethod(
-                "getDisplayInfo", int.class);
-        final int[] displayIds = (int[]) getDisplayIds.invoke(displayManager, true);
-        for (final int displayId : displayIds) {
-            final Object info = getDisplayInfo.invoke(displayManager, displayId);
-            if (info == null || getIntField(info, "type") != DISPLAY_TYPE_EXTERNAL) {
-                continue;
-            }
-            final Object address = getField(info, "address");
-            if (address == null) {
-                continue;
-            }
-            try {
-                final Object port = address.getClass().getMethod("getPort").invoke(address);
-                if (port instanceof Number) {
-                    return ((Number) port).intValue();
-                }
-            } catch (ReflectiveOperationException ignored) {
-                // Non-physical display addresses do not expose a port.
-            }
-        }
-        return -1;
     }
 
     private void setMouseRightButtonRemapped(final ConsoleMouseDevice mouse,
@@ -596,37 +478,15 @@ public final class ConsoleInputBridgeCommand {
                         + mouse.path + " error=" + e);
             }
         }
-        if (mMouseInputSourceOverride) {
-            try {
-                setMouseInputSourceOverride(false);
-            } catch (Exception e) {
-                System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP mouseSource=" + e);
-            }
-        }
-        if (mNotePanelStatus != null && mDisplayManager != null) {
-            try {
-                mNotePanelStatus.invoke(mDisplayManager, new Object[] {null});
-            } catch (ReflectiveOperationException | RuntimeException e) {
-                System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP panel=" + e);
-            }
-        }
-        if (mRemovePortAssociation != null && mInputManager != null) {
-            for (final String inputPort : mAssociatedInputPorts) {
-                try {
-                    mRemovePortAssociation.invoke(mInputManager, inputPort);
-                } catch (ReflectiveOperationException | RuntimeException e) {
-                    System.err.println("MAGICDESK_INPUT_BRIDGE_CLEANUP port="
-                            + inputPort + " error=" + e);
-                }
-            }
+        if (mInputRouting != null) {
+            mInputRouting.close();
+            mInputRouting = null;
         }
         enablePhysicalKeyboardInputDevices();
         enablePhysicalMouseInputDevices();
-        mAssociatedInputPorts.clear();
         mKeyboardDevices.clear();
         mMouseDevices.clear();
         mConsoleDisplayId = -1;
-        mPanelToken = null;
         mKeyboardTabController = null;
         mInputEventInjector = null;
     }
@@ -638,18 +498,6 @@ public final class ConsoleInputBridgeCommand {
                 .invoke(null, name);
         final Class<?> stub = Class.forName(interfaceName + "$Stub");
         return stub.getMethod("asInterface", IBinder.class).invoke(null, binder);
-    }
-
-    private static Object getField(final Object target, final String fieldName)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(fieldName);
-        return field.get(target);
-    }
-
-    private static int getIntField(final Object target, final String fieldName)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(fieldName);
-        return field.getInt(target);
     }
 
 }

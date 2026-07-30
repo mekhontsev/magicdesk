@@ -4,17 +4,28 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class KeyboardShortcutWatcher {
     private static final String TAG = "MagicDeskKeys";
     private static final String INPUT_BRIDGE_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleInputBridgeCommand";
+    private static final String SHIZUKU_ROUTING_COMMAND =
+            "io.github.mekhontsev.magicdesk.ShizukuInputRoutingCommand";
     private static final String SHIZUKU_INPUT_COMMAND =
             "/system/bin/getevent -lt";
+    private static final String SHIZUKU_KEYBOARD_HELPER =
+            "libmagicdesk_keyboard_bridge.so";
+    private static final String DUMPSYS_INPUT =
+            "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MS = 1000L;
+    private static final long HEARTBEAT_MILLIS = 1000L;
 
     private static final Object LOCK = new Object();
     private static boolean sRunning;
@@ -25,7 +36,9 @@ final class KeyboardShortcutWatcher {
     private static boolean sMetaDown;
     private static Process sProcess;
     private static ShizukuAccess.StreamHandle sShizukuStream;
+    private static ShizukuAccess.StreamHandle sShizukuRoutingStream;
     private static Thread sThread;
+    private static Thread sHeartbeatThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
 
@@ -54,7 +67,9 @@ final class KeyboardShortcutWatcher {
     static void stop() {
         final Process process;
         final ShizukuAccess.StreamHandle shizukuStream;
+        final ShizukuAccess.StreamHandle routingStream;
         final Thread thread;
+        final Thread heartbeatThread;
         final boolean cancelAltTab;
         synchronized (LOCK) {
             sRunning = false;
@@ -63,10 +78,14 @@ final class KeyboardShortcutWatcher {
             clearModifierStateLocked();
             process = sProcess;
             shizukuStream = sShizukuStream;
+            routingStream = sShizukuRoutingStream;
             thread = sThread;
+            heartbeatThread = sHeartbeatThread;
             sProcess = null;
             sShizukuStream = null;
+            sShizukuRoutingStream = null;
             sThread = null;
+            sHeartbeatThread = null;
             sFullShortcutMode = false;
         }
         if (cancelAltTab) {
@@ -76,6 +95,10 @@ final class KeyboardShortcutWatcher {
             closeQuietly(process.getOutputStream());
         }
         closeQuietly(shizukuStream);
+        closeQuietly(routingStream);
+        if (heartbeatThread != null) {
+            heartbeatThread.interrupt();
+        }
         if (thread != null) {
             thread.interrupt();
         }
@@ -84,7 +107,8 @@ final class KeyboardShortcutWatcher {
     static boolean isRunning() {
         synchronized (LOCK) {
             return sRunning && (isProcessAlive(sProcess)
-                    || sShizukuStream != null);
+                    || sShizukuStream != null
+                    || sShizukuRoutingStream != null);
         }
     }
 
@@ -108,16 +132,22 @@ final class KeyboardShortcutWatcher {
 
     private static void runLoop(final boolean consoleMode, final long generation) {
         while (isRunning(generation)) {
+            final boolean useShizuku =
+                    RuntimeAccess.allowsShizukuCommands()
+                            && !RuntimeAccess.allowsRootCommands();
             Process process = null;
             ShizukuAccess.StreamHandle shizukuStream = null;
             BufferedReader reader = null;
             try {
+                if (useShizuku && consoleMode) {
+                    runShizukuConsoleSession(generation);
+                    continue;
+                }
+
                 final boolean fullShortcutMode =
                         RuntimeAccess.has(
-                                RuntimeAccess.Capability.GLOBAL_INPUT);
-                final boolean useShizuku =
-                        RuntimeAccess.allowsShizukuCommands()
-                                && !RuntimeAccess.allowsRootCommands();
+                                RuntimeAccess.Capability.GLOBAL_INPUT)
+                                && !useShizuku;
                 final String command;
                 if (useShizuku) {
                     command = SHIZUKU_INPUT_COMMAND;
@@ -174,6 +204,343 @@ final class KeyboardShortcutWatcher {
             }
         }
         Log.i(TAG, "input watcher stopped");
+    }
+
+    private static void runShizukuConsoleSession(final long generation)
+            throws IOException {
+        ShizukuAccess.StreamHandle keyboardStream = null;
+        ShizukuAccess.StreamHandle routingStream = null;
+        BufferedReader keyboardReader = null;
+        BufferedReader routingReader = null;
+        Thread heartbeatThread = null;
+        Thread routingMonitor = null;
+        final AtomicBoolean sessionClosing = new AtomicBoolean();
+        try {
+            final List<ConsoleKeyboardDevice> keyboards =
+                    ConsoleInputDeviceDiscovery.findKeyboards(
+                            ShizukuAccess.run(DUMPSYS_INPUT));
+            if (keyboards.isEmpty()) {
+                throw new IOException(
+                        "no external alphabetic keyboard was found");
+            }
+
+            keyboardStream = ShizukuAccess.openStream(
+                    buildShizukuKeyboardCommand(keyboards));
+            setShizukuStream(
+                    keyboardStream, generation, false);
+            keyboardReader = new BufferedReader(new InputStreamReader(
+                    keyboardStream.inputStream()));
+            waitForLine(
+                    keyboardReader,
+                    "MAGICDESK_SHIZUKU_KEYBOARD_READY",
+                    "keyboard bridge");
+
+            routingStream = ShizukuAccess.openStream(
+                    AppProcessCommand.exec(SHIZUKU_ROUTING_COMMAND));
+            setShizukuRoutingStream(routingStream, generation);
+            routingReader = new BufferedReader(new InputStreamReader(
+                    routingStream.inputStream()));
+            final String routingReady = waitForLine(
+                    routingReader,
+                    "MAGICDESK_SHIZUKU_ROUTING_READY",
+                    "input routing");
+            final int routedKeyboards =
+                    parseIntegerValue(routingReady, "keyboards");
+            if (routedKeyboards < 2) {
+                throw new IOException(
+                        "virtual keyboard was not routed: "
+                                + routingReady);
+            }
+
+            final ShizukuAccess.StreamHandle activeKeyboardStream =
+                    keyboardStream;
+            final ShizukuAccess.StreamHandle activeRoutingStream =
+                    routingStream;
+            final BufferedReader activeRoutingReader = routingReader;
+            final Thread sessionThread = Thread.currentThread();
+            routingMonitor = new Thread(
+                    () -> monitorRouting(
+                            activeRoutingReader,
+                            activeKeyboardStream,
+                            sessionThread,
+                            sessionClosing,
+                            generation),
+                    "MagicDeskShizukuInputRouting");
+            routingMonitor.setDaemon(true);
+            routingMonitor.start();
+
+            heartbeatThread = new Thread(
+                    () -> sendShizukuHeartbeats(
+                            activeKeyboardStream,
+                            activeRoutingStream,
+                            sessionThread,
+                            sessionClosing,
+                            generation),
+                    "MagicDeskShizukuKeyboardHeartbeat");
+            heartbeatThread.setDaemon(true);
+            setHeartbeatThread(heartbeatThread, generation);
+            heartbeatThread.start();
+
+            syncHardwareKeyboardLayout();
+            keyboardStream.writeLine("start");
+            waitForLine(
+                    keyboardReader,
+                    "MAGICDESK_SHIZUKU_KEYBOARD_STARTED",
+                    "keyboard capture");
+            setFullShortcutMode(true, generation);
+            Log.i(TAG, "input watcher started backend="
+                    + RuntimeAccess.backendName()
+                    + " full=true console=true"
+                    + " keyboards=" + routedKeyboards);
+
+            String line;
+            while (isRunning(generation)
+                    && (line = keyboardReader.readLine()) != null) {
+                handleShizukuBridgeLine(
+                        line, activeKeyboardStream, generation);
+            }
+            if (isRunning(generation)) {
+                throw new IOException(
+                        "Shizuku keyboard bridge exited unexpectedly");
+            }
+        } finally {
+            sessionClosing.set(true);
+            if (heartbeatThread != null) {
+                heartbeatThread.interrupt();
+            }
+            closeQuietly(keyboardReader);
+            closeQuietly(routingReader);
+            closeQuietly(keyboardStream);
+            closeQuietly(routingStream);
+            clearHeartbeatThread(heartbeatThread);
+            clearShizukuRoutingStream(routingStream);
+            clearShizukuStream(keyboardStream);
+            clearModifierState();
+            if (routingMonitor != null) {
+                routingMonitor.interrupt();
+            }
+            if (isRunning(generation)) {
+                Thread.interrupted();
+            }
+        }
+    }
+
+    private static String buildShizukuKeyboardCommand(
+            final List<ConsoleKeyboardDevice> keyboards)
+            throws IOException {
+        final File helper = new File(
+                MagicDeskApplication.applicationContext()
+                        .getApplicationInfo().nativeLibraryDir,
+                SHIZUKU_KEYBOARD_HELPER);
+        if (!helper.isFile()) {
+            throw new IOException(
+                    "packaged keyboard bridge is missing: " + helper);
+        }
+        final StringBuilder command =
+                new StringBuilder("exec ")
+                        .append(shellQuote(helper.getAbsolutePath()));
+        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+            command.append(' ').append(shellQuote(keyboard.path));
+        }
+        return command.toString();
+    }
+
+    private static String waitForLine(
+            final BufferedReader reader,
+            final String expectedPrefix,
+            final String component) throws IOException {
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.startsWith(expectedPrefix)) {
+                Log.i(TAG, line);
+                return line;
+            }
+            if (line.contains("_ERROR")) {
+                throw new IOException(component + " failed: " + line);
+            }
+            if (!line.isEmpty()) {
+                Log.d(TAG, line);
+            }
+        }
+        throw new IOException(component + " exited before becoming ready");
+    }
+
+    private static int parseIntegerValue(
+            final String line,
+            final String key) {
+        final String prefix = key + "=";
+        for (final String part : line.split("\\s+")) {
+            if (!part.startsWith(prefix)) {
+                continue;
+            }
+            try {
+                return Integer.parseInt(
+                        part.substring(prefix.length()));
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private static void syncHardwareKeyboardLayout()
+            throws IOException {
+        final CountDownLatch complete = new CountDownLatch(1);
+        HardwareKeyboardLayoutController.refresh(complete::countDown);
+        try {
+            complete.await();
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "interrupted while applying the virtual keyboard layout",
+                    error);
+        }
+    }
+
+    private static void monitorRouting(
+            final BufferedReader reader,
+            final ShizukuAccess.StreamHandle keyboardStream,
+            final Thread sessionThread,
+            final AtomicBoolean sessionClosing,
+            final long generation) {
+        try {
+            String line;
+            while (isRunning(generation)
+                    && (line = reader.readLine()) != null) {
+                if (!line.isEmpty()) {
+                    Log.d(TAG, line);
+                }
+            }
+        } catch (IOException error) {
+            if (isRunning(generation)) {
+                Log.w(TAG, "Shizuku input routing stopped", error);
+            }
+        } finally {
+            if (!sessionClosing.get() && isRunning(generation)) {
+                closeQuietly(keyboardStream);
+                sessionThread.interrupt();
+            }
+        }
+    }
+
+    private static void sendShizukuHeartbeats(
+            final ShizukuAccess.StreamHandle keyboardStream,
+            final ShizukuAccess.StreamHandle routingStream,
+            final Thread sessionThread,
+            final AtomicBoolean sessionClosing,
+            final long generation) {
+        while (isRunning(generation)) {
+            try {
+                keyboardStream.writeLine("ping");
+                routingStream.writeLine("ping");
+                Thread.sleep(HEARTBEAT_MILLIS);
+            } catch (IOException error) {
+                if (!sessionClosing.get()
+                        && isRunning(generation)) {
+                    Log.w(TAG,
+                            "Shizuku keyboard heartbeat failed",
+                            error);
+                    closeQuietly(keyboardStream);
+                    closeQuietly(routingStream);
+                    sessionThread.interrupt();
+                }
+                return;
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private static void handleShizukuBridgeLine(
+            final String line,
+            final ShizukuAccess.StreamHandle keyboardStream,
+            final long generation) {
+        if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")
+                || "MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
+            handleGeteventLine(line, true);
+            return;
+        }
+        if (!line.startsWith("MAGICDESK_SHORTCUT ")) {
+            if (line.contains("_ERROR")) {
+                Log.w(TAG, line);
+            } else if (!line.isEmpty()) {
+                Log.d(TAG, line);
+            }
+            return;
+        }
+
+        final String action =
+                line.substring("MAGICDESK_SHORTCUT ".length());
+        if ("CTRL_SPACE".equals(action)) {
+            Log.i(TAG, "Ctrl+Space");
+            HardwareKeyboardLayoutController.toggle(
+                    () -> resumeShizukuKeyboard(
+                            keyboardStream, generation));
+            return;
+        }
+        if ("ESCAPE".equals(action)) {
+            DesktopTaskController.dismissTransientActivity();
+            return;
+        }
+        if ("ALT_F4".equals(action)) {
+            ConsoleModeSwitcher.manageActiveWindow(
+                    DesktopTaskController.SHORTCUT_CLOSE);
+            return;
+        }
+        if ("META_BACKSPACE".equals(action)) {
+            ConsoleModeSwitcher.sendSystemBack();
+            return;
+        }
+        if ("META_N".equals(action)) {
+            ConsoleModeSwitcher.toggleNotificationCenter();
+            return;
+        }
+        if ("META_UP".equals(action)) {
+            ConsoleModeSwitcher.manageActiveWindow(
+                    DesktopTaskController.SHORTCUT_FULLSCREEN);
+            return;
+        }
+        if ("META_DOWN".equals(action)) {
+            ConsoleModeSwitcher.manageActiveWindow(
+                    DesktopTaskController.SHORTCUT_RESTORE);
+            return;
+        }
+        if ("META_LEFT".equals(action)) {
+            ConsoleModeSwitcher.manageActiveWindow(
+                    DesktopTaskController.SHORTCUT_SNAP_LEFT);
+            return;
+        }
+        if ("META_RIGHT".equals(action)) {
+            ConsoleModeSwitcher.manageActiveWindow(
+                    DesktopTaskController.SHORTCUT_SNAP_RIGHT);
+            return;
+        }
+        if ("META_D".equals(action)) {
+            ConsoleModeSwitcher.showMagicDesk();
+            return;
+        }
+        if ("META_PRINT_SCREEN".equals(action)) {
+            ConsoleModeSwitcher.captureScreenshot();
+            return;
+        }
+        if ("META_SLASH".equals(action)) {
+            ConsoleModeSwitcher.showShortcutHelp();
+        }
+    }
+
+    private static void resumeShizukuKeyboard(
+            final ShizukuAccess.StreamHandle keyboardStream,
+            final long generation) {
+        if (!isRunning(generation)) {
+            return;
+        }
+        try {
+            keyboardStream.writeLine("resume");
+        } catch (IOException error) {
+            Log.w(TAG, "cannot resume Shizuku keyboard", error);
+            closeQuietly(keyboardStream);
+        }
     }
 
     private static void handleGeteventLine(
@@ -468,11 +835,42 @@ final class KeyboardShortcutWatcher {
         }
     }
 
+    private static void setShizukuRoutingStream(
+            final ShizukuAccess.StreamHandle stream,
+            final long generation) {
+        synchronized (LOCK) {
+            if (sRunning && sGeneration == generation) {
+                sShizukuRoutingStream = stream;
+            }
+        }
+    }
+
+    private static void setHeartbeatThread(
+            final Thread thread,
+            final long generation) {
+        synchronized (LOCK) {
+            if (sRunning && sGeneration == generation) {
+                sHeartbeatThread = thread;
+            }
+        }
+    }
+
+    private static void setFullShortcutMode(
+            final boolean enabled,
+            final long generation) {
+        synchronized (LOCK) {
+            if (sRunning && sGeneration == generation) {
+                sFullShortcutMode = enabled;
+            }
+        }
+    }
+
     private static void clearProcess(final Process process) {
         synchronized (LOCK) {
             if (sProcess == process) {
                 sProcess = null;
-                if (sShizukuStream == null) {
+                if (sShizukuStream == null
+                        && sShizukuRoutingStream == null) {
                     sFullShortcutMode = false;
                 }
             }
@@ -484,9 +882,30 @@ final class KeyboardShortcutWatcher {
         synchronized (LOCK) {
             if (sShizukuStream == stream) {
                 sShizukuStream = null;
-                if (sProcess == null) {
+                if (sProcess == null
+                        && sShizukuRoutingStream == null) {
                     sFullShortcutMode = false;
                 }
+            }
+        }
+    }
+
+    private static void clearShizukuRoutingStream(
+            final ShizukuAccess.StreamHandle stream) {
+        synchronized (LOCK) {
+            if (sShizukuRoutingStream == stream) {
+                sShizukuRoutingStream = null;
+                if (sProcess == null && sShizukuStream == null) {
+                    sFullShortcutMode = false;
+                }
+            }
+        }
+    }
+
+    private static void clearHeartbeatThread(final Thread thread) {
+        synchronized (LOCK) {
+            if (sHeartbeatThread == thread) {
+                sHeartbeatThread = null;
             }
         }
     }
@@ -508,5 +927,9 @@ final class KeyboardShortcutWatcher {
         } catch (IOException e) {
             // Ignore close failures while stopping or restarting getevent.
         }
+    }
+
+    private static String shellQuote(final String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 }

@@ -44,6 +44,10 @@ public final class MagicDeskRuntimeService extends Service
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
+    private static final String SHIZUKU_KEYBOARD_NAME =
+            "MagicDesk Shizuku Keyboard";
+    private static final String SHIZUKU_MOUSE_NAME =
+            "MagicDesk Shizuku Mouse";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
 
@@ -354,7 +358,10 @@ public final class MagicDeskRuntimeService extends Service
     private boolean hasExternalMouse() {
         for (final int deviceId : InputDevice.getDeviceIds()) {
             final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null || device.isVirtual() || !device.isExternal()) {
+            if (device == null
+                    || isMagicDeskInputDevice(device)
+                    || device.isVirtual()
+                    || !device.isExternal()) {
                 continue;
             }
             if ((device.getSources() & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE) {
@@ -368,7 +375,10 @@ public final class MagicDeskRuntimeService extends Service
         final List<String> devices = new ArrayList<>();
         for (final int deviceId : InputDevice.getDeviceIds()) {
             final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null || device.isVirtual() || !device.isExternal()) {
+            if (device == null
+                    || isMagicDeskInputDevice(device)
+                    || device.isVirtual()
+                    || !device.isExternal()) {
                 continue;
             }
             devices.add(deviceId + ":" + device.getDescriptor()
@@ -388,13 +398,26 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private static boolean isExternalAlphabeticKeyboard(final InputDevice device) {
-        if (device == null || device.isVirtual() || !device.isExternal()) {
+        if (device == null
+                || isMagicDeskInputDevice(device)
+                || device.isVirtual()
+                || !device.isExternal()) {
             return false;
         }
         final boolean hasKeyboardSource =
                 (device.getSources() & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
         return hasKeyboardSource
                 && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
+    private static boolean isMagicDeskInputDevice(
+            final InputDevice device) {
+        if (device == null) {
+            return false;
+        }
+        final String name = device.getName();
+        return SHIZUKU_KEYBOARD_NAME.equals(name)
+                || SHIZUKU_MOUSE_NAME.equals(name);
     }
 
     private void registerConfigurationReceiver() {

@@ -36,4 +36,38 @@ public final class ConsoleInputDeviceDiscoveryTest {
         assertEquals(0x3554, mice.get(0).vendorId);
         assertEquals(0xf605, mice.get(0).productId);
     }
+
+    @Test
+    public void separatesPhysicalAndVirtualRoutableKeyboards()
+            throws Exception {
+        final String dump =
+                "Input Manager State:\n"
+                        + "Event Hub State:\n"
+                        + "  Devices:\n"
+                        + "    18: MagicDesk Shizuku Keyboard\n"
+                        + "      Classes: KEYBOARD | ALPHAKEY | EXTERNAL\n"
+                        + "      Path: /dev/input/event18\n"
+                        + "      Location: magicdesk-shizuku-keyboard\n"
+                        + "      Identifier: bus=0x0005, vendor=0x3554, "
+                        + "product=0xf603, version=0x0101\n"
+                        + "    11: ProtoArc Keyboard\n"
+                        + "      Classes: KEYBOARD | ALPHAKEY | EXTERNAL\n"
+                        + "      Path: /dev/input/event10\n"
+                        + "      Location: dc:f0:90:67:42:3d\n"
+                        + "      Identifier: bus=0x0005, vendor=0x3554, "
+                        + "product=0xf603, version=0x0101\n"
+                        + "Input Reader State (Nums of device: 2):\n";
+
+        final List<ConsoleKeyboardDevice> physical =
+                ConsoleInputDeviceDiscovery.findKeyboards(dump);
+        final List<ConsoleKeyboardDevice> routable =
+                ConsoleInputDeviceDiscovery.findRoutableKeyboards(dump);
+
+        assertEquals(1, physical.size());
+        assertEquals("/dev/input/event10", physical.get(0).path);
+        assertEquals(2, routable.size());
+        assertEquals(
+                "magicdesk-shizuku-keyboard",
+                routable.get(0).location);
+    }
 }
