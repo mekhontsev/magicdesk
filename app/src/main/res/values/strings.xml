@@ -81,8 +81,16 @@
     <string name="hardware_root_required">Hardware monitoring and control require the Root runtime.</string>
     <string name="hardware_write_failed">The hardware control did not accept the requested value.</string>
     <string name="hardware_restore_failed">Could not restore the hardware state that existed before MagicDesk changed it.</string>
-    <string name="hardware_compact">%1$s C\n%2$s</string>
-    <string name="hardware_taskbar_description">Device temperature %1$d C, fan %2$s rpm</string>
+    <string name="hardware_power_section">Power</string>
+    <string name="charge_separation_label">Bypass charging</string>
+    <string name="charge_separation_enabled_description">Bypass charging is enabled</string>
+    <string name="charge_separation_disabled_description">Bypass charging is disabled</string>
+    <string name="charge_separation_power_required">Connect a charger to enable bypass charging</string>
+    <string name="charge_separation_battery_required">Battery must be at least 20% to enable bypass charging</string>
+    <string name="charge_separation_privileged_required">Bypass charging requires the Root or Shizuku runtime</string>
+    <string name="status_charge_separation_enabled">Bypass charging enabled</string>
+    <string name="status_charge_separation_disabled">Bypass charging disabled</string>
+    <string name="status_charge_separation_failed">Could not change bypass charging</string>
     <string name="badge_window">Window</string>
     <string name="badge_fullscreen">Full screen</string>
     <string name="tools_status_full">D%1$d | Phone %2$s | Runtime %3$s | Bridge %4$s | %5$s</string>
@@ -95,10 +103,11 @@
     <string name="tooltip_tools">Tools</string>
     <string name="keyboard_layout_description">Keyboard layout %1$s; activate to switch</string>
     <string name="battery_compact">%1$d%%</string>
-    <string name="battery_compact_charging">%1$d%%+</string>
     <string name="battery_compact_unknown" formatted="false">--%</string>
     <string name="battery_status_description">Battery %1$d%%, %2$s</string>
+    <string name="battery_status_bypass_description">Battery %1$d%%, bypass charging</string>
     <string name="battery_status_unknown">Battery status unavailable</string>
+    <string name="battery_state_bypass">bypass charging</string>
     <string name="battery_state_charging">charging</string>
     <string name="battery_state_full">fully charged</string>
     <string name="battery_state_discharging">not charging</string>

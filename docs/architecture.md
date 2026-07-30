@@ -438,6 +438,15 @@ profile merely because Android starts. Auto fan control is opt-in, uses levels
 0 through 5 with temperature hysteresis, verifies the actual node state on
 each poll, and restores the pre-control fan state when the runtime stops.
 
+Bypass charging deliberately uses the stock REDMAGIC control plane instead of
+writing charging sysfs nodes. MagicDesk writes only the firmware's
+`Settings.Global.charge_separation_switch` through the selected Root or
+Shizuku backend. It observes that key and `ACTION_BATTERY_CHANGED`, so the
+Hardware switch follows changes made by the stock app, power disconnects, and
+vendor safety policy without polling. Enabling is offered only while external
+power is connected and the battery is at least 20 percent. Nubia's system
+service remains responsible for notifications and automatic shutdown.
+
 ## Task Observation
 
 A root `TaskStackListener` helper receives lifecycle events from
@@ -481,9 +490,9 @@ task. The taskbar is hidden when an application owns true fullscreen.
 Start separates application navigation from operational controls. `Tools`
 contains display density, runtime state, diagnostics, and session actions,
 including the Nubia touchpad entry point. `Hardware` contains
-battery state, audio routing, and REDMAGIC fan/pump monitoring and controls.
-Both the taskbar hardware monitor and battery percentage open the same Hardware
-tab.
+battery state, bypass charging, audio routing, and REDMAGIC fan/pump monitoring
+and controls. The compact battery percentage in the taskbar opens the Hardware
+tab; detailed temperature and RPM values remain in that panel.
 
 Start uses a focusable overlay for its application search and requests the
 search field only after the overlay receives window focus. Tools remains

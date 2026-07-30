@@ -28,10 +28,11 @@ final class TaskbarController {
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
     private TextView mKeyboardLayout;
-    private TextView mHardwareStatus;
     private TextView mBatteryStatus;
     private ImageButton mConsoleButton;
     private ImageButton mPhoneScreenButton;
+    private Intent mLastBatteryIntent;
+    private boolean mChargeSeparationEnabled;
 
     TaskbarController(
             final DesktopShellActivity activity,
@@ -213,21 +214,6 @@ final class TaskbarController {
                 mActivity.toggleToolsMenu());
         addButton(taskbar, mConsoleButton);
 
-        mHardwareStatus = new TextView(mActivity);
-        mHardwareStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
-        mHardwareStatus.setTextSize(
-                mActivity.isCompactDesktopPreview() ? 9 : 11);
-        mHardwareStatus.setGravity(Gravity.CENTER);
-        mHardwareStatus.setSingleLine(true);
-        mHardwareStatus.setClickable(true);
-        mHardwareStatus.setFocusable(true);
-        mHardwareStatus.setOnClickListener(view ->
-                mActivity.toggleHardwareMenu());
-        taskbar.addView(mHardwareStatus, new LinearLayout.LayoutParams(
-                desktopDp(64, 48),
-                LinearLayout.LayoutParams.MATCH_PARENT));
-        updateHardware(RedmagicHardwareController.snapshot());
-
         mBatteryStatus = new TextView(mActivity);
         mBatteryStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mBatteryStatus.setTextSize(
@@ -269,7 +255,6 @@ final class TaskbarController {
         mTaskbar = null;
         mPins = null;
         mKeyboardLayout = null;
-        mHardwareStatus = null;
         mBatteryStatus = null;
         mConsoleButton = null;
         mPhoneScreenButton = null;
@@ -412,58 +397,11 @@ final class TaskbarController {
         mConsoleButton.setTooltipText(description);
     }
 
-    void updateHardware(final RedmagicHardwareSnapshot snapshot) {
-        if (mHardwareStatus == null) {
-            return;
-        }
-        if (mActivity.isCompactDesktopPreview()
-                || !RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_CONTROL)) {
-            mHardwareStatus.setVisibility(View.GONE);
-            return;
-        }
-        mHardwareStatus.setVisibility(View.VISIBLE);
-        final int temperature = snapshot.controlTemperatureMilliCelsius();
-        final int roundedCelsius = temperature
-                == RedmagicHardwareSnapshot.UNKNOWN
-                        ? RedmagicHardwareSnapshot.UNKNOWN
-                        : Math.round(temperature / 1000f);
-        final String text = mActivity.getString(
-                R.string.hardware_compact,
-                roundedCelsius == RedmagicHardwareSnapshot.UNKNOWN
-                        ? "--" : Integer.toString(roundedCelsius),
-                snapshot.fanRpm == RedmagicHardwareSnapshot.UNKNOWN
-                        ? "--" : Integer.toString(snapshot.fanRpm));
-        mHardwareStatus.setText(text);
-        mHardwareStatus.setTextColor(
-                roundedCelsius != RedmagicHardwareSnapshot.UNKNOWN
-                        && roundedCelsius >= 80
-                        ? DesktopUiFactory.COLOR_RED
-                        : (roundedCelsius
-                                        != RedmagicHardwareSnapshot.UNKNOWN
-                                && roundedCelsius >= 65
-                                ? DesktopUiFactory.COLOR_AMBER
-                                : DesktopUiFactory.COLOR_MUTED));
-        mHardwareStatus.setContentDescription(
-                roundedCelsius == RedmagicHardwareSnapshot.UNKNOWN
-                        ? mActivity.getString(
-                                R.string.hardware_unavailable)
-                        : mActivity.getString(
-                                R.string.hardware_taskbar_description,
-                                Integer.valueOf(roundedCelsius),
-                                snapshot.fanRpm
-                                        == RedmagicHardwareSnapshot.UNKNOWN
-                                                ? "--"
-                                                : Integer.toString(
-                                                        snapshot.fanRpm)));
-        mHardwareStatus.setTooltipText(
-                mHardwareStatus.getContentDescription());
-    }
-
     void updateBattery(final Intent battery) {
         if (mBatteryStatus == null || battery == null) {
             return;
         }
+        mLastBatteryIntent = battery;
         final int level =
                 battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
         final int scale =
@@ -485,12 +423,10 @@ final class TaskbarController {
         mBatteryStatus.setText(percent < 0
                 ? mActivity.getString(R.string.battery_compact_unknown)
                 : mActivity.getString(
-                        charging
-                                ? R.string.battery_compact_charging
-                                : R.string.battery_compact,
+                        R.string.battery_compact,
                         Integer.valueOf(percent)));
         mBatteryStatus.setTextColor(
-                charging
+                charging || mChargeSeparationEnabled
                         ? DesktopUiFactory.COLOR_CYAN
                         : DesktopUiFactory.COLOR_TEXT);
         final String state = mActivity.getString(
@@ -501,12 +437,23 @@ final class TaskbarController {
                                 : R.string.battery_state_discharging));
         final String description = percent < 0
                 ? mActivity.getString(R.string.battery_status_unknown)
-                : mActivity.getString(
+                : (mChargeSeparationEnabled
+                        ? mActivity.getString(
+                                R.string.battery_status_bypass_description,
+                                Integer.valueOf(percent))
+                        : mActivity.getString(
                         R.string.battery_status_description,
                         Integer.valueOf(percent),
-                        state);
+                        state));
         mBatteryStatus.setContentDescription(description);
         mBatteryStatus.setTooltipText(description);
+    }
+
+    void updateChargeSeparation(final boolean enabled) {
+        mChargeSeparationEnabled = enabled;
+        if (mLastBatteryIntent != null) {
+            updateBattery(mLastBatteryIntent);
+        }
     }
 
     private void addPin(

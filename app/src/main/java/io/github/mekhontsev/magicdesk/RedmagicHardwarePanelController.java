@@ -146,7 +146,6 @@ final class RedmagicHardwarePanelController
     public void onHardwareStateChanged(
             final RedmagicHardwareSnapshot snapshot) {
         update(snapshot);
-        mActivity.taskbar().updateHardware(snapshot);
     }
 
     private void update(final RedmagicHardwareSnapshot snapshot) {

@@ -7,6 +7,7 @@
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="cn.nubia.keymapcenter" />
+        <package android:name="cn.zte.chargeseparation" />
         <package android:name="com.zte.mifavor.launcher" />
         <package android:name="io.github.mekhontsev.magicdesk.kernel" />
         <provider android:authorities="cn.nubia.touping.TouPingProvider" />

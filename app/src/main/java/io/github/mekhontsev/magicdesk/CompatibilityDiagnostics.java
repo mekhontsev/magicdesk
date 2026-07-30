@@ -265,8 +265,19 @@ final class CompatibilityDiagnostics {
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.RIGHT_CLICK_REMAP))
                 .append(", displayOverrides=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES))
+                .append(", chargeSeparation=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.CHARGE_SEPARATION))
                 .append(", hardwareControl=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL))
+                .append('\n');
+        report.append("REDMAGIC charge separation: package=")
+                .append(ChargeSeparationController.isSupported(context))
+                .append(", enabled=")
+                .append(Settings.Global.getInt(
+                        context.getContentResolver(),
+                        ChargeSeparationController.SETTING,
+                        0) == 1)
                 .append('\n');
         final RedmagicHardwareSnapshot hardware =
                 RedmagicHardwareController.snapshot();

@@ -77,6 +77,8 @@ tasks managed by the firmware's WMShell.
   phone-screen control, and screenshot capture.
 - Media-volume, connected audio-output, and REDMAGIC Touch Panel controls in
   the desktop Tools panel.
+- Stock REDMAGIC bypass-charging control in Root or Shizuku mode, with the
+  vendor service retaining its normal safety and disconnect handling.
 - Capability-probed REDMAGIC fan, liquid-pump, temperature, and RPM monitoring
   in Root mode, with manual profiles and an optional temperature-driven fan
   curve.
@@ -215,6 +217,7 @@ The desktop taskbar Tools panel additionally provides:
 - External-display DPI selection
 - External-display screenshot
 - Media volume, mute, output monitoring, and sound settings
+- REDMAGIC bypass charging when supported by the stock firmware
 - REDMAGIC CPU/GPU/skin/battery temperatures, fan RPM, fan profiles, and
   liquid-pump profiles when compatible control nodes are detected
 - Device Setup and Diagnostics

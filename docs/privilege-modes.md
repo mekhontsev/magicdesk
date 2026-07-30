@@ -45,7 +45,9 @@ before invoking the narrow vendor SurfaceFlinger option. Shizuku cannot access
 `/dev/input`, load kernel modules, or use the complete set of REDMAGIC
 root/vendor controls, so the global shortcut bridge, physical-key repeat
 correction, keyboard-layout cycling, right-click remapping, phone-screen
-controls, and Console Mode automation remain disabled.
+controls, and Console Mode automation remain disabled. It can control stock
+REDMAGIC bypass charging through the firmware's global setting; Nubia's system
+service still enforces power and battery safety policy.
 
 On REDMAGIC firmware, the physical right mouse button becomes Android Back
 before an application overlay can consume it. Use a long left-button press for
@@ -64,8 +66,9 @@ mode for the complete feature set.
 Root mode enables exact task observation and transitions, Console Mode
 automation, global shortcuts, physical input correction, display overrides,
 screenshots, phone-screen controls, capability-probed REDMAGIC hardware
-monitoring/control, and the optional separately installed Kernel Fixes add-on.
-Fan and pump writes are never available to Basic or Shizuku shell sessions.
+monitoring/control, bypass charging, and the optional separately installed
+Kernel Fixes add-on. Fan and pump writes are never available to Basic or
+Shizuku shell sessions.
 
 ### Auto
 
