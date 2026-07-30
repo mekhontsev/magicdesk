@@ -625,15 +625,21 @@ final class StartMenuController {
     }
 
     private int getWidth() {
-        final int width =
-                mActivity.getResources().getDisplayMetrics().widthPixels;
-        return Math.min(dp(560), Math.max(dp(280), width - dp(32)));
+        final int margin = mUi.desktopDp(
+                16, 6, mActivity.isCompactDesktopPreview());
+        final int available = Math.max(
+                1, mActivity.getDesktopAreaWidth() - margin * 2);
+        return Math.min(dp(560), available);
     }
 
     private int getHeight() {
-        final int height =
-                mActivity.getResources().getDisplayMetrics().heightPixels;
-        return Math.min(dp(620), Math.max(dp(360), height - dp(124)));
+        final int margin = mUi.desktopDp(
+                12, 4, mActivity.isCompactDesktopPreview());
+        final int available = Math.max(
+                1,
+                mActivity.getDesktopAreaHeight()
+                        - mActivity.getTaskbarHeight() - margin);
+        return Math.min(dp(620), available);
     }
 
     private int dp(final int value) {

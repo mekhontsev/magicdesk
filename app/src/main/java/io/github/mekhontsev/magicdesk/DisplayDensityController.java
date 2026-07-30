@@ -31,9 +31,7 @@ final class DisplayDensityController {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
-        if (displayId > 0) {
-            mActivity.setPreferredDesktopDpi(dpi);
-        }
+        mActivity.setPreferredDesktopDpi(dpi);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_dpi_applying,
                 Integer.valueOf(dpi),
@@ -46,16 +44,23 @@ final class DisplayDensityController {
                         Integer.valueOf(displayId)));
     }
 
+    void applyRecommended() {
+        final int recommendedDpi = mActivity.getRecommendedDesktopDpi();
+        if (recommendedDpi == DesktopPreferences.SYSTEM_DESKTOP_DPI) {
+            reset();
+            return;
+        }
+        apply(recommendedDpi);
+    }
+
     void reset() {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
-        if (displayId > 0) {
-            mActivity.setPreferredDesktopDpi(
-                    DesktopPreferences.SYSTEM_DESKTOP_DPI);
-        }
+        mActivity.setPreferredDesktopDpi(
+                DesktopPreferences.SYSTEM_DESKTOP_DPI);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_dpi_resetting,
                 Integer.valueOf(displayId)));

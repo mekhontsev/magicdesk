@@ -4,6 +4,7 @@ import android.hardware.display.DisplayManager;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
 
@@ -85,12 +86,14 @@ final class DisplayProfileController {
                 DesktopPreferences.favoritePackages());
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = monitorKey;
+        final Display profileDisplay = getProfileDisplay();
         mProfile = WorkspaceProfileStore.load(
                 mActivity,
                 monitorKey,
-                DesktopPreferences.legacyDesktopDpi(mActivity),
+                initialDpi(profileDisplay),
                 DesktopPreferences.legacyPinnedPackages(mActivity),
                 defaults);
+        migrateImplicitInternalDpi(profileDisplay, mProfile);
         mActivity.onWorkspaceProfileReset();
         return mProfile;
     }
@@ -119,6 +122,10 @@ final class DisplayProfileController {
         return display == null
                 ? mActivity.getString(R.string.profile_default)
                 : display.getName();
+    }
+
+    int getRecommendedDpi() {
+        return initialDpi(getProfileDisplay());
     }
 
     void resolveMonitorIdentityAsync() {
@@ -287,6 +294,7 @@ final class DisplayProfileController {
                         previous.taskbarPackages,
                         previous.desktopPackages);
         if (!existed) {
+            resolved.dpiExplicit = previous.dpiExplicit;
             resolved.folderUri = previous.folderUri;
             resolved.workspacePackage = previous.workspacePackage;
             resolved.workspaceBounds = new Rect(previous.workspaceBounds);
@@ -299,5 +307,34 @@ final class DisplayProfileController {
         mProfile = resolved;
         Log.i(TAG, "Activated monitor profile " + monitorKey);
         mActivity.onMonitorProfileResolved(previousDpi, resolved.dpi);
+    }
+
+    private int initialDpi(final Display display) {
+        if (display == null
+                || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
+            return DesktopPreferences.SYSTEM_DESKTOP_DPI;
+        }
+        final Display.Mode mode = display.getMode();
+        if (mode == null) {
+            return DisplayDensityPolicy.recommendedExternalDpi(
+                    0, 0, DisplayMetrics.DENSITY_DEVICE_STABLE);
+        }
+        return DisplayDensityPolicy.recommendedExternalDpi(
+                mode.getPhysicalWidth(),
+                mode.getPhysicalHeight(),
+                DisplayMetrics.DENSITY_DEVICE_STABLE);
+    }
+
+    private void migrateImplicitInternalDpi(
+            final Display display,
+            final WorkspaceProfileStore.Profile profile) {
+        if (display == null
+                || display.getDisplayId() != Display.DEFAULT_DISPLAY
+                || profile.dpiExplicit
+                || profile.dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI) {
+            return;
+        }
+        profile.dpi = DesktopPreferences.SYSTEM_DESKTOP_DPI;
+        WorkspaceProfileStore.save(mActivity, profile);
     }
 }

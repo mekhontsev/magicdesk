@@ -911,6 +911,7 @@ public abstract class DesktopShellActivity extends Activity
     void setPreferredDesktopDpi(final int dpi) {
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         profile.dpi = dpi;
+        profile.dpiExplicit = true;
         saveWorkspaceProfile();
         if (dpi > DesktopPreferences.SYSTEM_DESKTOP_DPI) {
             DesktopPreferences.saveLegacyDesktopDpi(this, dpi);
@@ -1000,8 +1001,16 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayDensityController.apply(dpi);
     }
 
+    void applyRecommendedDensity() {
+        mDisplayDensityController.applyRecommended();
+    }
+
     void resetDensity() {
         mDisplayDensityController.reset();
+    }
+
+    int getRecommendedDesktopDpi() {
+        return mDisplayProfiles.getRecommendedDpi();
     }
 
     private void ensurePreferredConsoleDensity() {

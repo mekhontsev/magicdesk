@@ -25,8 +25,8 @@ import java.util.WeakHashMap;
 
 final class ConsoleControlsController {
     private static final int ACTION_BUTTON_HEIGHT_DP = 48;
-    private static final int DPI_MIN = 96;
-    private static final int DPI_STEP = 4;
+    private static final int DPI_MIN = DisplayDensityPolicy.MIN_DPI;
+    private static final int DPI_STEP = DisplayDensityPolicy.DPI_STEP;
     private static final int DPI_BUTTON_STEP = 8;
     private static final int DPI_BUTTON_SIZE_DP = 40;
 
@@ -609,13 +609,20 @@ final class ConsoleControlsController {
         footer.addView(range, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
+        final int recommendedDpi = mActivity.getRecommendedDesktopDpi();
+        final int recommendedLabel = recommendedDpi
+                == DesktopPreferences.SYSTEM_DESKTOP_DPI
+                ? DisplayMetrics.DENSITY_DEVICE_STABLE : recommendedDpi;
         final Button defaultDpi = mUi.smallButton(
-                R.string.action_dpi_default,
+                Integer.toString(recommendedLabel),
                 DesktopUiFactory.COLOR_CYAN);
+        defaultDpi.setContentDescription(
+                mActivity.getString(R.string.action_dpi_default));
+        defaultDpi.setTooltipText(
+                mActivity.getString(R.string.action_dpi_default));
         defaultDpi.setEnabled(enabled);
         defaultDpi.setOnClickListener(view ->
-                mActivity.applyDensity(
-                        DesktopPreferences.DEFAULT_DESKTOP_DPI));
+                mActivity.applyRecommendedDensity());
         footer.addView(defaultDpi, dpiFooterButtonParams(dp(112)));
 
         final Button systemDpi = mUi.smallButton(
@@ -655,8 +662,8 @@ final class ConsoleControlsController {
     private LinearLayout.LayoutParams dpiFooterButtonParams(
             final int width) {
         final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(width, dp(34));
-        params.setMargins(dp(4), dp(2), 0, 0);
+                new LinearLayout.LayoutParams(width, dp(DPI_BUTTON_SIZE_DP));
+        params.setMargins(dp(4), dp(2), 0, dp(2));
         return params;
     }
 
@@ -687,14 +694,7 @@ final class ConsoleControlsController {
     }
 
     static int snapDpi(final int dpi, final int maximum) {
-        final int clamped = clampDpi(dpi, maximum);
-        if (clamped == maximum) {
-            return maximum;
-        }
-        final int snapped = DPI_MIN
-                + Math.round((clamped - DPI_MIN) / (float) DPI_STEP)
-                        * DPI_STEP;
-        return Math.min(maximum, snapped);
+        return DisplayDensityPolicy.snapDpi(dpi, maximum);
     }
 
     private static int clampDpi(final int dpi, final int maximum) {

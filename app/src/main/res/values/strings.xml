@@ -45,8 +45,8 @@
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="action_open_touchpad">Open touchpad</string>
     <string name="action_open_control_panel">Phone control panel</string>
-    <string name="action_dpi_default">Default 192</string>
-    <string name="action_dpi_system">System</string>
+    <string name="action_dpi_default">Apply recommended display DPI</string>
+    <string name="action_dpi_system">Reset</string>
     <string name="action_dpi_decrease">Decrease display DPI</string>
     <string name="action_dpi_increase">Increase display DPI</string>
     <string name="action_exit">Exit MagicDesk</string>

@@ -20,7 +20,7 @@ import java.util.Set;
 final class WorkspaceProfileStore {
     private static final String TAG = "MagicDeskProfiles";
     private static final String PREFS = "magicdesk_workspace_profiles";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     private WorkspaceProfileStore() {
     }
@@ -43,6 +43,7 @@ final class WorkspaceProfileStore {
 
         final Profile profile = new Profile(monitorKey);
         profile.dpi = defaultDpi;
+        profile.dpiExplicit = false;
         addDistinct(profile.taskbarPackages, defaultTaskbarPackages);
         addDistinct(profile.desktopPackages, defaultDesktopPackages);
         save(context, profile);
@@ -108,6 +109,7 @@ final class WorkspaceProfileStore {
         json.put("version", VERSION);
         json.put("monitor", profile.monitorKey);
         json.put("dpi", profile.dpi);
+        json.put("dpiExplicit", profile.dpiExplicit);
         json.put("taskbar", toJsonArray(profile.taskbarPackages));
         json.put("desktop", toJsonArray(profile.desktopPackages));
         if (profile.folderUri != null && profile.folderUri.length() > 0) {
@@ -130,6 +132,7 @@ final class WorkspaceProfileStore {
     private static Profile fromJson(final JSONObject json) throws JSONException {
         final Profile profile = new Profile(json.getString("monitor"));
         profile.dpi = json.optInt("dpi", 192);
+        profile.dpiExplicit = json.optBoolean("dpiExplicit", false);
         addDistinct(profile.taskbarPackages, fromJsonArray(json.optJSONArray("taskbar")));
         addDistinct(profile.desktopPackages, fromJsonArray(json.optJSONArray("desktop")));
         profile.folderUri = emptyToNull(json.optString("folderUri", null));
@@ -191,6 +194,7 @@ final class WorkspaceProfileStore {
     static final class Profile {
         final String monitorKey;
         int dpi;
+        boolean dpiExplicit;
         final Set<String> taskbarPackages = new LinkedHashSet<>();
         final List<String> desktopPackages = new ArrayList<>();
         String folderUri;
