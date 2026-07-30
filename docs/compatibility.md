@@ -51,7 +51,8 @@ The report includes:
   desktop-windowing values;
 - for an active Shizuku backend, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
-  raw-input read/write access, task APIs, and REDMAGIC hardware-node access;
+  raw-input read/write access, `/dev/uinput` open access, task APIs, and
+  REDMAGIC hardware-node access;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
 - current displays and external input-device descriptors;

@@ -68,12 +68,19 @@ successful build.
   launched Gmail as freeform, and promoted Gmail to true fullscreen. The
   bidirectional task watcher remained alive for focus commands. Native WMShell
   captions were correctly absent; no Root helper was used.
+- [x] Restore physical right click in Shizuku shell mode.
+  A ProtoArc external mouse was grabbed read-only as UID 2000 and forwarded
+  unchanged through a `BUS_VIRTUAL` `/dev/uinput` pointer. Movement remained
+  routed to the Console display, Nubia no longer emitted Back, and native
+  context menus opened in MagicDesk and Chrome. Forced APK shutdown removed
+  the helper and virtual device within the six-second heartbeat window.
 - [x] Probe a real ADB-style Shizuku UserService (`uid=2000`,
   `u:r:shell:s0`, no capabilities). On the verified firmware it can read raw
-  input, inject events, write physical-keyboard layouts, inspect/listen to
-  tasks, and use display commands. It cannot open raw input for writing,
-  acquire `MONITOR_INPUT`, read the private InputManager XML, or access
-  fan/pump nodes.
+  input, acquire `EVIOCGRAB` on a read-only cursor descriptor, create a
+  `/dev/uinput` pointer, inject events, write physical-keyboard layouts,
+  inspect/listen to tasks, and use display commands. It cannot open raw input
+  for writing, acquire `MONITOR_INPUT`, read the private InputManager XML, or
+  access fan/pump nodes.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found
   the configured English and Russian layouts while Unexpected Keyboard was

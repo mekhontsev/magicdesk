@@ -50,17 +50,28 @@ The WMShell `DesktopTasksController` path accepts real task ids, preserves
 Android's task ownership, and supports applications outside Nubia's WindowReply
 allowlist.
 
-### Do Not Proxy The Whole Mouse
+### Keep The Root Mouse Path Minimal
 
-Do not grab the physical pointer with `EVIOCGRAB` and forward its complete event
-stream through a `uinput` device. That makes movement and every button depend
-on a long-running userspace proxy, creates duplicate-device and reconnect
-failure modes, and changing `BTN_RIGHT` into a forward/extra button does not
-deliver Android's standard secondary-click semantics.
+Root mode does not proxy the whole mouse. It changes only the physical keymap
+entry that Nubia consumes, reads only that button transition, and injects one
+secondary-button sequence at the current system pointer coordinates. Movement,
+scrolling, and the remaining buttons stay on Android's normal input path.
 
-MagicDesk changes only the physical keymap entry that Nubia consumes, reads
-only that button transition, and injects one secondary-button sequence at the
-current system pointer coordinates.
+Shizuku shell cannot write that physical keymap or create the display-scoped
+input monitor used by the root translator. On the verified firmware it can,
+however, open an external cursor read-only, acquire `EVIOCGRAB`, and create a
+`BUS_VIRTUAL` mouse through `/dev/uinput`. Nubia applies its Back conversion to
+the external physical device but not to the internal virtual pointer, so an
+unchanged forwarded `BTN_RIGHT` becomes Android `BUTTON_SECONDARY`.
+
+`ShizukuMouseBridge` discovers only EventHub devices marked `CURSOR | EXTERNAL`.
+One native helper unions their key/relative capabilities, creates one virtual
+pointer, then grabs and forwards the physical streams. It is started only in
+Shizuku Console Mode and is restarted after physical input hot-plug. The app
+sends a one-second heartbeat; after six seconds without one, or after stdin
+closes, the helper destroys its `uinput` device and releases all grabs. Kernel
+file-descriptor cleanup provides the same release after an uncatchable process
+termination.
 
 ### Do Not Draw Replacement Application Captions
 
@@ -93,6 +104,7 @@ immersive mode must preserve the current Activity instance.
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Optional, explicitly confirmed firmware-specific kernel fixes |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Input remap helper | `native/magicdesk_mouse_remap.c` | Short-lived physical HID keymap adjustment |
+| Shizuku mouse helper | `native/magicdesk_uinput_bridge.c` | Heartbeat-bound physical-to-virtual pointer forwarding |
 | Root Java helpers | Main application classes | Short-lived `app_process` access to framework and vendor Binder APIs |
 
 The main app and add-on are independent APKs. The main app resolves the add-on
@@ -627,6 +639,10 @@ logical `InputDevice` so InputReader refreshes capabilities. On cleanup it maps
 Button 2 back to `BTN_RIGHT`. `InputDeviceListener` restarts the bridge after
 physical hot-plug so new mouse devices are configured without polling.
 
+That is the Root implementation. Shizuku cannot write `EVIOCSKEYCODE_V2` or
+create the display-scoped `InputMonitor`, so it uses the fail-open virtual
+pointer path described in **Keep The Root Mouse Path Minimal** above.
+
 ## Phone Touch Panel And Screen State
 
 Nubia opens Touch Panel while Console Mode is still transitioning, then may
@@ -763,8 +779,8 @@ The checked-in Gradle Wrapper builds three modules:
 - `kernel-fixes`: optional add-on APK
 - `hidden-api-stubs`: compile-only Java library
 
-On conventional Linux, Gradle compiles the arm64 mouse helper with the Android
-NDK. On Termux it uses `$PREFIX/bin/clang`. The output is generated under the
+On conventional Linux, Gradle compiles the arm64 input helpers with the Android
+NDK. On Termux it uses `$PREFIX/bin/clang`. The outputs are generated under the
 module build directory and packaged only into the main APK. No native helper
 binary is checked in.
 

@@ -258,6 +258,36 @@ final class CompatibilityDiagnostics {
                         ? (KeyboardShortcutWatcher.isFullShortcutMode()
                                 ? "running" : "not running")
                         : "disabled by the selected runtime backend");
+        final boolean shizukuRightClick =
+                RuntimeAccess.allowsShizukuCommands()
+                        && RuntimeAccess.has(
+                                RuntimeAccess.Capability.RIGHT_CLICK_REMAP);
+        final boolean shizukuMouseBridgeExpected =
+                shizukuRightClick
+                        && Settings.Global.getInt(
+                                context.getContentResolver(),
+                                "app_mirror_displayid",
+                                -1) > 0
+                        && hasExternalMouse();
+        final boolean shizukuMouseBridgeReady =
+                MagicDeskRuntimeService
+                        .isShizukuMouseBridgeReadyIfRunning();
+        final String shizukuMouseBridgeDetail;
+        if (!shizukuRightClick) {
+            shizukuMouseBridgeDetail =
+                    "not required by the selected runtime backend";
+        } else if (!shizukuMouseBridgeExpected) {
+            shizukuMouseBridgeDetail =
+                    "idle; Console Mode and an external mouse are required";
+        } else {
+            shizukuMouseBridgeDetail =
+                    shizukuMouseBridgeReady ? "running" : "not running";
+        }
+        appendCheck(report, "INPUT-MOUSE-001",
+                !shizukuMouseBridgeExpected
+                        || shizukuMouseBridgeReady,
+                "Shizuku right-click bridge",
+                shizukuMouseBridgeDetail);
         report.append("Capabilities: publicLaunch=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH))
                 .append(", exactTasks=")
@@ -384,6 +414,20 @@ final class CompatibilityDiagnostics {
             report.append("None reported\n");
         }
         report.append('\n');
+    }
+
+    private static boolean hasExternalMouse() {
+        for (final int id : InputDevice.getDeviceIds()) {
+            final InputDevice device = InputDevice.getDevice(id);
+            if (device != null
+                    && !device.isVirtual()
+                    && device.isExternal()
+                    && (device.getSources() & InputDevice.SOURCE_MOUSE)
+                            == InputDevice.SOURCE_MOUSE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void appendEvents(final StringBuilder report, final Context context) {

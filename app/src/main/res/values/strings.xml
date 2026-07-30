@@ -287,7 +287,7 @@
     <string name="setup_status_shizuku_stopped">Shizuku is installed, but its server is not running.</string>
     <string name="setup_status_shizuku_permission">Allow MagicDesk in Shizuku. This grants Android shell privileges, not root, when the Shizuku server was started through ADB or wireless debugging.</string>
     <string name="setup_status_shizuku_failed">Shizuku backend failed: %1$s</string>
-    <string name="setup_status_shizuku_ready">Shizuku mode is ready (service UID %1$d). Low-level input and kernel controls remain disabled.</string>
+    <string name="setup_status_shizuku_ready">Shizuku mode is ready (service UID %1$d). Root-only hardware and kernel controls remain disabled.</string>
     <string name="setup_status_shizuku_degraded">Shizuku service UID %1$d is ready, but Android desktop windowing is not fully provisioned. Window behavior may be limited.</string>
     <string name="setup_status_root_mode_unavailable">Root mode is selected, but root access is unavailable.</string>
     <string name="setup_status_external_unavailable">No active external desktop display was found; opening on the current display.</string>

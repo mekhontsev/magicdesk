@@ -254,8 +254,9 @@ window operations, display density, screenshots, bypass charging, and
 physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
 System WMShell captions require device provisioning unavailable to a clean
 Shizuku-only installation; taskbar window controls remain available. Shizuku
-does not enable the complete global shortcut bridge, right-click remapping,
-phone-screen dimming, fan/pump controls, or kernel fixes.
+also corrects REDMAGIC's physical-right-button-to-Back conversion through a
+lifecycle-bound virtual mouse bridge. It does not enable the complete global
+shortcut bridge, phone-screen dimming, fan/pump controls, or kernel fixes.
 
 The trust boundaries are deliberately narrow:
 
@@ -266,8 +267,9 @@ The trust boundaries are deliberately narrow:
 - MagicDesk changes only the documented desktop settings accepted in Device
   Setup and stores their previous values for restoration.
 - The system `ShellTaskOrganizer` remains the only task organizer.
-- Native input helper `libmagicdesk_mouse_remap.so` is rebuilt from its C source in
-  every CI build; no prebuilt helper is checked in.
+- Native input helpers `libmagicdesk_mouse_remap.so` and
+  `libmagicdesk_uinput_bridge.so` are rebuilt from their C sources in every CI
+  build; no prebuilt helper is checked in.
 - The main APK contains no kernel module or kernel-module loader.
 - Device and firmware mismatches are reported through structured Diagnostics
   codes instead of silently assuming compatibility.
@@ -327,8 +329,9 @@ Build both debug APKs:
 ```
 
 On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
-Linux, set `ANDROID_NDK_HOME`. The native input helper is always compiled from
-`native/magicdesk_mouse_remap.c`.
+Linux, set `ANDROID_NDK_HOME`. The native input helpers are always compiled
+from `native/magicdesk_mouse_remap.c` and
+`native/magicdesk_uinput_bridge.c`.
 
 ## Releases And Signing
 

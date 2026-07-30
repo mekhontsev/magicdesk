@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -39,6 +40,19 @@ final class ConsoleInputDeviceDiscovery {
     static List<ConsoleMouseDevice> findMice()
             throws IOException, InterruptedException {
         final List<DeviceRecord> records = readEventHubDevices();
+        return findMice(records);
+    }
+
+    static List<ConsoleMouseDevice> findMice(final String inputDump)
+            throws IOException {
+        try (BufferedReader reader =
+                new BufferedReader(new StringReader(inputDump))) {
+            return findMice(readEventHubDevices(reader));
+        }
+    }
+
+    private static List<ConsoleMouseDevice> findMice(
+            final List<DeviceRecord> records) {
         final List<ConsoleMouseDevice> result = new ArrayList<>();
         for (final DeviceRecord record : records) {
             if (record.classes.contains("CURSOR")
@@ -58,6 +72,21 @@ final class ConsoleInputDeviceDiscovery {
         final Process process = new ProcessBuilder(DUMPSYS, "input")
                 .redirectErrorStream(true)
                 .start();
+        final List<DeviceRecord> result;
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()))) {
+            result = readEventHubDevices(reader);
+        }
+        final int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IOException(
+                    "dumpsys input failed with exit code " + exitCode);
+        }
+        return result;
+    }
+
+    private static List<DeviceRecord> readEventHubDevices(
+            final BufferedReader reader) throws IOException {
         final List<DeviceRecord> result = new ArrayList<>();
         boolean inEventHub = false;
         String classes = null;
@@ -65,63 +94,55 @@ final class ConsoleInputDeviceDiscovery {
         String location = null;
         int vendorId = -1;
         int productId = -1;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                final String trimmed = line.trim();
-                if ("Event Hub State:".equals(trimmed)) {
-                    inEventHub = true;
-                    continue;
-                }
-                if (!inEventHub) {
-                    continue;
-                }
-                if (trimmed.startsWith("Input Reader State")) {
-                    addRecord(
-                            result,
-                            classes,
-                            path,
-                            location,
-                            vendorId,
-                            productId);
-                    break;
-                }
-                if (EVENT_HUB_DEVICE.matcher(line).matches()) {
-                    addRecord(
-                            result,
-                            classes,
-                            path,
-                            location,
-                            vendorId,
-                            productId);
-                    classes = null;
-                    path = null;
-                    location = null;
-                    vendorId = -1;
-                    productId = -1;
-                    continue;
-                }
-                if (trimmed.startsWith("Classes:")) {
-                    classes = trimmed.substring("Classes:".length()).trim();
-                } else if (trimmed.startsWith("Path:")) {
-                    path = trimmed.substring("Path:".length()).trim();
-                } else if (trimmed.startsWith("Location:")) {
-                    location = trimmed.substring("Location:".length()).trim();
-                } else if (trimmed.startsWith("Identifier:")) {
-                    final Matcher identifier =
-                            INPUT_IDENTIFIER.matcher(trimmed);
-                    if (identifier.matches()) {
-                        vendorId = Integer.parseInt(identifier.group(1), 16);
-                        productId = Integer.parseInt(identifier.group(2), 16);
-                    }
+        String line;
+        while ((line = reader.readLine()) != null) {
+            final String trimmed = line.trim();
+            if ("Event Hub State:".equals(trimmed)) {
+                inEventHub = true;
+                continue;
+            }
+            if (!inEventHub) {
+                continue;
+            }
+            if (trimmed.startsWith("Input Reader State")) {
+                addRecord(
+                        result,
+                        classes,
+                        path,
+                        location,
+                        vendorId,
+                        productId);
+                break;
+            }
+            if (EVENT_HUB_DEVICE.matcher(line).matches()) {
+                addRecord(
+                        result,
+                        classes,
+                        path,
+                        location,
+                        vendorId,
+                        productId);
+                classes = null;
+                path = null;
+                location = null;
+                vendorId = -1;
+                productId = -1;
+                continue;
+            }
+            if (trimmed.startsWith("Classes:")) {
+                classes = trimmed.substring("Classes:".length()).trim();
+            } else if (trimmed.startsWith("Path:")) {
+                path = trimmed.substring("Path:".length()).trim();
+            } else if (trimmed.startsWith("Location:")) {
+                location = trimmed.substring("Location:".length()).trim();
+            } else if (trimmed.startsWith("Identifier:")) {
+                final Matcher identifier =
+                        INPUT_IDENTIFIER.matcher(trimmed);
+                if (identifier.matches()) {
+                    vendorId = Integer.parseInt(identifier.group(1), 16);
+                    productId = Integer.parseInt(identifier.group(2), 16);
                 }
             }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException(
-                    "dumpsys input failed with exit code " + exitCode);
         }
         return result;
     }

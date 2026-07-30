@@ -36,6 +36,7 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.TASK_CONTROL,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL,
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT,
+                RuntimeAccess.Capability.RIGHT_CLICK_REMAP,
                 RuntimeAccess.Capability.CONSOLE_CONTROL,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
                 RuntimeAccess.Capability.SCREENSHOT,

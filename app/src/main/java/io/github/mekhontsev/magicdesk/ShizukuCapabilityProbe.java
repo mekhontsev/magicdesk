@@ -69,6 +69,11 @@ final class ShizukuCapabilityProbe {
 
         appendPermissions(report, context);
         appendRawInput(report);
+        appendOpenResult(
+                report,
+                "input.uinput",
+                new File("/dev/uinput"),
+                OsConstants.O_WRONLY);
         appendFileAccess(
                 report,
                 "input.state",

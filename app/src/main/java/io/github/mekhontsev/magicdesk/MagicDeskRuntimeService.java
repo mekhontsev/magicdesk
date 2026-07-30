@@ -59,6 +59,7 @@ public final class MagicDeskRuntimeService extends Service
     private boolean mPhoneHomeRecoveryInFlight;
     private boolean mPhoneHomeRecoveryAgain;
     private boolean mKeyboardWatcherRunning;
+    private ShizukuMouseBridge mShizukuMouseBridge;
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
@@ -111,6 +112,14 @@ public final class MagicDeskRuntimeService extends Service
         service.scheduleLocalDesktopCleanup();
     }
 
+    static boolean isShizukuMouseBridgeReadyIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        return service != null
+                && !service.mDestroyed
+                && service.mShizukuMouseBridge != null
+                && service.mShizukuMouseBridge.isReady();
+    }
+
     static boolean showStartIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null || service.mDestroyed || service.mHandler == null) {
@@ -140,6 +149,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         mInitialized = true;
         mDesktopTasks = new DesktopTaskController(this, mHandler);
+        mShizukuMouseBridge = new ShizukuMouseBridge(this);
         mDisplayManager = getSystemService(DisplayManager.class);
         mInputManager = getSystemService(InputManager.class);
         mHasHardwareKeyboard = hasHardwareKeyboard();
@@ -160,6 +170,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         syncMirrorInputProxyState();
         updateKeyboardWatcher();
+        updateShizukuMouseBridge();
         updateDesktopTasks();
         if (LocalDesktopSessionState.isCleanupPending(this)) {
             scheduleLocalDesktopCleanup();
@@ -191,6 +202,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         syncMirrorInputProxyState();
         updateKeyboardWatcher();
+        updateShizukuMouseBridge();
         updateDesktopTasks();
         return START_NOT_STICKY;
     }
@@ -242,6 +254,9 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (mDesktopTasks != null) {
             mDesktopTasks.stop();
+        }
+        if (mShizukuMouseBridge != null) {
+            mShizukuMouseBridge.stop();
         }
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
@@ -316,6 +331,9 @@ public final class MagicDeskRuntimeService extends Service
         } else if ((mouseChanged || inputInventoryChanged)
                 && mKeyboardWatcherRunning) {
             restartKeyboardWatcher();
+        }
+        if (mouseChanged || inputInventoryChanged) {
+            restartShizukuMouseBridge();
         }
     }
 
@@ -481,6 +499,7 @@ public final class MagicDeskRuntimeService extends Service
                 mConsoleExitRecoveryPending = false;
             }
         }
+        updateShizukuMouseBridge();
         if (RuntimeAccess.allowsRootCommands()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
         }
@@ -564,6 +583,37 @@ public final class MagicDeskRuntimeService extends Service
         }
         KeyboardShortcutWatcher.stop();
         KeyboardShortcutWatcher.start(mConsoleModeActive);
+    }
+
+    private void updateShizukuMouseBridge() {
+        if (mShizukuMouseBridge == null) {
+            return;
+        }
+        if (shouldRunShizukuMouseBridge()) {
+            mShizukuMouseBridge.start();
+        } else {
+            mShizukuMouseBridge.stop();
+        }
+    }
+
+    private void restartShizukuMouseBridge() {
+        if (mShizukuMouseBridge == null) {
+            return;
+        }
+        if (shouldRunShizukuMouseBridge()) {
+            mShizukuMouseBridge.restart();
+        } else {
+            mShizukuMouseBridge.stop();
+        }
+    }
+
+    private boolean shouldRunShizukuMouseBridge() {
+        return mConsoleModeActive
+                && mHasExternalMouse
+                && RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()
+                && RuntimeAccess.has(
+                        RuntimeAccess.Capability.RIGHT_CLICK_REMAP);
     }
 
     private int getConsoleDisplayId() {

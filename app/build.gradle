@@ -21,7 +21,10 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
-            keepDebugSymbols += ['**/libmagicdesk_mouse_remap.so']
+            keepDebugSymbols += [
+                    '**/libmagicdesk_mouse_remap.so',
+                    '**/libmagicdesk_uinput_bridge.so'
+            ]
         }
     }
 
@@ -37,8 +40,11 @@ def termuxCompiler = file("${termuxPrefix}/bin/clang")
 def mouseRemapSource = rootProject.file('native/magicdesk_mouse_remap.c')
 def mouseRemapOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_mouse_remap.so")
+def uinputBridgeSource = rootProject.file('native/magicdesk_uinput_bridge.c')
+def uinputBridgeOutput = file(
+        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_uinput_bridge.so")
 
-def resolveMouseRemapCompilerCommand = {
+def resolveNativeCompilerCommand = {
     if (termuxCompiler.isFile()
             && termuxPrefix.startsWith('/data/data/com.termux/')) {
         return [termuxCompiler.absolutePath]
@@ -62,7 +68,7 @@ tasks.register('buildMagicDeskMouseRemap', Exec) {
     outputs.file(mouseRemapOutput)
     doFirst {
         mouseRemapOutput.parentFile.mkdirs()
-        def compilerCommand = resolveMouseRemapCompilerCommand()
+        def compilerCommand = resolveNativeCompilerCommand()
         compilerCommand.addAll([
                 '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                 '-fPIE', '-pie', '-Wl,-z,noexecstack',
@@ -73,8 +79,25 @@ tasks.register('buildMagicDeskMouseRemap', Exec) {
     }
 }
 
+tasks.register('buildMagicDeskUinputBridge', Exec) {
+    inputs.file(uinputBridgeSource)
+    outputs.file(uinputBridgeOutput)
+    doFirst {
+        uinputBridgeOutput.parentFile.mkdirs()
+        def compilerCommand = resolveNativeCompilerCommand()
+        compilerCommand.addAll([
+                '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
+                '-fPIE', '-pie', '-Wl,-z,noexecstack',
+                '-o', uinputBridgeOutput.absolutePath,
+                uinputBridgeSource.absolutePath
+        ])
+        commandLine compilerCommand
+    }
+}
+
 tasks.named('preBuild').configure {
     dependsOn tasks.named('buildMagicDeskMouseRemap')
+    dependsOn tasks.named('buildMagicDeskUinputBridge')
 }
 
 dependencies {
