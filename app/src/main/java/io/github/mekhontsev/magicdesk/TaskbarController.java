@@ -187,7 +187,8 @@ final class TaskbarController {
         mKeyboardLayout.setOnClickListener(view ->
                 ConsoleModeSwitcher.toggleHardwareKeyboardLayout());
         mKeyboardLayout.setEnabled(
-                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT));
+                RuntimeAccess.has(
+                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL));
         taskbar.addView(mKeyboardLayout, new LinearLayout.LayoutParams(
                 desktopDp(48, 38),
                 LinearLayout.LayoutParams.MATCH_PARENT));

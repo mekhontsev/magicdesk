@@ -195,9 +195,12 @@ useful when no physical keyboard or mouse is connected:
 | `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
 
 The unmodified Win key is deliberately unused.
-Global shortcuts require the Root runtime input bridge. In Shizuku mode use
-the equivalent taskbar and Tools actions; **Screenshot** captures the external
-display without leaving the Tools panel in the image.
+Global shortcuts other than `Ctrl+Space` require the Root runtime input
+bridge. Shizuku uses a read-only physical-key stream for `Ctrl+Space` and can
+also cycle the same configured layouts from the taskbar language indicator.
+Use the equivalent taskbar and Tools actions for other shortcuts in Shizuku
+mode. **Screenshot** captures the external display without leaving the Tools
+panel in the image.
 
 ## Phone And External Display Controls
 
@@ -226,7 +229,7 @@ The desktop taskbar Tools panel additionally provides:
 - Optional Kernel Fixes entry
 - Clean MagicDesk exit
 
-**Exit MagicDesk** stops its foreground service and root input bridge, restores
+**Exit MagicDesk** stops its foreground service and input watcher, restores
 the physical mouse mapping and phone-side services it temporarily changed, and
 returns the phone to its normal launcher state. If MagicDesk changed the fan
 or pump, it independently restores each affected subsystem to the values
@@ -243,9 +246,10 @@ desktop shell, public application launching, desktop content, notifications,
 and calendar with explicit limitations. Strict Shizuku mode uses the official
 Shizuku UserService API. A server started through ADB or wireless debugging
 runs MagicDesk commands as Android shell UID 2000 and enables task inspection,
-window operations, display density, and screenshots. It does not enable the
-root input bridge, right-click remapping, kernel fixes, or full external-desktop
-automation.
+window operations, display density, screenshots, and physical-keyboard layout
+control from both `Ctrl+Space` and the taskbar. It does not enable the complete
+global shortcut bridge, right-click remapping, kernel fixes, or full
+external-desktop automation.
 
 The trust boundaries are deliberately narrow:
 

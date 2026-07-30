@@ -511,7 +511,16 @@ preserves original key events and Android's normal repeat behavior.
 Physical keyboard layout switching is independent of the selected on-screen
 IME. `Ctrl+Space` invokes Android's configured physical-layout cycle, and the
 taskbar label is derived from the active layout locale. MagicDesk does not read
-or change the selected input method.
+or change the selected input method. Layout discovery mirrors Android's
+`KeyboardLayoutManager`: MagicDesk asks `IInputManager` for the selected
+physical layout of every enabled IME subtype and de-duplicates the resulting
+descriptors in system order. This avoids direct access to
+`/data/system/input-manager-state.xml` and lets both Root and Shizuku shell
+sessions use the same Binder implementation. Shizuku invokes the cycle from
+the taskbar or from a lifecycle-bound read-only `getevent` stream. The Shizuku
+watcher recognizes only `Ctrl+Space`; shortcuts that conflict with Android
+system gestures remain on the root bridge, where MagicDesk can also remap or
+suppress the original low-level event.
 
 The global shortcut watcher handles desktop operations while another
 application owns focus. Shortcuts operate on exact task ids and the current
@@ -651,9 +660,11 @@ Basic mode does not invoke `su` and may enter a degraded desktop when the
 windowing configuration is incomplete. Root mode remains strict and does not
 fall back when `su` is unavailable. Auto currently resolves to Root when
 available and Basic otherwise. Explicit Shizuku mode binds an official
-Shizuku UserService and dispatches finite shell commands through AIDL. It does
-not fall back when the server or permission is unavailable and never starts
-the long-lived root input helpers.
+Shizuku UserService and dispatches finite shell commands through AIDL. A
+separate `ParcelFileDescriptor` pipe carries the read-only `Ctrl+Space` input
+stream and is closed together with its remote process when the watcher stops.
+Shizuku mode does not fall back when the server or permission is unavailable
+and never starts the root input helpers.
 
 After explicit confirmation it applies only missing values:
 

@@ -34,6 +34,8 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.PUBLIC_APP_LAUNCH,
                 RuntimeAccess.Capability.EXACT_TASKS,
                 RuntimeAccess.Capability.TASK_CONTROL,
+                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL,
+                RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
                 RuntimeAccess.Capability.SCREENSHOT,
                 RuntimeAccess.Capability.CHARGE_SEPARATION);

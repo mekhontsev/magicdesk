@@ -2,15 +2,10 @@ package io.github.mekhontsev.magicdesk;
 
 import android.os.LocaleList;
 import android.util.Base64;
-import android.util.Xml;
 import android.view.InputDevice;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodSubtype;
 
-import org.xmlpull.v1.XmlPullParser;
-
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -20,7 +15,6 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class HardwareKeyboardLayoutCommand {
-    private static final String INPUT_MANAGER_STATE = "/data/system/input-manager-state.xml";
     private static final String INPUT_METHOD_SERVICE = "input_method";
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
     private static final String LEGACY_ENGLISH_SUFFIX = "/keyboard_layout_english_us";
@@ -53,16 +47,20 @@ public final class HardwareKeyboardLayoutCommand {
                     Class.forName("android.hardware.input.KeyboardLayout");
             final Method getKeyboardLayout = inputManagerInterface.getMethod(
                     "getKeyboardLayout", String.class);
+            final ImeState imeState = getImeState();
             final List<LayoutInfo> layouts = resolveConfiguredLayouts(
-                    inputManager, getKeyboardLayout, keyboardLayoutClass, keyboards.get(0));
+                    inputManager, inputManagerInterface, getKeyboardLayout,
+                    keyboardLayoutClass, keyboards.get(0), imeState);
             if (layouts.isEmpty()) {
                 System.err.println("no configured hardware keyboard layouts found");
                 System.exit(3);
                 return;
             }
 
-            final ImeState imeState = getImeState();
-            String current = readCurrentLayout(keyboards.get(0), imeState);
+            String current = getSelectedLayoutDescriptor(
+                    inputManager, inputManagerInterface,
+                    keyboards.get(0), imeState.inputMethod,
+                    imeState.currentSubtype);
             if (current == null && args.length >= 2) {
                 current = args[1];
             }
@@ -86,8 +84,8 @@ public final class HardwareKeyboardLayoutCommand {
             System.out.println("layouts=" + layouts.size());
             System.out.println("ime=" + imeState.imeId);
             System.out.println("subtype=" + imeState.currentSubtype.hashCode());
-            System.out.println("subtypes=" + imeState.keyboardSubtypes.size());
-        } catch (ReflectiveOperationException | IOException | RuntimeException e) {
+            System.out.println("subtypes=" + imeState.layoutMappings.size());
+        } catch (ReflectiveOperationException | RuntimeException e) {
             e.printStackTrace(System.err);
             System.exit(1);
         }
@@ -95,12 +93,19 @@ public final class HardwareKeyboardLayoutCommand {
 
     private static List<LayoutInfo> resolveConfiguredLayouts(
             final Object inputManager,
+            final Class<?> inputManagerInterface,
             final Method getKeyboardLayout,
             final Class<?> keyboardLayoutClass,
-            final InputDevice keyboard) throws ReflectiveOperationException, IOException {
-        List<String> descriptors = readConfiguredDescriptors(keyboard);
-        if (descriptors.isEmpty()) {
-            descriptors = readFirstConfiguredDescriptorSet();
+            final InputDevice keyboard,
+            final ImeState imeState) throws ReflectiveOperationException {
+        final Set<String> descriptors = new LinkedHashSet<>();
+        for (final ImeSubtypeState mapping : imeState.layoutMappings) {
+            final String descriptor = getSelectedLayoutDescriptor(
+                    inputManager, inputManagerInterface,
+                    keyboard, mapping.inputMethod, mapping.subtype);
+            if (descriptor != null && !descriptor.isEmpty()) {
+                descriptors.add(descriptor);
+            }
         }
 
         final Method getDescriptor = keyboardLayoutClass.getMethod("getDescriptor");
@@ -120,101 +125,25 @@ public final class HardwareKeyboardLayoutCommand {
         return layouts;
     }
 
-    private static List<String> readConfiguredDescriptors(final InputDevice keyboard)
-            throws IOException {
-        return readConfiguredDescriptors(getDeviceDescriptorAliases(keyboard), false);
-    }
-
-    private static String readCurrentLayout(
+    private static String getSelectedLayoutDescriptor(
+            final Object inputManager,
+            final Class<?> inputManagerInterface,
             final InputDevice keyboard,
-            final ImeState imeState) throws IOException {
-        final Set<String> aliases = getDeviceDescriptorAliases(keyboard);
-        boolean insideAcceptedDevice = false;
-        String globalOverride = null;
-        final String subtypeKeySuffix = "subtypeHandle:" + imeState.imeId
-                + ":subtype:" + imeState.currentSubtype.hashCode();
-        try (FileInputStream input = new FileInputStream(INPUT_MANAGER_STATE)) {
-            final XmlPullParser parser = Xml.newPullParser();
-            parser.setInput(input, StandardCharsets.UTF_8.name());
-            int eventType;
-            while ((eventType = parser.next()) != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG
-                        && "input-device".equals(parser.getName())) {
-                    insideAcceptedDevice = aliases.contains(
-                            parser.getAttributeValue(null, "descriptor"));
-                } else if (eventType == XmlPullParser.START_TAG
-                        && insideAcceptedDevice
-                        && "keyed-keyboard-layout".equals(parser.getName())) {
-                    final String key = parser.getAttributeValue(null, "key");
-                    final String layout = parser.getAttributeValue(null, "layout");
-                    if (key != null && key.endsWith(subtypeKeySuffix)) {
-                        return layout;
-                    }
-                    if ("GLOBAL_OVERRIDE_KEY".equals(key)) {
-                        globalOverride = layout;
-                    }
-                } else if (eventType == XmlPullParser.END_TAG
-                        && "input-device".equals(parser.getName())) {
-                    insideAcceptedDevice = false;
-                }
-            }
-        } catch (org.xmlpull.v1.XmlPullParserException e) {
-            throw new IOException("cannot parse input manager state", e);
-        }
-        return globalOverride;
-    }
-
-    private static Set<String> getDeviceDescriptorAliases(final InputDevice keyboard) {
-        final Set<String> aliases = new LinkedHashSet<>();
-        aliases.add(keyboard.getDescriptor());
-        if (keyboard.getVendorId() != 0 || keyboard.getProductId() != 0) {
-            aliases.add("vendor:" + keyboard.getVendorId()
-                    + ",product:" + keyboard.getProductId());
-        }
-        return aliases;
-    }
-
-    private static List<String> readFirstConfiguredDescriptorSet() throws IOException {
-        return readConfiguredDescriptors(new LinkedHashSet<String>(), true);
-    }
-
-    private static List<String> readConfiguredDescriptors(
-            final Set<String> acceptedDeviceDescriptors,
-            final boolean acceptFirstConfiguredDevice) throws IOException {
-        final LinkedHashSet<String> descriptors = new LinkedHashSet<>();
-        boolean insideAcceptedDevice = false;
-        boolean foundConfiguredDevice = false;
-        try (FileInputStream input = new FileInputStream(INPUT_MANAGER_STATE)) {
-            final XmlPullParser parser = Xml.newPullParser();
-            parser.setInput(input, StandardCharsets.UTF_8.name());
-            int eventType;
-            while ((eventType = parser.next()) != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG
-                        && "input-device".equals(parser.getName())) {
-                    final String descriptor = parser.getAttributeValue(null, "descriptor");
-                    insideAcceptedDevice = acceptFirstConfiguredDevice
-                            ? !foundConfiguredDevice
-                            : acceptedDeviceDescriptors.contains(descriptor);
-                } else if (eventType == XmlPullParser.START_TAG
-                        && insideAcceptedDevice
-                        && "selected-keyboard-layout".equals(parser.getName())) {
-                    final String layout = parser.getAttributeValue(null, "layout");
-                    if (layout != null && !layout.isEmpty()) {
-                        descriptors.add(layout);
-                        foundConfiguredDevice = true;
-                    }
-                } else if (eventType == XmlPullParser.END_TAG
-                        && "input-device".equals(parser.getName())) {
-                    if (acceptFirstConfiguredDevice && foundConfiguredDevice) {
-                        break;
-                    }
-                    insideAcceptedDevice = false;
-                }
-            }
-        } catch (org.xmlpull.v1.XmlPullParserException e) {
-            throw new IOException("cannot parse input manager state", e);
-        }
-        return new ArrayList<>(descriptors);
+            final InputMethodInfo inputMethod,
+            final InputMethodSubtype subtype) throws ReflectiveOperationException {
+        final Class<?> identifierClass =
+                Class.forName("android.hardware.input.InputDeviceIdentifier");
+        final Object identifier = InputDevice.class.getMethod("getIdentifier")
+                .invoke(keyboard);
+        final Object selection = inputManagerInterface.getMethod(
+                "getKeyboardLayoutForInputDevice",
+                identifierClass, int.class, InputMethodInfo.class,
+                InputMethodSubtype.class)
+                .invoke(inputManager, identifier, 0,
+                        inputMethod, subtype);
+        return selection == null ? null
+                : (String) selection.getClass()
+                        .getMethod("getLayoutDescriptor").invoke(selection);
     }
 
     private static List<InputDevice> getExternalAlphabeticKeyboards() {
@@ -270,25 +199,38 @@ public final class HardwareKeyboardLayoutCommand {
             throw new IllegalStateException("current input method or subtype is unavailable");
         }
 
-        final List<InputMethodSubtype> enabled =
-                (List<InputMethodSubtype>) inputMethodManagerInterface.getMethod(
-                        "getEnabledInputMethodSubtypeList",
-                        String.class, boolean.class, int.class)
-                        .invoke(inputMethodManager, inputMethod.getId(), true, userId);
-        final List<InputMethodSubtype> keyboardSubtypes = new ArrayList<>();
-        final Set<Integer> seenHashes = new LinkedHashSet<>();
-        for (final InputMethodSubtype subtype : enabled) {
-            if (subtype == null
-                    || !KEYBOARD_SUBTYPE_MODE.equals(subtype.getMode())
-                    || !seenHashes.add(Integer.valueOf(subtype.hashCode()))) {
-                continue;
+        final List<InputMethodInfo> enabledInputMethods =
+                (List<InputMethodInfo>) inputMethodManagerInterface.getMethod(
+                        "getEnabledInputMethodListLegacy", int.class)
+                        .invoke(inputMethodManager, userId);
+        final List<ImeSubtypeState> layoutMappings = new ArrayList<>();
+        final Set<String> seenMappings = new LinkedHashSet<>();
+        for (final InputMethodInfo enabledInputMethod : enabledInputMethods) {
+            final List<InputMethodSubtype> enabledSubtypes =
+                    (List<InputMethodSubtype>) inputMethodManagerInterface.getMethod(
+                            "getEnabledInputMethodSubtypeList",
+                            String.class, boolean.class, int.class)
+                            .invoke(inputMethodManager,
+                                    enabledInputMethod.getId(), true, userId);
+            for (final InputMethodSubtype subtype : enabledSubtypes) {
+                final String mappingKey = enabledInputMethod.getId()
+                        + ':' + (subtype == null ? 0 : subtype.hashCode());
+                if (subtype == null
+                        || !KEYBOARD_SUBTYPE_MODE.equals(subtype.getMode())
+                        || !seenMappings.add(mappingKey)) {
+                    continue;
+                }
+                layoutMappings.add(
+                        new ImeSubtypeState(enabledInputMethod, subtype));
             }
-            keyboardSubtypes.add(subtype);
         }
-        if (keyboardSubtypes.isEmpty()) {
-            keyboardSubtypes.add(currentSubtype);
+        final String currentMappingKey =
+                inputMethod.getId() + ':' + currentSubtype.hashCode();
+        if (seenMappings.add(currentMappingKey)) {
+            layoutMappings.add(
+                    new ImeSubtypeState(inputMethod, currentSubtype));
         }
-        return new ImeState(inputMethod, currentSubtype, keyboardSubtypes);
+        return new ImeState(inputMethod, currentSubtype, layoutMappings);
     }
 
     private static void setKeyboardLayout(
@@ -444,16 +386,28 @@ public final class HardwareKeyboardLayoutCommand {
         final InputMethodInfo inputMethod;
         final String imeId;
         final InputMethodSubtype currentSubtype;
-        final List<InputMethodSubtype> keyboardSubtypes;
+        final List<ImeSubtypeState> layoutMappings;
 
         ImeState(
                 final InputMethodInfo inputMethod,
                 final InputMethodSubtype currentSubtype,
-                final List<InputMethodSubtype> keyboardSubtypes) {
+                final List<ImeSubtypeState> layoutMappings) {
             this.inputMethod = inputMethod;
             this.imeId = inputMethod.getId();
             this.currentSubtype = currentSubtype;
-            this.keyboardSubtypes = keyboardSubtypes;
+            this.layoutMappings = layoutMappings;
+        }
+    }
+
+    private static final class ImeSubtypeState {
+        final InputMethodInfo inputMethod;
+        final InputMethodSubtype subtype;
+
+        ImeSubtypeState(
+                final InputMethodInfo inputMethod,
+                final InputMethodSubtype subtype) {
+            this.inputMethod = inputMethod;
+            this.subtype = subtype;
         }
     }
 }

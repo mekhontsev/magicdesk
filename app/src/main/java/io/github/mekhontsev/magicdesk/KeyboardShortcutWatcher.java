@@ -5,12 +5,15 @@ import android.util.Log;
 import java.io.BufferedReader;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 
-final class RootKeyboardShortcutWatcher {
-    private static final String TAG = "MagicDeskRootKeys";
+final class KeyboardShortcutWatcher {
+    private static final String TAG = "MagicDeskKeys";
     private static final String INPUT_BRIDGE_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleInputBridgeCommand";
+    private static final String SHIZUKU_INPUT_COMMAND =
+            "/system/bin/getevent -lt";
     private static final long RESTART_DELAY_MS = 1000L;
 
     private static final Object LOCK = new Object();
@@ -21,10 +24,12 @@ final class RootKeyboardShortcutWatcher {
     private static boolean sShiftDown;
     private static boolean sMetaDown;
     private static Process sProcess;
+    private static ShizukuAccess.StreamHandle sShizukuStream;
     private static Thread sThread;
     private static long sGeneration;
+    private static boolean sFullShortcutMode;
 
-    private RootKeyboardShortcutWatcher() {
+    private KeyboardShortcutWatcher() {
     }
 
     static void start(final boolean consoleMode) {
@@ -40,7 +45,7 @@ final class RootKeyboardShortcutWatcher {
                 public void run() {
                     runLoop(consoleMode, generation);
                 }
-            }, "MagicDeskRootKeyWatcher");
+            }, "MagicDeskKeyWatcher");
             sThread.setDaemon(true);
             sThread.start();
         }
@@ -48,6 +53,7 @@ final class RootKeyboardShortcutWatcher {
 
     static void stop() {
         final Process process;
+        final ShizukuAccess.StreamHandle shizukuStream;
         final Thread thread;
         final boolean cancelAltTab;
         synchronized (LOCK) {
@@ -56,9 +62,12 @@ final class RootKeyboardShortcutWatcher {
             cancelAltTab = sAltTabActive;
             clearModifierStateLocked();
             process = sProcess;
+            shizukuStream = sShizukuStream;
             thread = sThread;
             sProcess = null;
+            sShizukuStream = null;
             sThread = null;
+            sFullShortcutMode = false;
         }
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
@@ -66,6 +75,7 @@ final class RootKeyboardShortcutWatcher {
         if (process != null) {
             closeQuietly(process.getOutputStream());
         }
+        closeQuietly(shizukuStream);
         if (thread != null) {
             thread.interrupt();
         }
@@ -73,7 +83,14 @@ final class RootKeyboardShortcutWatcher {
 
     static boolean isRunning() {
         synchronized (LOCK) {
-            return sRunning && isProcessAlive(sProcess);
+            return sRunning && (isProcessAlive(sProcess)
+                    || sShizukuStream != null);
+        }
+    }
+
+    static boolean isFullShortcutMode() {
+        synchronized (LOCK) {
+            return isRunning() && sFullShortcutMode;
         }
     }
 
@@ -92,27 +109,53 @@ final class RootKeyboardShortcutWatcher {
     private static void runLoop(final boolean consoleMode, final long generation) {
         while (isRunning(generation)) {
             Process process = null;
+            ShizukuAccess.StreamHandle shizukuStream = null;
             BufferedReader reader = null;
             try {
-                final String mode = consoleMode ? "console" : "shortcuts";
-                final String command = AppProcessCommand.exec(
-                        INPUT_BRIDGE_COMMAND, mode);
-                process = PrivilegedCommandRunner.start(command);
-                setProcess(process, generation);
-                Log.i(TAG, "root input bridge started console=" + consoleMode);
+                final boolean fullShortcutMode =
+                        RuntimeAccess.has(
+                                RuntimeAccess.Capability.GLOBAL_INPUT);
+                final boolean useShizuku =
+                        RuntimeAccess.allowsShizukuCommands()
+                                && !RuntimeAccess.allowsRootCommands();
+                final String command;
+                if (useShizuku) {
+                    command = SHIZUKU_INPUT_COMMAND;
+                } else {
+                    final String mode = fullShortcutMode && consoleMode
+                            ? "console" : "shortcuts";
+                    command = AppProcessCommand.exec(
+                            INPUT_BRIDGE_COMMAND, mode);
+                }
+                final InputStream input;
+                if (useShizuku) {
+                    shizukuStream = ShizukuAccess.openStream(command);
+                    setShizukuStream(
+                            shizukuStream, generation, fullShortcutMode);
+                    input = shizukuStream.inputStream();
+                } else {
+                    process = PrivilegedCommandRunner.start(command);
+                    setProcess(process, generation, fullShortcutMode);
+                    input = process.getInputStream();
+                }
+                Log.i(TAG, "input watcher started backend="
+                        + RuntimeAccess.backendName()
+                        + " full=" + fullShortcutMode
+                        + " console=" + consoleMode);
 
-                reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                reader = new BufferedReader(new InputStreamReader(input));
                 String line;
                 while (isRunning(generation) && (line = reader.readLine()) != null) {
-                    handleGeteventLine(line);
+                    handleGeteventLine(line, fullShortcutMode);
                 }
             } catch (IOException e) {
                 if (isRunning(generation)) {
-                    Log.w(TAG, "root input bridge failed", e);
+                    Log.w(TAG, "input watcher failed", e);
                     CompatibilityDiagnostics.record(
                             "INPUT-BRIDGE-001",
-                            "The root keyboard and mouse bridge stopped",
-                            "consoleMode=" + consoleMode,
+                            "The keyboard shortcut watcher stopped",
+                            "backend=" + RuntimeAccess.backendName()
+                                    + " consoleMode=" + consoleMode,
                             e);
                 }
             } finally {
@@ -120,7 +163,9 @@ final class RootKeyboardShortcutWatcher {
                 if (process != null) {
                     process.destroy();
                 }
+                closeQuietly(shizukuStream);
                 clearProcess(process);
+                clearShizukuStream(shizukuStream);
                 clearModifierState();
             }
 
@@ -128,18 +173,24 @@ final class RootKeyboardShortcutWatcher {
                 sleepBeforeRestart();
             }
         }
-        Log.i(TAG, "root input bridge stopped");
+        Log.i(TAG, "input watcher stopped");
     }
 
-    private static void handleGeteventLine(final String line) {
+    private static void handleGeteventLine(
+            final String line,
+            final boolean fullShortcutMode) {
+        if (!fullShortcutMode
+                && line.startsWith("MAGICDESK_")) {
+            return;
+        }
         if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")) {
             final boolean reverse = line.endsWith("reverse");
             synchronized (LOCK) {
                 sAltTabActive = true;
             }
             Log.i(TAG, reverse
-                    ? "root Alt+Shift+Tab"
-                    : "root Alt+Tab");
+                    ? "Alt+Shift+Tab"
+                    : "Alt+Tab");
             ConsoleModeSwitcher.advanceAltTab(reverse);
             return;
         }
@@ -190,19 +241,23 @@ final class RootKeyboardShortcutWatcher {
             return;
         }
 
+        if ("KEY_SPACE".equals(keyName) && isCtrlOnlyDown()) {
+            Log.i(TAG, "Ctrl+Space");
+            ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
+            return;
+        }
+
         if ("KEY_ESC".equals(keyName) && isNoModifierDown()) {
             DesktopTaskController.dismissTransientActivity();
             return;
         }
 
-        if ("KEY_SPACE".equals(keyName) && isCtrlOnlyDown()) {
-            Log.i(TAG, "root Ctrl+Space");
-            ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
+        if (!fullShortcutMode) {
             return;
         }
 
         if ("KEY_F4".equals(keyName) && isAltOnlyDown()) {
-            Log.i(TAG, "root Alt+F4");
+            Log.i(TAG, "Alt+F4");
             ConsoleModeSwitcher.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_CLOSE);
             return;
@@ -210,56 +265,56 @@ final class RootKeyboardShortcutWatcher {
 
         if (isMetaOnlyDown()) {
             if ("KEY_BACKSPACE".equals(keyName)) {
-                Log.i(TAG, "root Meta+Backspace");
+                Log.i(TAG, "Meta+Backspace");
                 ConsoleModeSwitcher.sendSystemBack();
                 return;
             }
             if ("KEY_L".equals(keyName)) {
-                Log.i(TAG, "root Meta+L");
+                Log.i(TAG, "Meta+L");
                 ConsoleModeSwitcher.lockDevice();
                 return;
             }
             if ("KEY_N".equals(keyName)) {
-                Log.i(TAG, "root Meta+N");
+                Log.i(TAG, "Meta+N");
                 ConsoleModeSwitcher.toggleNotificationCenter();
                 return;
             }
             if ("KEY_UP".equals(keyName)) {
-                Log.i(TAG, "root Meta+Up");
+                Log.i(TAG, "Meta+Up");
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_FULLSCREEN);
                 return;
             }
             if ("KEY_DOWN".equals(keyName)) {
-                Log.i(TAG, "root Meta+Down");
+                Log.i(TAG, "Meta+Down");
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_RESTORE);
                 return;
             }
             if ("KEY_LEFT".equals(keyName)) {
-                Log.i(TAG, "root Meta+Left");
+                Log.i(TAG, "Meta+Left");
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_LEFT);
                 return;
             }
             if ("KEY_RIGHT".equals(keyName)) {
-                Log.i(TAG, "root Meta+Right");
+                Log.i(TAG, "Meta+Right");
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
                 return;
             }
             if ("KEY_D".equals(keyName)) {
-                Log.i(TAG, "root Meta+D");
+                Log.i(TAG, "Meta+D");
                 ConsoleModeSwitcher.showMagicDesk();
                 return;
             }
             if (isPrintScreenKey(keyName)) {
-                Log.i(TAG, "root Meta+PrintScreen");
+                Log.i(TAG, "Meta+PrintScreen");
                 ConsoleModeSwitcher.captureScreenshot();
                 return;
             }
             if ("KEY_SLASH".equals(keyName)) {
-                Log.i(TAG, "root Meta+Slash");
+                Log.i(TAG, "Meta+Slash");
                 ConsoleModeSwitcher.showShortcutHelp();
             }
             return;
@@ -359,7 +414,7 @@ final class RootKeyboardShortcutWatcher {
             sAltTabActive = false;
         }
         if (finishAltTab) {
-            Log.i(TAG, "root Alt+Tab commit");
+            Log.i(TAG, "Alt+Tab commit");
             ConsoleModeSwitcher.finishAltTab();
         }
     }
@@ -389,10 +444,26 @@ final class RootKeyboardShortcutWatcher {
         }
     }
 
-    private static void setProcess(final Process process, final long generation) {
+    private static void setProcess(
+            final Process process,
+            final long generation,
+            final boolean fullShortcutMode) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
                 sProcess = process;
+                sFullShortcutMode = fullShortcutMode;
+            }
+        }
+    }
+
+    private static void setShizukuStream(
+            final ShizukuAccess.StreamHandle stream,
+            final long generation,
+            final boolean fullShortcutMode) {
+        synchronized (LOCK) {
+            if (sRunning && sGeneration == generation) {
+                sShizukuStream = stream;
+                sFullShortcutMode = fullShortcutMode;
             }
         }
     }
@@ -401,6 +472,21 @@ final class RootKeyboardShortcutWatcher {
         synchronized (LOCK) {
             if (sProcess == process) {
                 sProcess = null;
+                if (sShizukuStream == null) {
+                    sFullShortcutMode = false;
+                }
+            }
+        }
+    }
+
+    private static void clearShizukuStream(
+            final ShizukuAccess.StreamHandle stream) {
+        synchronized (LOCK) {
+            if (sShizukuStream == stream) {
+                sShizukuStream = null;
+                if (sProcess == null) {
+                    sFullShortcutMode = false;
+                }
             }
         }
     }

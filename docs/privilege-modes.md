@@ -53,13 +53,18 @@ kernel modules or the complete set of REDMAGIC root/vendor controls. On the
 verified firmware, shell can read raw `/dev/input/event*`, inject input, change
 physical-keyboard layouts, and register a task listener. It cannot open raw
 input for writing, acquire `MONITOR_INPUT`, or read the private InputManager
-state XML. MagicDesk's current Shizuku UserService supports finite commands,
-not the long-lived event stream needed by the global shortcut bridge.
-Therefore global shortcuts, physical-key repeat correction, keyboard-layout
-cycling, right-click remapping, phone-screen controls, and Console Mode
-automation remain disabled in the current Shizuku runtime. It can control
-stock REDMAGIC bypass charging through the firmware's global setting; Nubia's
-system service still enforces power and battery safety policy.
+state XML. MagicDesk's current Shizuku UserService supports finite commands
+plus a lifecycle-bound read-only `/dev/input` stream. That stream recognizes
+only `Ctrl+Space`; it does not claim the complete global shortcut capability.
+Other global shortcuts, physical-key repeat correction, right-click remapping,
+phone-screen controls, and Console Mode automation remain disabled in the
+current Shizuku runtime. Physical-keyboard layouts can be cycled with
+`Ctrl+Space` or manually from the taskbar language indicator. MagicDesk queries
+`IInputManager` for the selected layout of every enabled IME subtype, matching
+Android's own layout-mapping model without reading private InputManager files.
+Shizuku can also control stock REDMAGIC bypass charging through the firmware's
+global setting; Nubia's system service still enforces power and battery safety
+policy.
 
 On REDMAGIC firmware, the physical right mouse button becomes Android Back
 before an application overlay can consume it. Use a long left-button press for

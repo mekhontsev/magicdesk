@@ -93,7 +93,7 @@ final class DesktopInputController {
                 && (keyCode == KeyEvent.KEYCODE_META_LEFT
                         || keyCode == KeyEvent.KEYCODE_META_RIGHT)) {
             if (event.getAction() == KeyEvent.ACTION_UP
-                    && !RootKeyboardShortcutWatcher.isRunning()) {
+                    && !KeyboardShortcutWatcher.isFullShortcutMode()) {
                 mActivity.captureInteractionStackForPanel();
                 mActivity.toggleStartMenu();
             }

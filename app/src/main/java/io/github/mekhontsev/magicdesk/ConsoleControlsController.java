@@ -270,7 +270,7 @@ final class ConsoleControlsController {
                             : R.string.state_on),
                     RuntimeAccess.backendName(),
                     mActivity.getString(
-                            RootKeyboardShortcutWatcher.isRunning()
+                            KeyboardShortcutWatcher.isFullShortcutMode()
                                     ? R.string.state_ready
                                     : R.string.state_unavailable),
                     mActivity.getMonitorProfileLabel()));
@@ -289,7 +289,7 @@ final class ConsoleControlsController {
         }
         mActivity.taskbar().updateSystemStatus(
                 consoleModeActive,
-                RootKeyboardShortcutWatcher.isRunning());
+                KeyboardShortcutWatcher.isFullShortcutMode());
     }
 
     void togglePhoneScreen() {

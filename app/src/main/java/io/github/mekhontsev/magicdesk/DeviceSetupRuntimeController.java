@@ -50,7 +50,7 @@ final class DeviceSetupRuntimeController {
     }
 
     private static void stopServices(final Context context) {
-        RootKeyboardShortcutWatcher.stop();
+        KeyboardShortcutWatcher.stop();
         ConsoleModeSwitcher.closeRootShell();
         if (context != null) {
             MagicDeskRuntimeService.stop(context.getApplicationContext());

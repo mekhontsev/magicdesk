@@ -58,7 +58,7 @@ public final class MagicDeskRuntimeService extends Service
     private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
     private boolean mPhoneHomeRecoveryAgain;
-    private boolean mRootWatcherRunning;
+    private boolean mKeyboardWatcherRunning;
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
@@ -163,7 +163,7 @@ public final class MagicDeskRuntimeService extends Service
                     this, mConsoleModeActive);
         }
         syncMirrorInputProxyState();
-        updateRootWatcher();
+        updateKeyboardWatcher();
         updateDesktopTasks();
         if (LocalDesktopSessionState.isCleanupPending(this)) {
             scheduleLocalDesktopCleanup();
@@ -194,7 +194,7 @@ public final class MagicDeskRuntimeService extends Service
             }
         }
         syncMirrorInputProxyState();
-        updateRootWatcher();
+        updateKeyboardWatcher();
         updateDesktopTasks();
         return START_NOT_STICKY;
     }
@@ -247,7 +247,7 @@ public final class MagicDeskRuntimeService extends Service
         if (mDesktopTasks != null) {
             mDesktopTasks.stop();
         }
-        RootKeyboardShortcutWatcher.stop();
+        KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
         ConsoleModeSwitcher.closeRootShell();
         super.onDestroy();
@@ -316,9 +316,10 @@ public final class MagicDeskRuntimeService extends Service
         logInputState();
         if (keyboardChanged) {
             updateNotification();
-            updateRootWatcher();
-        } else if ((mouseChanged || inputInventoryChanged) && mRootWatcherRunning) {
-            restartRootWatcher();
+            updateKeyboardWatcher();
+        } else if ((mouseChanged || inputInventoryChanged)
+                && mKeyboardWatcherRunning) {
+            restartKeyboardWatcher();
         }
     }
 
@@ -479,7 +480,7 @@ public final class MagicDeskRuntimeService extends Service
         Log.i(TAG, "consoleMode=" + mConsoleModeActive
                 + " display=" + mConsoleDisplayId);
         if (activeStateChanged) {
-            restartRootWatcher();
+            restartKeyboardWatcher();
             if (consoleModeActive) {
                 mConsoleExitRecoveryPending = false;
             }
@@ -544,30 +545,32 @@ public final class MagicDeskRuntimeService extends Service
                 }));
     }
 
-    private void updateRootWatcher() {
+    private void updateKeyboardWatcher() {
         final boolean shouldRun = mHasHardwareKeyboard
-                && RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT);
-        if (shouldRun == mRootWatcherRunning) {
+                && (RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)
+                        || RuntimeAccess.has(
+                                RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT));
+        if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
 
         if (shouldRun) {
-            Log.i(TAG, "starting root keyboard watcher");
-            RootKeyboardShortcutWatcher.start(mConsoleModeActive);
+            Log.i(TAG, "starting keyboard shortcut watcher");
+            KeyboardShortcutWatcher.start(mConsoleModeActive);
         } else {
-            Log.i(TAG, "stopping root keyboard watcher");
-            RootKeyboardShortcutWatcher.stop();
+            Log.i(TAG, "stopping keyboard shortcut watcher");
+            KeyboardShortcutWatcher.stop();
         }
-        mRootWatcherRunning = shouldRun;
+        mKeyboardWatcherRunning = shouldRun;
     }
 
-    private void restartRootWatcher() {
-        if (!mRootWatcherRunning) {
-            updateRootWatcher();
+    private void restartKeyboardWatcher() {
+        if (!mKeyboardWatcherRunning) {
+            updateKeyboardWatcher();
             return;
         }
-        RootKeyboardShortcutWatcher.stop();
-        RootKeyboardShortcutWatcher.start(mConsoleModeActive);
+        KeyboardShortcutWatcher.stop();
+        KeyboardShortcutWatcher.start(mConsoleModeActive);
     }
 
     private int getConsoleDisplayId() {

@@ -48,6 +48,6 @@ when they are created or restored.
 - Keep the task on the same display. Do not use the phone display as a
   transition trampoline.
 - Do not stop the target application to refresh its window.
-- `RootKeyboardShortcutWatcher` observes Linux input events but does not consume
+- `KeyboardShortcutWatcher` observes Linux input events but does not consume
   Android's copy of the same event. Keyboard ownership is separate from the
   fullscreen transition.

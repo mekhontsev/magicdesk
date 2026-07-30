@@ -248,10 +248,10 @@ final class CompatibilityDiagnostics {
         final boolean globalInput =
                 RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT);
         appendCheck(report, "SHORTCUTS-001",
-                !globalInput || RootKeyboardShortcutWatcher.isRunning(),
-                "Root keyboard/input bridge",
+                !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),
+                "Global keyboard/input bridge",
                 globalInput
-                        ? (RootKeyboardShortcutWatcher.isRunning()
+                        ? (KeyboardShortcutWatcher.isFullShortcutMode()
                                 ? "running" : "not running")
                         : "disabled by the selected runtime backend");
         report.append("Capabilities: publicLaunch=")
@@ -262,6 +262,12 @@ final class CompatibilityDiagnostics {
                 .append(taskControl)
                 .append(", globalInput=")
                 .append(globalInput)
+                .append(", keyboardLayoutControl=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL))
+                .append(", keyboardLayoutShortcut=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT))
                 .append(", rightClickRemap=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.RIGHT_CLICK_REMAP))
                 .append(", displayOverrides=")
@@ -400,7 +406,7 @@ final class CompatibilityDiagnostics {
         final String command = "/system/bin/logcat -d -v threadtime -t 600 "
                 + "MagicDesk:V MagicDeskConsoleSwitcher:V MagicDeskFreeform:V "
                 + "MagicDeskNativeDesktop:V MagicDeskNotifications:V MagicDeskPanels:V "
-                + "MagicDeskProfiles:V MagicDeskRightButton:V MagicDeskRootKeys:V "
+                + "MagicDeskProfiles:V MagicDeskRightButton:V MagicDeskKeys:V "
                 + "MagicDeskSetup:V MagicDeskTaskReuse:V MagicDeskTasks:V "
                 + "MagicDeskWallpaper:V MagicDeskWatcher:V '*:S'";
         final String output = runCommand(command, MAX_LOGCAT_CHARS);

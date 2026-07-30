@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.util.Base64;
 import android.util.Log;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -24,16 +25,19 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void toggle() {
-        ConsoleModeSwitcher.executeSerialized(() -> {
-            try {
-                apply("next");
-            } finally {
-                ConsoleModeSwitcher.closeRootShell();
-            }
-        });
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+            Log.w(TAG, "hardware keyboard layout control unavailable");
+            return;
+        }
+        ConsoleModeSwitcher.executeSerialized(() -> apply("next"));
     }
 
     static void refresh() {
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+            return;
+        }
         if (!REFRESH_IN_PROGRESS.compareAndSet(false, true)) {
             Log.d(TAG, "hardware keyboard layout refresh already pending");
             return;
@@ -43,7 +47,6 @@ final class HardwareKeyboardLayoutController {
                 apply("sync");
             } finally {
                 REFRESH_IN_PROGRESS.set(false);
-                ConsoleModeSwitcher.closeRootShell();
             }
         });
     }
@@ -53,8 +56,13 @@ final class HardwareKeyboardLayoutController {
                 + LAYOUT_STATE + "); "
                 + AppProcessCommand.run(
                         LAYOUT_COMMAND, mode + " \"$CURRENT\"");
-        final String output =
-                ConsoleModeSwitcher.runRootCommand(command).trim();
+        final String output;
+        try {
+            output = PrivilegedCommandRunner.run(command).trim();
+        } catch (IOException e) {
+            Log.w(TAG, "hardware keyboard layout command failed", e);
+            return;
+        }
         final String descriptor =
                 parseOutputValue(output, "descriptor");
         final String code = parseOutputValue(output, "code");
@@ -78,15 +86,20 @@ final class HardwareKeyboardLayoutController {
                     e);
             return;
         }
-        ConsoleModeSwitcher.runRootCommand(
-                SETTINGS + " put global " + LAYOUT_LABEL_STATE
-                        + " " + shellQuote(code));
-        ConsoleModeSwitcher.runRootCommand(
-                SETTINGS + " put global " + LAYOUT_NAME_STATE
-                        + " " + shellQuote(name));
-        ConsoleModeSwitcher.runRootCommand(
-                SETTINGS + " put global " + LAYOUT_STATE
-                        + " " + shellQuote(descriptor));
+        try {
+            PrivilegedCommandRunner.run(
+                    SETTINGS + " put global " + LAYOUT_LABEL_STATE
+                            + " " + shellQuote(code));
+            PrivilegedCommandRunner.run(
+                    SETTINGS + " put global " + LAYOUT_NAME_STATE
+                            + " " + shellQuote(name));
+            PrivilegedCommandRunner.run(
+                    SETTINGS + " put global " + LAYOUT_STATE
+                            + " " + shellQuote(descriptor));
+        } catch (IOException e) {
+            Log.w(TAG, "cannot persist hardware keyboard layout state", e);
+            return;
+        }
         Log.i(TAG,
                 "hardware keyboard "
                         + output.replace('\n', ' '));

@@ -8,9 +8,14 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.IBinder;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import rikka.shizuku.Shizuku;
 
@@ -20,6 +25,8 @@ final class ShizukuAccess {
     private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
     private static final long BIND_TIMEOUT_MILLIS = 10_000;
     private static final Object LOCK = new Object();
+    private static final AtomicLong NEXT_STREAM_ID =
+            new AtomicLong();
 
     private static Context sContext;
     private static IShizukuCommandService sService;
@@ -132,6 +139,26 @@ final class ShizukuAccess {
         } catch (RemoteException | RuntimeException error) {
             clearService();
             throw new IOException("Shizuku capability probe failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static StreamHandle openStream(final String command) throws IOException {
+        if (command == null || command.isEmpty()) {
+            throw new IOException("empty Shizuku stream command");
+        }
+        final long requestId = NEXT_STREAM_ID.incrementAndGet();
+        try {
+            final ParcelFileDescriptor descriptor =
+                    requireService().openStream(command, requestId);
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no stream");
+            }
+            return new StreamHandle(requestId, descriptor);
+        } catch (RemoteException | RuntimeException error) {
+            clearService();
+            throw new IOException("Shizuku command stream failed: "
                     + usefulMessage(error), error);
         }
     }
@@ -298,6 +325,48 @@ final class ShizukuAccess {
         static Snapshot unavailable(
                 final boolean installed, final String error) {
             return new Snapshot(installed, false, false, -1, -1, error);
+        }
+    }
+
+    static final class StreamHandle implements Closeable {
+        private final long mRequestId;
+        private final InputStream mInput;
+        private final AtomicBoolean mClosed = new AtomicBoolean();
+
+        StreamHandle(
+                final long requestId,
+                final ParcelFileDescriptor descriptor) {
+            mRequestId = requestId;
+            mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+        }
+
+        InputStream inputStream() {
+            return mInput;
+        }
+
+        @Override
+        public void close() {
+            if (!mClosed.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                mInput.close();
+            } catch (IOException ignored) {
+                // The remote stream may already have ended.
+            }
+
+            final IShizukuCommandService service;
+            synchronized (LOCK) {
+                service = sService;
+            }
+            if (service == null || !service.asBinder().pingBinder()) {
+                return;
+            }
+            try {
+                service.closeStream(mRequestId);
+            } catch (RemoteException | RuntimeException ignored) {
+                // Closing a disconnected UserService is already complete.
+            }
         }
     }
 }

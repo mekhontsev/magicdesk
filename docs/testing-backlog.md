@@ -67,6 +67,12 @@ successful build.
   tasks, and use display commands. It cannot open raw input for writing,
   acquire `MONITOR_INPUT`, read the private InputManager XML, or access
   fan/pump nodes.
+- [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
+  Binder-only discovery reproduced Android's all-enabled-IME mapping and found
+  the configured English and Russian layouts while Unexpected Keyboard was
+  active. Both direct Binder execution and the lifecycle-bound Shizuku
+  `Ctrl+Space` watcher applied EN -> RU -> EN to the connected ProtoArc
+  keyboard without reading private InputManager state.
 - [x] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in

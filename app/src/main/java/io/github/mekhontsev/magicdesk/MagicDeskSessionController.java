@@ -111,7 +111,7 @@ final class MagicDeskSessionController {
     }
 
     private void finishPrivilegedExit() {
-        RootKeyboardShortcutWatcher.stop();
+        KeyboardShortcutWatcher.stop();
         MagicDeskRuntimeService.stop(mActivity);
         runRootCommandBestEffort(
                 AM + " stop-service -n " + KEYBOARD_WATCHER_SERVICE);

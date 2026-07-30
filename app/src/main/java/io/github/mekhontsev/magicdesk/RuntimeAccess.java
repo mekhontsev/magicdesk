@@ -18,6 +18,8 @@ final class RuntimeAccess {
         EXACT_TASKS,
         TASK_CONTROL,
         GLOBAL_INPUT,
+        KEYBOARD_LAYOUT_CONTROL,
+        KEYBOARD_LAYOUT_SHORTCUT,
         RIGHT_CLICK_REMAP,
         CONSOLE_CONTROL,
         DISPLAY_OVERRIDES,
@@ -101,6 +103,8 @@ final class RuntimeAccess {
                     Capability.PUBLIC_APP_LAUNCH,
                     Capability.EXACT_TASKS,
                     Capability.TASK_CONTROL,
+                    Capability.KEYBOARD_LAYOUT_CONTROL,
+                    Capability.KEYBOARD_LAYOUT_SHORTCUT,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
@@ -110,6 +114,8 @@ final class RuntimeAccess {
                     Capability.PUBLIC_APP_LAUNCH,
                     Capability.EXACT_TASKS,
                     Capability.TASK_CONTROL,
+                    Capability.KEYBOARD_LAYOUT_CONTROL,
+                    Capability.KEYBOARD_LAYOUT_SHORTCUT,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
