@@ -39,6 +39,7 @@ final class ConsoleControlsController {
             Collections.newSetFromMap(
                     new WeakHashMap<Button, Boolean>());
     private Button mPhoneScreenAction;
+    private Button mTouchpadAction;
     private SeekBar mDpiSlider;
     private TextView mDpiValue;
     private TextView mHardwareBatteryStatus;
@@ -139,16 +140,14 @@ final class ConsoleControlsController {
         consoleMode.setOnClickListener(view -> toggleConsoleMode());
         addActionButton(actionGrid, consoleMode);
 
-        final Button touchpad = mUi.actionButton(
+        mTouchpadAction = mUi.actionButton(
                 R.string.action_open_touchpad,
                 DesktopUiFactory.COLOR_CYAN);
-        touchpad.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.CONSOLE_CONTROL));
-        touchpad.setOnClickListener(view -> {
+        mTouchpadAction.setOnClickListener(view -> {
             mActivity.hideAllPanels();
             ConsoleModeSwitcher.openTouchpad();
         });
-        addActionButton(actionGrid, touchpad);
+        addActionButton(actionGrid, mTouchpadAction);
 
         final Button deviceSetup = mUi.actionButton(
                 R.string.action_device_setup,
@@ -279,6 +278,9 @@ final class ConsoleControlsController {
         final boolean consoleModeActive = isConsoleModeActive();
         final boolean consoleControl = RuntimeAccess.has(
                 RuntimeAccess.Capability.CONSOLE_CONTROL);
+        if (mTouchpadAction != null) {
+            mTouchpadAction.setEnabled(consoleModeActive && consoleControl);
+        }
         for (final Button action : mConsoleModeActions) {
             action.setText(consoleModeActive
                     ? R.string.action_switch_to_mirror

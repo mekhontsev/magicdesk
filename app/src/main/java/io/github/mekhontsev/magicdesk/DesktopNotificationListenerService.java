@@ -585,6 +585,9 @@ public final class DesktopNotificationListenerService extends NotificationListen
             synchronized (LOCK) {
                 sRebindRecoveryScheduled = false;
             }
+            finishNotificationListenerRecovery(
+                    "The public rebind request did not connect the listener "
+                            + "and the current runtime cannot force a rebind");
             return;
         }
 

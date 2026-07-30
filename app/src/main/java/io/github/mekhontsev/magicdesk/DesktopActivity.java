@@ -22,8 +22,6 @@ public final class DesktopActivity extends DesktopShellActivity {
         if (sourceDisplayId == displayId) {
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
-            DesktopShellActivity.invokeIntOption(
-                    options, "setLaunchWindowingMode", 1);
             source.startActivity(
                     new Intent(source, DesktopActivity.class)
                             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP

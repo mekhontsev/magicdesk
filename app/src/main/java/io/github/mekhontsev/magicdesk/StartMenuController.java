@@ -4,8 +4,10 @@ import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -97,6 +99,14 @@ final class StartMenuController {
         mSearch.setTextSize(14);
         mSearch.setSingleLine(true);
         mSearch.setShowSoftInputOnFocus(false);
+        mSearch.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && mActivity.getCurrentDisplayId()
+                            == Display.DEFAULT_DISPLAY) {
+                mSearch.setShowSoftInputOnFocus(true);
+            }
+            return false;
+        });
         mSearch.setPadding(dp(12), dp(8), dp(12), dp(8));
         mSearch.setBackground(mUi.rounded(
                 DesktopUiFactory.COLOR_PANEL_ALT,
@@ -270,9 +280,13 @@ final class StartMenuController {
             return;
         }
         if (!visible) {
+            if (mSearch != null) {
+                mSearch.setShowSoftInputOnFocus(false);
+            }
             overlays.hide(mPanel);
             return;
         }
+        mSearch.setShowSoftInputOnFocus(false);
         mFocusable = focusable;
         render();
         final int width = getWidth();

@@ -321,7 +321,7 @@ final class AppContextMenuController {
         addAction(
                 R.string.action_force_stop,
                 DesktopUiFactory.COLOR_RED,
-                true,
+                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL),
                 view -> mActivity.confirmForceStop(app));
         positionAndShow(x, y);
     }
