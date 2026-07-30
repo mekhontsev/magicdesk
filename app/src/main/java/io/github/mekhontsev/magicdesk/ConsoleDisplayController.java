@@ -18,12 +18,15 @@ final class ConsoleDisplayController {
     private static final String CONSOLE_DISPLAY_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
     private static final long LANDSCAPE_APPLY_TIMEOUT_MS = 2_000L;
+    private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
     private static final Pattern DISPLAY_REAL_SIZE_PATTERN =
             Pattern.compile("Display id (\\d+): .* real (\\d+) x (\\d+),");
     private static final Pattern EXTERNAL_PHYSICAL_DISPLAY_PATTERN =
             Pattern.compile("type EXTERNAL,.*?uniqueId \"local:([0-9]+)\"");
     private static final Pattern WM_SIZE_PATTERN =
             Pattern.compile("(?:Physical|Override) size: (\\d+)x(\\d+)");
+    private static final Pattern WM_DENSITY_PATTERN =
+            Pattern.compile("Override density: (\\d+)");
 
     private ConsoleDisplayController() {
     }
@@ -75,6 +78,11 @@ final class ConsoleDisplayController {
         }
         Log.w(TAG, "Mirror mode request failed output=" + output);
         return false;
+    }
+
+    static boolean isMirrorMode() {
+        return "0".equals(ConsoleModeSwitcher.runRootCommand(
+                SETTINGS + " get global app_mirror_status").trim());
     }
 
     static int waitForConsoleDisplay() {
@@ -152,6 +160,34 @@ final class ConsoleDisplayController {
                 "Console display stayed in the wrong orientation",
                 "display=" + displayId + " target="
                         + targetWidth + "x" + targetHeight);
+    }
+
+    static void applyStartupDensity(final int displayId, final int dpi) {
+        final String command = dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI
+                ? WM + " density reset -d " + displayId
+                : WM + " density " + dpi + " -d " + displayId;
+        final String output =
+                ConsoleModeSwitcher.runRootCommand(command).trim();
+        Log.i(TAG, "prepared Console display density display=" + displayId
+                + " dpi=" + dpi + " output="
+                + output.replace('\n', ' '));
+        final long deadline =
+                SystemClock.uptimeMillis() + DENSITY_APPLY_TIMEOUT_MS;
+        while (SystemClock.uptimeMillis() < deadline) {
+            final String state = ConsoleModeSwitcher.runRootCommand(
+                    WM + " density -d " + displayId);
+            final Matcher matcher = WM_DENSITY_PATTERN.matcher(state);
+            final boolean hasOverride = matcher.find();
+            if ((dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI
+                    && !hasOverride)
+                    || (dpi > 0 && hasOverride
+                    && Integer.toString(dpi).equals(matcher.group(1)))) {
+                return;
+            }
+            SystemClock.sleep(STATE_POLL_MS);
+        }
+        Log.w(TAG, "Console display density did not settle display="
+                + displayId + " dpi=" + dpi);
     }
 
     static void ensureLandscapeWithShizuku(final int displayId)

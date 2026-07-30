@@ -75,6 +75,15 @@
             android:taskAffinity="${applicationId}.control" />
 
         <activity
+            android:name=".ConsoleSeedActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.consoleseed"
+            android:theme="@style/ConsoleSeedTheme" />
+
+        <activity
             android:name=".DesktopActivity"
             android:excludeFromRecents="true"
             android:exported="false"

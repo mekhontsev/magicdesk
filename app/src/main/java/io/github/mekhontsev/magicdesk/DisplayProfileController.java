@@ -1,7 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.hardware.display.DisplayManager;
+import android.content.Context;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
@@ -145,15 +146,7 @@ final class DisplayProfileController {
         new Thread(() -> {
             final String output;
             try {
-                output = PrivilegedCommandRunner.run(
-                        "for d in /sys/class/drm/card*-DP-*; do "
-                                + "[ -d \"$d\" ] || continue; "
-                                + "[ \"$(/system/bin/cat \"$d/status\" 2>/dev/null)\" "
-                                + "= connected ] || continue; "
-                                + "h=$(/system/bin/sha256sum \"$d/edid\" 2>/dev/null) "
-                                + "|| continue; h=${h%% *}; "
-                                + "printf '%s %s\\n' \"$h\" \"$d\"; done")
-                        .trim();
+                output = readConnectedEdidHashes();
             } catch (IOException error) {
                 Log.w(TAG, "Cannot resolve monitor EDID", error);
                 mActivity.runOnUiThread(() ->
@@ -197,6 +190,46 @@ final class DisplayProfileController {
         return hash;
     }
 
+    static Integer prepareExternalProfile(
+            final Context context, final int physicalDisplayId)
+            throws IOException {
+        if (context == null || physicalDisplayId <= 0) {
+            return null;
+        }
+        final DisplayManager manager =
+                context.getSystemService(DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(physicalDisplayId);
+        if (display == null) {
+            return null;
+        }
+        final String hash =
+                parseSingleConnectedEdidHash(readConnectedEdidHashes());
+        if (hash == null) {
+            return Integer.valueOf(initialDpi(display));
+        }
+        final String monitorKey =
+                "edid:" + hash.toLowerCase(Locale.ROOT);
+        WorkspaceProfileStore.saveMonitorAlias(
+                context, profileKey(display), monitorKey);
+        final Integer storedDpi =
+                WorkspaceProfileStore.readStoredDpi(context, monitorKey);
+        return storedDpi == null
+                ? Integer.valueOf(initialDpi(display)) : storedDpi;
+    }
+
+    private static String readConnectedEdidHashes() throws IOException {
+        return PrivilegedCommandRunner.run(
+                "for d in /sys/class/drm/card*-DP-*; do "
+                        + "[ -d \"$d\" ] || continue; "
+                        + "[ \"$(/system/bin/cat \"$d/status\" 2>/dev/null)\" "
+                        + "= connected ] || continue; "
+                        + "h=$(/system/bin/sha256sum \"$d/edid\" 2>/dev/null) "
+                        + "|| continue; h=${h%% *}; "
+                        + "printf '%s %s\\n' \"$h\" \"$d\"; done")
+                .trim();
+    }
+
     private void refreshAfterDisplayChange() {
         if (mActivity.isActivityUnavailable()) {
             return;
@@ -216,6 +249,10 @@ final class DisplayProfileController {
         if (profileDisplay == null) {
             return "display:default";
         }
+        return profileKey(profileDisplay);
+    }
+
+    private static String profileKey(final Display profileDisplay) {
         final Display.Mode mode = profileDisplay.getMode();
         final String resolution = mode == null
                 ? "unknown"
@@ -309,7 +346,7 @@ final class DisplayProfileController {
         mActivity.onMonitorProfileResolved(previousDpi, resolved.dpi);
     }
 
-    private int initialDpi(final Display display) {
+    private static int initialDpi(final Display display) {
         if (display == null
                 || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
             return DesktopPreferences.SYSTEM_DESKTOP_DPI;

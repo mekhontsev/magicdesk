@@ -10,6 +10,10 @@ import java.util.regex.Pattern;
 final class ConsoleSessionController {
     private static final String TAG = "MagicDeskConsoleSession";
     private static final String AM = "/system/bin/am";
+    private static final String SEED_COMPONENT =
+            "io.github.mekhontsev.magicdesk/.ConsoleSeedActivity";
+    private static final String DESKTOP_COMPONENT =
+            "io.github.mekhontsev.magicdesk/.DesktopActivity";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
     private static final String SURFACE_FLINGER_OPTION_COMMAND =
@@ -23,6 +27,8 @@ final class ConsoleSessionController {
     static void showWithRoot() {
         int displayId = ConsoleDisplayController.getActiveConsoleDisplayId();
         boolean startedConsoleMode = false;
+        boolean seedStarted = false;
+        int physicalDisplayId = -1;
         if (displayId <= 0) {
             final int externalDisplayId =
                     ConsoleDisplayController.findExternalDisplayId();
@@ -35,10 +41,19 @@ final class ConsoleSessionController {
                         "No physical external display was reported");
                 return;
             }
+            physicalDisplayId = externalDisplayId;
             Log.i(TAG, "request Console mode on physical display="
                     + externalDisplayId);
+            if (ConsoleDisplayController.isMirrorMode()
+                    && !hasVisibleAppTask(0)) {
+                seedStarted = startConsoleSeedTask();
+                if (!seedStarted) {
+                    return;
+                }
+            }
             if (!ConsoleDisplayController.requestConsoleMode(
                     externalDisplayId)) {
+                finishConsoleSeedTask(seedStarted);
                 return;
             }
             displayId = ConsoleDisplayController.waitForConsoleDisplay();
@@ -51,12 +66,16 @@ final class ConsoleSessionController {
                         "Nubia Console Mode did not create app_mirror_displayid within "
                                 + ConsoleDisplayController.START_TIMEOUT_MS
                                 + " ms");
+                finishConsoleSeedTask(seedStarted);
                 return;
             }
             startedConsoleMode = true;
         }
 
         ConsoleDisplayController.ensureLandscape(displayId);
+        if (startedConsoleMode) {
+            prepareConsoleDisplayDensity(displayId, physicalDisplayId);
+        }
         final boolean desktopReady =
                 DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId);
         final boolean desktopTaskReady =
@@ -64,11 +83,13 @@ final class ConsoleSessionController {
         if (!startedConsoleMode && !desktopTaskReady) {
             setExternalTaskCaptionsEnabled(true);
         }
-        final Boolean visibleTaskSnapshot =
-                DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
-        final boolean restoreWindows = !(visibleTaskSnapshot != null
-                ? visibleTaskSnapshot.booleanValue()
-                : hasVisibleAppTask(displayId));
+        final Boolean visibleTaskSnapshot = startedConsoleMode
+                ? Boolean.FALSE
+                : DesktopTaskController.hasVisibleAppTaskSnapshot(displayId);
+        final boolean restoreWindows = startedConsoleMode
+                || !(visibleTaskSnapshot != null
+                        ? visibleTaskSnapshot.booleanValue()
+                        : hasVisibleAppTask(displayId));
         if (!desktopTaskReady && !startedConsoleMode) {
             final String preparedTask =
                     ConsoleModeSwitcher.runRootCommand(
@@ -80,18 +101,14 @@ final class ConsoleSessionController {
         }
         Log.i(TAG, "show MagicDesk display=" + displayId
                 + " restoreWindows=" + restoreWindows
-                + " cachedVisibility=" + (visibleTaskSnapshot != null)
+                + " cachedVisibility="
+                + (!startedConsoleMode && visibleTaskSnapshot != null)
                 + " desktopReady=" + desktopReady
                 + " desktopTaskReady=" + desktopTaskReady);
         final boolean newDesktopTask = !desktopTaskReady;
         final String launchTaskFlags = newDesktopTask
                 ? " -f 0x18000000"
                 : " --activity-reorder-to-front --activity-single-top";
-        // The migrated task grants access to Nubia's private Console display
-        // while the dedicated HOME task is being bootstrapped.
-        final String launchComponent = newDesktopTask
-                ? "io.github.mekhontsev.magicdesk/.DeviceSetupActivity"
-                : "io.github.mekhontsev.magicdesk/.DesktopActivity";
         final String launchOutput = ConsoleModeSwitcher.runRootCommand(
                 AM + " start -W --display " + displayId
                         + " --windowingMode 1"
@@ -103,7 +120,7 @@ final class ConsoleSessionController {
                                 ? " --es " + DesktopShellActivity.EXTRA_ACTION + " "
                                         + DesktopShellActivity.ACTION_RESTORE_WINDOWS
                                 : "")
-                        + " -n " + launchComponent).trim();
+                        + " -n " + DESKTOP_COMPONENT).trim();
         Log.i(TAG, "MagicDesk launch output="
                 + launchOutput.replace('\n', ' '));
         if (startedConsoleMode) {
@@ -111,8 +128,10 @@ final class ConsoleSessionController {
                 Log.w(TAG,
                         "new Console desktop task did not become ready display="
                                 + displayId);
+                finishConsoleSeedTask(seedStarted);
                 return;
             }
+            finishConsoleSeedTask(seedStarted);
             NubiaTouchpadController.refreshOrOpen();
         }
     }
@@ -250,6 +269,47 @@ final class ConsoleSessionController {
             return true;
         }
         return false;
+    }
+
+    private static boolean startConsoleSeedTask() {
+        final String output = ConsoleModeSwitcher.runRootCommand(
+                AM + " start -W --display 0"
+                        + " --windowingMode 1"
+                        + " --activity-reorder-to-front"
+                        + " --activity-single-top"
+                        + " -n " + SEED_COMPONENT).trim();
+        if (output.contains("Status: ok")) {
+            Log.i(TAG, "prepared foreground Console seed task");
+            return true;
+        }
+        Log.w(TAG, "cannot prepare foreground Console seed task output="
+                + output.replace('\n', ' '));
+        CompatibilityDiagnostics.record(
+                "NUBIA-CONSOLE-004",
+                "The external desktop needs a foreground application",
+                output);
+        return false;
+    }
+
+    private static void finishConsoleSeedTask(final boolean seedStarted) {
+        if (seedStarted) {
+            ConsoleSeedActivity.finishActive();
+        }
+    }
+
+    private static void prepareConsoleDisplayDensity(
+            final int displayId, final int physicalDisplayId) {
+        try {
+            final Integer dpi = DisplayProfileController.prepareExternalProfile(
+                    MagicDeskApplication.applicationContext(),
+                    physicalDisplayId);
+            if (dpi != null) {
+                ConsoleDisplayController.applyStartupDensity(
+                        displayId, dpi.intValue());
+            }
+        } catch (IOException | RuntimeException error) {
+            Log.w(TAG, "Cannot prepare Console display profile", error);
+        }
     }
 
     private static boolean hasDesktopHomeTask(final int displayId) {

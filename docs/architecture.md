@@ -113,6 +113,9 @@ The user-facing lifecycle is split into explicit roles:
   or explicitly on display 0 for a tablet or phone-hosted desktop.
 - `DeviceSetupActivity` owns onboarding and selects one of those roles after a
   successful runtime audit.
+- `ConsoleSeedActivity` is an internal opaque foreground task used only for
+  Nubia's Root Mirror-to-Console handshake. It never appears in Recents and is
+  removed as soon as the external desktop HOME task is ready.
 
 - `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
   `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
@@ -284,12 +287,20 @@ On `Win+D`, MagicDesk:
 
 1. Validates that the display recorded by Nubia still exists.
 2. Finds the active physical external display when necessary.
-3. Requests expanded mode and waits for a real Console display.
-4. Corrects portrait display geometry if required.
-5. Audits the existing MagicDesk task.
-6. Recreates only a MagicDesk task that Nubia converted to ordinary freeform.
-7. Focuses an already-correct desktop task without recreation.
-8. Restores the saved visible freeform window layout.
+3. When the firmware explicitly reports Mirror Mode and only Android Home is
+   visible on the phone, briefly opens an opaque black seed task. Nubia silently
+   ignores the expanded-mode command from that Mirror state without an ordinary
+   foreground task. The seed hides the vendor's intermediate portrait layout
+   and is removed after the desktop HOME task is ready.
+4. Requests expanded mode and waits for a real Console display.
+5. Corrects portrait display geometry if required and applies the saved
+   EDID-specific DPI before creating desktop UI.
+6. Audits the existing MagicDesk task.
+7. Creates `DesktopActivity` directly as a fullscreen HOME task, or recreates
+   only a MagicDesk task that Nubia converted to ordinary freeform. The Root
+   path does not route an already-approved session through Device Setup.
+8. Focuses an already-correct desktop task without recreation.
+9. Restores the saved visible freeform window layout.
 
 Repeated requests during the transition are ignored. With no external display,
 the shortcut does not accidentally launch a second desktop on display 0.

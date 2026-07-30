@@ -28,11 +28,16 @@ successful build.
   pump profile. Confirm **System**, **Exit MagicDesk**, and a simulated process
   interruption restore the exact pre-control baseline.
 
-- [ ] Run the post-refactor Root Console regression pass. Verify Console Mode
+- [x] Run the post-refactor Root Console regression pass. Verify Console Mode
   startup, Start and Tools overlays, windowed/fullscreen transitions, taskbar
   focus, `Alt+Tab`, `Ctrl+Space`, key repeat, right click in browsers, touchpad
   recovery, mirror transition, and complete exit after the July 2026
-  controller and window-transition splits.
+  controller and window-transition splits. The final cold-start pass also
+  covered Mirror Mode with only Android Home visible: a temporary opaque seed
+  let Nubia accept the transition, the saved EDID profile was applied before
+  desktop launch, and one fullscreen HOME task appeared without a DPI-driven
+  Activity recreation. Repeated activation reused that task and left no seed
+  task behind.
 - [x] Validate the controller refactor on the current device before pushing.
   Exercise phone layout, Console Mode startup, Start and Tools panels, taskbar
   task actions, floating/fullscreen transitions, hardware layout switching,

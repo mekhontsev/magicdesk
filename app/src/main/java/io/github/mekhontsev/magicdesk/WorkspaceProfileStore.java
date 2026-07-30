@@ -68,6 +68,23 @@ final class WorkspaceProfileStore {
         return preferences(context).contains(storageKey(monitorKey));
     }
 
+    static Integer readStoredDpi(
+            final Context context, final String monitorKey) {
+        final String stored =
+                preferences(context).getString(storageKey(monitorKey), null);
+        if (stored == null) {
+            return null;
+        }
+        try {
+            final Profile profile = fromJson(new JSONObject(stored));
+            return monitorKey.equals(profile.monitorKey)
+                    ? Integer.valueOf(profile.dpi) : null;
+        } catch (JSONException | RuntimeException e) {
+            Log.w(TAG, "Cannot read DPI for " + monitorKey, e);
+            return null;
+        }
+    }
+
     static String resolveMonitorAlias(final Context context, final String displayKey) {
         if (displayKey == null || displayKey.length() == 0) {
             return displayKey;
