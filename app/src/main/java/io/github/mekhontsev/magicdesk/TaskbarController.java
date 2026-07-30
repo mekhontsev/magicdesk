@@ -28,7 +28,6 @@ final class TaskbarController {
 
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
-    private TextView mDesktopSpace;
     private TextView mKeyboardLayout;
     private TextView mHardwareStatus;
     private TextView mBatteryStatus;
@@ -125,26 +124,6 @@ final class TaskbarController {
         taskbar.addView(start, new LinearLayout.LayoutParams(
                 desktopDp(108, 72),
                 LinearLayout.LayoutParams.MATCH_PARENT));
-
-        mDesktopSpace = new TextView(mActivity);
-        mDesktopSpace.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        mDesktopSpace.setTextSize(
-                mActivity.isCompactDesktopPreview() ? 11 : 13);
-        mDesktopSpace.setTypeface(
-                android.graphics.Typeface.DEFAULT_BOLD);
-        mDesktopSpace.setGravity(Gravity.CENTER);
-        mDesktopSpace.setClickable(true);
-        mDesktopSpace.setFocusable(true);
-        mDesktopSpace.setBackground(mUi.rounded(
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                desktopDp(8, 6),
-                DesktopUiFactory.COLOR_CYAN));
-        mDesktopSpace.setOnClickListener(view ->
-                mActivity.nextDesktopSpace());
-        taskbar.addView(mDesktopSpace, new LinearLayout.LayoutParams(
-                desktopDp(44, 36),
-                LinearLayout.LayoutParams.MATCH_PARENT));
-        updateDesktopSpace(mActivity.getActiveDesktopSpace());
 
         final HorizontalScrollView taskScroll =
                 new HorizontalScrollView(mActivity);
@@ -295,7 +274,6 @@ final class TaskbarController {
     void release() {
         mTaskbar = null;
         mPins = null;
-        mDesktopSpace = null;
         mKeyboardLayout = null;
         mHardwareStatus = null;
         mBatteryStatus = null;
@@ -314,23 +292,6 @@ final class TaskbarController {
         if (mPhoneScreenButton != null) {
             mPhoneScreenButton.setEnabled(enabled);
         }
-    }
-
-    void updateDesktopSpace(final int activeSpace) {
-        if (mDesktopSpace == null) {
-            return;
-        }
-        mDesktopSpace.setText(Integer.toString(activeSpace + 1));
-        final String description = mActivity.getString(
-                R.string.desktop_space_description,
-                Integer.valueOf(activeSpace + 1),
-                Integer.valueOf(DesktopSpaceStateStore.SPACE_COUNT));
-        mDesktopSpace.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mDesktopSpace.setTooltipText(description);
-        }
-        mDesktopSpace.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.TASK_CONTROL));
     }
 
     void renderPins(final List<AppItem> apps) {

@@ -80,8 +80,6 @@ final class ShortcutHelpController {
                 R.string.shortcut_screenshot_action);
         addRow(panel, R.string.shortcut_desktop,
                 R.string.shortcut_desktop_action);
-        addRow(panel, R.string.shortcut_desktop_spaces,
-                R.string.shortcut_desktop_spaces_action);
         addRow(panel, R.string.shortcut_help,
                 R.string.shortcut_help_action);
         addRow(panel, R.string.shortcut_layout,

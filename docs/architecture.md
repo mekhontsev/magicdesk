@@ -121,9 +121,8 @@ The user-facing lifecycle is split into explicit roles:
 - `DesktopRuntimeBridge` is the narrow process-local facade used by services
   and receivers to reach the currently active shell. It keeps Activity
   references weak and always posts UI work to the Activity thread.
-- `AppTaskController`, `WorkspaceController`, `DesktopSpaceController`, and
-  `AltTabController` coordinate application tasks, persisted workspace state,
-  and session-scoped virtual desktops.
+- `AppTaskController`, `WorkspaceController`, and `AltTabController`
+  coordinate application tasks, persisted desktop state, and task switching.
 - `DesktopLayoutController` owns system-inset policy, desktop viewport changes,
   and persistent taskbar geometry. `DesktopTaskSnapshotController` owns the
   current task snapshot, serialized refresh generations, and taskbar task
@@ -134,7 +133,7 @@ The user-facing lifecycle is split into explicit roles:
   small `MagicDeskSessionHost` contract shared by the control and desktop
   Activities.
 - `DesktopTaskController` orchestrates native task transitions.
-  `DesktopTaskStateStore` owns workspace snapshots,
+  `DesktopTaskStateStore` owns window-layout snapshots,
   `DesktopWindowTransitionController` owns shortcut-driven window state,
   fullscreen/restore transitions, and immersive requests,
   `NativeWindowBoundsController` owns freeform geometry, and
@@ -290,7 +289,7 @@ On `Win+D`, MagicDesk:
 5. Audits the existing MagicDesk task.
 6. Recreates only a MagicDesk task that Nubia converted to ordinary freeform.
 7. Focuses an already-correct desktop task without recreation.
-8. Restores the saved visible freeform workspace.
+8. Restores the saved visible freeform window layout.
 
 Repeated requests during the transition are ignored. With no external display,
 the shortcut does not accidentally launch a second desktop on display 0.
@@ -384,30 +383,16 @@ Application-requested immersive mode, including fullscreen video in a browser,
 uses the same task state rather than a MagicDesk-specific video API. Full
 details are in [Fullscreen transitions](fullscreen-transitions.md).
 
-### Workspace And Taskbar
+### Window Layout And Taskbar
 
 The taskbar is built from real Android tasks plus persisted pins. Multiple
-tasks from one package remain independent. Restoring a workspace reuses live
+tasks from one package remain independent. Restoring a window layout reuses live
 tasks, applies saved bounds, then focuses them bottom-to-top to reconstruct
-Z-order. Closed tasks are skipped. A task explicitly promoted to fullscreen is
-not forced back into the freeform workspace.
+Z-order. Closed tasks are skipped. A task explicitly promoted to fullscreen
+is not forced back into the saved freeform layout.
 
 Show Desktop stores exact task ids, bounds, and top-first ordering. It does not
 close or force-stop application processes.
-
-Four session-scoped desktop spaces group live task ids on each display.
-Switching spaces submits one `WindowContainerTransaction` that back-orders the
-current group and restores the selected group bottom-to-top. It does not
-relaunch or force-stop applications. Task ids are intentionally not persisted
-across process death because Android does not guarantee their identity after a
-reboot. A visible task focused from another shell surface joins the active
-space. An empty space exposes the MagicDesk HOME task in that same organizer
-transaction. Focusing the HOME task later through `AppTask.moveToFront()` is
-not equivalent on REDMAGIC firmware: Nubia interprets it as leaving app-mirror
-mode and removes the Console display. Restored application stacks receive a
-normal bottom-to-top task focus pass after the organizer transaction because
-Nubia can otherwise report a back-ordered freeform task as visible without
-raising its physical-display surface.
 
 The application context menu can move an existing root task between display 0
 and the currently active Console display with ActivityTaskManager's
@@ -462,7 +447,7 @@ drives:
 
 - taskbar state
 - exact-task focus
-- workspace persistence
+- window-layout persistence
 - fullscreen taskbar visibility
 - native maximize correction
 - global task shortcuts
@@ -494,8 +479,8 @@ These overlays stay above freeform tasks without focusing the MagicDesk HOME
 task. The taskbar is hidden when an application owns true fullscreen.
 
 Start separates application navigation from operational controls. `Tools`
-contains desktop spaces, display density, runtime state, diagnostics, and
-session actions, including the Nubia touchpad entry point. `Hardware` contains
+contains display density, runtime state, diagnostics, and session actions,
+including the Nubia touchpad entry point. `Hardware` contains
 battery state, audio routing, and REDMAGIC fan/pump monitoring and controls.
 Both the taskbar hardware monitor and battery percentage open the same Hardware
 tab.

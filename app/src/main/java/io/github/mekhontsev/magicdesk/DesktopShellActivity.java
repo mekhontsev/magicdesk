@@ -66,7 +66,6 @@ public abstract class DesktopShellActivity extends Activity
     private AppContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
     private AltTabController mAltTabController;
-    private DesktopSpaceController mDesktopSpaces;
     private WorkspaceController mWorkspaceController;
     private AppTaskController mAppTasks;
     private DesktopTaskSnapshotController mTaskSnapshots;
@@ -137,11 +136,10 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController = new AppContextMenuController(this, mUi);
         mTaskbarController = new TaskbarController(this, mUi);
         mAltTabController = new AltTabController(this);
-        mDesktopSpaces = new DesktopSpaceController(this);
         mWorkspaceController = new WorkspaceController(this);
         mAppTasks = new AppTaskController(this);
         mTaskSnapshots = new DesktopTaskSnapshotController(
-                this, mDesktopSpaces, mWorkspaceController);
+                this, mWorkspaceController);
         mDisplayDensityController = new DisplayDensityController(this);
         mConsoleControls = new ConsoleControlsController(this, mUi);
         mSessionController = new MagicDeskSessionController(this);
@@ -778,28 +776,6 @@ public abstract class DesktopShellActivity extends Activity
     void toggleDesktopWorkspace() {
         hideAllPanels();
         ConsoleModeSwitcher.showMagicDesk();
-    }
-
-    void switchDesktopSpace(final int space) {
-        mDesktopSpaces.switchTo(space);
-    }
-
-    void nextDesktopSpace() {
-        mDesktopSpaces.next();
-    }
-
-    void previousDesktopSpace() {
-        mDesktopSpaces.previous();
-    }
-
-    int getActiveDesktopSpace() {
-        return mDesktopSpaces.activeSpace();
-    }
-
-    void updateDesktopSpaceControls(final int activeSpace) {
-        if (mConsoleControls != null) {
-            mConsoleControls.updateDesktopSpace(activeSpace);
-        }
     }
 
     void captureDesktopScreenshot() {

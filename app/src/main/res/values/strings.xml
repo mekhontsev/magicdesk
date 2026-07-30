@@ -4,9 +4,6 @@
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
     <string name="section_hardware">Hardware</string>
-    <string name="desktop_spaces">Desktop spaces</string>
-    <string name="desktop_space_number">Desktop %1$d</string>
-    <string name="desktop_space_description">Desktop %1$d of %2$d; activate for next desktop</string>
     <string name="control_section_desktop">Desktop session</string>
     <string name="control_section_system">System</string>
     <string name="section_fullscreen">Fullscreen</string>
@@ -123,8 +120,6 @@
     <string name="status_moving_to_display">Moving %1$s to display %2$d...</string>
     <string name="status_moved_to_display">%1$s moved to display %2$d</string>
     <string name="status_move_to_display_failed">Move failed: %1$s</string>
-    <string name="status_desktop_space_switching">Switching to desktop %1$d...</string>
-    <string name="status_desktop_space_active">Desktop %1$d active</string>
     <string name="status_kernel_fixes_unavailable">Kernel fixes add-on is unavailable or has a different signature</string>
     <string name="status_app_pinned">%1$s pinned to taskbar</string>
     <string name="status_app_unpinned">%1$s unpinned from taskbar</string>
@@ -224,8 +219,6 @@
     <string name="action_screenshot">Screenshot</string>
     <string name="shortcut_desktop">Win + D</string>
     <string name="shortcut_desktop_action">Show or restore desktop</string>
-    <string name="shortcut_desktop_spaces">Win + Ctrl + Left/Right</string>
-    <string name="shortcut_desktop_spaces_action">Switch desktop space</string>
     <string name="shortcut_help">Win + /</string>
     <string name="shortcut_help_action">Show this list</string>
     <string name="shortcut_layout">Ctrl + Space</string>

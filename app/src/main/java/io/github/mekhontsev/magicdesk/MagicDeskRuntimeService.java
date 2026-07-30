@@ -224,7 +224,6 @@ public final class MagicDeskRuntimeService extends Service
             mDesktopTasks.stop();
         }
         RootKeyboardShortcutWatcher.stop();
-        DesktopSpaceStateStore.clearAll();
         RedmagicHardwareController.stop();
         ConsoleModeSwitcher.closeRootShell();
         super.onDestroy();
@@ -257,7 +256,6 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void onDisplayRemoved(final int displayId) {
-        DesktopSpaceStateStore.clear(displayId);
         handleConsoleStateMaybeChanged();
         schedulePhoneHomeRecovery();
     }

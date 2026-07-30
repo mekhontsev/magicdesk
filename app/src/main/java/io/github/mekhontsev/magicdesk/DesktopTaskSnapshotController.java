@@ -6,7 +6,6 @@ import java.util.List;
 /** Owns the current task snapshot and serialized asynchronous refreshes. */
 final class DesktopTaskSnapshotController {
     private final DesktopShellActivity mActivity;
-    private final DesktopSpaceController mDesktopSpaces;
     private final WorkspaceController mWorkspace;
 
     private TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(
@@ -17,10 +16,8 @@ final class DesktopTaskSnapshotController {
 
     DesktopTaskSnapshotController(
             final DesktopShellActivity activity,
-            final DesktopSpaceController desktopSpaces,
             final WorkspaceController workspace) {
         mActivity = activity;
-        mDesktopSpaces = desktopSpaces;
         mWorkspace = workspace;
     }
 
@@ -55,7 +52,6 @@ final class DesktopTaskSnapshotController {
                         && mActivity.getPackageName().equals(
                                 activeTask.packageName);
         mSnapshot = snapshot;
-        mDesktopSpaces.sync(snapshot);
         mWorkspace.syncSnapshot(snapshot);
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
@@ -111,8 +107,7 @@ final class DesktopTaskSnapshotController {
         return task != null
                 && !task.home
                 && task.packageName != null
-                && !mActivity.getPackageName().equals(task.packageName)
-                && mDesktopSpaces.isInActiveSpace(task);
+                && !mActivity.getPackageName().equals(task.packageName);
     }
 
     void release() {

@@ -12,25 +12,16 @@ successful build.
   process or foreground watcher service. Verify that a 162-app catalog retains
   one bounded icon bitmap per app after startup cleanup and is not reloaded on
   `onResume`.
-- [x] On the phone display in Root mode, cycle a live Golly task through all
-  four desktop spaces and back. The same task id and freeform bounds survived,
-  and the task was hidden on inactive spaces without a relaunch.
 - [x] Verify the compact taskbar and scrollable Tools layout at phone density.
   Read-only REDMAGIC monitoring matched the fan/pump nodes and did not create
   a hardware ownership baseline or alter any node value.
 
 ## External Display
 
-- [x] Validate the new DeX-style task controls: switch among all four desktop
-  spaces with overlapping windows, verify inactive tasks remain alive, and
-  move one task external -> phone -> external without Activity recreation.
-  Golly and Chrome survived a four-space cycle with the same task ids,
-  processes, freeform bounds, and Z-order. Golly also moved from Console
-  display 5 to display 0 and back as task 1832 with the same ActivityRecord and
-  process. The pass exposed two REDMAGIC-specific requirements now handled by
-  the implementation: an empty space must expose the MagicDesk HOME task in
-  the organizer transaction, and restored application tasks need a normal
-  bottom-to-top focus pass to raise their physical-display surfaces.
+- [x] Validate the DeX-style task controls with overlapping windows and move
+  one task external -> phone -> external without Activity recreation. Golly
+  moved from Console display 5 to display 0 and back as task 1832 with the same
+  ActivityRecord, process, and freeform bounds.
 - [ ] Validate the Tools audio section with phone, HDMI, USB, and Bluetooth
   output where available.
 - [ ] Validate REDMAGIC monitoring values against sysfs, then test each fan and

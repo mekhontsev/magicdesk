@@ -53,17 +53,15 @@ tasks managed by the firmware's WMShell.
 - Launch applications in Windowed or Fullscreen mode.
 - Keep multiple overlapping windows visible and switch exact tasks from the
   taskbar or with `Alt+Tab`.
-- Organize live Android tasks across four session-scoped desktop spaces without
-  relaunching their activities.
 - Send an existing task between the phone and active external desktop from its
   context menu.
 - Snap windows left or right, maximize them above the taskbar, or enter true
   fullscreen.
 - Pin applications to the taskbar or place shortcuts on the desktop.
 - Show files from a user-selected folder without copying or deleting them.
-- Preserve one selected application and the last visible freeform workspace
+- Preserve one selected application and the last visible freeform window layout
   across Show Desktop operations.
-- Store DPI, pins, shortcuts, folder access, and workspace state separately for
+- Store DPI, pins, shortcuts, folder access, and desktop settings separately for
   each external monitor.
 - Use the phone's current static wallpaper, center-cropped for the external
   display.
@@ -82,7 +80,7 @@ tasks managed by the firmware's WMShell.
 - Capability-probed REDMAGIC fan, liquid-pump, temperature, and RPM monitoring
   in Root mode, with manual profiles and an optional temperature-driven fan
   curve.
-- Automatic external-desktop startup and workspace restoration through
+- Automatic external-desktop startup and window-layout restoration through
   `Win+D`.
 - REDMAGIC Touch Panel launch from MagicDesk's persistent phone notification.
 
@@ -170,7 +168,7 @@ useful when no physical keyboard or mouse is connected:
 
 - Tap the MagicDesk notification itself to perform the same context-sensitive
   action as `Win+D`: start the external desktop, show the desktop, or restore
-  the previous window workspace.
+  the previous window layout.
 - Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone
   and control the external display from the touchscreen.
 
@@ -178,8 +176,7 @@ useful when no physical keyboard or mouse is connected:
 
 | Shortcut | Action |
 | --- | --- |
-| `Win+D` | Start the external desktop, show it, or restore the previous window workspace |
-| `Win+Ctrl+Left` / `Win+Ctrl+Right` | Switch among the four desktop spaces |
+| `Win+D` | Start the external desktop, show it, or restore the previous window layout |
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore fullscreen/maximized task to a window; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
@@ -217,7 +214,6 @@ The desktop taskbar Tools panel additionally provides:
 - Wake or dim the phone display
 - External-display DPI selection
 - External-display screenshot
-- Four session desktop spaces
 - Media volume, mute, output monitoring, and sound settings
 - REDMAGIC CPU/GPU/skin/battery temperatures, fan RPM, fan profiles, and
   liquid-pump profiles when compatible control nodes are detected

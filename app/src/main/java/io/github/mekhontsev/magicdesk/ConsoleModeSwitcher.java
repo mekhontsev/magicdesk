@@ -134,10 +134,6 @@ final class ConsoleModeSwitcher {
         NubiaTouchpadController.open();
     }
 
-    static void switchDesktopSpace(final boolean previous) {
-        DesktopRuntimeBridge.switchDesktopSpace(previous);
-    }
-
     static boolean isTouchpadVisible() {
         return NubiaTouchpadController.isVisible();
     }

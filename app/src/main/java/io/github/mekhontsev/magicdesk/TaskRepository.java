@@ -228,22 +228,6 @@ final class TaskRepository {
                 callback);
     }
 
-    static void switchDesktopSpace(
-            final int displayId,
-            final List<Integer> hideTaskIds,
-            final List<Integer> restoreTaskIds,
-            final ActionCallback callback) {
-        if (displayId < 0) {
-            complete(callback, false, "invalid display");
-            return;
-        }
-        final StringBuilder arguments = new StringBuilder(
-                "switch-space ").append(displayId);
-        appendTaskIds(arguments, hideTaskIds);
-        appendTaskIds(arguments, restoreTaskIds);
-        runAction(createTaskWindowingCommand(arguments.toString()), callback);
-    }
-
     static void setFullscreen(final TaskEntry task, final ActionCallback callback) {
         if (!isUsableTask(task)) {
             complete(callback, false, "invalid task");
@@ -410,28 +394,6 @@ final class TaskRepository {
             final String message) {
         if (callback != null) {
             callback.onComplete(new ActionResult(success, message));
-        }
-    }
-
-    private static void appendTaskIds(
-            final StringBuilder command,
-            final List<Integer> taskIds) {
-        int count = 0;
-        if (taskIds != null) {
-            for (final Integer taskId : taskIds) {
-                if (taskId != null && taskId.intValue() >= 0) {
-                    count++;
-                }
-            }
-        }
-        command.append(' ').append(count);
-        if (taskIds == null) {
-            return;
-        }
-        for (final Integer taskId : taskIds) {
-            if (taskId != null && taskId.intValue() >= 0) {
-                command.append(' ').append(taskId.intValue());
-            }
         }
     }
 
