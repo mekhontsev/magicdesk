@@ -15,9 +15,6 @@ import android.service.notification.StatusBarNotification;
 import android.text.TextUtils;
 import android.util.Log;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +30,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
     private static final String TAG = "MagicDeskNotifications";
     private static final int MAX_NOTIFICATIONS = 100;
     private static final long REBIND_RECOVERY_DELAY_MS = 2_000L;
+    private static final long REBIND_RETRY_DELAY_MS = 1_000L;
     private static final long REBIND_VERIFY_DELAY_MS = 2_000L;
     private static final long REBIND_RECOVERY_COOLDOWN_MS = 30_000L;
     private static final Object LOCK = new Object();
@@ -580,34 +578,53 @@ public final class DesktopNotificationListenerService extends NotificationListen
             }
             return;
         }
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.NOTIFICATION_CONTROL)) {
-            synchronized (LOCK) {
-                sRebindRecoveryScheduled = false;
-            }
+
+        try {
+            requestUnbind(getComponentName(context));
+            Log.i(TAG, "notification listener recovery unbind requested");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "public notification-listener unbind failed", e);
             finishNotificationListenerRecovery(
-                    "The public rebind request did not connect the listener "
-                            + "and the current runtime cannot force a rebind");
+                    "Public notification-listener unbind failed: "
+                            + describeFailure(e));
             return;
         }
 
-        new Thread(() -> {
-            String commandFailure = "";
-            try {
-                runNotificationListenerRebindCommand(context);
-            } catch (IOException e) {
-                commandFailure = e.getMessage() == null
-                        ? e.getClass().getSimpleName() : e.getMessage();
-                Log.w(TAG, "root notification-listener rebind failed", e);
-            }
-            final String finalCommandFailure = commandFailure;
-            MAIN_HANDLER.postDelayed(
-                    () -> finishNotificationListenerRecovery(finalCommandFailure),
-                    REBIND_VERIFY_DELAY_MS);
-        }, "MagicDeskNotificationRebind").start();
+        MAIN_HANDLER.postDelayed(
+                () -> requestNotificationListenerRebind(context),
+                REBIND_RETRY_DELAY_MS);
     }
 
-    private static void finishNotificationListenerRecovery(final String commandFailure) {
+    private static void requestNotificationListenerRebind(final Context context) {
+        if (!isAccessGranted(context)) {
+            synchronized (LOCK) {
+                sRebindRecoveryScheduled = false;
+            }
+            return;
+        }
+
+        String failure = "";
+        try {
+            requestRebind(getComponentName(context));
+            Log.i(TAG, "notification listener recovery rebind requested");
+        } catch (RuntimeException e) {
+            failure = "Public notification-listener rebind failed: "
+                    + describeFailure(e);
+            Log.w(TAG, "public notification-listener recovery rebind failed", e);
+        }
+        synchronized (LOCK) {
+            if (sConnected) {
+                sRebindRecoveryScheduled = false;
+                return;
+            }
+        }
+        final String finalFailure = failure;
+        MAIN_HANDLER.postDelayed(
+                () -> finishNotificationListenerRecovery(finalFailure),
+                REBIND_VERIFY_DELAY_MS);
+    }
+
+    private static void finishNotificationListenerRecovery(final String failureDetail) {
         final Snapshot snapshot;
         synchronized (LOCK) {
             sRebindRecoveryScheduled = false;
@@ -617,9 +634,9 @@ public final class DesktopNotificationListenerService extends NotificationListen
             sConnectionIssueCode = "NOTIFICATIONS-005";
             snapshot = createSnapshotLocked();
         }
-        final String detail = TextUtils.isEmpty(commandFailure)
-                ? "The listener remained disconnected after public and root rebind requests"
-                : commandFailure;
+        final String detail = TextUtils.isEmpty(failureDetail)
+                ? "The listener remained disconnected after the public unbind/rebind recovery"
+                : failureDetail;
         CompatibilityDiagnostics.record(
                 "NOTIFICATIONS-005",
                 "The Android notification listener could not reconnect",
@@ -627,13 +644,10 @@ public final class DesktopNotificationListenerService extends NotificationListen
         dispatchSnapshot(snapshot);
     }
 
-    private static void runNotificationListenerRebindCommand(final Context context)
-            throws IOException {
-        final String component = getComponentName(context).flattenToString();
-        final String command = "USER=$(/system/bin/am get-current-user); "
-                + "/system/bin/cmd notification allow_listener "
-                + component + " \"$USER\"";
-        PrivilegedCommandRunner.run(command);
+    private static String describeFailure(final RuntimeException exception) {
+        return TextUtils.isEmpty(exception.getMessage())
+                ? exception.getClass().getSimpleName()
+                : exception.getMessage();
     }
 
     private static List<Entry> sortedEntriesLocked() {

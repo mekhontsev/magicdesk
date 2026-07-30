@@ -63,10 +63,11 @@ failed operation. Review the text before publishing it.
 On some Nubia firmware, Android keeps notification-listener access enabled
 after an app process or package restart but does not bind the service again.
 MagicDesk first requests a rebind through the public Android API. If the
-listener is still disconnected two seconds later, it uses root to re-apply the
-already granted listener component through `cmd notification allow_listener`.
-This does not grant access when the user has disabled it. A failed recovery is
-reported as `[NOTIFICATIONS-005]`.
+listener is still disconnected two seconds later, it performs a public
+`requestUnbind(ComponentName)` / `requestRebind(ComponentName)` cycle. The
+cycle preserves the user's notification-access grant while forcing Android to
+recreate the listener connection; it does not require root or Shizuku. A failed
+recovery is reported as `[NOTIFICATIONS-005]`.
 
 ## Useful issue boundaries
 

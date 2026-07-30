@@ -36,7 +36,6 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.TASK_CONTROL,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
                 RuntimeAccess.Capability.SCREENSHOT,
-                RuntimeAccess.Capability.NOTIFICATION_CONTROL,
                 RuntimeAccess.Capability.CHARGE_SEPARATION);
 
         assertEquals(

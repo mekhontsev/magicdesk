@@ -23,7 +23,6 @@ final class RuntimeAccess {
         DISPLAY_OVERRIDES,
         PHONE_SCREEN_CONTROL,
         SCREENSHOT,
-        NOTIFICATION_CONTROL,
         CHARGE_SEPARATION,
         HARDWARE_CONTROL,
         KERNEL_FIXES
@@ -104,7 +103,6 @@ final class RuntimeAccess {
                     Capability.TASK_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
-                    Capability.NOTIFICATION_CONTROL,
                     Capability.CHARGE_SEPARATION);
         }
         if (backend == Backend.SHIZUKU_ROOT) {
@@ -114,7 +112,6 @@ final class RuntimeAccess {
                     Capability.TASK_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
                     Capability.SCREENSHOT,
-                    Capability.NOTIFICATION_CONTROL,
                     Capability.CHARGE_SEPARATION);
         }
         return EnumSet.of(Capability.PUBLIC_APP_LAUNCH);
