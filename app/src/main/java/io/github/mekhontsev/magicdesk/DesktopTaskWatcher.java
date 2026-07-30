@@ -97,7 +97,7 @@ final class DesktopTaskWatcher {
     synchronized void sendFocusStack(
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
-        if (mWriter == null) {
+        if (mWriter == null && mShizukuStream == null) {
             completeFocusCallback(callback, false, "task watcher unavailable");
             return;
         }
