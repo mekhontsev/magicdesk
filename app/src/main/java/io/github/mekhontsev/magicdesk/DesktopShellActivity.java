@@ -912,7 +912,9 @@ public abstract class DesktopShellActivity extends Activity
         final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
         profile.dpi = dpi;
         saveWorkspaceProfile();
-        DesktopPreferences.saveLegacyDesktopDpi(this, dpi);
+        if (dpi > DesktopPreferences.SYSTEM_DESKTOP_DPI) {
+            DesktopPreferences.saveLegacyDesktopDpi(this, dpi);
+        }
     }
 
     WorkspaceProfileStore.Profile getWorkspaceProfile() {

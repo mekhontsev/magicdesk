@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 
 final class DesktopPreferences {
+    static final int SYSTEM_DESKTOP_DPI = 0;
     static final int DEFAULT_DESKTOP_DPI = 192;
 
     private static final String PREFS = "magicdesk";

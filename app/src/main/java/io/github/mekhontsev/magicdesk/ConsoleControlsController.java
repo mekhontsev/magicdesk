@@ -10,10 +10,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import java.util.Collections;
@@ -22,6 +24,10 @@ import java.util.WeakHashMap;
 
 final class ConsoleControlsController {
     private static final int ACTION_BUTTON_HEIGHT_DP = 48;
+    private static final int DPI_MIN = 96;
+    private static final int DPI_STEP = 4;
+    private static final int DPI_BUTTON_STEP = 8;
+    private static final int DPI_BUTTON_SIZE_DP = 40;
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
@@ -31,6 +37,8 @@ final class ConsoleControlsController {
             Collections.newSetFromMap(
                     new WeakHashMap<Button, Boolean>());
     private Button mPhoneScreenAction;
+    private SeekBar mDpiSlider;
+    private TextView mDpiValue;
     private TextView mHardwareBatteryStatus;
     private TextView mToolsStatus;
     private TextView mToolsActivityStatus;
@@ -81,28 +89,7 @@ final class ConsoleControlsController {
     }
 
     void populateTools(final LinearLayout parent, final int spacing) {
-        final TextView dpiLabel = new TextView(mActivity);
-        dpiLabel.setText(R.string.dpi_label);
-        dpiLabel.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        dpiLabel.setTextSize(14);
-        final LinearLayout.LayoutParams dpiLabelParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        dpiLabelParams.setMargins(0, 0, 0, dp(6));
-        parent.addView(dpiLabel, dpiLabelParams);
-
-        final GridLayout dpiGrid = new GridLayout(mActivity);
-        dpiGrid.setColumnCount(
-                mActivity.isCompactDesktopPreview() ? 4 : 5);
-        addDpiButton(dpiGrid, 160);
-        addDpiButton(dpiGrid, 192);
-        addDpiButton(dpiGrid, 240);
-        addDpiButton(dpiGrid, 320);
-        addDpiResetButton(dpiGrid);
-        parent.addView(dpiGrid, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        addDpiControls(parent);
 
         mToolsStatus = new TextView(mActivity);
         mToolsStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -242,8 +229,6 @@ final class ConsoleControlsController {
             mToolsStatus.setText(mActivity.getString(
                     R.string.tools_status_full,
                     Integer.valueOf(mActivity.getCurrentDisplayId()),
-                    Integer.valueOf(mActivity.getResources()
-                            .getDisplayMetrics().densityDpi),
                     mActivity.getString(phoneScreenOff
                             ? R.string.state_off
                             : R.string.state_on),
@@ -424,38 +409,194 @@ final class ConsoleControlsController {
                 mSettingsObserver);
     }
 
-    private void addDpiButton(
-            final GridLayout grid,
-            final int dpi) {
-        final Button button = mUi.actionButton(
-                mActivity.getString(
-                        R.string.dpi_value, Integer.valueOf(dpi)),
+    private void addDpiControls(final LinearLayout parent) {
+        final int maximum = Math.max(
+                DPI_MIN, DisplayMetrics.DENSITY_DEVICE_STABLE);
+        final int current = clampDpi(mActivity.getResources()
+                .getDisplayMetrics().densityDpi, maximum);
+        final boolean enabled = RuntimeAccess.has(
+                RuntimeAccess.Capability.DISPLAY_OVERRIDES);
+
+        final LinearLayout header = new LinearLayout(mActivity);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        final TextView label = new TextView(mActivity);
+        label.setText(R.string.dpi_label);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(14);
+        header.addView(label, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        mDpiValue = new TextView(mActivity);
+        mDpiValue.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        mDpiValue.setTextSize(14);
+        mDpiValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        updateDpiValue(current);
+        header.addView(mDpiValue, new LinearLayout.LayoutParams(
+                dp(72), LinearLayout.LayoutParams.WRAP_CONTENT));
+        parent.addView(header, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final LinearLayout adjustment = new LinearLayout(mActivity);
+        adjustment.setOrientation(LinearLayout.HORIZONTAL);
+        adjustment.setGravity(Gravity.CENTER_VERTICAL);
+
+        final Button decrease = dpiStepButton(
+                "-", R.string.action_dpi_decrease, enabled);
+        decrease.setOnClickListener(view -> adjustDpi(-DPI_BUTTON_STEP));
+        adjustment.addView(decrease, dpiStepButtonParams());
+
+        mDpiSlider = new SeekBar(mActivity);
+        mDpiSlider.setMin(DPI_MIN);
+        mDpiSlider.setMax(maximum);
+        mDpiSlider.setKeyProgressIncrement(DPI_STEP);
+        mDpiSlider.setSplitTrack(false);
+        mDpiSlider.setProgress(snapDpi(current, maximum));
+        mDpiSlider.setEnabled(enabled);
+        mDpiSlider.setOnSeekBarChangeListener(
+                new SeekBar.OnSeekBarChangeListener() {
+                    @Override
+                    public void onProgressChanged(
+                            final SeekBar seekBar,
+                            final int progress,
+                            final boolean fromUser) {
+                        final int snapped = snapDpi(progress, maximum);
+                        if (fromUser && progress != snapped) {
+                            seekBar.setProgress(snapped);
+                            return;
+                        }
+                        updateDpiValue(snapped);
+                    }
+
+                    @Override
+                    public void onStartTrackingTouch(final SeekBar seekBar) {
+                    }
+
+                    @Override
+                    public void onStopTrackingTouch(final SeekBar seekBar) {
+                        final int dpi = snapDpi(
+                                seekBar.getProgress(), maximum);
+                        seekBar.setProgress(dpi);
+                        applyDpiIfChanged(dpi);
+                    }
+                });
+        adjustment.addView(mDpiSlider, new LinearLayout.LayoutParams(
+                0, dp(DPI_BUTTON_SIZE_DP), 1));
+
+        final Button increase = dpiStepButton(
+                "+", R.string.action_dpi_increase, enabled);
+        increase.setOnClickListener(view -> adjustDpi(DPI_BUTTON_STEP));
+        adjustment.addView(increase, dpiStepButtonParams());
+        parent.addView(adjustment, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final LinearLayout footer = new LinearLayout(mActivity);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+
+        final TextView range = new TextView(mActivity);
+        range.setText(mActivity.getString(
+                R.string.dpi_range,
+                Integer.valueOf(DPI_MIN),
+                Integer.valueOf(maximum)));
+        range.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        range.setTextSize(11);
+        footer.addView(range, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        final Button defaultDpi = mUi.smallButton(
+                R.string.action_dpi_default,
                 DesktopUiFactory.COLOR_CYAN);
-        button.setOnClickListener(view -> mActivity.applyDensity(dpi));
-        button.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES));
-        grid.addView(button, createDpiButtonParams());
+        defaultDpi.setEnabled(enabled);
+        defaultDpi.setOnClickListener(view ->
+                mActivity.applyDensity(
+                        DesktopPreferences.DEFAULT_DESKTOP_DPI));
+        footer.addView(defaultDpi, dpiFooterButtonParams(dp(112)));
+
+        final Button systemDpi = mUi.smallButton(
+                R.string.action_dpi_system,
+                DesktopUiFactory.COLOR_PANEL_ALT);
+        systemDpi.setEnabled(enabled);
+        systemDpi.setOnClickListener(view -> mActivity.resetDensity());
+        footer.addView(systemDpi, dpiFooterButtonParams(dp(82)));
+        parent.addView(footer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private void addDpiResetButton(final GridLayout grid) {
-        final Button button = mUi.actionButton(
-                R.string.action_dpi_reset,
-                DesktopUiFactory.COLOR_RED);
-        button.setOnClickListener(view -> mActivity.resetDensity());
-        button.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES));
-        grid.addView(button, createDpiButtonParams());
+    private Button dpiStepButton(
+            final String text,
+            final int descriptionResId,
+            final boolean enabled) {
+        final Button button = mUi.smallButton(
+                text, DesktopUiFactory.COLOR_PANEL_ALT);
+        button.setTextSize(16);
+        button.setContentDescription(
+                mActivity.getString(descriptionResId));
+        button.setTooltipText(mActivity.getString(descriptionResId));
+        button.setEnabled(enabled);
+        return button;
     }
 
-    private GridLayout.LayoutParams createDpiButtonParams() {
-        final GridLayout.LayoutParams params =
-                new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
-        params.columnSpec =
-                GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(3), dp(3), dp(3), dp(3));
+    private LinearLayout.LayoutParams dpiStepButtonParams() {
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        dp(DPI_BUTTON_SIZE_DP),
+                        dp(DPI_BUTTON_SIZE_DP));
+        params.setMargins(dp(2), 0, dp(2), 0);
         return params;
+    }
+
+    private LinearLayout.LayoutParams dpiFooterButtonParams(
+            final int width) {
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(width, dp(34));
+        params.setMargins(dp(4), dp(2), 0, 0);
+        return params;
+    }
+
+    private void adjustDpi(final int delta) {
+        final int maximum = Math.max(
+                DPI_MIN, DisplayMetrics.DENSITY_DEVICE_STABLE);
+        final int current = mActivity.getResources()
+                .getDisplayMetrics().densityDpi;
+        final int target = snapDpi(current + delta, maximum);
+        if (mDpiSlider != null) {
+            mDpiSlider.setProgress(target);
+        }
+        applyDpiIfChanged(target);
+    }
+
+    private void applyDpiIfChanged(final int dpi) {
+        if (dpi != mActivity.getResources()
+                .getDisplayMetrics().densityDpi) {
+            mActivity.applyDensity(dpi);
+        }
+    }
+
+    private void updateDpiValue(final int dpi) {
+        if (mDpiValue != null) {
+            mDpiValue.setText(mActivity.getString(
+                    R.string.dpi_value, Integer.valueOf(dpi)));
+        }
+    }
+
+    static int snapDpi(final int dpi, final int maximum) {
+        final int clamped = clampDpi(dpi, maximum);
+        if (clamped == maximum) {
+            return maximum;
+        }
+        final int snapped = DPI_MIN
+                + Math.round((clamped - DPI_MIN) / (float) DPI_STEP)
+                        * DPI_STEP;
+        return Math.min(maximum, snapped);
+    }
+
+    private static int clampDpi(final int dpi, final int maximum) {
+        return Math.max(DPI_MIN, Math.min(maximum, dpi));
     }
 
     private void addActionButton(

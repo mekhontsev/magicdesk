@@ -52,21 +52,15 @@ final class DisplayDensityController {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
-        final String command;
         if (displayId > 0) {
             mActivity.setPreferredDesktopDpi(
-                    DesktopPreferences.DEFAULT_DESKTOP_DPI);
-            command = WM + " density "
-                    + DesktopPreferences.DEFAULT_DESKTOP_DPI
-                    + " -d " + displayId;
-        } else {
-            command = WM + " density reset -d " + displayId;
+                    DesktopPreferences.SYSTEM_DESKTOP_DPI);
         }
         mActivity.setStatus(mActivity.getString(
                 R.string.status_dpi_resetting,
                 Integer.valueOf(displayId)));
         runRootAction(
-                command,
+                WM + " density reset -d " + displayId,
                 mActivity.getString(
                         R.string.status_dpi_reset,
                         Integer.valueOf(displayId)));
@@ -82,6 +76,9 @@ final class DisplayDensityController {
             return;
         }
         final int targetDpi = mActivity.getPreferredDesktopDpi();
+        if (targetDpi == DesktopPreferences.SYSTEM_DESKTOP_DPI) {
+            return;
+        }
         final int currentDpi =
                 mActivity.getResources().getDisplayMetrics().densityDpi;
         if (currentDpi == targetDpi) {
