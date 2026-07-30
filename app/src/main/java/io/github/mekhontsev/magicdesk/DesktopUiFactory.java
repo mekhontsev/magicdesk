@@ -6,7 +6,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
-import android.os.Build;
 import android.text.TextUtils;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -104,9 +103,7 @@ final class DesktopUiFactory {
                 desktopDp(8, 6, compact),
                 COLOR_PANEL_ALT));
         button.setContentDescription(mContext.getString(descriptionResId));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            button.setTooltipText(mContext.getString(descriptionResId));
-        }
+        button.setTooltipText(mContext.getString(descriptionResId));
         return button;
     }
 

@@ -3,15 +3,15 @@ plugins {
 }
 
 android {
-    namespace 'io.github.mekhontsev.magicdesk.kernel'
-    compileSdk 37
+    namespace = 'io.github.mekhontsev.magicdesk.kernel'
+    compileSdk = 37
 
     defaultConfig {
-        applicationId 'io.github.mekhontsev.magicdesk.kernel'
-        minSdk 36
-        targetSdk 36
-        versionCode 100
-        versionName '1.0'
+        applicationId = 'io.github.mekhontsev.magicdesk.kernel'
+        minSdk = 36
+        targetSdk = 36
+        versionCode = 100
+        versionName = '1.0'
     }
 }
 

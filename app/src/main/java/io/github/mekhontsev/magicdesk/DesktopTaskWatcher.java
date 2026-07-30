@@ -27,8 +27,6 @@ final class DesktopTaskWatcher {
     }
 
     private static final String TAG = "MagicDeskTasks";
-    private static final String PACKAGE_NAME =
-            "io.github.mekhontsev.magicdesk";
 
     private final Handler mHandler;
     private final Listener mListener;
@@ -132,10 +130,8 @@ final class DesktopTaskWatcher {
     }
 
     private void run(final int generation) {
-        final String command = "APK=$(/system/bin/pm path " + PACKAGE_NAME
-                + " | /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "export CLASSPATH=\"$APK\"; exec /system/bin/app_process / "
-                + "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand";
+        final String command = AppProcessCommand.exec(
+                "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand");
         Process process = null;
         try {
             process = PrivilegedCommandRunner.start(command);

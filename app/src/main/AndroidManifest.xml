@@ -96,7 +96,7 @@
         <activity
             android:name=".FreeformLauncherActivity"
             android:excludeFromRecents="true"
-            android:exported="true"
+            android:exported="false"
             android:finishOnTaskLaunch="true"
             android:launchMode="singleTop"
             android:noHistory="true"
@@ -122,13 +122,5 @@
             </intent-filter>
         </service>
 
-        <receiver
-            android:name=".DesktopCommandReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="io.github.mekhontsev.magicdesk.action.SHOW_START" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>

@@ -3,10 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.List;
-
 /**
  * Same-display fullscreen transition that preserves the current Activity instance.
  *
@@ -45,8 +41,9 @@ public final class TaskClientPreservingFullscreenTransitionCommand {
 
     private static void submitFullscreen(final int displayId, final int taskId)
             throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
-        final Object taskToken = findTaskToken(service, displayId, taskId);
+        final Object service = HiddenTaskApi.getService();
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
@@ -68,37 +65,6 @@ public final class TaskClientPreservingFullscreenTransitionCommand {
          * once WindowManager eventually applies this transaction.
          */
         TaskFullscreenTransitionCommand.startTransition(transactionClass, transaction);
-    }
-
-    private static Object findTaskToken(final Object service, final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (result instanceof List) {
-            for (final Object task : (List<?>) result) {
-                if (getIntField(task, "taskId") == taskId) {
-                    return task.getClass().getField("token").get(task);
-                }
-            }
-        }
-        throw new IllegalStateException("task " + taskId + " not found on display "
-                + displayId);
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
-    }
-
-    private static int getIntField(final Object target, final String name)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(name);
-        return field.getInt(target);
     }
 
     private static int parseInt(final String value, final String label) {

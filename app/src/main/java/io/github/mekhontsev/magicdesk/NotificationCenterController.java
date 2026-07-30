@@ -15,7 +15,6 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
@@ -175,9 +174,7 @@ final class NotificationCenterController {
                         Integer.valueOf(unread))
                 : mActivity.getString(R.string.action_notifications);
         mButton.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mButton.setTooltipText(description);
-        }
+        mButton.setTooltipText(description);
     }
 
     private void render() {

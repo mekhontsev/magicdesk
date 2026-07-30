@@ -56,6 +56,7 @@ jobs:
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_KEY_PASSWORD: ${{ secrets.MAGICDESK_RELEASE_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon \
+            :app:testDebugUnitTest \
             :app:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \

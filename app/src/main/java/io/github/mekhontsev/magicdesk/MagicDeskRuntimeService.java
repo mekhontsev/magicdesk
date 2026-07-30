@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.Manifest;
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -15,7 +16,6 @@ import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
-import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -111,12 +111,17 @@ public final class MagicDeskRuntimeService extends Service
         service.scheduleLocalDesktopCleanup();
     }
 
-    private static void startForegroundService(final Context context, final Intent intent) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+    static boolean showStartIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return false;
         }
+        service.mHandler.post(service::showStart);
+        return true;
+    }
+
+    private static void startForegroundService(final Context context, final Intent intent) {
+        context.startForegroundService(intent);
     }
 
     @Override
@@ -191,7 +196,26 @@ public final class MagicDeskRuntimeService extends Service
         syncMirrorInputProxyState();
         updateRootWatcher();
         updateDesktopTasks();
-        return START_STICKY;
+        return START_NOT_STICKY;
+    }
+
+    private void showStart() {
+        if (DesktopRuntimeBridge.showStart()) {
+            return;
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        final int displayId = Settings.Global.getInt(
+                getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
+        if (displayId > 0) {
+            options.setLaunchDisplayId(displayId);
+            DesktopShellActivity.invokeIntOption(
+                    options, "setLaunchActivityType", 2);
+        }
+        DesktopShellActivity.invokeIntOption(
+                options, "setLaunchWindowingMode", 1);
+        startActivity(
+                DesktopShellActivity.createShowStartIntent(this),
+                options.toBundle());
     }
 
     @Override
@@ -653,38 +677,25 @@ public final class MagicDeskRuntimeService extends Service
                 new Intent(this, MagicDeskRuntimeService.class)
                         .setAction(ACTION_SHOW_MAGIC_DESK);
         final PendingIntent showMagicDeskPendingIntent =
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                        ? PendingIntent.getForegroundService(
-                                this,
-                                SHOW_MAGIC_DESK_REQUEST_CODE,
-                                showMagicDeskIntent,
-                                pendingIntentFlags())
-                        : PendingIntent.getService(
-                                this,
-                                SHOW_MAGIC_DESK_REQUEST_CODE,
-                                showMagicDeskIntent,
-                                pendingIntentFlags());
+                PendingIntent.getForegroundService(
+                        this,
+                        SHOW_MAGIC_DESK_REQUEST_CODE,
+                        showMagicDeskIntent,
+                        pendingIntentFlags());
         final Intent openTouchpadIntent = new Intent(this, MagicDeskRuntimeService.class)
                 .setAction(ACTION_OPEN_TOUCHPAD);
         final PendingIntent openTouchpadPendingIntent =
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                        ? PendingIntent.getForegroundService(
-                                this,
-                                OPEN_TOUCHPAD_REQUEST_CODE,
-                                openTouchpadIntent,
-                                pendingIntentFlags())
-                        : PendingIntent.getService(
-                                this,
-                                OPEN_TOUCHPAD_REQUEST_CODE,
-                                openTouchpadIntent,
-                                pendingIntentFlags());
+                PendingIntent.getForegroundService(
+                        this,
+                        OPEN_TOUCHPAD_REQUEST_CODE,
+                        openTouchpadIntent,
+                        pendingIntentFlags());
         final String text = mHasHardwareKeyboard
                 ? getString(R.string.notification_hw_connected)
                 : getString(R.string.notification_hw_disconnected);
 
-        final Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? new Notification.Builder(this, CHANNEL_ID)
-                : new Notification.Builder(this);
+        final Notification.Builder builder =
+                new Notification.Builder(this, CHANNEL_ID);
         builder
                 .setSmallIcon(R.drawable.ic_magicdesk)
                 .setContentTitle(getString(R.string.app_name))
@@ -702,17 +713,11 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private static int pendingIntentFlags() {
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-        return flags;
+        return PendingIntent.FLAG_UPDATE_CURRENT
+                | PendingIntent.FLAG_IMMUTABLE;
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return;
-        }
         final NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager == null) {
             return;

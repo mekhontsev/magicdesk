@@ -1,5 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.os.Handler;
+import android.os.Looper;
+
 /**
  * Keeps MagicDesk's desktop host fullscreen when Android desktop mode tries to
  * inherit a freeform windowing mode from the task that launched it.
@@ -9,11 +12,15 @@ package io.github.mekhontsev.magicdesk;
  */
 final class DesktopHostWindowController {
     private static final String DIAGNOSTIC_CODE = "TASKS-001";
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long RETRY_DELAY_MS = 500L;
 
     private final DesktopShellActivity mActivity;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mRetry = this::ensureFullscreen;
     private int mGeneration;
+    private int mAttempts;
     private boolean mPending;
-    private boolean mAttempted;
 
     DesktopHostWindowController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -24,17 +31,16 @@ final class DesktopHostWindowController {
             return;
         }
         if (!mActivity.isInMultiWindowMode()) {
-            mPending = false;
-            mAttempted = false;
+            reset();
             return;
         }
-        if (mPending || mAttempted
+        if (mPending || mAttempts >= MAX_ATTEMPTS
                 || !RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
             return;
         }
 
         mPending = true;
-        mAttempted = true;
+        mAttempts++;
         final int generation = ++mGeneration;
         final int displayId = mActivity.getCurrentDisplayId();
         final int taskId = mActivity.getTaskId();
@@ -49,7 +55,8 @@ final class DesktopHostWindowController {
                             DesktopShellActivity.findTask(snapshot, taskId);
                     if (!snapshot.rootAvailable || task == null) {
                         finishIfCurrent(generation);
-                        recordFailure(
+                        retryOrRecord(
+                                generation,
                                 "Could not inspect desktop task " + taskId
                                         + " on display " + displayId
                                         + ": " + snapshot.error);
@@ -62,7 +69,8 @@ final class DesktopHostWindowController {
                                 }
                                 mPending = false;
                                 if (!result.success) {
-                                    recordFailure(
+                                    retryOrRecord(
+                                            generation,
                                             "Could not make desktop task " + taskId
                                                     + " fullscreen on display "
                                                     + displayId + ": "
@@ -77,8 +85,7 @@ final class DesktopHostWindowController {
     void onMultiWindowModeChanged(final boolean inMultiWindowMode) {
         if (!inMultiWindowMode) {
             mGeneration++;
-            mPending = false;
-            mAttempted = false;
+            reset();
             return;
         }
         ensureFullscreen();
@@ -86,7 +93,7 @@ final class DesktopHostWindowController {
 
     void release() {
         mGeneration++;
-        mPending = false;
+        reset();
     }
 
     private boolean isCurrent(final int generation) {
@@ -97,6 +104,27 @@ final class DesktopHostWindowController {
         if (generation == mGeneration) {
             mPending = false;
         }
+    }
+
+    private void retryOrRecord(
+            final int generation,
+            final String detail) {
+        if (!isCurrent(generation)) {
+            return;
+        }
+        if (mAttempts < MAX_ATTEMPTS
+                && mActivity.isInMultiWindowMode()) {
+            mMainHandler.removeCallbacks(mRetry);
+            mMainHandler.postDelayed(mRetry, RETRY_DELAY_MS);
+            return;
+        }
+        recordFailure(detail);
+    }
+
+    private void reset() {
+        mMainHandler.removeCallbacks(mRetry);
+        mPending = false;
+        mAttempts = 0;
     }
 
     private void recordFailure(final String detail) {

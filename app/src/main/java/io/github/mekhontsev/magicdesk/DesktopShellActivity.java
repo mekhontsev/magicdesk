@@ -12,7 +12,6 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Log;
@@ -47,8 +46,6 @@ public abstract class DesktopShellActivity extends Activity
     static final String EXTRA_ACTION = "magicdesk_action";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
-    static final String BROADCAST_SHOW_START =
-            "io.github.mekhontsev.magicdesk.action.SHOW_START";
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
@@ -271,9 +268,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     boolean isActivityUnavailable() {
-        return isFinishing()
-                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1
-                        && isDestroyed());
+        return isFinishing() || isDestroyed();
     }
 
     List<AppItem> getLauncherApps() {
@@ -475,9 +470,7 @@ public abstract class DesktopShellActivity extends Activity
         desktop.setClickable(true);
         desktop.setFocusable(false);
         desktop.setFocusableInTouchMode(false);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            desktop.setDefaultFocusHighlightEnabled(false);
-        }
+        desktop.setDefaultFocusHighlightEnabled(false);
         final GestureDetector desktopGestures = new GestureDetector(
                 this,
                 new GestureDetector.SimpleOnGestureListener() {
@@ -1063,23 +1056,6 @@ public abstract class DesktopShellActivity extends Activity
                 "enable_freeform_support", 0) == 1
                 && Settings.Global.getInt(getContentResolver(),
                 "force_resizable_activities", 0) == 1;
-    }
-
-    private static boolean isPackageNameSafe(final String packageName) {
-        if (packageName == null || packageName.length() == 0 || packageName.length() > 220) {
-            return false;
-        }
-        for (int i = 0; i < packageName.length(); i++) {
-            final char ch = packageName.charAt(i);
-            if ((ch >= 'a' && ch <= 'z')
-                    || (ch >= 'A' && ch <= 'Z')
-                    || (ch >= '0' && ch <= '9')
-                    || ch == '_' || ch == '.') {
-                continue;
-            }
-            return false;
-        }
-        return packageName.indexOf('.') > 0 && packageName.indexOf("..") < 0;
     }
 
     private Button createActionButton(final int textResId, final int accentColor) {

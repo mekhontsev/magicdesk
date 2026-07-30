@@ -12,8 +12,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -67,7 +65,7 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
 
     public static void main(final String[] args) {
         try {
-            final Object service = getActivityTaskManagerService();
+            final Object service = HiddenTaskApi.getService();
             final TaskStackWatcherCommand listener = new TaskStackWatcherCommand(service);
             if (args.length == 2 && "snapshot-immersive".equals(args[0])) {
                 listener.mTaskStateMonitor.printImmersiveSnapshot(
@@ -90,14 +88,6 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             System.err.println("task stack watcher failed: " + cause);
             System.exit(1);
         }
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
     }
 
     private static void signalChange() {
@@ -229,7 +219,6 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         private static final int WINDOWING_MODE_FREEFORM = 5;
 
         private final Object mService;
-        private final Method mGetTasks;
         private final Field mRequestedVisibleTypes;
         private final Object mLock = new Object();
         private final Set<Integer> mFullscreenTasks = new HashSet<>();
@@ -245,8 +234,6 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
 
         TaskStateMonitor(final Object service) throws ReflectiveOperationException {
             mService = service;
-            mGetTasks = service.getClass().getMethod(
-                    "getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE);
             mRequestedVisibleTypes = Class.forName("android.app.TaskInfo")
                     .getField("requestedVisibleTypes");
             final Thread monitor = new Thread(this::runMonitor,
@@ -303,7 +290,8 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         void printImmersiveSnapshot(final int displayId)
                 throws ReflectiveOperationException {
             for (final Object task : loadTasks(displayId)) {
-                final int taskId = task.getClass().getField("taskId").getInt(task);
+                final int taskId =
+                        HiddenTaskApi.getIntField(task, "taskId");
                 final int visibleTypes = mRequestedVisibleTypes.getInt(task);
                 signalImmersiveRequest(taskId,
                         isRequestingImmersive(visibleTypes), visibleTypes);
@@ -378,10 +366,8 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
 
         private List<?> loadTasks(final int displayId)
                 throws ReflectiveOperationException {
-            final Object result = mGetTasks.invoke(mService,
-                    Integer.valueOf(MAX_TASKS_TO_SCAN),
-                    Boolean.FALSE, Boolean.TRUE, Integer.valueOf(displayId));
-            return result instanceof List ? (List<?>) result : new ArrayList<>();
+            return HiddenTaskApi.getTasks(
+                    mService, displayId, MAX_TASKS_TO_SCAN);
         }
 
         private Integer loadVisibleTypes(final List<?> tasks, final int taskId)
@@ -391,7 +377,7 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             }
             for (final Object task : tasks) {
                 final int candidateTaskId =
-                        task.getClass().getField("taskId").getInt(task);
+                        HiddenTaskApi.getIntField(task, "taskId");
                 if (candidateTaskId == taskId) {
                     return Integer.valueOf(mRequestedVisibleTypes.getInt(task));
                 }
@@ -426,15 +412,14 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             final Set<Integer> fullscreenTasks = new HashSet<>();
             final Set<Integer> maximizedTasks = new HashSet<>();
             for (final Object task : tasks) {
-                if (!task.getClass().getField("isVisible").getBoolean(task)) {
+                if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
                     continue;
                 }
-                final Object configuration = task.getClass()
-                        .getField("configuration").get(task);
-                final Object windowConfiguration = configuration.getClass()
-                        .getField("windowConfiguration").get(configuration);
-                final int windowingMode = ((Integer) windowConfiguration.getClass()
-                        .getMethod("getWindowingMode").invoke(windowConfiguration)).intValue();
+                final Object windowConfiguration =
+                        HiddenTaskApi.getWindowConfiguration(task);
+                final int windowingMode =
+                        HiddenTaskApi.getWindowConfigurationValue(
+                                task, "getWindowingMode");
                 if (windowingMode != WINDOWING_MODE_FREEFORM) {
                     continue;
                 }
@@ -442,12 +427,12 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                         .getMethod("getBounds").invoke(windowConfiguration);
                 if (displayBounds.equals(bounds)) {
                     final Integer taskId = Integer.valueOf(
-                            task.getClass().getField("taskId").getInt(task));
+                            HiddenTaskApi.getIntField(task, "taskId"));
                     fullscreenTasks.add(taskId);
                     maximizedTasks.add(taskId);
                 } else if (workAreaBounds.equals(bounds)) {
                     maximizedTasks.add(Integer.valueOf(
-                            task.getClass().getField("taskId").getInt(task)));
+                            HiddenTaskApi.getIntField(task, "taskId")));
                 }
             }
             synchronized (mLock) {

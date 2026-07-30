@@ -94,11 +94,9 @@ final class RootKeyboardShortcutWatcher {
             Process process = null;
             BufferedReader reader = null;
             try {
-                final String mode = consoleMode ? " console" : " shortcuts";
-                final String command = "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                        + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                        + "export CLASSPATH=\"$APK\"; "
-                        + "exec /system/bin/app_process / " + INPUT_BRIDGE_COMMAND + mode;
+                final String mode = consoleMode ? "console" : "shortcuts";
+                final String command = AppProcessCommand.exec(
+                        INPUT_BRIDGE_COMMAND, mode);
                 process = PrivilegedCommandRunner.start(command);
                 setProcess(process, generation);
                 Log.i(TAG, "root input bridge started console=" + consoleMode);

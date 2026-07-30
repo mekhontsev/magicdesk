@@ -74,7 +74,7 @@ public final class FreeformLauncherActivity extends Activity {
                 ? null : intent.getIntArrayExtra(EXTRA_PRESERVED_TASK_IDS);
         final boolean rootColdLaunch = intent != null
                 && intent.getBooleanExtra(EXTRA_ROOT_COLD_LAUNCH, false);
-        if (!isPackageNameSafe(packageName)) {
+        if (!PackageNameValidator.isSafe(packageName)) {
             toastAndFinish("Bad package name");
             return;
         }
@@ -229,20 +229,4 @@ public final class FreeformLauncherActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
-    private static boolean isPackageNameSafe(final String packageName) {
-        if (packageName == null || packageName.length() == 0 || packageName.length() > 220) {
-            return false;
-        }
-        for (int i = 0; i < packageName.length(); i++) {
-            final char ch = packageName.charAt(i);
-            if ((ch >= 'a' && ch <= 'z')
-                    || (ch >= 'A' && ch <= 'Z')
-                    || (ch >= '0' && ch <= '9')
-                    || ch == '_' || ch == '.') {
-                continue;
-            }
-            return false;
-        }
-        return packageName.indexOf('.') > 0 && packageName.indexOf("..") < 0;
-    }
 }

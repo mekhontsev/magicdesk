@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">MagicDesk</string>
-    <string name="section_dock">Dock</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
     <string name="section_hardware">Hardware</string>
@@ -82,7 +81,6 @@
     <string name="hardware_taskbar_description">Device temperature %1$d C, fan %2$s rpm</string>
     <string name="badge_window">Window</string>
     <string name="badge_fullscreen">Full screen</string>
-    <string name="display_status">Display %1$d | %2$s</string>
     <string name="tools_status_full">D%1$d | %2$d dpi | Phone %3$s | Runtime %4$s | Bridge %5$s | %6$s</string>
     <string name="system_status_description">Runtime %1$s, external desktop %2$s, bridge %3$s</string>
     <string name="state_on">on</string>
@@ -105,8 +103,6 @@
     <string name="density_status">DPI %1$d</string>
     <string name="dpi_label">Display DPI</string>
     <string name="dpi_value">%1$d</string>
-    <string name="density_unknown">DPI unknown</string>
-    <string name="status_loading">Loading apps...</string>
     <string name="status_ready">Apps: %1$d | Display: %2$d</string>
     <string name="status_no_apps">No launcher apps found</string>
     <string name="status_launching_window">Opening window: %1$s</string>
@@ -161,7 +157,6 @@
     <string name="status_wallpaper_failed">Desktop wallpaper unavailable: %1$s</string>
     <string name="status_overlay_panel_unavailable">Overlay panel unavailable</string>
     <string name="status_exiting">Stopping services and exiting...</string>
-    <string name="status_exited">MagicDesk stopped</string>
     <string name="status_root_failed">Root action failed: %1$s</string>
     <string name="notification_channel">MagicDesk</string>
     <string name="notification_channel_description">Keeps MagicDesk desktop controls available.</string>

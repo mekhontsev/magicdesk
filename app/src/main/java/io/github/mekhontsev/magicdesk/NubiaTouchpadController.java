@@ -26,8 +26,6 @@ final class NubiaTouchpadController {
     private static final AtomicBoolean OPEN_IN_PROGRESS =
             new AtomicBoolean();
 
-    private static Boolean sMirrorInputProxyEnabled;
-
     private NubiaTouchpadController() {
     }
 
@@ -138,13 +136,15 @@ final class NubiaTouchpadController {
             return request();
         }
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(CONSOLE_DISPLAY_COMMAND)
-                        + " touchpad 0").trim();
+                AppProcessCommand.run(
+                        CONSOLE_DISPLAY_COMMAND,
+                        "touchpad 0")).trim();
         final boolean touchpadReady =
                 output.contains("display-command=touchpad");
         final String viewportOutput =
                 ConsoleModeSwitcher.runRootCommand(
-                        appProcessCommand(MOUSE_VIEWPORT_COMMAND)).trim();
+                        AppProcessCommand.run(
+                                MOUSE_VIEWPORT_COMMAND)).trim();
         final boolean viewportUpdated =
                 viewportOutput.contains("mouse-viewport=updated");
         final boolean success = touchpadReady && viewportUpdated;
@@ -163,17 +163,14 @@ final class NubiaTouchpadController {
 
     static boolean setMirrorInputProxyEnabledInternal(
             final boolean enabled) {
-        if (sMirrorInputProxyEnabled != null
-                && sMirrorInputProxyEnabled.booleanValue() == enabled) {
-            return true;
-        }
         if (!enabled) {
             ConsoleModeSwitcher.runRootCommand(
                     touchpadServiceCommand("close_input_panel"));
         }
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(CONSOLE_CONTROL_COMMAND)
-                        + " mirror-input-service " + enabled).trim();
+                AppProcessCommand.run(
+                        CONSOLE_CONTROL_COMMAND,
+                        "mirror-input-service " + enabled)).trim();
         final boolean success =
                 output.contains("mirror-input-service=" + enabled);
         if (!success) {
@@ -182,7 +179,6 @@ final class NubiaTouchpadController {
                             + enabled + " output=" + output);
             return false;
         }
-        sMirrorInputProxyEnabled = Boolean.valueOf(enabled);
         if (!enabled) {
             ConsoleModeSwitcher.runRootCommand(
                     AM + " stop-service --user 0 -n "
@@ -208,8 +204,9 @@ final class NubiaTouchpadController {
             return false;
         }
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(CONSOLE_DISPLAY_COMMAND)
-                        + " touchpad 0").trim();
+                AppProcessCommand.run(
+                        CONSOLE_DISPLAY_COMMAND,
+                        "touchpad 0")).trim();
         if (!output.contains("display-command=touchpad")) {
             Log.w(TAG,
                     "Nubia touchpad command failed output=" + output);
@@ -249,14 +246,6 @@ final class NubiaTouchpadController {
                         + " | /system/bin/grep -F -m 1 "
                         + shellQuote(MIRROR_INPUT_ACTIVITY));
         return output.contains(MIRROR_INPUT_ACTIVITY);
-    }
-
-    private static String appProcessCommand(final String mainClass) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk"
-                + " | /system/bin/cut -d: -f2-"
-                + " | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                + mainClass;
     }
 
     private static String shellQuote(final String value) {

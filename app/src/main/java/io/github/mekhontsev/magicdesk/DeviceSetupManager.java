@@ -48,8 +48,7 @@ final class DeviceSetupManager {
     }
 
     static Audit audit(final Context context, final SessionProfile sessionProfile) {
-        final boolean compatibleDevice = isZteFamilyDevice()
-                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
+        final boolean compatibleDevice = isZteFamilyDevice();
         final boolean verifiedDevice =
                 ("NX809J".equalsIgnoreCase(Build.MODEL)
                         || "NX809J".equalsIgnoreCase(Build.DEVICE))

@@ -15,8 +15,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class TaskRepository {
     private static final String TAG = "MagicDeskTasks";
@@ -34,17 +32,6 @@ final class TaskRepository {
             "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
     private static final String PHONE_FREEFORM_CLEANUP_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneFreeformCleanupCommand";
-    private static final Pattern ROOT_TASK_PATTERN =
-            Pattern.compile("RootTask id=(\\d+).* displayId=(\\d+)");
-    private static final Pattern WINDOWING_MODE_PATTERN =
-            Pattern.compile("mWindowingMode=([^\\s}]+)");
-    private static final Pattern ACTIVITY_TYPE_PATTERN =
-            Pattern.compile("mActivityType=([^\\s}]+)");
-    private static final Pattern TOP_ACTIVITY_PATTERN =
-            Pattern.compile("topActivity=ComponentInfo\\{([^}]+)\\}");
-    private static final Pattern BOUNDS_PATTERN = Pattern.compile(
-            "bounds=\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]");
-
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
             new ThreadFactory() {
                 @Override
@@ -293,7 +280,7 @@ final class TaskRepository {
     }
 
     static void forceStop(final String packageName, final ActionCallback callback) {
-        if (!isPackageNameSafe(packageName)
+        if (!PackageNameValidator.isSafe(packageName)
                 || "io.github.mekhontsev.magicdesk".equals(packageName)) {
             complete(callback, false, "invalid package");
             return;
@@ -332,17 +319,12 @@ final class TaskRepository {
 
     private static String createAppProcessCommand(final String className,
             final String arguments) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                + className + " " + arguments;
+        return AppProcessCommand.run(className, arguments);
     }
 
     private static String createTaskWindowingCommand(final String arguments) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                + TASK_WINDOWING_COMMAND + " " + arguments;
+        return AppProcessCommand.run(
+                TASK_WINDOWING_COMMAND, arguments);
     }
 
     static String createFullscreenTransitionCommand(final int displayId,
@@ -380,14 +362,12 @@ final class TaskRepository {
     }
 
     private static String createAppProcessEnvironment() {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "export CLASSPATH=\"$APK\"; ";
+        return AppProcessCommand.environment();
     }
 
     private static String createAppProcessInvocation(final String className,
             final String arguments) {
-        return "/system/bin/app_process / " + className + " " + arguments;
+        return AppProcessCommand.invocation(className, arguments);
     }
 
     private static void complete(final ActionCallback callback, final boolean success,
@@ -423,124 +403,37 @@ final class TaskRepository {
 
     private static List<TaskEntry> parseTasks(final String output, final int targetDisplayId) {
         final List<TaskEntry> tasks = new ArrayList<>();
-        int rootTaskId = -1;
-        int displayId = -1;
-        String windowingMode = null;
-        String activityType = null;
-        Rect rootBounds = null;
         boolean activeAssigned = false;
-
-        final String[] lines = output.split("\\r?\\n");
-        for (final String line : lines) {
-            final Matcher rootMatcher = ROOT_TASK_PATTERN.matcher(line);
-            if (rootMatcher.find()) {
-                rootTaskId = parseInt(rootMatcher.group(1));
-                displayId = parseInt(rootMatcher.group(2));
-                windowingMode = null;
-                activityType = null;
-                rootBounds = parseBounds(line);
+        for (final TaskStackParser.Entry parsed :
+                TaskStackParser.parse(output)) {
+            if (targetDisplayId >= 0
+                    && parsed.displayId != targetDisplayId) {
                 continue;
             }
-
-            if (rootTaskId < 0) {
-                continue;
-            }
-            if (line.indexOf("configuration=") >= 0) {
-                final Matcher modeMatcher = WINDOWING_MODE_PATTERN.matcher(line);
-                if (modeMatcher.find()) {
-                    windowingMode = modeMatcher.group(1);
-                }
-                final Matcher typeMatcher = ACTIVITY_TYPE_PATTERN.matcher(line);
-                if (typeMatcher.find()) {
-                    activityType = typeMatcher.group(1);
-                }
-                continue;
-            }
-            if (targetDisplayId >= 0 && displayId != targetDisplayId) {
-                continue;
-            }
-
-            final String trimmed = line.trim();
-            if (!trimmed.startsWith("taskId=")) {
-                continue;
-            }
-            if (!trimmed.contains(" topActivity=ComponentInfo{")) {
-                continue;
-            }
-            final int colon = trimmed.indexOf(':');
-            if (colon < 0) {
-                continue;
-            }
-            final int taskId = parseInt(trimmed.substring("taskId=".length(), colon));
-            int componentStart = colon + 1;
-            while (componentStart < trimmed.length()
-                    && Character.isWhitespace(trimmed.charAt(componentStart))) {
-                componentStart++;
-            }
-            int componentEnd = componentStart;
-            while (componentEnd < trimmed.length()
-                    && !Character.isWhitespace(trimmed.charAt(componentEnd))) {
-                componentEnd++;
-            }
-            final String component = componentEnd > componentStart
-                    ? trimmed.substring(componentStart, componentEnd) : null;
-            if (component == null || "unknown".equals(component)
-                    || component.indexOf('/') <= 0) {
-                continue;
-            }
-            final String packageName = component.substring(0, component.indexOf('/'));
-            if (!isPackageNameSafe(packageName)) {
-                continue;
-            }
-            final Matcher topActivityMatcher = TOP_ACTIVITY_PATTERN.matcher(trimmed);
-            final String topActivityName = topActivityMatcher.find()
-                    ? topActivityMatcher.group(1) : component;
-            final boolean visible = trimmed.contains(" visible=true");
-            final boolean home = "home".equals(activityType);
-            final boolean active = visible && !home && !activeAssigned;
-            final Rect taskBounds = parseBounds(trimmed);
+            final boolean home = parsed.isHome();
+            final boolean active =
+                    parsed.visible && !home && !activeAssigned;
             if (active) {
                 activeAssigned = true;
             }
-            tasks.add(new TaskEntry(rootTaskId, taskId, displayId, packageName,
-                    component, topActivityName, windowingMode,
-                    taskBounds == null ? rootBounds : taskBounds,
-                    home, visible, active));
+            tasks.add(new TaskEntry(
+                    parsed.rootTaskId,
+                    parsed.taskId,
+                    parsed.displayId,
+                    parsed.packageName,
+                    parsed.componentName,
+                    parsed.topActivityName,
+                    parsed.windowingMode,
+                    new Rect(
+                            parsed.bounds.left,
+                            parsed.bounds.top,
+                            parsed.bounds.right,
+                            parsed.bounds.bottom),
+                    home,
+                    parsed.visible,
+                    active));
         }
         return tasks;
-    }
-
-    private static int parseInt(final String value) {
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private static Rect parseBounds(final String value) {
-        final Matcher matcher = BOUNDS_PATTERN.matcher(value);
-        if (!matcher.find()) {
-            return null;
-        }
-        final Rect bounds = new Rect(parseInt(matcher.group(1)), parseInt(matcher.group(2)),
-                parseInt(matcher.group(3)), parseInt(matcher.group(4)));
-        return bounds.isEmpty() ? null : bounds;
-    }
-
-    private static boolean isPackageNameSafe(final String packageName) {
-        if (packageName == null || packageName.length() == 0 || packageName.length() > 220) {
-            return false;
-        }
-        for (int i = 0; i < packageName.length(); i++) {
-            final char ch = packageName.charAt(i);
-            if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-                    || (ch >= '0' && ch <= '9') || ch == '_' || ch == '.') {
-                continue;
-            }
-            return false;
-        }
-        return packageName.indexOf('.') > 0 && packageName.indexOf("..") < 0;
     }
 
     private static CommandResult runRootCommand(final String command) {

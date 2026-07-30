@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
@@ -14,7 +13,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ConsoleModeSwitcher {
     private static final String TAG = "MagicDeskConsoleSwitcher";
-    private static final String AM = "/system/bin/am";
     private static final String CONSOLE_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleControlCommand";
     private static final String CONSOLE_TASK_RETURN_COMMAND =
@@ -23,11 +21,8 @@ final class ConsoleModeSwitcher {
             "io.github.mekhontsev.magicdesk.DeviceLockCommand";
     private static final String SCREENSHOT_DIRECTORY =
             "/storage/emulated/0/Pictures/Screenshots";
-    private static final long SHORTCUT_DEBOUNCE_MS = 300L;
     private static final ConsoleRootShell ROOT_SHELL = new ConsoleRootShell();
     private static final AtomicBoolean DESKTOP_START_IN_PROGRESS = new AtomicBoolean();
-    private static String sLastShortcutName;
-    private static long sLastShortcutTime;
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
             new ThreadFactory() {
@@ -70,10 +65,9 @@ final class ConsoleModeSwitcher {
                                 "The phone screen cannot be dimmed safely");
                         return;
                     }
-                    final String command = "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                            + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                            + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                            + CONSOLE_CONTROL_COMMAND + " phone-screen " + screenOff;
+                    final String command = AppProcessCommand.run(
+                            CONSOLE_CONTROL_COMMAND,
+                            "phone-screen " + screenOff);
                     final String output = runRootCommand(command).trim();
                     success = proxySuccess
                             && output.contains("phone-screen=" + screenOff);
@@ -104,9 +98,6 @@ final class ConsoleModeSwitcher {
     }
 
     static void showMagicDesk(final int knownConsoleDisplayId) {
-        if (!markShortcut("magicdesk")) {
-            return;
-        }
         if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
             Log.i(TAG, "MagicDesk activation is already in progress");
             return;
@@ -215,8 +206,9 @@ final class ConsoleModeSwitcher {
                         return;
                     }
                     final String output = runRootCommand(
-                            appProcessCommand(CONSOLE_TASK_RETURN_COMMAND)
-                                    + " " + displayId).trim();
+                            AppProcessCommand.run(
+                                    CONSOLE_TASK_RETURN_COMMAND,
+                                    Integer.toString(displayId))).trim();
                     success = output.contains("tasks-returned=");
                     if (!success) {
                         Log.w(TAG, "Console task return failed output=" + output);
@@ -232,19 +224,11 @@ final class ConsoleModeSwitcher {
     }
 
     static void showMagicDeskStart() {
-        if (!markShortcut("magicdesk-start")) {
-            return;
+        Log.i(TAG, "show MagicDesk Start overlay");
+        if (!DesktopRuntimeBridge.showStart()
+                && !MagicDeskRuntimeService.showStartIfRunning()) {
+            Log.w(TAG, "MagicDesk desktop is unavailable for Start");
         }
-        EXECUTOR.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    showMagicDeskStartInternal();
-                } finally {
-                    closeRootShell();
-                }
-            }
-        });
     }
 
     static void advanceAltTab(final boolean reverse) {
@@ -270,15 +254,13 @@ final class ConsoleModeSwitcher {
     }
 
     static void lockDevice() {
-        if (!markShortcut("lock-device")) {
-            return;
-        }
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
                 try {
                     final String output =
-                            runRootCommand(appProcessCommand(DEVICE_LOCK_COMMAND)).trim();
+                            runRootCommand(AppProcessCommand.run(
+                                    DEVICE_LOCK_COMMAND)).trim();
                     if (!output.contains("device-locked")) {
                         Log.w(TAG, "device lock shortcut failed output="
                                 + output.replace('\n', ' '));
@@ -291,36 +273,24 @@ final class ConsoleModeSwitcher {
     }
 
     static void manageActiveWindow(final int shortcut) {
-        if (!markShortcut("window-" + shortcut)) {
-            return;
-        }
         if (!DesktopTaskController.handleActiveTaskShortcut(shortcut)) {
             Log.w(TAG, "window shortcut unavailable action=" + shortcut);
         }
     }
 
     static void showShortcutHelp() {
-        if (!markShortcut("shortcut-help")) {
-            return;
-        }
         if (!DesktopRuntimeBridge.toggleShortcutHelp()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for shortcut help");
         }
     }
 
     static void toggleNotificationCenter() {
-        if (!markShortcut("notifications")) {
-            return;
-        }
         if (!DesktopRuntimeBridge.toggleNotificationCenter()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for notifications");
         }
     }
 
     static void captureScreenshot() {
-        if (!markShortcut("screenshot")) {
-            return;
-        }
         if (!RuntimeAccess.has(RuntimeAccess.Capability.SCREENSHOT)) {
             Log.w(TAG, "screenshot unavailable for backend="
                     + RuntimeAccess.backendName());
@@ -339,9 +309,7 @@ final class ConsoleModeSwitcher {
     }
 
     static void toggleHardwareKeyboardLayout() {
-        if (markShortcut("keyboard-layout")) {
-            HardwareKeyboardLayoutController.toggle();
-        }
+        HardwareKeyboardLayoutController.toggle();
     }
 
     static void refreshHardwareKeyboardLayout() {
@@ -400,33 +368,8 @@ final class ConsoleModeSwitcher {
         }
     }
 
-    private static String appProcessCommand(final String mainClass) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / " + mainClass;
-    }
-
-    private static void showMagicDeskStartInternal() {
-        Log.i(TAG, "show MagicDesk Start overlay");
-        runRootCommand(AM + " broadcast --receiver-foreground"
-                + " -a io.github.mekhontsev.magicdesk.action.SHOW_START"
-                + " -n io.github.mekhontsev.magicdesk/.DesktopCommandReceiver");
-    }
-
     static void closeRootShell() {
         ROOT_SHELL.close();
-    }
-
-    private static synchronized boolean markShortcut(final String shortcutName) {
-        final long now = SystemClock.uptimeMillis();
-        if (shortcutName.equals(sLastShortcutName)
-                && now - sLastShortcutTime < SHORTCUT_DEBOUNCE_MS) {
-            Log.i(TAG, "debounced shortcut " + shortcutName);
-            return false;
-        }
-        sLastShortcutName = shortcutName;
-        sLastShortcutTime = now;
-        return true;
     }
 
     static String runRootCommand(final String command) {

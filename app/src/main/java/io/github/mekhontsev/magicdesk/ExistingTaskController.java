@@ -5,29 +5,17 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class ExistingTaskController {
     private static final String TAG = "MagicDeskTaskReuse";
     private static final String CMD = "/system/bin/cmd";
-    private static final String PACKAGE_NAME = "io.github.mekhontsev.magicdesk";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
-    private static final Pattern ROOT_TASK_PATTERN =
-            Pattern.compile("RootTask id=(\\d+) .* displayId=(\\d+)");
-    private static final Pattern WINDOWING_MODE_PATTERN =
-            Pattern.compile("mWindowingMode=([^\\s}]+)");
-    private static final Pattern TASK_PATTERN =
-            Pattern.compile("taskId=(\\d+): ([^\\s]+)");
-    private static final String VISIBLE_TASK_MARKER = " visible=true";
     private static final String MODE_FULLSCREEN = "fullscreen";
     private static final String MODE_FREEFORM = "freeform";
     private static final long TASK_APPEAR_TIMEOUT_MILLIS = 6000;
@@ -235,10 +223,7 @@ final class ExistingTaskController {
 
     private static String createAppProcessCommand(final String className,
             final String arguments) {
-        return "APK=$(/system/bin/pm path " + PACKAGE_NAME
-                + " | /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                + className + " " + arguments;
+        return AppProcessCommand.run(className, arguments);
     }
 
     private static TaskInfo findBestTask(final String packageName, final int targetDisplayId,
@@ -268,40 +253,17 @@ final class ExistingTaskController {
 
     private static List<TaskInfo> findTasks(final String packageName) throws IOException {
         final String output = runRootCommand(CMD + " activity stack list");
-        final String[] lines = output.split("\\r?\\n");
         final List<TaskInfo> result = new ArrayList<>();
-        int rootTaskId = -1;
-        int displayId = -1;
-        String windowingMode = null;
-        for (final String line : lines) {
-            final Matcher rootMatcher = ROOT_TASK_PATTERN.matcher(line);
-            if (rootMatcher.find()) {
-                rootTaskId = Integer.parseInt(rootMatcher.group(1));
-                displayId = Integer.parseInt(rootMatcher.group(2));
-                windowingMode = null;
-                continue;
-            }
-
-            if (rootTaskId >= 0 && windowingMode == null) {
-                final Matcher modeMatcher = WINDOWING_MODE_PATTERN.matcher(line);
-                if (modeMatcher.find()) {
-                    windowingMode = modeMatcher.group(1);
-                }
-            }
-
-            final Matcher taskMatcher = TASK_PATTERN.matcher(line);
-            if (rootTaskId >= 0 && taskMatcher.find()
-                    && line.contains(" topActivity=ComponentInfo{")) {
-                final String componentName = taskMatcher.group(2);
-                final int slash = componentName.indexOf('/');
-                final String taskPackage = slash <= 0
-                        ? componentName : componentName.substring(0, slash);
-                if (!packageName.equals(taskPackage)) {
-                    continue;
-                }
-                result.add(new TaskInfo(rootTaskId, Integer.parseInt(taskMatcher.group(1)),
-                        displayId, windowingMode, packageName,
-                        line.contains(VISIBLE_TASK_MARKER)));
+        for (final TaskStackParser.Entry task :
+                TaskStackParser.parse(output)) {
+            if (packageName.equals(task.packageName)) {
+                result.add(new TaskInfo(
+                        task.rootTaskId,
+                        task.taskId,
+                        task.displayId,
+                        task.windowingMode,
+                        task.packageName,
+                        task.visible));
             }
         }
         return result;
@@ -309,36 +271,17 @@ final class ExistingTaskController {
 
     private static TaskInfo findTask(final int taskId) throws IOException {
         final String output = runRootCommand(CMD + " activity stack list");
-        final String[] lines = output.split("\\r?\\n");
-        int rootTaskId = -1;
-        int displayId = -1;
-        String windowingMode = null;
-        for (final String line : lines) {
-            final Matcher rootMatcher = ROOT_TASK_PATTERN.matcher(line);
-            if (rootMatcher.find()) {
-                rootTaskId = Integer.parseInt(rootMatcher.group(1));
-                displayId = Integer.parseInt(rootMatcher.group(2));
-                windowingMode = null;
-                continue;
+        for (final TaskStackParser.Entry task :
+                TaskStackParser.parse(output)) {
+            if (task.taskId == taskId) {
+                return new TaskInfo(
+                        task.rootTaskId,
+                        task.taskId,
+                        task.displayId,
+                        task.windowingMode,
+                        task.packageName,
+                        task.visible);
             }
-            if (rootTaskId >= 0 && windowingMode == null) {
-                final Matcher modeMatcher = WINDOWING_MODE_PATTERN.matcher(line);
-                if (modeMatcher.find()) {
-                    windowingMode = modeMatcher.group(1);
-                }
-            }
-            final Matcher taskMatcher = TASK_PATTERN.matcher(line);
-            if (rootTaskId < 0 || !taskMatcher.find()
-                    || Integer.parseInt(taskMatcher.group(1)) != taskId
-                    || !line.contains(" topActivity=ComponentInfo{")) {
-                continue;
-            }
-            final String componentName = taskMatcher.group(2);
-            final int slash = componentName.indexOf('/');
-            final String packageName = slash <= 0
-                    ? componentName : componentName.substring(0, slash);
-            return new TaskInfo(rootTaskId, taskId, displayId, windowingMode,
-                    packageName, line.contains(VISIBLE_TASK_MARKER));
         }
         return null;
     }

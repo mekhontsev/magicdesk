@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Intent;
 import android.os.BatteryManager;
-import android.os.Build;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -170,13 +169,11 @@ final class TaskbarController {
         mKeyboardLayout.setTextColor(DesktopUiFactory.COLOR_TEXT);
         mKeyboardLayout.setTextSize(
                 mActivity.isCompactDesktopPreview() ? 11 : 13);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mKeyboardLayout.setAutoSizeTextTypeUniformWithConfiguration(
-                    8,
-                    mActivity.isCompactDesktopPreview() ? 11 : 13,
-                    1,
-                    android.util.TypedValue.COMPLEX_UNIT_SP);
-        }
+        mKeyboardLayout.setAutoSizeTextTypeUniformWithConfiguration(
+                8,
+                mActivity.isCompactDesktopPreview() ? 11 : 13,
+                1,
+                android.util.TypedValue.COMPLEX_UNIT_SP);
         mKeyboardLayout.setTypeface(
                 android.graphics.Typeface.DEFAULT_BOLD);
         mKeyboardLayout.setGravity(Gravity.CENTER);
@@ -259,10 +256,7 @@ final class TaskbarController {
                 DesktopUiFactory.COLOR_PANEL_ALT));
         clock.setContentDescription(
                 mActivity.getString(R.string.action_calendar));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            clock.setTooltipText(
-                    mActivity.getString(R.string.action_calendar));
-        }
+        clock.setTooltipText(mActivity.getString(R.string.action_calendar));
         clock.setOnClickListener(view -> mActivity.toggleCalendarPanel());
         taskbar.addView(clock, new LinearLayout.LayoutParams(
                 desktopDp(72, 50),
@@ -364,9 +358,7 @@ final class TaskbarController {
                         ? layoutLabel
                         : layoutName);
         mKeyboardLayout.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mKeyboardLayout.setTooltipText(description);
-        }
+        mKeyboardLayout.setTooltipText(description);
     }
 
     void updatePhoneScreen(
@@ -387,10 +379,8 @@ final class TaskbarController {
                         : DesktopUiFactory.COLOR_TEXT);
         mPhoneScreenButton.setContentDescription(
                 mActivity.getString(actionResId));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mPhoneScreenButton.setTooltipText(
-                    mActivity.getString(actionResId));
-        }
+        mPhoneScreenButton.setTooltipText(
+                mActivity.getString(actionResId));
         mPhoneScreenButton.setEnabled(phoneScreenControl);
         mPhoneScreenButton.setAlpha(phoneScreenControl ? 1f : 0.45f);
     }
@@ -419,9 +409,7 @@ final class TaskbarController {
                         : R.string.state_unavailable));
         mConsoleButton.setColorFilter(color);
         mConsoleButton.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mConsoleButton.setTooltipText(description);
-        }
+        mConsoleButton.setTooltipText(description);
     }
 
     void updateHardware(final RedmagicHardwareSnapshot snapshot) {
@@ -468,10 +456,8 @@ final class TaskbarController {
                                                 ? "--"
                                                 : Integer.toString(
                                                         snapshot.fanRpm)));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mHardwareStatus.setTooltipText(
-                    mHardwareStatus.getContentDescription());
-        }
+        mHardwareStatus.setTooltipText(
+                mHardwareStatus.getContentDescription());
     }
 
     void updateBattery(final Intent battery) {
@@ -520,9 +506,7 @@ final class TaskbarController {
                         Integer.valueOf(percent),
                         state);
         mBatteryStatus.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mBatteryStatus.setTooltipText(description);
-        }
+        mBatteryStatus.setTooltipText(description);
     }
 
     private void addPin(
@@ -587,9 +571,7 @@ final class TaskbarController {
                         app.label,
                         Integer.valueOf(task.taskId));
         item.setContentDescription(description);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            item.setTooltipText(description);
-        }
+        item.setTooltipText(description);
         item.setOnClickListener(view -> {
             mActivity.hideAllPanels();
             if (task == null) {

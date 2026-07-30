@@ -3,9 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.List;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
@@ -69,8 +67,9 @@ public final class TaskWindowingCommand {
 
     private static void minimize(final int displayId, final int taskId)
             throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
-        final Object taskToken = findTaskToken(service, displayId, taskId);
+        final Object service = HiddenTaskApi.getService();
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
@@ -88,7 +87,7 @@ public final class TaskWindowingCommand {
 
     private static void restoreStack(final int displayId, final int[] taskIds)
             throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
+        final Object service = HiddenTaskApi.getService();
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
@@ -96,7 +95,10 @@ public final class TaskWindowingCommand {
         final Method reorder = transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE);
         for (final int taskId : taskIds) {
-            reorder.invoke(transaction, findTaskToken(service, displayId, taskId),
+            reorder.invoke(
+                    transaction,
+                    HiddenTaskApi.requireTaskToken(
+                            service, displayId, taskId),
                     Boolean.TRUE, Boolean.TRUE);
         }
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
@@ -105,8 +107,9 @@ public final class TaskWindowingCommand {
 
     private static void apply(final int displayId, final int taskId,
             final int windowingMode, final Rect bounds) throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
-        final Object taskToken = findTaskToken(service, displayId, taskId);
+        final Object service = HiddenTaskApi.getService();
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
@@ -128,37 +131,6 @@ public final class TaskWindowingCommand {
                 .getMethod("getWindowOrganizerController").invoke(service);
         controller.getClass().getMethod("applyTransaction", transactionClass)
                 .invoke(controller, transaction);
-    }
-
-    private static Object findTaskToken(final Object service, final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (result instanceof List) {
-            for (final Object task : (List<?>) result) {
-                if (getIntField(task, "taskId") == taskId) {
-                    return task.getClass().getField("token").get(task);
-                }
-            }
-        }
-        throw new IllegalStateException("task " + taskId + " not found on display "
-                + displayId);
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
-    }
-
-    private static int getIntField(final Object target, final String name)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(name);
-        return field.getInt(target);
     }
 
     private static int parseInt(final String value, final String label) {

@@ -145,13 +145,9 @@ final class ShizukuCaptionPolicyController {
     }
 
     private static boolean setSurfaceFlingerOption(final int value) {
-        final String command =
-                "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                        + "| /system/bin/cut -d: -f2- "
-                        + "| /system/bin/head -n 1); "
-                        + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                        + SURFACE_FLINGER_OPTION_COMMAND
-                        + " set " + value;
+        final String command = AppProcessCommand.run(
+                SURFACE_FLINGER_OPTION_COMMAND,
+                "set " + value);
         try {
             final String output = PrivilegedCommandRunner.run(command).trim();
             final boolean success = output.contains(

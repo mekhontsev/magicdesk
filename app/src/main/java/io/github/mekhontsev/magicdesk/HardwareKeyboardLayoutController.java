@@ -51,10 +51,8 @@ final class HardwareKeyboardLayoutController {
     private static void apply(final String mode) {
         final String command = "CURRENT=$(" + SETTINGS + " get global "
                 + LAYOUT_STATE + "); "
-                + "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / "
-                + LAYOUT_COMMAND + " " + mode + " \"$CURRENT\"";
+                + AppProcessCommand.run(
+                        LAYOUT_COMMAND, mode + " \"$CURRENT\"");
         final String output =
                 ConsoleModeSwitcher.runRootCommand(command).trim();
         final String descriptor =

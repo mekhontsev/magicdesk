@@ -24,20 +24,20 @@ android {
     signingConfigs {
         magicDeskRelease {
             if (releaseSigningConfigured) {
-                storeFile file(releaseStoreFile)
-                storePassword releaseStorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled false
-            shrinkResources false
+            minifyEnabled = false
+            shrinkResources = false
             if (releaseSigningConfigured) {
-                signingConfig signingConfigs.magicDeskRelease
+                signingConfig = signingConfigs.magicDeskRelease
             }
         }
     }

@@ -5,7 +5,6 @@ import android.content.ComponentName;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.List;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskControlCommand {
@@ -56,10 +55,7 @@ public final class TaskControlCommand {
         }
 
         try {
-            final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-            final Method getService = activityTaskManager.getDeclaredMethod("getService");
-            getService.setAccessible(true);
-            final Object service = getService.invoke(null);
+            final Object service = HiddenTaskApi.getService();
             if (queryDesktopHome) {
                 System.out.println("desktop-home-task="
                         + hasDesktopHomeTask(service, taskIds[0]));
@@ -100,10 +96,7 @@ public final class TaskControlCommand {
     }
 
     static void focusTask(final int taskId) throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        moveTaskToFront(getService.invoke(null), taskId);
+        moveTaskToFront(HiddenTaskApi.getService(), taskId);
     }
 
     static void moveTaskToFront(final Object service, final int taskId)
@@ -154,24 +147,15 @@ public final class TaskControlCommand {
 
     private static boolean hasVisibleAppTask(final Object service, final int displayId)
             throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (!(result instanceof List)) {
-            throw new IllegalStateException("getTasks returned no task list");
-        }
-        for (final Object task : (List<?>) result) {
-            if (!task.getClass().getField("isVisible").getBoolean(task)
+        for (final Object task :
+                HiddenTaskApi.getTasks(service, displayId)) {
+            if (!HiddenTaskApi.getBooleanField(task, "isVisible")
                     || isMagicDeskTask(task)) {
                 continue;
             }
-            final Object configuration =
-                    task.getClass().getField("configuration").get(task);
-            final Object windowConfiguration = configuration.getClass()
-                    .getField("windowConfiguration").get(configuration);
-            final int activityType = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getActivityType").invoke(windowConfiguration)).intValue();
+            final int activityType =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getActivityType");
             if (activityType != ACTIVITY_TYPE_HOME) {
                 return true;
             }
@@ -186,28 +170,20 @@ public final class TaskControlCommand {
 
     private static int findDesktopHomeTaskId(final Object service, final int displayId)
             throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (!(result instanceof List)) {
-            throw new IllegalStateException("getTasks returned no task list");
-        }
-        for (final Object task : (List<?>) result) {
+        for (final Object task :
+                HiddenTaskApi.getTasks(service, displayId)) {
             if (!isMagicDeskTask(task)) {
                 continue;
             }
-            final Object configuration =
-                    task.getClass().getField("configuration").get(task);
-            final Object windowConfiguration = configuration.getClass()
-                    .getField("windowConfiguration").get(configuration);
-            final int windowingMode = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getWindowingMode").invoke(windowConfiguration)).intValue();
-            final int activityType = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getActivityType").invoke(windowConfiguration)).intValue();
+            final int windowingMode =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode");
+            final int activityType =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getActivityType");
             if (windowingMode == WINDOWING_MODE_FULLSCREEN
                     && activityType == ACTIVITY_TYPE_HOME) {
-                return task.getClass().getField("taskId").getInt(task);
+                return HiddenTaskApi.getIntField(task, "taskId");
             }
         }
         return -1;
@@ -215,29 +191,21 @@ public final class TaskControlCommand {
 
     private static void prepareDesktopTask(final Object service, final int displayId)
             throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(-1));
-        if (!(result instanceof List)) {
-            throw new IllegalStateException("getTasks returned no task list");
-        }
-
         int readyTaskId = -1;
-        for (final Object task : (List<?>) result) {
+        for (final Object task : HiddenTaskApi.getTasks(service, -1)) {
             if (!isMagicDeskTask(task)) {
                 continue;
             }
-            final int taskId = task.getClass().getField("taskId").getInt(task);
-            final int taskDisplayId = task.getClass().getField("displayId").getInt(task);
-            final Object configuration =
-                    task.getClass().getField("configuration").get(task);
-            final Object windowConfiguration = configuration.getClass()
-                    .getField("windowConfiguration").get(configuration);
-            final int windowingMode = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getWindowingMode").invoke(windowConfiguration)).intValue();
-            final int activityType = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getActivityType").invoke(windowConfiguration)).intValue();
+            final int taskId =
+                    HiddenTaskApi.getIntField(task, "taskId");
+            final int taskDisplayId =
+                    HiddenTaskApi.getIntField(task, "displayId");
+            final int windowingMode =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode");
+            final int activityType =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getActivityType");
             if (readyTaskId < 0
                     && taskDisplayId == displayId
                     && windowingMode == WINDOWING_MODE_FULLSCREEN
@@ -262,12 +230,14 @@ public final class TaskControlCommand {
     private static boolean isMagicDeskTask(final Object task)
             throws ReflectiveOperationException {
         final ComponentName topActivity =
-                (ComponentName) task.getClass().getField("topActivity").get(task);
+                (ComponentName) HiddenTaskApi.getField(
+                        task, "topActivity");
         if (topActivity != null && PACKAGE_NAME.equals(topActivity.getPackageName())) {
             return true;
         }
         final ComponentName baseActivity =
-                (ComponentName) task.getClass().getField("baseActivity").get(task);
+                (ComponentName) HiddenTaskApi.getField(
+                        task, "baseActivity");
         return baseActivity != null && PACKAGE_NAME.equals(baseActivity.getPackageName());
     }
 

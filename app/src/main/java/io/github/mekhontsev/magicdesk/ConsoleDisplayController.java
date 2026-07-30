@@ -51,8 +51,9 @@ final class ConsoleDisplayController {
 
     static boolean requestConsoleMode(final int externalDisplayId) {
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(CONSOLE_DISPLAY_COMMAND)
-                        + " expand " + externalDisplayId).trim();
+                AppProcessCommand.run(
+                        CONSOLE_DISPLAY_COMMAND,
+                        "expand " + externalDisplayId)).trim();
         if (!output.contains("display-command=expand")) {
             Log.w(TAG, "Console mode request failed output=" + output);
             CompatibilityDiagnostics.record(
@@ -66,8 +67,9 @@ final class ConsoleDisplayController {
 
     static boolean requestMirrorMode() {
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(CONSOLE_DISPLAY_COMMAND)
-                        + " mirror 0").trim();
+                AppProcessCommand.run(
+                        CONSOLE_DISPLAY_COMMAND,
+                        "mirror 0")).trim();
         if (output.contains("display-command=mirror")) {
             return true;
         }
@@ -219,9 +221,4 @@ final class ConsoleDisplayController {
         }
     }
 
-    private static String appProcessCommand(final String mainClass) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / " + mainClass;
-    }
 }

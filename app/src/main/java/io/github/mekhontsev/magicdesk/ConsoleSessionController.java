@@ -72,8 +72,9 @@ final class ConsoleSessionController {
         if (!desktopTaskReady && !startedConsoleMode) {
             final String preparedTask =
                     ConsoleModeSwitcher.runRootCommand(
-                            appProcessCommand(TASK_CONTROL_COMMAND)
-                                    + " prepare-desktop " + displayId).trim();
+                            AppProcessCommand.run(
+                                    TASK_CONTROL_COMMAND,
+                                    "prepare-desktop " + displayId)).trim();
             Log.i(TAG, "prepared MagicDesk task: "
                     + preparedTask.replace('\n', ' '));
         }
@@ -180,8 +181,9 @@ final class ConsoleSessionController {
         final String operation =
                 enabled ? "enable-captions" : "restore-privacy";
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(SURFACE_FLINGER_OPTION_COMMAND)
-                        + " " + operation).trim();
+                AppProcessCommand.run(
+                        SURFACE_FLINGER_OPTION_COMMAND,
+                        operation)).trim();
         final String expected = "external-task-captions="
                 + (enabled ? "enabled" : "restored");
         final boolean success = output.contains(expected);
@@ -198,8 +200,9 @@ final class ConsoleSessionController {
     private static int findDesktopHomeTaskWithShizuku(final int displayId)
             throws IOException {
         final String output = PrivilegedCommandRunner.run(
-                appProcessCommand(TASK_CONTROL_COMMAND)
-                        + " desktop-home-task-id " + displayId);
+                AppProcessCommand.run(
+                        TASK_CONTROL_COMMAND,
+                        "desktop-home-task-id " + displayId));
         final Matcher matcher =
                 DESKTOP_HOME_TASK_ID_PATTERN.matcher(output);
         if (!matcher.find()) {
@@ -217,8 +220,9 @@ final class ConsoleSessionController {
                 return false;
             }
             final String output = ConsoleModeSwitcher.runRootCommand(
-                    appProcessCommand(TASK_CONTROL_COMMAND)
-                            + " has-desktop-home " + displayId).trim();
+                    AppProcessCommand.run(
+                            TASK_CONTROL_COMMAND,
+                            "has-desktop-home " + displayId)).trim();
             if (output.contains("desktop-home-task=true")) {
                 Log.i(TAG,
                         "Console desktop task ready display=" + displayId);
@@ -235,8 +239,9 @@ final class ConsoleSessionController {
 
     private static boolean hasVisibleAppTask(final int displayId) {
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(TASK_CONTROL_COMMAND)
-                        + " has-visible-app " + displayId).trim();
+                AppProcessCommand.run(
+                        TASK_CONTROL_COMMAND,
+                        "has-visible-app " + displayId)).trim();
         if (output.contains("visible-app-task=true")) {
             return true;
         }
@@ -249,8 +254,9 @@ final class ConsoleSessionController {
 
     private static boolean hasDesktopHomeTask(final int displayId) {
         final String output = ConsoleModeSwitcher.runRootCommand(
-                appProcessCommand(TASK_CONTROL_COMMAND)
-                        + " has-desktop-home " + displayId).trim();
+                AppProcessCommand.run(
+                        TASK_CONTROL_COMMAND,
+                        "has-desktop-home " + displayId)).trim();
         if (output.contains("desktop-home-task=true")) {
             return true;
         }
@@ -261,9 +267,4 @@ final class ConsoleSessionController {
         return false;
     }
 
-    private static String appProcessCommand(final String mainClass) {
-        return "APK=$(/system/bin/pm path io.github.mekhontsev.magicdesk "
-                + "| /system/bin/cut -d: -f2- | /system/bin/head -n 1); "
-                + "CLASSPATH=\"$APK\" /system/bin/app_process / " + mainClass;
-    }
 }

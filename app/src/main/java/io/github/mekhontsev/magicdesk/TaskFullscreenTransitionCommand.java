@@ -3,9 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -52,11 +49,14 @@ public final class TaskFullscreenTransitionCommand {
 
     private static void applyFullscreen(final int displayId, final int taskId)
             throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
-        final Object task = findTask(service, displayId, taskId);
-        final Object taskToken = task.getClass().getField("token").get(task);
-        final Object configuration = task.getClass().getField("configuration").get(task);
-        final int densityDpi = getIntField(configuration, "densityDpi");
+        final Object service = HiddenTaskApi.getService();
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        final Object taskToken = HiddenTaskApi.getField(task, "token");
+        final Object configuration =
+                HiddenTaskApi.getField(task, "configuration");
+        final int densityDpi =
+                HiddenTaskApi.getIntField(configuration, "densityDpi");
         if (densityDpi <= 1 || densityDpi == Integer.MAX_VALUE) {
             throw new IllegalStateException("invalid task density " + densityDpi);
         }
@@ -107,13 +107,11 @@ public final class TaskFullscreenTransitionCommand {
             final int taskId) throws ReflectiveOperationException {
         final long deadline = System.nanoTime() + TRANSITION_TIMEOUT_NANOS;
         while (System.nanoTime() < deadline) {
-            final Object task = findTask(service, displayId, taskId);
-            final Object configuration =
-                    task.getClass().getField("configuration").get(task);
-            final Object windowConfiguration = configuration.getClass()
-                    .getField("windowConfiguration").get(configuration);
-            final int windowingMode = ((Integer) windowConfiguration.getClass()
-                    .getMethod("getWindowingMode").invoke(windowConfiguration)).intValue();
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            final int windowingMode =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode");
             if (windowingMode == WINDOWING_MODE_FULLSCREEN) {
                 return;
             }
@@ -135,37 +133,6 @@ public final class TaskFullscreenTransitionCommand {
         transactionClass.getMethod("setDensityDpi", tokenClass, Integer.TYPE)
                 .invoke(transaction, taskToken, Integer.valueOf(densityDpi));
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
-    }
-
-    private static Object findTask(final Object service, final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (result instanceof List) {
-            for (final Object task : (List<?>) result) {
-                if (getIntField(task, "taskId") == taskId) {
-                    return task;
-                }
-            }
-        }
-        throw new IllegalStateException("task " + taskId + " not found on display "
-                + displayId);
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
-    }
-
-    private static int getIntField(final Object target, final String name)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(name);
-        return field.getInt(target);
     }
 
     private static int parseInt(final String value, final String label) {

@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -47,11 +46,11 @@ final class OverlayPanelController {
             mWindowManager = null;
             return;
         }
-        Context windowContext = mApplicationContext.createDisplayContext(display);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            windowContext = windowContext.createWindowContext(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null);
-        }
+        final Context windowContext = mApplicationContext
+                .createDisplayContext(display)
+                .createWindowContext(
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                        null);
         mWindowManager = windowContext.getSystemService(WindowManager.class);
     }
 

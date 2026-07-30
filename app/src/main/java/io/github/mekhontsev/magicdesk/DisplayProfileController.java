@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.hardware.display.DisplayManager;
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -16,16 +15,22 @@ import java.util.Set;
 final class DisplayProfileController {
     private static final String TAG = "MagicDeskDisplayProfile";
     private static final long DISPLAY_SETTLE_MILLIS = 1_000L;
+    private static final long MONITOR_IDENTITY_RETRY_MILLIS = 2_000L;
+    private static final int MAX_MONITOR_IDENTITY_ATTEMPTS = 3;
 
     private final DesktopShellActivity mActivity;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mRefresh = this::refreshAfterDisplayChange;
+    private final Runnable mMonitorIdentityRetry =
+            this::resolveMonitorIdentityAsync;
 
     private DisplayManager.DisplayListener mDisplayListener;
     private WorkspaceProfileStore.Profile mProfile;
     private String mProfileDisplayKey;
     private String mMonitorProfileKey;
     private boolean mMonitorIdentityRequested;
+    private int mMonitorIdentityGeneration;
+    private int mMonitorIdentityAttempts;
 
     DisplayProfileController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -58,6 +63,9 @@ final class DisplayProfileController {
 
     void stop() {
         mHandler.removeCallbacks(mRefresh);
+        mHandler.removeCallbacks(mMonitorIdentityRetry);
+        mMonitorIdentityGeneration++;
+        mMonitorIdentityRequested = false;
         final DisplayManager displayManager =
                 mActivity.getSystemService(DisplayManager.class);
         if (displayManager != null && mDisplayListener != null) {
@@ -100,6 +108,9 @@ final class DisplayProfileController {
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = null;
         mMonitorIdentityRequested = false;
+        mMonitorIdentityAttempts = 0;
+        mMonitorIdentityGeneration++;
+        mHandler.removeCallbacks(mMonitorIdentityRetry);
         getProfile();
     }
 
@@ -121,29 +132,62 @@ final class DisplayProfileController {
             return;
         }
         mMonitorIdentityRequested = true;
+        final String requestedDisplayKey = resolveProfileKey();
+        final int generation = ++mMonitorIdentityGeneration;
+        mMonitorIdentityAttempts++;
         new Thread(() -> {
             final String output;
             try {
                 output = PrivilegedCommandRunner.run(
-                        "for f in /sys/class/drm/card*-DP-*/edid; do "
-                                + "/system/bin/sha256sum \"$f\" && exit; done")
+                        "for d in /sys/class/drm/card*-DP-*; do "
+                                + "[ -d \"$d\" ] || continue; "
+                                + "[ \"$(/system/bin/cat \"$d/status\" 2>/dev/null)\" "
+                                + "= connected ] || continue; "
+                                + "h=$(/system/bin/sha256sum \"$d/edid\" 2>/dev/null) "
+                                + "|| continue; h=${h%% *}; "
+                                + "printf '%s %s\\n' \"$h\" \"$d\"; done")
                         .trim();
             } catch (IOException error) {
                 Log.w(TAG, "Cannot resolve monitor EDID", error);
+                mActivity.runOnUiThread(() ->
+                        finishMonitorIdentityAttempt(
+                                generation, requestedDisplayKey, null));
                 return;
             }
-            final String[] fields = output.split("\\s+");
-            if (fields.length == 0
-                    || !fields[0].matches("[0-9a-fA-F]{64}")) {
-                Log.w(TAG, "No usable monitor EDID hash: " + output);
+            final String hash = parseSingleConnectedEdidHash(output);
+            if (hash == null) {
+                Log.w(TAG,
+                        "Expected exactly one connected DP EDID: " + output);
+                mActivity.runOnUiThread(() ->
+                        finishMonitorIdentityAttempt(
+                                generation, requestedDisplayKey, null));
                 return;
             }
-            final String monitorKey =
-                    "edid:" + fields[0].toLowerCase(Locale.ROOT);
+            final String monitorKey = "edid:" + hash;
             Log.i(TAG, "Resolved monitor profile " + monitorKey);
-            mActivity.runOnUiThread(
-                    () -> applyResolvedMonitorProfile(monitorKey));
+            mActivity.runOnUiThread(() ->
+                    finishMonitorIdentityAttempt(
+                            generation, requestedDisplayKey, monitorKey));
         }, "MagicDeskMonitorIdentity").start();
+    }
+
+    static String parseSingleConnectedEdidHash(final String output) {
+        if (output == null || output.trim().isEmpty()) {
+            return null;
+        }
+        String hash = null;
+        for (final String line : output.split("\\r?\\n")) {
+            final String[] fields = line.trim().split("\\s+");
+            if (fields.length < 2
+                    || !fields[0].matches("[0-9a-fA-F]{64}")) {
+                continue;
+            }
+            if (hash != null) {
+                return null;
+            }
+            hash = fields[0].toLowerCase(Locale.ROOT);
+        }
+        return hash;
     }
 
     private void refreshAfterDisplayChange() {
@@ -176,9 +220,7 @@ final class DisplayProfileController {
     private Display getProfileDisplay() {
         final DisplayManager manager =
                 mActivity.getSystemService(DisplayManager.class);
-        final Display current = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-                ? mActivity.getDisplay()
-                : mActivity.getWindowManager().getDefaultDisplay();
+        final Display current = mActivity.getDisplay();
         if (manager == null) {
             return current;
         }
@@ -199,10 +241,39 @@ final class DisplayProfileController {
         return current;
     }
 
-    private void applyResolvedMonitorProfile(final String monitorKey) {
+    private void finishMonitorIdentityAttempt(
+            final int generation,
+            final String requestedDisplayKey,
+            final String monitorKey) {
+        if (generation != mMonitorIdentityGeneration
+                || mActivity.isActivityUnavailable()) {
+            return;
+        }
+        if (!requestedDisplayKey.equals(resolveProfileKey())
+                || !requestedDisplayKey.equals(mProfileDisplayKey)) {
+            mMonitorIdentityRequested = false;
+            return;
+        }
+        if (monitorKey != null) {
+            applyResolvedMonitorProfile(requestedDisplayKey, monitorKey);
+            return;
+        }
+        mMonitorIdentityRequested = false;
+        if (mMonitorIdentityAttempts < MAX_MONITOR_IDENTITY_ATTEMPTS) {
+            mHandler.removeCallbacks(mMonitorIdentityRetry);
+            mHandler.postDelayed(
+                    mMonitorIdentityRetry,
+                    MONITOR_IDENTITY_RETRY_MILLIS);
+        }
+    }
+
+    private void applyResolvedMonitorProfile(
+            final String requestedDisplayKey,
+            final String monitorKey) {
         if (monitorKey == null
                 || monitorKey.equals(mMonitorProfileKey)
-                || mActivity.isActivityUnavailable()) {
+                || mActivity.isActivityUnavailable()
+                || !requestedDisplayKey.equals(mProfileDisplayKey)) {
             return;
         }
         final WorkspaceProfileStore.Profile previous = getProfile();
@@ -223,7 +294,7 @@ final class DisplayProfileController {
         }
         final int previousDpi = previous.dpi;
         WorkspaceProfileStore.saveMonitorAlias(
-                mActivity, mProfileDisplayKey, monitorKey);
+                mActivity, requestedDisplayKey, monitorKey);
         mMonitorProfileKey = monitorKey;
         mProfile = resolved;
         Log.i(TAG, "Activated monitor profile " + monitorKey);

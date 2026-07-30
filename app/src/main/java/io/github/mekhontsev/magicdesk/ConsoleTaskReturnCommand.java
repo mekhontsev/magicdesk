@@ -4,11 +4,7 @@ import android.annotation.SuppressLint;
 import android.content.ComponentName;
 import android.graphics.Rect;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,7 +31,7 @@ public final class ConsoleTaskReturnCommand {
 
         try {
             final int sourceDisplayId = parseDisplayId(args[0]);
-            final Object service = getActivityTaskManagerService();
+            final Object service = HiddenTaskApi.getService();
             final List<Integer> taskIds = findApplicationTasks(service, sourceDisplayId);
             Collections.reverse(taskIds);
             int moved = 0;
@@ -60,20 +56,15 @@ public final class ConsoleTaskReturnCommand {
 
     private static List<Integer> findApplicationTasks(final Object service,
             final int displayId) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
         final List<Integer> taskIds = new ArrayList<>();
-        if (!(result instanceof List)) {
-            return taskIds;
-        }
-        for (final Object task : (List<?>) result) {
+        for (final Object task :
+                HiddenTaskApi.getTasks(service, displayId)) {
             if (getActivityType(task) != ACTIVITY_TYPE_STANDARD
                     || isMagicDeskTask(task)) {
                 continue;
             }
-            taskIds.add(Integer.valueOf(getIntField(task, "taskId")));
+            taskIds.add(Integer.valueOf(
+                    HiddenTaskApi.getIntField(task, "taskId")));
         }
         return taskIds;
     }
@@ -81,12 +72,14 @@ public final class ConsoleTaskReturnCommand {
     private static boolean isMagicDeskTask(final Object task)
             throws ReflectiveOperationException {
         final ComponentName topActivity =
-                (ComponentName) task.getClass().getField("topActivity").get(task);
+                (ComponentName) HiddenTaskApi.getField(
+                        task, "topActivity");
         if (isMagicDeskPackage(topActivity)) {
             return true;
         }
         final ComponentName baseActivity =
-                (ComponentName) task.getClass().getField("baseActivity").get(task);
+                (ComponentName) HiddenTaskApi.getField(
+                        task, "baseActivity");
         return isMagicDeskPackage(baseActivity);
     }
 
@@ -99,12 +92,8 @@ public final class ConsoleTaskReturnCommand {
 
     private static int getActivityType(final Object task)
             throws ReflectiveOperationException {
-        final Object configuration =
-                task.getClass().getField("configuration").get(task);
-        final Object windowConfiguration = configuration.getClass()
-                .getField("windowConfiguration").get(configuration);
-        return ((Integer) windowConfiguration.getClass()
-                .getMethod("getActivityType").invoke(windowConfiguration)).intValue();
+        return HiddenTaskApi.getWindowConfigurationValue(
+                task, "getActivityType");
     }
 
     private static void moveRootTask(final int taskId, final int displayId)
@@ -114,27 +103,18 @@ public final class ConsoleTaskReturnCommand {
                 Integer.toString(taskId), Integer.toString(displayId))
                 .redirectErrorStream(true)
                 .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (output.length() > 0) {
-                    output.append('\n');
-                }
-                output.append(line);
-            }
-        }
-        final int exitCode;
         try {
-            exitCode = process.waitFor();
+            final BoundedProcessRunner.Result result =
+                    BoundedProcessRunner.run(process);
+            if (result.exitCode != 0) {
+                throw new IOException("move task " + taskId + " failed "
+                        + result.exitCode + ": " + result.output);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("task move interrupted", e);
-        }
-        if (exitCode != 0) {
-            throw new IOException("move task " + taskId + " failed "
-                    + exitCode + ": " + output);
+        } finally {
+            process.destroy();
         }
     }
 
@@ -142,7 +122,8 @@ public final class ConsoleTaskReturnCommand {
             final int taskId) throws ReflectiveOperationException {
         final long deadline = System.nanoTime() + MOVE_TIMEOUT_NANOS;
         do {
-            final Object task = findTask(service, displayId, taskId);
+            final Object task =
+                    HiddenTaskApi.findTask(service, displayId, taskId);
             if (task != null) {
                 return task;
             }
@@ -157,25 +138,9 @@ public final class ConsoleTaskReturnCommand {
                 "task " + taskId + " did not move to display " + displayId);
     }
 
-    private static Object findTask(final Object service, final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod("getTasks", Integer.TYPE, Boolean.TYPE, Boolean.TYPE, Integer.TYPE)
-                .invoke(service, Integer.valueOf(100), Boolean.FALSE, Boolean.TRUE,
-                        Integer.valueOf(displayId));
-        if (result instanceof List) {
-            for (final Object task : (List<?>) result) {
-                if (getIntField(task, "taskId") == taskId) {
-                    return task;
-                }
-            }
-        }
-        return null;
-    }
-
     private static void normalizePhoneTask(final Object service, final Object task)
             throws ReflectiveOperationException {
-        final Object taskToken = task.getClass().getField("token").get(task);
+        final Object taskToken = HiddenTaskApi.getField(task, "token");
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
@@ -191,20 +156,6 @@ public final class ConsoleTaskReturnCommand {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, transaction, tokenClass, taskToken, true);
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager = Class.forName("android.app.ActivityTaskManager");
-        final Method getService = activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
-    }
-
-    private static int getIntField(final Object target, final String name)
-            throws ReflectiveOperationException {
-        final Field field = target.getClass().getField(name);
-        return field.getInt(target);
     }
 
     private static int parseDisplayId(final String value) {

@@ -4,8 +4,8 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.net.Uri;
-import android.os.Build;
 import android.provider.DocumentsContract;
 import android.text.TextUtils;
 import android.util.Log;
@@ -74,7 +74,18 @@ final class DesktopItemsController {
             return false;
         }
         final Uri treeUri = data.getData();
-        if ((data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+        if (!hasPersistedReadPermission(treeUri)) {
+            final int grantFlags = data.getFlags();
+            if ((grantFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0
+                    || (grantFlags
+                            & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                            == 0) {
+                rejectTransientFolderGrant(
+                        treeUri,
+                        "The document provider did not offer a persistent "
+                                + "read grant");
+                return true;
+            }
             try {
                 mActivity.getContentResolver().takePersistableUriPermission(
                         treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -83,7 +94,15 @@ final class DesktopItemsController {
                         "Cannot persist desktop folder permission for "
                                 + treeUri,
                         e);
+                rejectTransientFolderGrant(treeUri, e.getMessage());
+                return true;
             }
+        }
+        if (!hasPersistedReadPermission(treeUri)) {
+            rejectTransientFolderGrant(
+                    treeUri,
+                    "Android did not retain the document provider grant");
+            return true;
         }
         final WorkspaceProfileStore.Profile profile =
                 mActivity.getWorkspaceProfile();
@@ -92,6 +111,32 @@ final class DesktopItemsController {
         refreshFolder(true);
         mActivity.setStatus(R.string.status_desktop_folder_selected);
         return true;
+    }
+
+    private boolean hasPersistedReadPermission(final Uri treeUri) {
+        for (final UriPermission permission :
+                mActivity.getContentResolver().getPersistedUriPermissions()) {
+            if (treeUri.equals(permission.getUri())
+                    && permission.isReadPermission()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void rejectTransientFolderGrant(
+            final Uri treeUri,
+            final String reason) {
+        final String detail = reason == null || reason.length() == 0
+                ? "Persistent folder access was denied"
+                : reason;
+        mActivity.setErrorStatus(
+                "FILES-003",
+                mActivity.getString(
+                        R.string.status_desktop_folder_failed,
+                        detail),
+                "Folder: " + treeUri,
+                null);
     }
 
     void render(final List<AppItem> apps) {
@@ -132,8 +177,7 @@ final class DesktopItemsController {
                         | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         final String currentUri =
                 mActivity.getWorkspaceProfile().folderUri;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                && currentUri != null
+        if (currentUri != null
                 && currentUri.length() > 0) {
             intent.putExtra(
                     DocumentsContract.EXTRA_INITIAL_URI,
@@ -301,11 +345,7 @@ final class DesktopItemsController {
                 app.packageName);
         final View.DragShadowBuilder shadow =
                 new View.DragShadowBuilder(view);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return view.startDragAndDrop(
-                    data, shadow, app.packageName, 0);
-        }
-        return view.startDrag(data, shadow, app.packageName, 0);
+        return view.startDragAndDrop(data, shadow, app.packageName, 0);
     }
 
     private View createFileIcon(final DesktopFile file) {

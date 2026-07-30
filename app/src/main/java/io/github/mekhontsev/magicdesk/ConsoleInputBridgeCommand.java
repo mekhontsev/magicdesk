@@ -40,6 +40,8 @@ public final class ConsoleInputBridgeCommand {
     private ConsoleRightButtonTranslator mRightButtonTranslator;
     private final Set<Integer> mDisabledMouseInputDeviceIds = new LinkedHashSet<>();
     private final Set<Integer> mDisabledKeyboardInputDeviceIds = new LinkedHashSet<>();
+    private final Set<Integer> mMatchedMouseInputDeviceIds = new LinkedHashSet<>();
+    private final Set<Integer> mMatchedKeyboardInputDeviceIds = new LinkedHashSet<>();
     private boolean mCleanedUp;
     private volatile boolean mStopRequested;
 
@@ -90,6 +92,7 @@ public final class ConsoleInputBridgeCommand {
                     System.err.println("MAGICDESK_MOUSE_REMAP_UNAVAILABLE source="
                             + mouse.path + " error=" + e);
                     e.printStackTrace(System.err);
+                    restoreMouseButtonAfterSetupFailure(mouse);
                 }
             }
             if (activeMouseCount > 0) {
@@ -369,7 +372,10 @@ public final class ConsoleInputBridgeCommand {
                     || (device.getSources() & InputDevice.SOURCE_MOUSE)
                     != InputDevice.SOURCE_MOUSE
                     || device.getVendorId() != mouse.vendorId
-                    || device.getProductId() != mouse.productId) {
+                    || device.getProductId() != mouse.productId
+                    || (mouse.inputDeviceId != deviceId
+                            && mMatchedMouseInputDeviceIds.contains(
+                                    Integer.valueOf(deviceId)))) {
                 continue;
             }
             disableInputDevice.invoke(mInputManager, Integer.valueOf(deviceId));
@@ -378,6 +384,7 @@ public final class ConsoleInputBridgeCommand {
                     "enableInputDevice", int.class);
             enableInputDevice.invoke(mInputManager, Integer.valueOf(deviceId));
             mDisabledMouseInputDeviceIds.remove(Integer.valueOf(deviceId));
+            mMatchedMouseInputDeviceIds.add(Integer.valueOf(deviceId));
             mouse.inputDeviceId = deviceId;
             System.out.println("MAGICDESK_MOUSE_SOURCE_RESET id=" + deviceId);
             System.out.flush();
@@ -411,7 +418,10 @@ public final class ConsoleInputBridgeCommand {
                     || device.getKeyboardType()
                     != InputDevice.KEYBOARD_TYPE_ALPHABETIC
                     || device.getVendorId() != keyboard.vendorId
-                    || device.getProductId() != keyboard.productId) {
+                    || device.getProductId() != keyboard.productId
+                    || (keyboard.inputDeviceId != deviceId
+                            && mMatchedKeyboardInputDeviceIds.contains(
+                                    Integer.valueOf(deviceId)))) {
                 continue;
             }
             disableInputDevice.invoke(
@@ -421,6 +431,8 @@ public final class ConsoleInputBridgeCommand {
             enableInputDevice.invoke(
                     mInputManager, Integer.valueOf(deviceId));
             mDisabledKeyboardInputDeviceIds.remove(
+                    Integer.valueOf(deviceId));
+            mMatchedKeyboardInputDeviceIds.add(
                     Integer.valueOf(deviceId));
             keyboard.inputDeviceId = deviceId;
             System.out.println(
@@ -438,6 +450,23 @@ public final class ConsoleInputBridgeCommand {
     private void enablePhysicalKeyboardInputDevices() {
         enablePhysicalInputDevices(
                 mDisabledKeyboardInputDeviceIds, "keyboard");
+    }
+
+    private void restoreMouseButtonAfterSetupFailure(
+            final ConsoleMouseDevice mouse) {
+        if (!mouse.remapped) {
+            return;
+        }
+        try {
+            setMouseRightButtonRemapped(mouse, false);
+            if (mouse.inputDeviceId >= 0) {
+                resetPhysicalMouseInputDevice(mouse);
+            }
+        } catch (Exception e) {
+            System.err.println(
+                    "MAGICDESK_MOUSE_REMAP_ROLLBACK_ERROR source="
+                            + mouse.path + " error=" + e);
+        }
     }
 
     private void enablePhysicalMouseInputDevices() {

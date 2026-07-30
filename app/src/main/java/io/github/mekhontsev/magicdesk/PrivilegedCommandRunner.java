@@ -1,8 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 
 final class PrivilegedCommandRunner {
     private PrivilegedCommandRunner() {
@@ -35,26 +33,19 @@ final class PrivilegedCommandRunner {
         final Process process = new ProcessBuilder("su", "-c", command)
                 .redirectErrorStream(true)
                 .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
         try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
+            final BoundedProcessRunner.Result result =
+                    BoundedProcessRunner.run(process);
+            if (result.exitCode != 0) {
+                throw new IOException("root command failed " + result.exitCode
+                        + ": " + result.output.trim());
             }
+            return result.output;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("root command interrupted", e);
         } finally {
             process.destroy();
         }
-        return output.toString();
     }
 }

@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,7 +45,7 @@ public final class PhoneFreeformCleanupCommand {
 
     private static int normalizePhoneTasks()
             throws ReflectiveOperationException {
-        final Object service = getActivityTaskManagerService();
+        final Object service = HiddenTaskApi.getService();
         final List<Object> tasks = findFreeformApplicationTasks(service);
         if (tasks.isEmpty()) {
             return 0;
@@ -60,7 +59,7 @@ public final class PhoneFreeformCleanupCommand {
                 transactionClass.getConstructor().newInstance();
         for (final Object task : tasks) {
             final Object taskToken =
-                    task.getClass().getField("token").get(task);
+                    HiddenTaskApi.getField(task, "token");
             transactionClass.getMethod(
                     "setWindowingMode", tokenClass, Integer.TYPE)
                     .invoke(transaction, taskToken,
@@ -84,24 +83,9 @@ public final class PhoneFreeformCleanupCommand {
 
     private static List<Object> findFreeformApplicationTasks(
             final Object service) throws ReflectiveOperationException {
-        final Object result = service.getClass()
-                .getMethod(
-                        "getTasks",
-                        Integer.TYPE,
-                        Boolean.TYPE,
-                        Boolean.TYPE,
-                        Integer.TYPE)
-                .invoke(
-                        service,
-                        Integer.valueOf(100),
-                        Boolean.FALSE,
-                        Boolean.TRUE,
-                        Integer.valueOf(PHONE_DISPLAY_ID));
         final List<Object> tasks = new ArrayList<>();
-        if (!(result instanceof List)) {
-            return tasks;
-        }
-        for (final Object task : (List<?>) result) {
+        for (final Object task :
+                HiddenTaskApi.getTasks(service, PHONE_DISPLAY_ID)) {
             if (getActivityType(task) == ACTIVITY_TYPE_STANDARD
                     && getWindowingMode(task) == WINDOWING_MODE_FREEFORM) {
                 tasks.add(task);
@@ -112,33 +96,13 @@ public final class PhoneFreeformCleanupCommand {
 
     private static int getActivityType(final Object task)
             throws ReflectiveOperationException {
-        return windowConfiguration(task, "getActivityType");
+        return HiddenTaskApi.getWindowConfigurationValue(
+                task, "getActivityType");
     }
 
     private static int getWindowingMode(final Object task)
             throws ReflectiveOperationException {
-        return windowConfiguration(task, "getWindowingMode");
-    }
-
-    private static int windowConfiguration(
-            final Object task,
-            final String methodName) throws ReflectiveOperationException {
-        final Object configuration =
-                task.getClass().getField("configuration").get(task);
-        final Object windowConfiguration = configuration.getClass()
-                .getField("windowConfiguration").get(configuration);
-        return ((Integer) windowConfiguration.getClass()
-                .getMethod(methodName)
-                .invoke(windowConfiguration)).intValue();
-    }
-
-    private static Object getActivityTaskManagerService()
-            throws ReflectiveOperationException {
-        final Class<?> activityTaskManager =
-                Class.forName("android.app.ActivityTaskManager");
-        final Method getService =
-                activityTaskManager.getDeclaredMethod("getService");
-        getService.setAccessible(true);
-        return getService.invoke(null);
+        return HiddenTaskApi.getWindowConfigurationValue(
+                task, "getWindowingMode");
     }
 }
