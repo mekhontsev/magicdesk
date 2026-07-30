@@ -134,7 +134,9 @@ device-specific failure.
 3. Select **Auto**, **Basic**, **Shizuku**, or **Root** runtime privileges and
    choose the Primary, Current, External, or Auto display target.
 4. In Root mode, grant root when Device Setup requests it.
-5. Review the settings Device Setup proposes and confirm the changes.
+5. Review the settings Device Setup proposes and confirm the changes. In Basic
+   mode, use its **Open developer options** action to enable Android's freeform
+   windows and resizable activities options.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 7. A normal launch on the phone opens the compact MagicDesk control panel.

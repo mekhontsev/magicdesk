@@ -362,11 +362,22 @@ public final class DeviceSetupActivity extends Activity {
         }
 
         if (audit.backend == RuntimeAccess.Backend.BASIC) {
-            mSetupView.summary().setText(audit.isDegradedRuntime()
-                    ? R.string.setup_status_basic_degraded
-                    : R.string.setup_status_basic_ready);
-            mSetupView.summary().setTextColor(
-                    audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
+            if (!audit.hasUserWindowingOptions()) {
+                mSetupView.summary().setText(
+                        R.string.setup_status_basic_developer_options);
+                mSetupView.summary().setTextColor(COLOR_AMBER);
+                mSetupView.primaryAction().setText(
+                        R.string.setup_action_open_developer_options);
+                mSetupView.primaryAction().setOnClickListener(
+                        view -> openDeveloperOptions());
+                mSetupView.secondaryAction().setText(mManual
+                        ? R.string.setup_action_done : R.string.setup_action_continue);
+                mSetupView.secondaryAction().setOnClickListener(
+                        view -> continueFromSetup());
+                return;
+            }
+            mSetupView.summary().setText(R.string.setup_status_basic_ready);
+            mSetupView.summary().setTextColor(COLOR_CYAN);
             mSetupView.primaryAction().setText(mManual
                     ? R.string.setup_action_done : R.string.setup_action_continue);
             mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
@@ -401,6 +412,15 @@ public final class DeviceSetupActivity extends Activity {
         mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
         mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
         mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
+    }
+
+    private void openDeveloperOptions() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Developer options are unavailable", error);
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
     }
 
     private void setCloseAction() {

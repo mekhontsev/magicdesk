@@ -136,10 +136,11 @@ final class DeviceSetupManager {
         final boolean resizableEnabled = "1".equals(resizableValue);
         final boolean restrictionsDisabled = "false".equals(restrictionsValue);
         final boolean roundedCornersDisabled = "false".equals(roundedCornersValue);
-        final boolean configurationReady = freeformEnabled
-                && resizableEnabled
-                && restrictionsDisabled
-                && roundedCornersDisabled;
+        final boolean configurationReady = isFullWindowingConfigurationReady(
+                freeformEnabled,
+                resizableEnabled,
+                restrictionsDisabled,
+                roundedCornersDisabled);
         final boolean acknowledged =
                 preferences.getInt(KEY_APPROVED_VERSION, 0) >= SETUP_VERSION;
 
@@ -660,5 +661,27 @@ final class DeviceSetupManager {
         boolean isDegradedRuntime() {
             return backend != RuntimeAccess.Backend.ROOT && !configurationReady;
         }
+
+        boolean hasUserWindowingOptions() {
+            return DeviceSetupManager.hasUserWindowingOptions(
+                    freeformEnabled,
+                    resizableEnabled);
+        }
+    }
+
+    static boolean hasUserWindowingOptions(
+            final boolean freeformEnabled,
+            final boolean resizableEnabled) {
+        return freeformEnabled && resizableEnabled;
+    }
+
+    static boolean isFullWindowingConfigurationReady(
+            final boolean freeformEnabled,
+            final boolean resizableEnabled,
+            final boolean restrictionsDisabled,
+            final boolean roundedCornersDisabled) {
+        return hasUserWindowingOptions(freeformEnabled, resizableEnabled)
+                && restrictionsDisabled
+                && roundedCornersDisabled;
     }
 }

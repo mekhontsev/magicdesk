@@ -245,7 +245,7 @@
     <string name="setup_item_overlays">Display over other apps</string>
     <string name="setup_item_freeform">Freeform windows</string>
     <string name="setup_item_resizable">Resizable activities</string>
-    <string name="setup_item_desktop_eligibility">Desktop eligibility</string>
+    <string name="setup_item_desktop_eligibility">Full desktop eligibility</string>
     <string name="setup_item_window_corners">Window corners</string>
     <string name="setup_item_reboot">Restart</string>
     <string name="setup_build_label">System build</string>
@@ -281,8 +281,8 @@
     <string name="setup_status_configuration_required">System configuration is required before MagicDesk can start.</string>
     <string name="setup_status_reboot_required">Restart Android to activate the new windowing configuration.</string>
     <string name="setup_status_ready">Device is ready for MagicDesk.</string>
-    <string name="setup_status_basic_ready">Basic mode is ready. Privileged task, input, and display controls remain disabled.</string>
-    <string name="setup_status_basic_degraded">Basic mode can start, but Android desktop windowing is not fully configured. Window management will be limited.</string>
+    <string name="setup_status_basic_ready">Basic windowing options are enabled. Privileged task, input, and display controls remain disabled.</string>
+    <string name="setup_status_basic_developer_options">Enable the disabled Freeform windows and Resizable activities options in Android Developer options, then return to MagicDesk. Restart Android if prompted.</string>
     <string name="setup_status_shizuku_not_installed">Shizuku mode is strict and will not fall back. Install and start the official Shizuku manager to continue.</string>
     <string name="setup_status_shizuku_stopped">Shizuku is installed, but its server is not running.</string>
     <string name="setup_status_shizuku_permission">Allow MagicDesk in Shizuku. This grants Android shell privileges, not root, when the Shizuku server was started through ADB or wireless debugging.</string>
@@ -306,6 +306,7 @@
     <string name="setup_action_get_shizuku">Get official Shizuku</string>
     <string name="setup_action_open_shizuku">Open Shizuku</string>
     <string name="setup_action_allow_shizuku">Allow through Shizuku</string>
+    <string name="setup_action_open_developer_options">Open developer options</string>
     <string name="setup_action_done">Done</string>
     <string name="setup_action_exit">Exit</string>
     <string name="setup_action_restore">Restore values</string>

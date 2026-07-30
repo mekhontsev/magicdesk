@@ -15,6 +15,13 @@ The standard Android **Display over other apps** permission is requested for
 the taskbar and shell overlays. A user can continue without it, with those
 surfaces limited.
 
+Device Setup links directly to Android Developer options when **Enable freeform
+windows** or **Force activities to be resizable** is disabled. Both options are
+available to an ordinary user on verified REDMAGIC firmware. MagicDesk checks
+them again when the user returns; restart Android if Settings requests it.
+These options improve Basic windowing but do not grant privileged task control
+or bypass the firmware's desktop-device eligibility checks.
+
 Public `ActivityOptions.setLaunchDisplayId()` and `setLaunchBounds()` are used
 for new launches. Android may ignore requested bounds when desktop windowing is
 not supported on the selected display. Basic mode cannot inspect or manipulate
@@ -109,6 +116,12 @@ settings put global force_resizable_activities 1
 setprop persist.wm.debug.desktop_mode_enforce_device_restrictions false
 setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
+
+The first two values map to **Enable freeform windows** and **Force activities
+to be resizable** in Android Developer options and can be enabled without Root
+or Shizuku. The persistent properties remain privileged: disabling device
+restrictions enables the complete WMShell desktop path on this firmware, while
+disabling rounded corners is a cosmetic consistency setting.
 
 WMShell and ActivityTaskManager cache this configuration, so changing it
 requires a real reboot. Shizuku shell cannot apply the persistent property
