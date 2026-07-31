@@ -214,6 +214,28 @@ guard in Root mode only. Suspending or repeatedly force-stopping the entire
 `cn.nubia.keymapcenter` package would also remove the user-requested Touch Panel
 and is not used as a Shizuku fallback.
 
+The firmware also exposes `cmd display power-off 0` and
+`cmd display power-reset 0` to shell UID 2000. Unlike
+`RedMagicAppManager.openScreenOffTP(true)`, `power-off` requests the physical
+state directly and leaves `nubia_screen_off_tp=0`; `MirrorInputActivity`
+therefore has no dimmed-panel flag to undo when a mirrored application asks
+for text input. A local test confirmed that display 0 reached the committed
+`OFF` state, `power-reset` restored the DisplayManager-owned state, and the
+physical power button could still wake the phone. This is the preferred
+candidate for a Shizuku wake guard, but it must remain lifecycle-owned and
+fail open: a heartbeat-bound helper must always issue `power-reset` when the
+MagicDesk process, Shizuku service, or Console session ends.
+
+Two apparent event sources are not sufficient by themselves. Nubia's
+`zte_backlight` callback reports only calls to `setNit`, `setBacklight`, and
+`setHbmMsg`; it is not a callback for physical display power. Likewise,
+`DisplayManagerService.requestDisplayPower()` drives the primary display
+device without replacing its logical power state, so a public
+`DisplayListener` is not an authoritative ownership signal. The Shizuku path
+therefore still needs an external-display test covering real text focus,
+physical wake, process death, Console exit, and cable removal before it can
+replace the current stock screen controller.
+
 ## Physical Input Findings
 
 Nubia's Console input path reinjects physical-keyboard events through

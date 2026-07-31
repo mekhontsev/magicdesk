@@ -141,11 +141,15 @@ successful build.
 - [x] Lock the phone through WindowManager from shell UID 2000. The same
   `DeviceLockCommand` used by `Win+L` returned `device-locked`, and the phone
   entered its normal lock screen.
-- [ ] Verify Shizuku phone-screen dimming with an external display attached,
-  including the documented limitation that Nubia's text-input panel may wake
-  the phone. Android 16 rejects component-state changes for
-  `MirrorInputService` specifically from UID 2000, so the Root-mode anti-wake
-  guard is intentionally not retried in Shizuku mode.
+- [ ] Validate the physical-display Shizuku wake-guard candidate with an
+  external display attached. Use `cmd display power-off 0` while leaving
+  `nubia_screen_off_tp=0`; focus a real text field and confirm that Nubia's
+  input panel does not wake display 0, keyboard layout switching and repeat
+  remain intact, and the external desktop remains active. Then verify the
+  physical power button, explicit restore, Console exit, MagicDesk/Shizuku
+  process death, and cable removal all restore display 0 through
+  `cmd display power-reset 0`. Do not ship this path without a heartbeat-bound
+  fail-open owner.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found
   the configured English and Russian layouts while Unexpected Keyboard was
