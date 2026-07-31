@@ -22,6 +22,17 @@ public final class ShizukuInputRoutingCommand {
     public static void main(final String[] args) {
         ConsoleInputRoutingSession routing = null;
         try {
+            if (args.length == 1
+                    && "cleanup-stale".equals(args[0])) {
+                final int cleaned =
+                        ConsoleInputRoutingSession
+                                .cleanupStaleAssociations();
+                System.out.println(
+                        "MAGICDESK_SHIZUKU_ROUTING_CLEAN"
+                                + " associations=" + cleaned);
+                System.out.flush();
+                return;
+            }
             final List<ConsoleKeyboardDevice> keyboards =
                     waitForVirtualKeyboard();
             final List<ConsoleMouseDevice> mice =

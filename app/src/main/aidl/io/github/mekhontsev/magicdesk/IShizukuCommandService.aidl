@@ -16,4 +16,7 @@ interface IShizukuCommandService {
     void closeStream(long requestId) = 5;
 
     void writeStream(long requestId, String line) = 6;
+
+    String updateHardwareKeyboardLayout(
+        String mode, String currentDescriptor) = 7;
 }

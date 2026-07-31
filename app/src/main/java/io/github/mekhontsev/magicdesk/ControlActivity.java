@@ -70,14 +70,19 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void toggleConsoleMode() {
+    public void showExternalDesktop() {
         if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
             return;
         }
-        if (!ConsoleModeState.isActive(this)) {
-            mStatus = getString(R.string.status_console_starting);
-            refresh();
-            ConsoleModeSwitcher.showMagicDesk();
+        mStatus = getString(R.string.status_console_starting);
+        refresh();
+        ConsoleModeSwitcher.showMagicDesk();
+    }
+
+    @Override
+    public void switchToMirror() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)
+                || !ConsoleModeState.isActive(this)) {
             return;
         }
         mStatus = getString(R.string.status_mirror_switching);
@@ -187,8 +192,13 @@ public final class ControlActivity extends Activity
         }
         final int consoleDisplayId =
                 ConsoleModeState.activeDisplayId(this);
+        final boolean consoleActive =
+                consoleDisplayId > Display.DEFAULT_DISPLAY;
         mPanel.render(new PhoneControlPanelController.State(
-                consoleDisplayId > Display.DEFAULT_DISPLAY,
+                consoleActive,
+                consoleActive
+                        && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
+                                consoleDisplayId),
                 RuntimeAccess.has(
                         RuntimeAccess.Capability.CONSOLE_CONTROL),
                 ConsoleModeState.isPhoneScreenOff(this),

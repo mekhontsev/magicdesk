@@ -42,6 +42,8 @@
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
     <string name="action_start_console_mode">Start external desktop</string>
+    <string name="action_resume_external_desktop">Resume external desktop</string>
+    <string name="action_show_external_desktop">Show external desktop</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="action_open_touchpad">Open touchpad</string>
     <string name="action_open_control_panel">Phone control panel</string>

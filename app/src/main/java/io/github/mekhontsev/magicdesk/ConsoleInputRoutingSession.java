@@ -38,6 +38,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
     static ConsoleInputRoutingSession open(
             final List<ConsoleKeyboardDevice> keyboards,
             final List<ConsoleMouseDevice> mice) throws Exception {
+        cleanupStaleAssociations();
         final ConsoleInputRoutingSession session =
                 new ConsoleInputRoutingSession();
         try {
@@ -61,6 +62,42 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         return mKeyboardAssociationCount;
     }
 
+    static int cleanupStaleAssociations() throws Exception {
+        final String inputDump = readInputDump();
+        Set<String> ownedPorts =
+                ConsoleInputRoutingOwnership.read();
+        if (ownedPorts.isEmpty()) {
+            ownedPorts =
+                    ConsoleInputRoutingOwnership.findLegacyOwnedPorts(
+                            inputDump);
+        }
+        if (ownedPorts.isEmpty()) {
+            return 0;
+        }
+
+        final Object inputManager = getService(
+                "input", "android.hardware.input.IInputManager");
+        final Class<?> inputManagerInterface =
+                Class.forName("android.hardware.input.IInputManager");
+        final Method removePortAssociation =
+                inputManagerInterface.getMethod(
+                        "removePortAssociation", String.class);
+        removeAssociations(
+                inputManager, removePortAssociation, ownedPorts);
+
+        final Set<String> remaining =
+                ConsoleInputRoutingOwnership.findRuntimeAssociations(
+                        readInputDump());
+        remaining.retainAll(ownedPorts);
+        if (!remaining.isEmpty()) {
+            throw new IOException(
+                    "input associations remain after cleanup: "
+                            + remaining);
+        }
+        ConsoleInputRoutingOwnership.clear();
+        return ownedPorts.size();
+    }
+
     private void start(
             final List<ConsoleKeyboardDevice> keyboards,
             final List<ConsoleMouseDevice> mice) throws Exception {
@@ -79,6 +116,15 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                 "addPortAssociation", String.class, int.class);
         mRemovePortAssociation = inputManagerInterface.getMethod(
                 "removePortAssociation", String.class);
+
+        final Set<String> requestedPorts = new LinkedHashSet<>();
+        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+            addRequestedPort(requestedPorts, keyboard.location);
+        }
+        for (final ConsoleMouseDevice mouse : mice) {
+            addRequestedPort(requestedPorts, mouse.location);
+        }
+        ConsoleInputRoutingOwnership.record(requestedPorts);
 
         int keyboardAssociations = 0;
         for (final ConsoleKeyboardDevice keyboard : keyboards) {
@@ -151,6 +197,14 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                             + exitCode + ": " + output);
         }
         mMouseInputSourceOverride = enabled;
+    }
+
+    private static void addRequestedPort(
+            final Set<String> ports,
+            final String location) {
+        if (location != null && !location.isEmpty()) {
+            ports.add(location);
+        }
     }
 
     private int findExternalDisplayPort() throws Exception {
@@ -247,23 +301,78 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                                 + error);
             }
         }
+        boolean associationsRemoved = mAssociatedInputPorts.isEmpty();
         if (mRemovePortAssociation != null && mInputManager != null) {
-            for (final String inputPort : mAssociatedInputPorts) {
-                try {
-                    mRemovePortAssociation.invoke(
-                            mInputManager, inputPort);
-                } catch (ReflectiveOperationException
-                        | RuntimeException error) {
-                    System.err.println(
-                            "MAGICDESK_INPUT_ROUTING_CLEANUP port="
-                                    + inputPort + " error=" + error);
-                }
+            try {
+                removeAssociations(
+                        mInputManager,
+                        mRemovePortAssociation,
+                        mAssociatedInputPorts);
+                associationsRemoved = true;
+            } catch (ReflectiveOperationException
+                    | RuntimeException error) {
+                System.err.println(
+                        "MAGICDESK_INPUT_ROUTING_CLEANUP ports="
+                                + error);
+            }
+        }
+        if (associationsRemoved) {
+            try {
+                ConsoleInputRoutingOwnership.clear();
+            } catch (IOException error) {
+                System.err.println(
+                        "MAGICDESK_INPUT_ROUTING_CLEANUP ownership="
+                                + error);
             }
         }
         mAssociatedInputPorts.clear();
         mPanelToken = null;
         mConsoleDisplayId = -1;
         mKeyboardAssociationCount = 0;
+    }
+
+    private static void removeAssociations(
+            final Object inputManager,
+            final Method removePortAssociation,
+            final Set<String> inputPorts)
+            throws ReflectiveOperationException {
+        for (final String inputPort : inputPorts) {
+            if (ConsoleInputRoutingOwnership.SHIZUKU_KEYBOARD_LOCATION
+                    .equals(inputPort)) {
+                continue;
+            }
+            removePortAssociation.invoke(inputManager, inputPort);
+        }
+        if (inputPorts.contains(
+                ConsoleInputRoutingOwnership
+                        .SHIZUKU_KEYBOARD_LOCATION)) {
+            removePortAssociation.invoke(
+                    inputManager,
+                    ConsoleInputRoutingOwnership
+                            .SHIZUKU_KEYBOARD_LOCATION);
+        }
+    }
+
+    private static String readInputDump()
+            throws IOException, InterruptedException {
+        final Process process = new ProcessBuilder(DUMPSYS, "input")
+                .redirectErrorStream(true)
+                .start();
+        final StringBuilder output = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append('\n');
+            }
+        }
+        final int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IOException(
+                    "dumpsys input failed with exit code "
+                            + exitCode);
+        }
+        return output.toString();
     }
 
     private static Object getService(

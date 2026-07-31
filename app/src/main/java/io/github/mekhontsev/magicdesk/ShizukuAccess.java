@@ -143,6 +143,27 @@ final class ShizukuAccess {
         }
     }
 
+    static String updateHardwareKeyboardLayout(
+            final String mode,
+            final String currentDescriptor)
+            throws IOException {
+        try {
+            return requireService().updateHardwareKeyboardLayout(
+                    mode, currentDescriptor);
+        } catch (RemoteException error) {
+            clearService();
+            throw new IOException(
+                    "Shizuku keyboard layout update failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku keyboard layout update failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static StreamHandle openStream(final String command) throws IOException {
         if (command == null || command.isEmpty()) {
             throw new IOException("empty Shizuku stream command");

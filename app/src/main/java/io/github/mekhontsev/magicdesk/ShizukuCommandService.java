@@ -67,6 +67,71 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public String updateHardwareKeyboardLayout(
+            final String mode,
+            final String currentDescriptor) {
+        try {
+            final HardwareKeyboardLayoutCommand.Result result =
+                    HardwareKeyboardLayoutCommand.execute(
+                            mode, currentDescriptor);
+            persistHardwareKeyboardLayout(result);
+            return result.format();
+        } catch (ReflectiveOperationException
+                | IOException
+                | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot update hardware keyboard layout: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    private static void persistHardwareKeyboardLayout(
+            final HardwareKeyboardLayoutCommand.Result result)
+            throws IOException {
+        final String command =
+                "/system/bin/settings put secure "
+                        + "selected_input_method_subtype "
+                        + result.subtypeHash + "; "
+                        + "/system/bin/settings put global "
+                        + HardwareKeyboardLayoutController.LAYOUT_LABEL_STATE
+                        + " " + shellQuote(result.code) + "; "
+                        + "/system/bin/settings put global "
+                        + HardwareKeyboardLayoutController.LAYOUT_NAME_STATE
+                        + " " + shellQuote(result.name) + "; "
+                        + "/system/bin/settings put global "
+                        + HardwareKeyboardLayoutController.LAYOUT_STATE
+                        + " " + shellQuote(result.descriptor);
+        Process process = null;
+        try {
+            process = new ProcessBuilder(
+                    "/system/bin/sh", "-c", command)
+                    .redirectErrorStream(true)
+                    .start();
+            final BoundedProcessRunner.Result output =
+                    BoundedProcessRunner.run(process);
+            if (output.exitCode != 0) {
+                throw new IOException(
+                        "settings command failed "
+                                + output.exitCode + ": "
+                                + output.output.trim());
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "settings command interrupted", error);
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    private static String shellQuote(final String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
+    }
+
+    @Override
     public ParcelFileDescriptor openStream(
             final String command, final long requestId) {
         if (command == null || command.isEmpty()) {

@@ -139,6 +139,7 @@ final class KeyboardShortcutWatcher {
             ShizukuAccess.StreamHandle shizukuStream = null;
             BufferedReader reader = null;
             try {
+                cleanupStaleInputRouting();
                 if (useShizuku && consoleMode) {
                     runShizukuConsoleSession(generation);
                     continue;
@@ -204,6 +205,20 @@ final class KeyboardShortcutWatcher {
             }
         }
         Log.i(TAG, "input watcher stopped");
+    }
+
+    private static void cleanupStaleInputRouting()
+            throws IOException {
+        final String output = PrivilegedCommandRunner.run(
+                AppProcessCommand.run(
+                        SHIZUKU_ROUTING_COMMAND,
+                        "cleanup-stale"));
+        if (!output.contains(
+                "MAGICDESK_SHIZUKU_ROUTING_CLEAN")) {
+            throw new IOException(
+                    "stale input routing cleanup failed: "
+                            + output);
+        }
     }
 
     private static void runShizukuConsoleSession(final long generation)

@@ -24,7 +24,9 @@ final class PhoneControlPanelController {
     interface Actions {
         void openDesktopHere();
 
-        void toggleConsoleMode();
+        void showExternalDesktop();
+
+        void switchToMirror();
 
         void openTouchpad();
 
@@ -39,6 +41,7 @@ final class PhoneControlPanelController {
 
     static final class State {
         final boolean consoleActive;
+        final boolean desktopReady;
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
@@ -49,6 +52,7 @@ final class PhoneControlPanelController {
 
         State(
                 final boolean consoleActive,
+                final boolean desktopReady,
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
@@ -57,6 +61,7 @@ final class PhoneControlPanelController {
                 final int currentDisplayId,
                 final int consoleDisplayId) {
             this.consoleActive = consoleActive;
+            this.desktopReady = desktopReady;
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
@@ -76,7 +81,8 @@ final class PhoneControlPanelController {
     private TextView mStatus;
     private TextView mRuntime;
     private TextView mDisplay;
-    private Button mConsoleMode;
+    private Button mExternalDesktop;
+    private Button mMirror;
     private Button mTouchpad;
     private Button mPhoneScreen;
 
@@ -148,10 +154,21 @@ final class PhoneControlPanelController {
                 Integer.valueOf(state.currentDisplayId),
                 consoleDisplay));
 
-        mConsoleMode.setText(state.consoleActive
-                ? R.string.action_switch_to_mirror
-                : R.string.action_start_console_mode);
-        mConsoleMode.setEnabled(state.consoleControlAvailable);
+        if (!state.consoleActive) {
+            mExternalDesktop.setText(
+                    R.string.action_start_console_mode);
+        } else if (!state.desktopReady) {
+            mExternalDesktop.setText(
+                    R.string.action_resume_external_desktop);
+        } else {
+            mExternalDesktop.setText(
+                    R.string.action_show_external_desktop);
+        }
+        mExternalDesktop.setEnabled(
+                state.consoleControlAvailable);
+        mMirror.setEnabled(
+                state.consoleActive
+                        && state.consoleControlAvailable);
         mTouchpad.setEnabled(
                 state.consoleActive && state.consoleControlAvailable);
         mPhoneScreen.setText(state.phoneScreenOff
@@ -219,12 +236,19 @@ final class PhoneControlPanelController {
     private void addDesktopActions(final LinearLayout parent) {
         addSectionTitle(parent, R.string.control_section_desktop, dp(22));
 
-        mConsoleMode = actionButton(
+        mExternalDesktop = actionButton(
                 R.string.action_start_console_mode, COLOR_CYAN);
-        mConsoleMode.setOnClickListener(view -> mActions.toggleConsoleMode());
-        parent.addView(mConsoleMode, fullWidthActionParams());
+        mExternalDesktop.setOnClickListener(
+                view -> mActions.showExternalDesktop());
+        parent.addView(mExternalDesktop, fullWidthActionParams());
 
         final GridLayout actions = actionGrid();
+        mMirror = actionButton(
+                R.string.action_switch_to_mirror, COLOR_CYAN);
+        mMirror.setOnClickListener(
+                view -> mActions.switchToMirror());
+        addGridAction(actions, mMirror);
+
         final Button desktopHere = actionButton(
                 R.string.action_desktop_this_screen, COLOR_CYAN);
         desktopHere.setOnClickListener(view -> mActions.openDesktopHere());

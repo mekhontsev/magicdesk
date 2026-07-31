@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 
@@ -10,14 +11,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class HardwareKeyboardLayoutController {
     private static final String TAG = "MagicDeskConsoleSwitcher";
     private static final String SETTINGS = "/system/bin/settings";
-    private static final String LAYOUT_STATE =
+    static final String LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
-    private static final String LAYOUT_LABEL_STATE =
+    static final String LAYOUT_LABEL_STATE =
             "magicdesk_hardware_keyboard_layout_label";
-    private static final String LAYOUT_NAME_STATE =
+    static final String LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
-    private static final String LAYOUTS_STATE =
-            "magicdesk_hardware_keyboard_layouts";
     private static final String LAYOUT_COMMAND =
             "io.github.mekhontsev.magicdesk.HardwareKeyboardLayoutCommand";
     private static final AtomicBoolean REFRESH_IN_PROGRESS =
@@ -80,26 +79,43 @@ final class HardwareKeyboardLayoutController {
     }
 
     private static void apply(final String mode) {
-        final String command = "CURRENT=$(" + SETTINGS + " get global "
-                + LAYOUT_STATE + "); LAYOUTS=$(" + SETTINGS + " get global "
-                + LAYOUTS_STATE + "); "
-                + AppProcessCommand.run(
-                        LAYOUT_COMMAND,
-                        mode + " \"$CURRENT\" \"$LAYOUTS\"");
         final String output;
         try {
-            output = PrivilegedCommandRunner.run(command).trim();
+            if (RuntimeAccess.allowsShizukuCommands()
+                    && !RuntimeAccess.allowsRootCommands()) {
+                final String current = Settings.Global.getString(
+                        MagicDeskApplication.applicationContext()
+                                .getContentResolver(),
+                        LAYOUT_STATE);
+                output = ShizukuAccess.updateHardwareKeyboardLayout(
+                        mode, current).trim();
+            } else {
+                final String command = "CURRENT=$(" + SETTINGS + " get global "
+                        + LAYOUT_STATE + "); "
+                        + AppProcessCommand.run(
+                                LAYOUT_COMMAND,
+                                mode + " \"$CURRENT\"");
+                output = PrivilegedCommandRunner.run(command).trim();
+            }
         } catch (IOException e) {
             Log.w(TAG, "hardware keyboard layout command failed", e);
             return;
         }
+        if (RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()) {
+            Log.i(TAG,
+                    "hardware keyboard "
+                            + output.replace('\n', ' '));
+            return;
+        }
+
         final String descriptor =
                 parseOutputValue(output, "descriptor");
         final String code = parseOutputValue(output, "code");
         final String name64 = parseOutputValue(output, "name64");
-        final String layouts64 = parseOutputValue(output, "layouts64");
+        final String subtype = parseOutputValue(output, "subtype");
         if (descriptor == null || code == null
-                || name64 == null || layouts64 == null) {
+                || name64 == null || subtype == null) {
             Log.w(TAG,
                     "hardware keyboard layout command failed output="
                             + output);
@@ -120,17 +136,14 @@ final class HardwareKeyboardLayoutController {
         }
         try {
             PrivilegedCommandRunner.run(
-                    SETTINGS + " put global " + LAYOUT_LABEL_STATE
-                            + " " + shellQuote(code));
-            PrivilegedCommandRunner.run(
-                    SETTINGS + " put global " + LAYOUT_NAME_STATE
-                            + " " + shellQuote(name));
-            PrivilegedCommandRunner.run(
-                    SETTINGS + " put global " + LAYOUT_STATE
+                    SETTINGS + " put secure selected_input_method_subtype "
+                            + shellQuote(subtype) + "; "
+                            + SETTINGS + " put global " + LAYOUT_LABEL_STATE
+                            + " " + shellQuote(code) + "; "
+                            + SETTINGS + " put global " + LAYOUT_NAME_STATE
+                            + " " + shellQuote(name) + "; "
+                            + SETTINGS + " put global " + LAYOUT_STATE
                             + " " + shellQuote(descriptor));
-            PrivilegedCommandRunner.run(
-                    SETTINGS + " put global " + LAYOUTS_STATE
-                            + " " + shellQuote(layouts64));
         } catch (IOException e) {
             Log.w(TAG, "cannot persist hardware keyboard layout state", e);
             return;
