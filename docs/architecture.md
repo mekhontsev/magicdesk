@@ -336,17 +336,18 @@ The firmware then removes external-output layers whose debug names contain
 receive input but may be invisible. After Console Mode becomes ready,
 MagicDesk calls `setSFOption(1102, 0)` through a short-lived privileged helper.
 
-The current production implementation owns this SurfaceFlinger option only in
-Root mode. Root reads
-NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference before changing it,
-records the value, and restores the latest Nubia preference or the recorded
-value when the provider is temporarily unavailable. A clean Shizuku session
-does not touch this option and does not claim native caption support.
+Root reads NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference before
+changing the option and restores the latest Nubia preference or the recorded
+value. Shizuku runs the same narrow `SurfaceControl.setSFOption` helper from the
+ordinary MagicDesk UID. Nubia mirrors wired privacy changes to
+`Settings.Global.cast_privacy_model`, so the Shizuku path can restore the
+latest user value without access to another application's private files.
+Missing global state means Nubia's default privacy-enabled value.
 
-Firmware audit confirmed that the verified REDMAGIC build does not enforce a
-Root caller for this transaction. Production use from a less-privileged
-backend still needs a reliable read/restore policy because the vendor API has
-no getter. See [Nubia vendor interface audit](nubia-vendor-audit.md).
+Shizuku records lifecycle ownership before revealing captions. Mirror mode,
+normal teardown, and the next manual MagicDesk start after an interrupted
+process restore option `1102` and clear ownership. See
+[Nubia vendor interface audit](nubia-vendor-audit.md).
 
 ### Teardown
 
@@ -376,17 +377,16 @@ tasks marked visible inside the same Home root task after recovery.
 ## Window And Task Management
 
 Android does not expose `DesktopTasksController` as a public application API.
-When Root provisioning disables desktop-mode device restrictions, this
-firmware provides a shell entry point:
+When Device Setup disables desktop-mode device restrictions, this firmware
+provides a shell entry point:
 
 ```sh
 cmd statusbar wmshell-passthrough desktopmode moveTaskToDesk <task-id>
 ```
 
-MagicDesk probes the command before using it. Root uses this path for native
-WMShell captions. A clean Shizuku installation keeps firmware device
-restrictions enabled, so `DesktopTasksController` is not initialized and the
-command is unavailable. In that case MagicDesk submits the required
+MagicDesk probes the command before using it. Root and provisioned Shizuku use
+this path for native WMShell captions. If an unverified firmware rejects
+provisioning or does not expose the command, MagicDesk submits the required
 `WindowContainerTransaction` directly through its UID-2000 UserService.
 
 A new application starts on the Console display through a short-lived
@@ -397,10 +397,10 @@ Existing tasks are moved and reused without relaunching their activities.
 
 The system `ShellTaskOrganizer` remains the only organizer.
 `DesktopTaskRepository` owns active, visible, minimized, and Z-ordered desktop
-tasks. In Root-provisioned mode `DesktopModeWindowDecorViewModel` owns native
-captions and resize behavior. Clean Shizuku mode intentionally has no
-replacement caption overlay; window actions remain available from MagicDesk's
-taskbar and shortcuts.
+tasks. In Root or Shizuku-provisioned mode
+`DesktopModeWindowDecorViewModel` owns native captions and resize behavior.
+MagicDesk does not draw a replacement caption overlay; taskbar and shortcut
+actions remain available if the native WMShell command is unavailable.
 
 ### Fullscreen And Maximize
 
@@ -744,15 +744,12 @@ The first two correspond to Android's **Enable freeform windows** and **Force
 activities to be resizable** developer options. MagicDesk does not enable the
 Developer Options master switch.
 
-The current Shizuku setup applies and records only those first two global
-settings through shell `WRITE_SECURE_SETTINGS`; it does not yet modify either
-persistent property. This is the current clean Shizuku profile: direct task
-transactions are available, while WMShell native captions are not.
-
-On the verified firmware, the ordinary application UID can write system
-properties through an unprotected REDMAGIC Binder service. A future
-allowlisted setup path can close this provisioning gap without granting Root,
-but the generic vendor setter is intentionally not exposed. See
+Shizuku applies and records the first two global settings through shell
+`WRITE_SECURE_SETTINGS`. The ordinary MagicDesk UID writes the two persistent
+properties through the verified REDMAGIC Binder service. The wrapper exposes
+an enum of exactly those keys, accepts only boolean or empty restoration
+values, and verifies each write. The firmware's generic property setter is
+never exposed to intents, UI fields, diagnostics, or callers. See
 [Nubia vendor interface audit](nubia-vendor-audit.md).
 
 No other `persist.wm.debug.desktop_*` value is currently required. MagicDesk

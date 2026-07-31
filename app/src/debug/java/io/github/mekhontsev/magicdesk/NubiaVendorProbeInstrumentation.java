@@ -77,8 +77,19 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
                 success = false;
                 result.putString("property_mutation", failure(error));
             }
+            try {
+                result.putString(
+                        "caption_visibility_mutation",
+                        probeCaptionVisibilityMutation());
+            } catch (IOException error) {
+                success = false;
+                result.putString(
+                        "caption_visibility_mutation",
+                        failure(error));
+            }
         } else {
             result.putString("property_mutation", "skipped");
+            result.putString("caption_visibility_mutation", "skipped");
         }
 
         try {
@@ -161,9 +172,9 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
 
     private static String probePropertyMutation()
             throws IOException, InterruptedException {
-        final String original = command(
-                "/system/bin/getprop",
-                DESKTOP_RESTRICTIONS_PROPERTY).requireSuccess().trim();
+        final NubiaDesktopPropertyManager.Property property =
+                NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS;
+        final String original = NubiaDesktopPropertyManager.read(property);
         if (!"true".equals(original) && !"false".equals(original)) {
             throw new IOException("unexpected original value: " + original);
         }
@@ -171,10 +182,8 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
         String observed = "";
         IOException failure = null;
         try {
-            setProperty(temporary).requireSuccess();
-            observed = command(
-                    "/system/bin/getprop",
-                    DESKTOP_RESTRICTIONS_PROPERTY).requireSuccess().trim();
+            NubiaDesktopPropertyManager.write(property, temporary);
+            observed = NubiaDesktopPropertyManager.read(property);
             if (!temporary.equals(observed)) {
                 throw new IOException(
                         "write did not take effect: expected=" + temporary
@@ -184,10 +193,9 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
             failure = error;
         } finally {
             try {
-                setProperty(original).requireSuccess();
-                final String restored = command(
-                        "/system/bin/getprop",
-                        DESKTOP_RESTRICTIONS_PROPERTY).requireSuccess().trim();
+                NubiaDesktopPropertyManager.write(property, original);
+                final String restored =
+                        NubiaDesktopPropertyManager.read(property);
                 if (!original.equals(restored)) {
                     throw new IOException(
                             "restore failed: expected=" + original
@@ -207,17 +215,15 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
                 + " restored=" + original;
     }
 
-    private static CommandResult setProperty(final String value)
-            throws IOException, InterruptedException {
-        return command(
-                "/system/bin/service",
-                "call",
-                REDMAGIC_SERVICE,
-                "2",
-                "s16",
-                DESKTOP_RESTRICTIONS_PROPERTY,
-                "s16",
-                value);
+    private static String probeCaptionVisibilityMutation()
+            throws IOException {
+        if (!NubiaCaptionVisibilityManager.setEnabled(true)) {
+            throw new IOException("could not enable external captions");
+        }
+        if (!NubiaCaptionVisibilityManager.setEnabled(false)) {
+            throw new IOException("could not restore wired privacy");
+        }
+        return "changed=visible restored=wired-privacy";
     }
 
     private static String probeDisplayRead()

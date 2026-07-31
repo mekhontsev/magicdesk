@@ -190,7 +190,9 @@ final class ConsoleModeSwitcher {
                             }
                         }
                     }
-                    if (success && RuntimeAccess.allowsRootCommands()) {
+                    if (success && RuntimeAccess.has(
+                            RuntimeAccess.Capability
+                                    .EXTERNAL_CAPTION_VISIBILITY)) {
                         ConsoleSessionController
                                 .setExternalTaskCaptionsEnabled(false);
                     }

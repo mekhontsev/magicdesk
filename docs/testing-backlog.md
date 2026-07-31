@@ -83,15 +83,33 @@ successful build.
   disabled and visually distinct.
 - [x] Run Shizuku shell mode on a physical external display.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
-  controls, screenshots, and the absence of root-only input services. After a
+  controls, screenshots, and the absence of root-only input services. This
+  baseline preceded lower-privilege desktop-property provisioning: after a
   clean reboot, the two global windowing settings were `1` while both
-  persistent desktop properties still owned by Root setup remained `true`.
+  persistent desktop properties remained `true`.
   The UID-2000 Shizuku backend activated Console Mode, launched Touch Panel,
   corrected the display to 1920x1080 at 160 DPI, reused fullscreen Chrome as
   freeform, cold launched Gmail as freeform, and promoted Gmail to true
   fullscreen. The bidirectional task watcher remained alive for focus
   commands. Native WMShell captions were correctly absent; no Root helper was
   used.
+- [ ] Verify the allowlisted Shizuku WMShell provisioning end to end on an
+  external display. Device Setup has already been completed with a real
+  UID-2000 Shizuku service: it applied both global settings, changed only the
+  rounded-corner property that still differed, retained ownership across the
+  requested reboot, removed the stale boot marker, and then reported all
+  checks ready without Root. Still verify external WMShell captions,
+  SurfaceFlinger option `1102` recovery, explicit Restore, and the
+  direct-transaction fallback on a rejected capability probe.
+- [x] Probe native freeform cold launch from Basic mode. A debug-only
+  instrumentation force-stopped Golly, launched a genuinely new task from
+  MagicDesk UID 10615 with `FLAG_ACTIVITY_MULTIPLE_TASK`, explicit bounds, and
+  `android.activity.windowingMode=5`, then inspected ActivityTaskManager. The
+  task was normalized to fullscreen and the rectangle survived only as
+  `mLastNonFullscreenBounds`. Source audit also confirmed that WMShell gives
+  `IDesktopMode` only to the STATUS_BAR_SERVICE-protected Quickstep service and
+  enforces `MANAGE_ACTIVITY_TASKS` on every desktop command. The temporary
+  launch probe was removed after the test.
 - [x] Restore physical right click in Shizuku shell mode.
   A ProtoArc external mouse was grabbed read-only as UID 2000 and forwarded
   unchanged through a `BUS_VIRTUAL` `/dev/uinput` pointer. Movement remained

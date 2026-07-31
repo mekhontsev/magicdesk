@@ -23,6 +23,7 @@ final class RuntimeAccess {
         RIGHT_CLICK_REMAP,
         CONSOLE_CONTROL,
         DISPLAY_OVERRIDES,
+        EXTERNAL_CAPTION_VISIBILITY,
         PHONE_SCREEN_CONTROL,
         PHONE_SCREEN_WAKE_GUARD,
         SCREENSHOT,
@@ -110,6 +111,7 @@ final class RuntimeAccess {
                     Capability.RIGHT_CLICK_REMAP,
                     Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
+                    Capability.EXTERNAL_CAPTION_VISIBILITY,
                     Capability.PHONE_SCREEN_CONTROL,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
@@ -125,6 +127,7 @@ final class RuntimeAccess {
                     Capability.RIGHT_CLICK_REMAP,
                     Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
+                    Capability.EXTERNAL_CAPTION_VISIBILITY,
                     Capability.PHONE_SCREEN_CONTROL,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);

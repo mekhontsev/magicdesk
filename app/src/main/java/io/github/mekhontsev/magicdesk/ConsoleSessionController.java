@@ -237,8 +237,12 @@ final class ConsoleSessionController {
     }
 
     static boolean setExternalTaskCaptionsEnabled(final boolean enabled) {
-        if (!RuntimeAccess.allowsRootCommands()) {
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
             return true;
+        }
+        if (!RuntimeAccess.allowsRootCommands()) {
+            return NubiaCaptionVisibilityManager.setEnabled(enabled);
         }
         final String operation =
                 enabled ? "enable-captions" : "restore-privacy";

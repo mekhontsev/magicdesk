@@ -40,6 +40,7 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.RIGHT_CLICK_REMAP,
                 RuntimeAccess.Capability.CONSOLE_CONTROL,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
+                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY,
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL,
                 RuntimeAccess.Capability.SCREENSHOT,
                 RuntimeAccess.Capability.CHARGE_SEPARATION);
@@ -56,6 +57,8 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.GLOBAL_INPUT));
         assertTrue(expected.contains(
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD));
         assertFalse(expected.contains(

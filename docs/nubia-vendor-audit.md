@@ -23,9 +23,9 @@ the vendor calls themselves ran without Root or Shizuku.
 
 | Interface | Basic app access | Finding | Production decision |
 | --- | --- | --- | --- |
-| `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Candidate for narrowly allowlisted desktop setup; never expose a generic property editor. |
+| `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Shizuku setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Candidate for Basic Console activation after external-display validation. |
-| `SurfaceControl.setSFOption(1102, ...)` | Write verified | The app UID can change wired privacy/caption visibility. No corresponding getter was found. | Keep out of automatic diagnostics; integrate only with a reliable ownership and restore policy. |
+| `SurfaceControl.setSFOption(1102, ...)` | Write verified | The app UID can change wired privacy/caption visibility. No corresponding getter was found. | Shizuku uses lifecycle ownership and restores Nubia's `Settings.Global.cast_privacy_model` value. |
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons. | Prefer the stock entry point where its lifecycle is understood. |
 | `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Possible Basic task hints and diagnostics, not a source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
@@ -47,7 +47,7 @@ temporarily changed
 `persist.wm.debug.desktop_mode_enforce_device_restrictions`, read the changed
 value, restored the original value in `finally`, and verified the restoration.
 
-This can remove the clean-Shizuku setup gap:
+MagicDesk uses this to remove the clean-Shizuku setup gap:
 
 1. Shizuku UID 2000 writes `enable_freeform_support` and
    `force_resizable_activities`.
@@ -56,15 +56,42 @@ This can remove the clean-Shizuku setup gap:
 3. Android is rebooted so WMShell and ActivityTaskManager rebuild from the
    resulting configuration.
 
-Basic mode could use the same property path while asking the user to enable
-the two public Developer options manually. This is not implemented yet.
-Before production use, the setter must accept enum-like operations rather than
-caller-provided keys or values, reject an unknown firmware capability result,
-record original values, and verify every write and restore.
+The production setter accepts enum-like operations rather than caller-provided
+keys or values, rejects unexpected property values, records originals before
+mutation, and verifies every write and restore. Basic mode could use the same
+property path while asking the user to enable the two public Developer options
+manually; that flow is not implemented yet.
 
 The unrestricted vendor setter is a firmware security weakness. MagicDesk
 must not turn it into a general-purpose command, exported component, intent
 extra, diagnostics field, or user-editable text box.
+
+## Desktop Task-Control Boundary
+
+WMShell registers
+`com.android.wm.shell.desktopmode.IDesktopMode` through `ShellController`, but
+does not publish it through Android's service manager. SystemUI passes the
+Binder to MiFavor Quickstep in the initialization bundle delivered to
+`TouchInteractionService`; that exported service is protected by
+`android.permission.STATUS_BAR_SERVICE`. Every remote desktop operation then
+calls `enforceCallingPermission(android.permission.MANAGE_ACTIVITY_TASKS)`,
+including task conversion, showing desktop apps, and launch transitions.
+
+A controlled Basic-mode cold-launch probe ran from MagicDesk UID 10615 after
+Golly had been force-stopped. It requested a new task, explicit bounds, and
+`windowingMode=freeform`. ActivityTaskManager accepted the launch without a
+`SecurityException`, but normalized the new task to fullscreen and retained
+the requested rectangle only as `mLastNonFullscreenBounds`. Provisioning the
+desktop properties is therefore not enough to give an ordinary app native
+desktop task control.
+
+The firmware also contains the older Nubia `WindowReply` path. An intent
+identifier ending in `_WindowReply` selects that policy, but support is
+filtered through `/system/etc/zte_windowReply_control.xml`. Its force-support
+list explains why selected applications such as Chrome, Gmail, and Telegram
+can use Nubia floating windows while an arbitrary resizable application may
+not. MagicDesk does not use `WindowReply` as a Basic fallback because it is a
+vendor allowlist mechanism, not a general desktop contract.
 
 ## Console And Caption Control
 
@@ -104,10 +131,13 @@ validating their complete surrounding transition.
 The firmware's wired privacy path uses SurfaceFlinger option `1102`. Value `1`
 hides external layers whose names include `Task=`, including native WMShell
 captions; value `0` reveals them. A Basic app-process invocation of
-`SurfaceControl.setSFOption(1102, 1)` succeeded. Because no getter was found,
-the safe debug probe does not repeat this write. Production currently owns
-caption visibility only in Root mode, where it can read NubiaProjectionScreen's
-stored `PRIVATE_MODE_WIRED` preference before restoring the option.
+`SurfaceControl.setSFOption(1102, 1)` succeeded. No SurfaceFlinger getter was
+found, but Nubia's `WiredSettingsActivity` mirrors every user change to
+`Settings.Global.cast_privacy_model`; an absent value corresponds to the
+firmware's default `true`. Root can read NubiaProjectionScreen's private XML.
+Shizuku records ownership, temporarily writes `0`, and restores the current
+global value on mirror transition, normal teardown, or interrupted-session
+recovery.
 
 ## Task-State Hints
 
@@ -176,6 +206,7 @@ am instrument -w --user 0 \
 That test accepts only the hardcoded
 `desktop_mode_enforce_device_restrictions` property, reads and validates its
 original boolean value, writes the opposite value, restores in `finally`, and
-verifies the restored value. It must not be expanded into a generic mutation
-tool.
-
+verifies the restored value. It also reveals caption layers through option
+`1102` and immediately restores Nubia's wired-privacy state through the same
+lifecycle-owned production wrapper. It must not be expanded into a generic
+mutation tool.

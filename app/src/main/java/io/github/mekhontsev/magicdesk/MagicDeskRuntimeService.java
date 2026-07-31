@@ -169,8 +169,12 @@ public final class MagicDeskRuntimeService extends Service
         }
         registerConfigurationReceiver();
         registerConsoleModeObserver();
-        if (mConsoleModeActive && RuntimeAccess.allowsRootCommands()) {
-            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(true);
+        if (RuntimeAccess.has(
+                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
+            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
+                    mConsoleModeActive);
+        } else {
+            NubiaCaptionVisibilityManager.setEnabled(false);
         }
         syncMirrorInputProxyState();
         updateKeyboardWatcher();
@@ -524,7 +528,8 @@ public final class MagicDeskRuntimeService extends Service
             }
         }
         updateShizukuMouseBridge();
-        if (RuntimeAccess.allowsRootCommands()) {
+        if (RuntimeAccess.has(
+                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
         }
         updateDesktopTasks();

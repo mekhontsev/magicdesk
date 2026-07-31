@@ -91,7 +91,10 @@ tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
 ### Physical input
 
 - Native key repeat and physical keyboard layouts on the external display.
-- `Ctrl+Space` cycles through layouts configured in Android, in system order.
+- `Ctrl+Space` cycles through layouts exposed to Android by the active input
+  method as enabled keyboard subtypes, in system order. Input methods that keep
+  their language list entirely internal and expose only one active subtype
+  cannot provide system-wide physical-keyboard layout switching.
 - In Root or Shizuku mode on the external desktop, `Alt+Tab` bypasses
   REDMAGIC's broken system Recents path while ordinary `Tab`, `Shift+Tab`, and
   `Ctrl+Tab` remain normal application input.
@@ -138,8 +141,9 @@ device-specific failure.
 4. In Root mode, grant root when Device Setup requests it. In Shizuku mode,
    install and start the official Shizuku manager, then grant MagicDesk access.
 5. Review the settings Device Setup proposes and confirm the changes. Shizuku
-   can enable the freeform and resizable-activity settings directly; Basic
-   opens the corresponding Android Developer options.
+   enables the public windowing settings and uses a narrowly allowlisted
+   REDMAGIC service for the two required desktop properties. Basic opens the
+   corresponding Android Developer options.
 6. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 7. A normal launch on the phone opens the compact MagicDesk control panel.
@@ -252,14 +256,15 @@ Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
 window operations, display density, screenshots, phone-screen dimming, bypass
 charging, and physical-keyboard layout control from both `Ctrl+Space` and the
 taskbar.
-The current clean-Shizuku setup leaves persistent WMShell provisioning
-unchanged, so native system captions are absent; taskbar window controls remain
-available. Shizuku also corrects REDMAGIC's physical-right-button-to-Back
-conversion through a lifecycle-bound virtual mouse bridge and provides global
-desktop shortcuts through an equivalent virtual-keyboard bridge. It cannot
-suppress Nubia's phone-side text-input panel, so focusing a text field can wake
-a phone dimmed in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L`
-remain Root-only.
+After the one-time Device Setup and reboot, Shizuku uses native WMShell
+captions. MagicDesk temporarily reveals those caption layers during a Console
+session and restores REDMAGIC's current wired-privacy preference afterward.
+Shizuku also corrects REDMAGIC's physical-right-button-to-Back conversion
+through a lifecycle-bound virtual mouse bridge and provides global desktop
+shortcuts through an equivalent virtual-keyboard bridge. It cannot suppress
+Nubia's phone-side text-input panel, so focusing a text field can wake a phone
+dimmed in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L` remain
+Root-only.
 
 The trust boundaries are deliberately narrow:
 
@@ -268,7 +273,9 @@ The trust boundaries are deliberately narrow:
 - Shizuku is never installed or started by MagicDesk. The user installs the
   official manager, starts its server, and grants MagicDesk separately.
 - MagicDesk changes only the documented desktop settings accepted in Device
-  Setup and stores their previous values for restoration.
+  Setup and stores their previous values for restoration. The REDMAGIC
+  property writer accepts only the two reviewed desktop keys and boolean
+  values; it is not exposed as a generic system-property interface.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - Native input helpers `libmagicdesk_mouse_remap.so`,
   `libmagicdesk_uinput_bridge.so`, and `libmagicdesk_keyboard_bridge.so` are

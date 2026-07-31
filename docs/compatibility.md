@@ -69,12 +69,13 @@ keyboard layout, alter display state, or write a hardware node. Permissioned
 write paths are tested with rejected null arguments after Android performs its
 permission check.
 
-On a clean Shizuku installation the issue report should show global freeform
-and resizable-activity settings enabled, both
-`persist.wm.debug.desktop_*` properties still enabled, and WMShell desktopmode
-unavailable. That combination is expected: MagicDesk uses direct
-ActivityTaskManager and WindowOrganizer transactions rather than native
-WMShell captions.
+After confirmed Shizuku Device Setup and reboot, the issue report should show
+global freeform and resizable-activity settings enabled, both reviewed
+`persist.wm.debug.desktop_*` properties disabled, and WMShell desktopmode
+available. If provisioning is rejected on an unverified firmware, MagicDesk
+reports the failed property or WMShell check and retains direct
+ActivityTaskManager and WindowOrganizer transactions as the bounded task
+fallback.
 
 On some Nubia firmware, Android keeps notification-listener access enabled
 after an app process or package restart but does not bind the service again.

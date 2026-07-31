@@ -272,7 +272,7 @@ public final class DeviceSetupActivity extends Activity {
         final boolean canRestore =
                 (audit.rootAvailable && audit.hasManagedChanges)
                         || (shizukuBackend
-                        && audit.hasManagedWindowingChanges);
+                        && audit.hasManagedChanges);
         mSetupView.restoreAction().setVisibility(
                 canRestore ? View.VISIBLE : View.GONE);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
@@ -340,7 +340,6 @@ public final class DeviceSetupActivity extends Activity {
         }
         if (audit.rebootRequired
                 && (audit.configurationReady
-                        || audit.hasUserWindowingOptions()
                         || !audit.hasManagedChanges)) {
             mSetupView.summary().setText(R.string.setup_status_reboot_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);
@@ -359,7 +358,7 @@ public final class DeviceSetupActivity extends Activity {
             setCloseAction();
             return;
         }
-        if (!audit.hasUserWindowingOptions() && shizukuBackend) {
+        if (!audit.configurationReady && shizukuBackend) {
             mSetupView.summary().setText(
                     R.string.setup_status_configuration_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);

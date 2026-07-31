@@ -234,7 +234,7 @@ final class CompatibilityDiagnostics {
         final boolean taskControl =
                 RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
         final boolean nativeDesktopRequired =
-                RuntimeAccess.allowsRootCommands();
+                taskControl && audit.configurationReady;
         appendCheck(report, "NATIVE-DESKTOP-001",
                 !nativeDesktopRequired || NativeDesktopController.isAvailable(),
                 "WMShell desktopmode command",
