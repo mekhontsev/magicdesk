@@ -348,9 +348,7 @@ final class TaskRepository {
                 + " " + bounds.left + " " + bounds.top
                 + " " + bounds.right + " " + bounds.bottom;
         return createAppProcessEnvironment()
-                + createAppProcessInvocation(TASK_WINDOWING_COMMAND, arguments)
-                + " && " + createAppProcessInvocation(TASK_CAPTION_INSETS_COMMAND,
-                        displayId + " " + taskId + " include");
+                + createAppProcessInvocation(TASK_WINDOWING_COMMAND, arguments);
     }
 
     static String createCaptionInsetsCommand(final int displayId, final int taskId,

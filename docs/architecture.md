@@ -385,10 +385,23 @@ provides a shell entry point:
 cmd statusbar wmshell-passthrough desktopmode moveTaskToDesk <task-id>
 ```
 
-MagicDesk probes the command before using it. Root and provisioned Shizuku use
-this path for native WMShell captions. If an unverified firmware rejects
-provisioning or does not expose the command, MagicDesk submits the required
-`WindowContainerTransaction` directly through its UID-2000 UserService.
+MagicDesk probes the command before using it to launch or reuse a desktop task.
+For a fullscreen-to-window restore, MagicDesk submits the required
+`WindowContainerTransaction` through `WindowOrganizer.startNewTransition()`
+even when the shell entry point is available. Nubia's command always computes
+its own 75-percent initial bounds and does not accept caller-supplied geometry;
+resizing the task after that transition produces two visible window sizes. The
+direct transition applies freeform mode, final bounds, caption insets, and
+reorder-to-front together. WMShell handles the transition, updates the task
+leash, registers the task in the desktop repository, and owns its native
+caption.
+
+Do not replace this transition with `applySyncTransaction()`. On Nubia's
+rotated Console surface, the synchronous organizer transaction updates the
+task configuration but can leave its SurfaceControl leash at the display
+origin, clipping the native caption outside the screen. Splitting the operation
+into a hide transaction followed by a separate focus request is also invalid:
+the organizer can normalize the task back to fullscreen.
 
 A new application starts on the Console display through a short-lived
 transparent dispatcher. The dispatcher immediately closes;
@@ -793,8 +806,8 @@ su -c 'getprop persist.wm.debug.desktop_mode_enforce_device_restrictions'
 su -c 'getprop persist.wm.debug.desktop_use_rounded_corners'
 ```
 
-Expected Root values are `1`, `1`, `false`, and `false`. Expected clean
-Shizuku values are `1`, `1`, `true`, and `true`.
+Expected Root and provisioned Shizuku values are `1`, `1`, `false`, and
+`false`.
 
 Previous values are stored only for settings MagicDesk changes. **Restore
 previous values** restores those owned values and requests another reboot.

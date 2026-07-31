@@ -206,15 +206,15 @@ final class DesktopWindowTransitionController {
         }
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
-        moveTaskToDesktopWindow(
+        TaskRepository.setFreeform(
                 task, targetBounds,
-                (success, message) -> mHandler.post(() -> {
+                result -> mHandler.post(() -> {
                     mFullscreenTransitionTasks.remove(taskId);
-                    if (!success) {
+                    if (!result.success) {
                         Log.w(TAG,
                                 "fullscreen snap failed task="
                                         + task.taskId
-                                        + " message=" + message);
+                                        + " message=" + result.message);
                         return;
                     }
                     mRestoreBounds.put(taskId, restoreBounds);
@@ -327,32 +327,10 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
-        moveTaskToDesktopWindow(
-                task, targetBounds,
-                (success, message) -> mHandler.post(() ->
-                        finishFullscreenRestore(task, success, message)));
-    }
-
-    private void moveTaskToDesktopWindow(
-            final TaskRepository.TaskEntry task,
-            final Rect bounds,
-            final NativeDesktopController.Callback callback) {
-        if (RuntimeAccess.allowsRootCommands()
-                || (RuntimeAccess.allowsShizukuCommands()
-                        && NativeDesktopController.isAvailable())) {
-            NativeDesktopController.moveTaskToDesktop(
-                    task, bounds, callback);
-            return;
-        }
         TaskRepository.setFreeform(
-                task,
-                bounds,
-                result -> {
-                    if (callback != null) {
-                        callback.onComplete(
-                                result.success, result.message);
-                    }
-                });
+                task, targetBounds,
+                result -> mHandler.post(() -> finishFullscreenRestore(
+                        task, result.success, result.message)));
     }
 
     private void finishFullscreenRestore(

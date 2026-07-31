@@ -171,10 +171,7 @@ public final class FreeformLauncherActivity extends Activity {
             final String packageName, final int displayId, final int[] preservedTaskIds,
             final boolean waitForVisibleTask) {
         try {
-            final boolean nativeDesktop =
-                    RuntimeAccess.allowsRootCommands()
-                            || (RuntimeAccess.allowsShizukuCommands()
-                                    && NativeDesktopController.isAvailable());
+            final boolean nativeDesktop = NativeDesktopController.shouldUse();
             final ExistingTaskController.ReuseResult reuseResult = nativeDesktop
                     ? ExistingTaskController.reuseNativeDesktopIfExists(
                             packageName, displayId, preservedTaskIds,

@@ -118,10 +118,13 @@ public final class TaskWindowingCommand {
                 .invoke(transaction, taskToken, Integer.valueOf(windowingMode));
         transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                 .invoke(transaction, taskToken, bounds);
-        transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
-        TaskControlCommand.moveTaskToFront(service, taskId);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass, transaction, tokenClass, taskToken, false);
+        TaskFullscreenTransitionCommand.startTransition(
+                transactionClass, transaction);
     }
 
     private static void applyTransaction(final Object service,

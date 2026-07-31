@@ -99,14 +99,22 @@ successful build.
   fullscreen. The bidirectional task watcher remained alive for focus
   commands. Native WMShell captions were correctly absent; no Root helper was
   used.
-- [ ] Verify the allowlisted Shizuku WMShell provisioning end to end on an
-  external display. Device Setup has already been completed with a real
-  UID-2000 Shizuku service: it applied both global settings, changed only the
-  rounded-corner property that still differed, retained ownership across the
-  requested reboot, removed the stale boot marker, and then reported all
-  checks ready without Root. Still verify external WMShell captions,
-  SurfaceFlinger option `1102` recovery, explicit Restore, and the
-  direct-transaction fallback on a rejected capability probe.
+- [x] Verify the allowlisted Shizuku WMShell provisioning end to end on an
+  external display. A real UID-2000 service applied `1`, `1`, `false`, and
+  `false`, owned only the rounded-corner property it changed, and cleared the
+  pending boot marker after reboot. Golly received a native WMShell caption;
+  restoring SurfaceFlinger option `1102` hid its drawing without breaking hit
+  testing, and restarting the MagicDesk runtime restored the caption without
+  recreating the task. **Restore previous values** returned only the owned
+  property to `true`, survived reboot, and provisioning restored it to `false`
+  after a second reboot. With the WMShell capability probe deliberately
+  rejected in a temporary build, the direct task path registered fullscreen
+  Golly in `DesktopRepository` and produced a native caption. Follow-up testing
+  found that `applySyncTransaction()` could leave the task leash at the origin
+  on the rotated Console surface. The final `startNewTransition()` path restored
+  Golly from fullscreen directly to its exact `360,142-1560,874` bounds with a
+  correctly positioned native caption and no intermediate 75-percent window.
+  The temporary probe override was removed after the test.
 - [x] Probe native freeform cold launch from Basic mode. A debug-only
   instrumentation force-stopped Golly, launched a genuinely new task from
   MagicDesk UID 10615 with `FLAG_ACTIVITY_MULTIPLE_TASK`, explicit bounds, and

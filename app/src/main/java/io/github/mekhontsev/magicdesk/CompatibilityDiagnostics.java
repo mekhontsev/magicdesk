@@ -235,13 +235,22 @@ final class CompatibilityDiagnostics {
                 RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
         final boolean nativeDesktopRequired =
                 taskControl && audit.configurationReady;
+        final boolean privilegedTransactions =
+                RuntimeAccess.allowsRootCommands()
+                        || RuntimeAccess.allowsShizukuCommands();
+        final boolean nativeDesktopAvailable =
+                nativeDesktopRequired && NativeDesktopController.isAvailable();
         appendCheck(report, "NATIVE-DESKTOP-001",
-                !nativeDesktopRequired || NativeDesktopController.isAvailable(),
-                "WMShell desktopmode command",
-                nativeDesktopRequired
+                !nativeDesktopRequired
+                        || nativeDesktopAvailable
+                        || privilegedTransactions,
+                "Desktop task transition backend",
+                nativeDesktopAvailable
                         ? "wmshell-passthrough desktopmode"
+                        : privilegedTransactions
+                                ? "direct WindowContainerTransaction fallback"
                         : taskControl
-                                ? "not required; shell task transactions active"
+                                ? "privileged transaction backend unavailable"
                                 : "disabled by the selected runtime backend");
         appendCheck(report, "NUBIA-INPUT-001",
                 hasPackage(context, "cn.nubia.keymapcenter"),
