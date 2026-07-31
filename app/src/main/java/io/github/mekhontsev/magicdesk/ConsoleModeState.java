@@ -9,6 +9,7 @@ final class ConsoleModeState {
     static final String PHONE_SCREEN_OFF_SETTING = "nubia_screen_off_tp";
 
     private static final String TAG = "MagicDeskConsoleState";
+    private static volatile boolean sShizukuPhoneScreenOff;
 
     private ConsoleModeState() {
     }
@@ -30,6 +31,9 @@ final class ConsoleModeState {
     }
 
     static boolean isPhoneScreenOff(final Context context) {
+        if (sShizukuPhoneScreenOff) {
+            return true;
+        }
         try {
             return Settings.Global.getInt(
                     context.getContentResolver(),
@@ -39,5 +43,13 @@ final class ConsoleModeState {
             Log.w(TAG, "Cannot read phone screen state", error);
             return false;
         }
+    }
+
+    static boolean setShizukuPhoneScreenOff(final boolean screenOff) {
+        if (sShizukuPhoneScreenOff == screenOff) {
+            return false;
+        }
+        sShizukuPhoneScreenOff = screenOff;
+        return true;
     }
 }

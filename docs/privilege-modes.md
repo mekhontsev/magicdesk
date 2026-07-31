@@ -94,26 +94,28 @@ MagicDesk queries `IInputManager` for the selected layout of every enabled IME
 subtype, matching Android's own layout-mapping model without reading private
 InputManager files.
 
-The firmware's `redmagic.app.manager` Binder accepts the phone-screen command
-from shell and performs the brightness transition inside `system_server`.
-Android 16 nevertheless blocks UID 2000 from changing the enabled state of
+Android 16 blocks UID 2000 from changing the enabled state of
 `cn.nubia.keymapcenter.mirror.MirrorInputService`, even though the shell package
-holds `CHANGE_COMPONENT_ENABLED_STATE`. Shizuku can therefore dim and restore
-the phone, but it cannot install MagicDesk's Root-mode guard against Nubia
-opening its phone-side text-input panel. The vendor activity checks
-`nubia_screen_off_tp` in `onResume()` and explicitly wakes the phone before an
-external close request can run. Focusing a text field can therefore wake the
-phone in a Shizuku session. Root mode disables that one service component while
-the phone is dimmed and restores it when the phone wakes or MagicDesk exits.
+holds `CHANGE_COMPONENT_ENABLED_STATE`. Shizuku therefore does not reuse the
+Root component guard. Instead it invokes DisplayManager's shell-only
+`power-off 0` operation and deliberately leaves `nubia_screen_off_tp=0`.
+Nubia's input-panel activity then has no dimmed-panel state to cancel when an
+external application requests text input. A heartbeat-bound helper owns this
+physical display override and calls `power-reset 0` when the user restores the
+screen, Console Mode exits, MagicDesk or Shizuku disappears, or its control
+stream times out. Root mode retains the narrower, already validated vendor
+component guard and stock REDMAGIC screen transition.
 
 The keyboard and mouse bridges are active only while Shizuku Console Mode and
-the corresponding physical device are present. Heartbeats make them fail open:
-if the APK, UserService, or control stream disappears, each native helper
-destroys its virtual device and releases every physical source within six
-seconds. Input-device hot-plug restarts the bridges with a fresh device
-inventory. Screenshots remain available from **Tools > Screenshot**; the panel
-is synchronously detached and the capture is queued against display frames
-rather than a fixed delay.
+the corresponding physical device are present. A shared heartbeat component
+services their independent streams and the optional phone-display guard. If
+the APK, UserService, or a control stream disappears, each helper fails open:
+input helpers destroy their virtual devices and release every physical source,
+while the display helper restores DisplayManager ownership. Input-device
+hot-plug restarts only the affected bridge with a fresh device inventory.
+Screenshots remain available from **Tools > Screenshot**; the panel is
+synchronously detached and the capture is queued against display frames rather
+than a fixed delay.
 
 MagicDesk does not download, install, or start Shizuku. The user must install
 the official manager, start its server, and grant MagicDesk. A Shizuku/Sui

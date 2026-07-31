@@ -17,7 +17,6 @@ final class ShizukuMouseBridge {
     private static final String DUMPSYS_INPUT =
             "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MILLIS = 1_000L;
-    private static final long HEARTBEAT_MILLIS = 1_000L;
 
     private final Object mLock = new Object();
     private final Context mContext;
@@ -26,7 +25,7 @@ final class ShizukuMouseBridge {
     private boolean mReady;
     private int mGeneration;
     private Thread mSupervisorThread;
-    private Thread mHeartbeatThread;
+    private ShizukuHeartbeat mHeartbeat;
     private ShizukuAccess.StreamHandle mStream;
 
     ShizukuMouseBridge(final Context context) {
@@ -58,7 +57,7 @@ final class ShizukuMouseBridge {
     void stop() {
         final ShizukuAccess.StreamHandle stream;
         final Thread supervisor;
-        final Thread heartbeat;
+        final ShizukuHeartbeat heartbeat;
         synchronized (mLock) {
             if (!mRequested && mStream == null) {
                 return;
@@ -68,14 +67,14 @@ final class ShizukuMouseBridge {
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
-            heartbeat = mHeartbeatThread;
+            heartbeat = mHeartbeat;
             mStream = null;
             mSupervisorThread = null;
-            mHeartbeatThread = null;
+            mHeartbeat = null;
         }
         closeQuietly(stream);
         if (heartbeat != null) {
-            heartbeat.interrupt();
+            heartbeat.close();
         }
         if (supervisor != null) {
             supervisor.interrupt();
@@ -153,18 +152,23 @@ final class ShizukuMouseBridge {
             mReady = false;
         }
 
-        final Thread heartbeat = new Thread(
-                () -> sendHeartbeats(stream, generation),
-                "MagicDeskShizukuMouseHeartbeat");
-        heartbeat.setDaemon(true);
+        final ShizukuHeartbeat heartbeat = ShizukuHeartbeat.start(
+                "MagicDeskShizukuMouseHeartbeat",
+                error -> {
+                    if (isActive(generation)) {
+                        Log.w(TAG, "mouse bridge heartbeat failed", error);
+                        closeQuietly(stream);
+                    }
+                },
+                stream);
         synchronized (mLock) {
             if (!isActiveLocked(generation) || mStream != stream) {
+                heartbeat.close();
                 closeQuietly(stream);
                 return;
             }
-            mHeartbeatThread = heartbeat;
+            mHeartbeat = heartbeat;
         }
-        heartbeat.start();
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(stream.inputStream()))) {
@@ -177,37 +181,17 @@ final class ShizukuMouseBridge {
                 throw new IOException("uinput bridge exited unexpectedly");
             }
         } finally {
-            heartbeat.interrupt();
+            heartbeat.close();
             synchronized (mLock) {
                 if (mStream == stream) {
                     mStream = null;
                     mReady = false;
                 }
-                if (mHeartbeatThread == heartbeat) {
-                    mHeartbeatThread = null;
+                if (mHeartbeat == heartbeat) {
+                    mHeartbeat = null;
                 }
             }
             closeQuietly(stream);
-        }
-    }
-
-    private void sendHeartbeats(
-            final ShizukuAccess.StreamHandle stream,
-            final int generation) {
-        while (isActive(generation)) {
-            try {
-                stream.writeLine("ping");
-                Thread.sleep(HEARTBEAT_MILLIS);
-            } catch (IOException error) {
-                if (isActive(generation)) {
-                    Log.w(TAG, "mouse bridge heartbeat failed", error);
-                    closeQuietly(stream);
-                }
-                return;
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                return;
-            }
         }
     }
 

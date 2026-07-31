@@ -268,6 +268,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
+        ShizukuPhoneDisplayGuard.requestRestore();
         ConsoleModeSwitcher.closeRootShell();
         super.onDestroy();
     }
@@ -430,11 +431,16 @@ public final class MagicDeskRuntimeService extends Service
             public void onReceive(final Context context, final Intent intent) {
                 if (Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction())) {
                     scheduleDeviceStateCheck();
+                } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
+                        && ShizukuPhoneDisplayGuard.isActive()) {
+                    ConsoleModeSwitcher.setPhoneScreenOff(false, null);
                 }
             }
         };
-        registerReceiver(mConfigurationReceiver,
-                new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED));
+        final IntentFilter filter =
+                new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        registerReceiver(mConfigurationReceiver, filter);
     }
 
     private void registerConsoleModeObserver() {

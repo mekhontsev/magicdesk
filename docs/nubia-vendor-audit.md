@@ -222,9 +222,11 @@ therefore has no dimmed-panel flag to undo when a mirrored application asks
 for text input. A local test confirmed that display 0 reached the committed
 `OFF` state, `power-reset` restored the DisplayManager-owned state, and the
 physical power button could still wake the phone. This is the preferred
-candidate for a Shizuku wake guard, but it must remain lifecycle-owned and
-fail open: a heartbeat-bound helper must always issue `power-reset` when the
-MagicDesk process, Shizuku service, or Console session ends.
+mechanism used by the Shizuku wake guard. It remains lifecycle-owned and fail
+open: a heartbeat-bound helper always issues `power-reset` when the MagicDesk
+process, Shizuku service, or Console session ends. The helper is not restarted
+after an unexpected failure, so it cannot turn a user-restored screen off
+again.
 
 Two apparent event sources are not sufficient by themselves. Nubia's
 `zte_backlight` callback reports only calls to `setNit`, `setBacklight`, and

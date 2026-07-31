@@ -101,6 +101,14 @@ final class DesktopRuntimeBridge {
         return true;
     }
 
+    static void refreshConsoleControls() {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(activity::updateConsoleControls);
+    }
+
     static boolean restoreLastVisibleWindows() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {

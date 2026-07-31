@@ -261,11 +261,13 @@ captions. MagicDesk temporarily reveals those caption layers during a Console
 session and restores REDMAGIC's current wired-privacy preference afterward.
 Shizuku also corrects REDMAGIC's physical-right-button-to-Back conversion
 through a lifecycle-bound virtual mouse bridge and provides global desktop
-shortcuts through an equivalent virtual-keyboard bridge. It cannot suppress
-Nubia's phone-side text-input panel, so focusing a text field can wake a phone
-dimmed in Shizuku mode. Cooling changes use the stock `NBFan` policy service;
-direct five-level fan control remains available only in Root mode. The
-phone-side input-panel wake guard and kernel fixes also remain Root-only.
+shortcuts through an equivalent virtual-keyboard bridge. Phone-screen dimming
+uses a heartbeat-owned physical display override instead of Nubia's
+`nubia_screen_off_tp` state, preventing the vendor text-input panel from
+claiming that it must wake the phone. Loss of MagicDesk, Shizuku, or the guard
+stream restores DisplayManager's normal power state. Cooling changes use the
+stock `NBFan` policy service; direct five-level fan control and kernel fixes
+remain available only in Root mode.
 
 The trust boundaries are deliberately narrow:
 

@@ -25,7 +25,6 @@ final class KeyboardShortcutWatcher {
     private static final String DUMPSYS_INPUT =
             "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MS = 1000L;
-    private static final long HEARTBEAT_MILLIS = 1000L;
 
     private static final Object LOCK = new Object();
     private static boolean sRunning;
@@ -38,7 +37,7 @@ final class KeyboardShortcutWatcher {
     private static ShizukuAccess.StreamHandle sShizukuStream;
     private static ShizukuAccess.StreamHandle sShizukuRoutingStream;
     private static Thread sThread;
-    private static Thread sHeartbeatThread;
+    private static ShizukuHeartbeat sHeartbeat;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
 
@@ -69,7 +68,7 @@ final class KeyboardShortcutWatcher {
         final ShizukuAccess.StreamHandle shizukuStream;
         final ShizukuAccess.StreamHandle routingStream;
         final Thread thread;
-        final Thread heartbeatThread;
+        final ShizukuHeartbeat heartbeat;
         final boolean cancelAltTab;
         synchronized (LOCK) {
             sRunning = false;
@@ -80,12 +79,12 @@ final class KeyboardShortcutWatcher {
             shizukuStream = sShizukuStream;
             routingStream = sShizukuRoutingStream;
             thread = sThread;
-            heartbeatThread = sHeartbeatThread;
+            heartbeat = sHeartbeat;
             sProcess = null;
             sShizukuStream = null;
             sShizukuRoutingStream = null;
             sThread = null;
-            sHeartbeatThread = null;
+            sHeartbeat = null;
             sFullShortcutMode = false;
         }
         if (cancelAltTab) {
@@ -96,8 +95,8 @@ final class KeyboardShortcutWatcher {
         }
         closeQuietly(shizukuStream);
         closeQuietly(routingStream);
-        if (heartbeatThread != null) {
-            heartbeatThread.interrupt();
+        if (heartbeat != null) {
+            heartbeat.close();
         }
         if (thread != null) {
             thread.interrupt();
@@ -227,7 +226,7 @@ final class KeyboardShortcutWatcher {
         ShizukuAccess.StreamHandle routingStream = null;
         BufferedReader keyboardReader = null;
         BufferedReader routingReader = null;
-        Thread heartbeatThread = null;
+        ShizukuHeartbeat heartbeat = null;
         Thread routingMonitor = null;
         final AtomicBoolean sessionClosing = new AtomicBoolean();
         try {
@@ -284,17 +283,22 @@ final class KeyboardShortcutWatcher {
             routingMonitor.setDaemon(true);
             routingMonitor.start();
 
-            heartbeatThread = new Thread(
-                    () -> sendShizukuHeartbeats(
-                            activeKeyboardStream,
-                            activeRoutingStream,
-                            sessionThread,
-                            sessionClosing,
-                            generation),
-                    "MagicDeskShizukuKeyboardHeartbeat");
-            heartbeatThread.setDaemon(true);
-            setHeartbeatThread(heartbeatThread, generation);
-            heartbeatThread.start();
+            heartbeat = ShizukuHeartbeat.start(
+                    "MagicDeskShizukuKeyboardHeartbeat",
+                    error -> {
+                        if (!sessionClosing.get()
+                                && isRunning(generation)) {
+                            Log.w(TAG,
+                                    "Shizuku keyboard heartbeat failed",
+                                    error);
+                            closeQuietly(activeKeyboardStream);
+                            closeQuietly(activeRoutingStream);
+                            sessionThread.interrupt();
+                        }
+                    },
+                    activeKeyboardStream,
+                    activeRoutingStream);
+            setHeartbeat(heartbeat, generation);
 
             syncHardwareKeyboardLayout();
             keyboardStream.writeLine("start");
@@ -320,14 +324,14 @@ final class KeyboardShortcutWatcher {
             }
         } finally {
             sessionClosing.set(true);
-            if (heartbeatThread != null) {
-                heartbeatThread.interrupt();
+            if (heartbeat != null) {
+                heartbeat.close();
             }
             closeQuietly(keyboardReader);
             closeQuietly(routingReader);
             closeQuietly(keyboardStream);
             closeQuietly(routingStream);
-            clearHeartbeatThread(heartbeatThread);
+            clearHeartbeat(heartbeat);
             clearShizukuRoutingStream(routingStream);
             clearShizukuStream(keyboardStream);
             clearModifierState();
@@ -434,35 +438,6 @@ final class KeyboardShortcutWatcher {
             if (!sessionClosing.get() && isRunning(generation)) {
                 closeQuietly(keyboardStream);
                 sessionThread.interrupt();
-            }
-        }
-    }
-
-    private static void sendShizukuHeartbeats(
-            final ShizukuAccess.StreamHandle keyboardStream,
-            final ShizukuAccess.StreamHandle routingStream,
-            final Thread sessionThread,
-            final AtomicBoolean sessionClosing,
-            final long generation) {
-        while (isRunning(generation)) {
-            try {
-                keyboardStream.writeLine("ping");
-                routingStream.writeLine("ping");
-                Thread.sleep(HEARTBEAT_MILLIS);
-            } catch (IOException error) {
-                if (!sessionClosing.get()
-                        && isRunning(generation)) {
-                    Log.w(TAG,
-                            "Shizuku keyboard heartbeat failed",
-                            error);
-                    closeQuietly(keyboardStream);
-                    closeQuietly(routingStream);
-                    sessionThread.interrupt();
-                }
-                return;
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                return;
             }
         }
     }
@@ -864,12 +839,12 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void setHeartbeatThread(
-            final Thread thread,
+    private static void setHeartbeat(
+            final ShizukuHeartbeat heartbeat,
             final long generation) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
-                sHeartbeatThread = thread;
+                sHeartbeat = heartbeat;
             }
         }
     }
@@ -921,10 +896,10 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void clearHeartbeatThread(final Thread thread) {
+    private static void clearHeartbeat(final ShizukuHeartbeat heartbeat) {
         synchronized (LOCK) {
-            if (sHeartbeatThread == thread) {
-                sHeartbeatThread = null;
+            if (sHeartbeat == heartbeat) {
+                sHeartbeat = null;
             }
         }
     }

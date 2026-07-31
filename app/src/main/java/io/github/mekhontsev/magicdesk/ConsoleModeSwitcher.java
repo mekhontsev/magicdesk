@@ -52,6 +52,22 @@ final class ConsoleModeSwitcher {
             public void run() {
                 boolean success = false;
                 try {
+                    if (RuntimeAccess.allowsShizukuCommands()
+                            && !RuntimeAccess.allowsRootCommands()) {
+                        success = screenOff
+                                ? ShizukuPhoneDisplayGuard.enable()
+                                : ShizukuPhoneDisplayGuard.disable();
+                        Log.i(TAG, "Shizuku phone display off="
+                                + screenOff + " success=" + success);
+                        if (!success) {
+                            CompatibilityDiagnostics.record(
+                                    "NUBIA-SCREEN-002",
+                                    "Could not change the phone screen state",
+                                    "backend=" + RuntimeAccess.backendName()
+                                            + " screenOff=" + screenOff);
+                        }
+                        return;
+                    }
                     boolean proxySuccess = true;
                     if (RuntimeAccess.has(
                             RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD)) {

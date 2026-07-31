@@ -110,6 +110,7 @@ final class DeviceSetupManager {
             rootError = "Root intentionally disabled by Basic mode";
         }
         if (requestedMode != SessionProfile.PrivilegeMode.SHIZUKU) {
+            ShizukuPhoneDisplayGuard.requestRestore();
             ShizukuAccess.disconnect();
         }
         final RuntimeAccess.Backend backend = RuntimeBackendPolicy.select(

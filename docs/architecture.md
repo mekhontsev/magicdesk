@@ -705,12 +705,17 @@ updates the vendor panel layout. `ProjectionIcon` can therefore retain its
 Mirror-mode geometry and omit the stock Touch Panel item. MagicDesk's
 notification does not depend on that panel.
 
-When the user dims the phone through MagicDesk, the app temporarily disables
-only Nubia's exported `MirrorInputService`. This prevents external pointer focus
-from waking the phone and opening the on-screen keyboard. MagicDesk observes
-`nubia_screen_off_tp` and restores the component immediately when the phone is
-woken through Power, Nubia's lock control, MagicDesk, or **Open touchpad**.
-Exit and Console teardown also restore its manifest-default state.
+Root and Shizuku use different phone-screen guards. Root follows Nubia's stock
+screen transition and temporarily disables only the exported
+`MirrorInputService`; MagicDesk observes `nubia_screen_off_tp` and restores the
+component immediately when the phone wakes or the session ends.
+
+Shizuku leaves that vendor state untouched and asks DisplayManager to put
+physical display 0 in `OFF`. `PhoneDisplayGuardCommand` owns the override only
+while its Shizuku stream receives the shared one-second heartbeat. Explicit
+restore, `ACTION_SCREEN_ON`, Console exit, runtime-service teardown, stream
+EOF, or a four-second heartbeat timeout runs `power-reset 0`. The helper never
+reapplies `OFF` after failure, so every lifecycle error is fail-open.
 
 ## Notifications And System Panels
 

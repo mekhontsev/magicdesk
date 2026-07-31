@@ -141,7 +141,7 @@ successful build.
 - [x] Lock the phone through WindowManager from shell UID 2000. The same
   `DeviceLockCommand` used by `Win+L` returned `device-locked`, and the phone
   entered its normal lock screen.
-- [ ] Validate the physical-display Shizuku wake-guard candidate with an
+- [ ] Validate the integrated physical-display Shizuku wake guard with an
   external display attached. Use `cmd display power-off 0` while leaving
   `nubia_screen_off_tp=0`; focus a real text field and confirm that Nubia's
   input panel does not wake display 0, keyboard layout switching and repeat
@@ -149,7 +149,12 @@ successful build.
   physical power button, explicit restore, Console exit, MagicDesk/Shizuku
   process death, and cable removal all restore display 0 through
   `cmd display power-reset 0`. Do not ship this path without a heartbeat-bound
-  fail-open owner.
+  fail-open owner. The implementation now uses a shared Shizuku heartbeat and
+  an independent four-second helper timeout. A local fail-open test on
+  2026-07-31 observed display 0 committed `OFF`, then `heartbeat-timeout` and
+  committed `ON` about five seconds later, before the independent safety reset;
+  forced APK shutdown also removed the app and display helper immediately.
+  This item remains open until the complete external-hardware sequence passes.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found
   the configured English and Russian layouts while Unexpected Keyboard was
