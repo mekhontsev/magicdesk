@@ -13,8 +13,8 @@ public final class ShizukuInputRoutingCommand {
     private static final long HEARTBEAT_TIMEOUT_MILLIS = 6_000L;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
-    private static final String VIRTUAL_KEYBOARD_LOCATION =
-            "magicdesk-shizuku-keyboard";
+    private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
+            "magicdesk-shizuku-keyboard-";
 
     private ShizukuInputRoutingCommand() {
     }
@@ -33,8 +33,18 @@ public final class ShizukuInputRoutingCommand {
                 System.out.flush();
                 return;
             }
+            if (args.length != 1) {
+                throw new IllegalArgumentException(
+                        "expected virtual keyboard count");
+            }
+            final int expectedVirtualKeyboards =
+                    Integer.parseInt(args[0]);
+            if (expectedVirtualKeyboards <= 0) {
+                throw new IllegalArgumentException(
+                        "virtual keyboard count must be positive");
+            }
             final List<ConsoleKeyboardDevice> keyboards =
-                    waitForVirtualKeyboard();
+                    waitForVirtualKeyboards(expectedVirtualKeyboards);
             final List<ConsoleMouseDevice> mice =
                     ConsoleInputDeviceDiscovery.findMice();
             routing = ConsoleInputRoutingSession.open(keyboards, mice);
@@ -49,7 +59,9 @@ public final class ShizukuInputRoutingCommand {
                             + " associations="
                             + routing.associationCount()
                             + " keyboards="
-                            + routing.keyboardAssociationCount());
+                            + routing.keyboardAssociationCount()
+                            + " virtualKeyboards="
+                            + countVirtualKeyboards(keyboards));
             System.out.flush();
             waitForHeartbeats();
         } catch (Exception error) {
@@ -64,7 +76,8 @@ public final class ShizukuInputRoutingCommand {
         }
     }
 
-    private static List<ConsoleKeyboardDevice> waitForVirtualKeyboard()
+    private static List<ConsoleKeyboardDevice> waitForVirtualKeyboards(
+            final int expectedCount)
             throws IOException, InterruptedException {
         final long deadline = SystemClock.uptimeMillis()
                 + VIRTUAL_KEYBOARD_TIMEOUT_MILLIS;
@@ -72,16 +85,26 @@ public final class ShizukuInputRoutingCommand {
         do {
             keyboards =
                     ConsoleInputDeviceDiscovery.findRoutableKeyboards();
-            for (final ConsoleKeyboardDevice keyboard : keyboards) {
-                if (VIRTUAL_KEYBOARD_LOCATION.equals(
-                        keyboard.location)) {
-                    return keyboards;
-                }
+            if (countVirtualKeyboards(keyboards) == expectedCount) {
+                return keyboards;
             }
             Thread.sleep(VIRTUAL_KEYBOARD_POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
-                "MagicDesk virtual keyboard did not appear in EventHub");
+                "Expected " + expectedCount
+                        + " MagicDesk virtual keyboards in EventHub");
+    }
+
+    private static int countVirtualKeyboards(
+            final List<ConsoleKeyboardDevice> keyboards) {
+        int count = 0;
+        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+            if (keyboard.location.startsWith(
+                    VIRTUAL_KEYBOARD_LOCATION_PREFIX)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static void waitForHeartbeats()

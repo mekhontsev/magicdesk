@@ -284,7 +284,9 @@ final class DesktopTaskController {
             return;
         }
         controller.mTaskWatcher.sendFocusStack(
-                new ArrayList<>(orderedTaskIds), trackedCallback);
+                controller.mDisplayId,
+                new ArrayList<>(orderedTaskIds),
+                trackedCallback);
     }
 
     static boolean handleActiveTaskShortcut(final int shortcut) {

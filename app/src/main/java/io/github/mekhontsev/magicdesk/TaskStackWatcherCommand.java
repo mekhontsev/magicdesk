@@ -113,7 +113,7 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
 
     private void applyCommand(final String line) {
         final String[] arguments = line.trim().split("\\s+");
-        if (arguments.length >= 3 && "focus-stack".equals(arguments[0])) {
+        if (arguments.length >= 4 && "focus-stack".equals(arguments[0])) {
             applyFocusStackCommand(arguments);
             return;
         }
@@ -148,30 +148,41 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
 
     private void applyFocusStackCommand(final String[] arguments) {
         long sequence = -1;
-        final int[] taskIds = new int[arguments.length - 2];
+        int appliedTaskCount = 0;
+        final int[] taskIds = new int[arguments.length - 3];
         try {
             sequence = parseNonNegativeLong(arguments[1], "sequence");
-            for (int index = 2; index < arguments.length; index++) {
-                taskIds[index - 2] = parseNonNegative(arguments[index], "task id");
+            final int displayId =
+                    parseNonNegative(arguments[2], "display id");
+            for (int index = 3; index < arguments.length; index++) {
+                taskIds[index - 3] = parseNonNegative(arguments[index], "task id");
             }
             for (int index = 0; index < taskIds.length; index++) {
-                try {
-                    TaskControlCommand.moveTaskToFront(
-                            mActivityTaskManagerService, taskIds[index]);
-                } catch (ReflectiveOperationException | RuntimeException e) {
+                final int taskId = taskIds[index];
+                if (HiddenTaskApi.findTask(
+                        mActivityTaskManagerService, displayId, taskId) == null) {
                     if (index == taskIds.length - 1) {
-                        throw e;
+                        throw new IllegalStateException(
+                                "task " + taskId
+                                        + " not found on display " + displayId);
                     }
-                    System.err.println("task focus skipped stale task=" + taskIds[index]);
+                    System.err.println("task focus skipped stale task=" + taskId);
+                    continue;
                 }
+                TaskControlCommand.setFocusedTask(
+                        mActivityTaskManagerService, taskId);
+                appliedTaskCount++;
             }
-            signalFocusStackResult(true, sequence, taskIds.length);
+            if (appliedTaskCount == 0) {
+                throw new IllegalStateException("no live tasks to focus");
+            }
+            signalFocusStackResult(true, sequence, appliedTaskCount);
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
             while (cause.getCause() != null && cause.getCause() != cause) {
                 cause = cause.getCause();
             }
-            signalFocusStackResult(false, sequence, taskIds.length);
+            signalFocusStackResult(false, sequence, appliedTaskCount);
             System.err.println("task stack focus failed: " + cause);
         }
     }

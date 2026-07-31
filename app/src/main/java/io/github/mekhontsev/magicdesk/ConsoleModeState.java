@@ -31,8 +31,9 @@ final class ConsoleModeState {
     }
 
     static boolean isPhoneScreenOff(final Context context) {
-        if (sShizukuPhoneScreenOff) {
-            return true;
+        if (RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()) {
+            return sShizukuPhoneScreenOff;
         }
         try {
             return Settings.Global.getInt(

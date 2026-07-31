@@ -11,6 +11,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -21,17 +22,21 @@ public final class HardwareKeyboardLayoutCommand {
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
     private static final String LEGACY_ENGLISH_SUFFIX = "/keyboard_layout_english_us";
     private static final String LEGACY_RUSSIAN_SUFFIX = "/keyboard_layout_russian";
-    private static final String MAGICDESK_VIRTUAL_KEYBOARD =
+    private static final String LEGACY_MAGICDESK_VIRTUAL_KEYBOARD =
             "MagicDesk Shizuku Keyboard";
+    private static final String MAGICDESK_VIRTUAL_KEYBOARD_PREFIX =
+            LEGACY_MAGICDESK_VIRTUAL_KEYBOARD + " ";
 
     private HardwareKeyboardLayoutCommand() {
     }
 
     public static void main(final String[] args) {
         if ((args.length < 1 || args.length > 2)
-                || !("next".equals(args[0]) || "sync".equals(args[0]))) {
+                || !("next".equals(args[0])
+                        || "sync".equals(args[0])
+                        || "catalog".equals(args[0]))) {
             System.err.println(
-                    "usage: HardwareKeyboardLayoutCommand <next|sync>"
+                    "usage: HardwareKeyboardLayoutCommand <next|sync|catalog>"
                             + " [current-descriptor]");
             System.exit(64);
             return;
@@ -50,7 +55,9 @@ public final class HardwareKeyboardLayoutCommand {
             final String mode,
             final String persistedCurrent)
             throws ReflectiveOperationException {
-        if (!"next".equals(mode) && !"sync".equals(mode)) {
+        if (!"next".equals(mode)
+                && !"sync".equals(mode)
+                && !"catalog".equals(mode)) {
             throw new IllegalArgumentException("unsupported mode: " + mode);
         }
         final List<InputDevice> physicalKeyboards =
@@ -59,9 +66,6 @@ public final class HardwareKeyboardLayoutCommand {
             throw new IllegalStateException(
                     "no external alphabetic keyboard found");
         }
-        final List<InputDevice> managedKeyboards =
-                getManagedKeyboards(physicalKeyboards);
-
         final Object inputManager = getInputManagerService();
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
@@ -88,19 +92,50 @@ public final class HardwareKeyboardLayoutCommand {
                 ? (baseIndex + 1) % layouts.size()
                 : baseIndex;
         final LayoutInfo selected = layouts.get(selectedIndex);
-        setKeyboardLayout(
-                inputManager,
-                inputManagerInterface,
-                managedKeyboards,
-                imeState.inputMethod,
-                selected);
+        final List<IndexedKeyboard> virtualKeyboards =
+                getIndexedVirtualKeyboards();
+        final int deviceCount;
+        if ("catalog".equals(mode)) {
+            deviceCount = virtualKeyboards.size();
+        } else if (!virtualKeyboards.isEmpty()) {
+            if (virtualKeyboards.size() != layouts.size()) {
+                throw new IllegalStateException(
+                        "virtual keyboard count "
+                                + virtualKeyboards.size()
+                                + " does not match layout count "
+                                + layouts.size());
+            }
+            if ("sync".equals(mode)) {
+                for (int index = 0; index < layouts.size(); index++) {
+                    setKeyboardLayout(
+                            inputManager,
+                            inputManagerInterface,
+                            virtualKeyboards.get(index).device,
+                            imeState.inputMethod,
+                            layouts.get(index),
+                            false);
+                }
+            }
+            deviceCount = virtualKeyboards.size();
+        } else {
+            for (final InputDevice keyboard : physicalKeyboards) {
+                setKeyboardLayout(
+                        inputManager,
+                        inputManagerInterface,
+                        keyboard,
+                        imeState.inputMethod,
+                        selected,
+                        true);
+            }
+            deviceCount = physicalKeyboards.size();
+        }
 
         return new Result(
                 selected.descriptor,
                 compactCode(layouts, selectedIndex),
                 selected.label,
-                selected.subtype.hashCode(),
-                managedKeyboards.size(),
+                selectedIndex,
+                deviceCount,
                 physicalKeyboards.size(),
                 layouts.size(),
                 imeState.imeId);
@@ -270,7 +305,7 @@ public final class HardwareKeyboardLayoutCommand {
         if (device == null
                 || device.isVirtual()
                 || !device.isExternal()
-                || MAGICDESK_VIRTUAL_KEYBOARD.equals(device.getName())) {
+                || isMagicDeskVirtualKeyboard(device)) {
             return false;
         }
         final boolean hasKeyboardSource =
@@ -279,14 +314,20 @@ public final class HardwareKeyboardLayoutCommand {
                 && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
     }
 
-    private static List<InputDevice> getManagedKeyboards(
-            final List<InputDevice> physicalKeyboards) {
-        final List<InputDevice> keyboards =
-                new ArrayList<>(physicalKeyboards);
+    private static List<IndexedKeyboard> getIndexedVirtualKeyboards() {
+        final List<IndexedKeyboard> keyboards = new ArrayList<>();
         for (final int deviceId : InputDevice.getDeviceIds()) {
             final InputDevice device = InputDevice.getDevice(deviceId);
-            if (isMagicDeskVirtualKeyboard(device)) {
-                keyboards.add(device);
+            final int index = virtualKeyboardIndex(device);
+            if (index >= 0) {
+                keyboards.add(new IndexedKeyboard(index, device));
+            }
+        }
+        keyboards.sort(Comparator.comparingInt(value -> value.index));
+        for (int index = 0; index < keyboards.size(); index++) {
+            if (keyboards.get(index).index != index) {
+                throw new IllegalStateException(
+                        "missing MagicDesk virtual keyboard " + index);
             }
         }
         return keyboards;
@@ -294,13 +335,31 @@ public final class HardwareKeyboardLayoutCommand {
 
     private static boolean isMagicDeskVirtualKeyboard(
             final InputDevice device) {
-        if (device == null
-                || !MAGICDESK_VIRTUAL_KEYBOARD.equals(
-                        device.getName())) {
+        if (device == null) {
             return false;
         }
-        return (device.getSources() & InputDevice.SOURCE_KEYBOARD)
-                == InputDevice.SOURCE_KEYBOARD;
+        final String name = device.getName();
+        return (LEGACY_MAGICDESK_VIRTUAL_KEYBOARD.equals(name)
+                || name.startsWith(MAGICDESK_VIRTUAL_KEYBOARD_PREFIX))
+                && (device.getSources() & InputDevice.SOURCE_KEYBOARD)
+                        == InputDevice.SOURCE_KEYBOARD;
+    }
+
+    private static int virtualKeyboardIndex(final InputDevice device) {
+        if (!isMagicDeskVirtualKeyboard(device)) {
+            return -1;
+        }
+        final String name = device.getName();
+        if (!name.startsWith(MAGICDESK_VIRTUAL_KEYBOARD_PREFIX)) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(
+                    name.substring(
+                            MAGICDESK_VIRTUAL_KEYBOARD_PREFIX.length()));
+        } catch (NumberFormatException error) {
+            return -1;
+        }
     }
 
     private static Object getInputManagerService() throws ReflectiveOperationException {
@@ -366,9 +425,10 @@ public final class HardwareKeyboardLayoutCommand {
     private static void setKeyboardLayout(
             final Object inputManager,
             final Class<?> inputManagerInterface,
-            final List<InputDevice> keyboards,
+            final InputDevice keyboard,
             final InputMethodInfo inputMethod,
-            final LayoutInfo selected) throws ReflectiveOperationException {
+            final LayoutInfo selected,
+            final boolean verify) throws ReflectiveOperationException {
         final Class<?> identifierClass =
                 Class.forName("android.hardware.input.InputDeviceIdentifier");
         final Method getIdentifier = InputDevice.class.getMethod("getIdentifier");
@@ -383,25 +443,30 @@ public final class HardwareKeyboardLayoutCommand {
                 "getKeyboardLayoutForInputDevice",
                 identifierClass, int.class, InputMethodInfo.class,
                 InputMethodSubtype.class);
-        for (final InputDevice keyboard : keyboards) {
-            final Object identifier = getIdentifier.invoke(keyboard);
-            // The Console bridge uses its own external virtual keyboard.
-            // Apply the device-wide override as well as the active
-            // IME-specific mapping so InputReader selects the same layout.
-            setOverride.invoke(
-                    inputManager, identifier, selected.descriptor);
-            setLayout.invoke(inputManager, identifier, 0,
-                    inputMethod, selected.subtype, selected.descriptor);
-            final Object selection = getLayout.invoke(inputManager, identifier, 0,
-                    inputMethod, selected.subtype);
-            final String applied = selection == null ? null
-                    : (String) selection.getClass()
-                            .getMethod("getLayoutDescriptor").invoke(selection);
-            if (!selected.descriptor.equals(applied)) {
-                throw new IllegalStateException(
-                        "keyboard layout did not change to "
-                                + selected.descriptor);
-            }
+        final Object identifier = getIdentifier.invoke(keyboard);
+        Object selection = getLayout.invoke(inputManager, identifier, 0,
+                inputMethod, selected.subtype);
+        String applied = selection == null ? null
+                : (String) selection.getClass()
+                        .getMethod("getLayoutDescriptor").invoke(selection);
+        if (verify && selected.descriptor.equals(applied)) {
+            return;
+        }
+        setOverride.invoke(inputManager, identifier, selected.descriptor);
+        setLayout.invoke(inputManager, identifier, 0,
+                inputMethod, selected.subtype, selected.descriptor);
+        if (!verify) {
+            return;
+        }
+        selection = getLayout.invoke(inputManager, identifier, 0,
+                inputMethod, selected.subtype);
+        applied = selection == null ? null
+                : (String) selection.getClass()
+                        .getMethod("getLayoutDescriptor").invoke(selection);
+        if (!selected.descriptor.equals(applied)) {
+            throw new IllegalStateException(
+                    "keyboard layout did not change to "
+                            + selected.descriptor);
         }
     }
 
@@ -517,7 +582,7 @@ public final class HardwareKeyboardLayoutCommand {
         final String descriptor;
         final String code;
         final String name;
-        final int subtypeHash;
+        final int index;
         final int devices;
         final int physicalDevices;
         final int layouts;
@@ -527,7 +592,7 @@ public final class HardwareKeyboardLayoutCommand {
                 final String descriptor,
                 final String code,
                 final String name,
-                final int subtypeHash,
+                final int index,
                 final int devices,
                 final int physicalDevices,
                 final int layouts,
@@ -535,7 +600,7 @@ public final class HardwareKeyboardLayoutCommand {
             this.descriptor = descriptor;
             this.code = code;
             this.name = name;
-            this.subtypeHash = subtypeHash;
+            this.index = index;
             this.devices = devices;
             this.physicalDevices = physicalDevices;
             this.layouts = layouts;
@@ -545,14 +610,24 @@ public final class HardwareKeyboardLayoutCommand {
         String format() {
             return "descriptor=" + descriptor + '\n'
                     + "code=" + code + '\n'
+                    + "index=" + index + '\n'
                     + "name64=" + Base64.encodeToString(
                             name.getBytes(StandardCharsets.UTF_8),
                             Base64.NO_WRAP) + '\n'
                     + "devices=" + devices + '\n'
                     + "physicalDevices=" + physicalDevices + '\n'
                     + "layouts=" + layouts + '\n'
-                    + "ime=" + imeId + '\n'
-                    + "subtype=" + subtypeHash + '\n';
+                    + "ime=" + imeId + '\n';
+        }
+    }
+
+    private static final class IndexedKeyboard {
+        final int index;
+        final InputDevice device;
+
+        IndexedKeyboard(final int index, final InputDevice device) {
+            this.index = index;
+            this.device = device;
         }
     }
 

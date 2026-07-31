@@ -86,8 +86,8 @@ final class ConsoleInputDeviceDiscovery {
                     && record.classes.contains("ALPHAKEY")
                     && record.classes.contains("EXTERNAL")
                     && (includeMagicDeskKeyboard
-                            || !"MagicDesk Shizuku Keyboard".equals(
-                                    record.name))) {
+                            || !record.name.startsWith(
+                                    "MagicDesk Shizuku Keyboard"))) {
                 result.add(new ConsoleKeyboardDevice(
                         record.path,
                         record.location,

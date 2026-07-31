@@ -220,6 +220,7 @@ final class KeyboardShortcutWatcher {
         BufferedReader keyboardReader = null;
         BufferedReader routingReader = null;
         Thread routingMonitor = null;
+        HardwareKeyboardLayoutController.LayoutSink layoutSink = null;
         final AtomicBoolean sessionClosing = new AtomicBoolean();
         try {
             final List<ConsoleKeyboardDevice> keyboards =
@@ -229,9 +230,12 @@ final class KeyboardShortcutWatcher {
                 throw new IOException(
                         "no external alphabetic keyboard was found");
             }
+            final int layoutCount =
+                    HardwareKeyboardLayoutController.catalogLayoutCount();
 
             keyboardStream = ShizukuAccess.openHeartbeatStream(
-                    buildShizukuKeyboardCommand(keyboards));
+                    buildShizukuKeyboardCommand(
+                            keyboards, layoutCount));
             setShizukuStream(
                     keyboardStream, generation, false);
             keyboardReader = new BufferedReader(new InputStreamReader(
@@ -242,7 +246,9 @@ final class KeyboardShortcutWatcher {
                     "keyboard bridge");
 
             routingStream = ShizukuAccess.openHeartbeatStream(
-                    AppProcessCommand.exec(SHIZUKU_ROUTING_COMMAND));
+                    AppProcessCommand.exec(
+                            SHIZUKU_ROUTING_COMMAND,
+                            Integer.toString(layoutCount)));
             setShizukuRoutingStream(routingStream, generation);
             routingReader = new BufferedReader(new InputStreamReader(
                     routingStream.inputStream()));
@@ -252,7 +258,10 @@ final class KeyboardShortcutWatcher {
                     "input routing");
             final int routedKeyboards =
                     parseIntegerValue(routingReady, "keyboards");
-            if (routedKeyboards < 2) {
+            final int routedVirtualKeyboards =
+                    parseIntegerValue(
+                            routingReady, "virtualKeyboards");
+            if (routedVirtualKeyboards != layoutCount) {
                 throw new IOException(
                         "virtual keyboard was not routed: "
                                 + routingReady);
@@ -273,6 +282,10 @@ final class KeyboardShortcutWatcher {
             routingMonitor.setDaemon(true);
             routingMonitor.start();
 
+            layoutSink = index -> activeKeyboardStream.writeLine(
+                    "layout " + index);
+            HardwareKeyboardLayoutController.attachLayoutSink(
+                    layoutSink);
             syncHardwareKeyboardLayout();
             keyboardStream.writeLine("start");
             waitForLine(
@@ -283,7 +296,8 @@ final class KeyboardShortcutWatcher {
             Log.i(TAG, "input watcher started backend="
                     + RuntimeAccess.backendName()
                     + " full=true console=true"
-                    + " keyboards=" + routedKeyboards);
+                    + " keyboards=" + routedKeyboards
+                    + " layouts=" + layoutCount);
 
             String line;
             while (isRunning(generation)
@@ -303,6 +317,8 @@ final class KeyboardShortcutWatcher {
             closeQuietly(routingStream);
             clearShizukuRoutingStream(routingStream);
             clearShizukuStream(keyboardStream);
+            HardwareKeyboardLayoutController.detachLayoutSink(
+                    layoutSink);
             clearModifierState();
             if (routingMonitor != null) {
                 routingMonitor.interrupt();
@@ -314,7 +330,8 @@ final class KeyboardShortcutWatcher {
     }
 
     private static String buildShizukuKeyboardCommand(
-            final List<ConsoleKeyboardDevice> keyboards)
+            final List<ConsoleKeyboardDevice> keyboards,
+            final int layoutCount)
             throws IOException {
         final File helper = new File(
                 MagicDeskApplication.applicationContext()
@@ -326,7 +343,9 @@ final class KeyboardShortcutWatcher {
         }
         final StringBuilder command =
                 new StringBuilder("exec ")
-                        .append(shellQuote(helper.getAbsolutePath()));
+                        .append(shellQuote(helper.getAbsolutePath()))
+                        .append(" --layouts ")
+                        .append(layoutCount);
         for (final ConsoleKeyboardDevice keyboard : keyboards) {
             command.append(' ').append(shellQuote(keyboard.path));
         }
@@ -374,7 +393,8 @@ final class KeyboardShortcutWatcher {
     private static void syncHardwareKeyboardLayout()
             throws IOException {
         final CountDownLatch complete = new CountDownLatch(1);
-        HardwareKeyboardLayoutController.refresh(complete::countDown);
+        HardwareKeyboardLayoutController.configureVirtualLayouts(
+                complete::countDown);
         try {
             complete.await();
         } catch (InterruptedException error) {

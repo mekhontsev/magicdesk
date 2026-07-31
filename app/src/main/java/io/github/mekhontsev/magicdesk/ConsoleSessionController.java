@@ -208,11 +208,7 @@ final class ConsoleSessionController {
                                             + " "
                                             + DesktopShellActivity.ACTION_RESTORE_WINDOWS
                                     : "")
-                            + " --es " + SessionProfile.EXTRA_PRIVILEGE_MODE
-                            + " shizuku"
-                            + " --es " + SessionProfile.EXTRA_DISPLAY_TARGET
-                            + " external"
-                            + " -n io.github.mekhontsev.magicdesk/.DeviceSetupActivity")
+                            + " -n " + DESKTOP_COMPONENT)
                     .trim();
             if (output.startsWith("Error:")
                     || output.contains(

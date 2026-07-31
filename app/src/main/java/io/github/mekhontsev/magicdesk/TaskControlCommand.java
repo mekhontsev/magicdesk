@@ -139,6 +139,12 @@ public final class TaskControlCommand {
         target.invoke(service, arguments);
     }
 
+    static void setFocusedTask(final Object service, final int taskId)
+            throws ReflectiveOperationException {
+        service.getClass().getMethod("setFocusedTask", Integer.TYPE)
+                .invoke(service, Integer.valueOf(taskId));
+    }
+
     static String callingPackageForUid(final int uid) {
         return uid == SHELL_UID ? SHELL_PACKAGE_NAME : PACKAGE_NAME;
     }

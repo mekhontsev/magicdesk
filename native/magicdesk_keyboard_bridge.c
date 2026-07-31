@@ -19,6 +19,9 @@
 #define HEARTBEAT_TIMEOUT_SECONDS 6
 #define MAX_QUEUED_EVENTS 2048
 #define CONTROL_BUFFER_SIZE 256
+#define MAX_LAYOUTS 16
+#define MAGICDESK_VENDOR_ID 0x4d44
+#define MAGICDESK_KEYBOARD_PRODUCT_BASE 0x4b00
 
 #define MOD_CTRL (1U << 0)
 #define MOD_ALT (1U << 1)
@@ -40,7 +43,9 @@ struct queued_event {
 struct bridge_state {
     struct source_device *sources;
     int source_count;
-    int uinput_fd;
+    int *uinput_fds;
+    int layout_count;
+    int active_layout;
     uint16_t key_down_count[KEY_MAX + 1];
     bool forwarded_down[KEY_MAX + 1];
     bool modifier_pending[KEY_MAX + 1];
@@ -57,6 +62,10 @@ struct bridge_state {
 };
 
 static volatile sig_atomic_t stop_requested;
+
+static int active_uinput_fd(const struct bridge_state *state) {
+    return state->uinput_fds[state->active_layout];
+}
 
 static void request_stop(int signal_number) {
     (void)signal_number;
@@ -179,7 +188,7 @@ static int flush_pending_modifiers(
             return 0;
         }
         if (write_event(
-                    state->uinput_fd,
+                    active_uinput_fd(state),
                     &state->modifier_down_event[selected]) < 0) {
             return -1;
         }
@@ -268,14 +277,14 @@ static int process_modifier_event(
 
     int result = 0;
     if (state->forwarded_down[code]) {
-        result = write_event(state->uinput_fd, event);
+        result = write_event(active_uinput_fd(state), event);
     } else if (state->modifier_pending[code]
             && !state->modifier_consumed[code]
             && !is_meta_modifier(code)) {
         if (write_event(
-                    state->uinput_fd,
+                    active_uinput_fd(state),
                     &state->modifier_down_event[code]) < 0
-                || write_event(state->uinput_fd, event) < 0) {
+                || write_event(active_uinput_fd(state), event) < 0) {
             result = -1;
         }
     }
@@ -344,7 +353,7 @@ static int process_key_event(
             return 0;
         }
         if (flush_pending_modifiers(state) < 0
-                || write_event(state->uinput_fd, event) < 0) {
+                || write_event(active_uinput_fd(state), event) < 0) {
             return -1;
         }
         state->forwarded_down[code] = true;
@@ -358,7 +367,7 @@ static int process_key_event(
         if (flush_pending_modifiers(state) < 0) {
             return -1;
         }
-        return write_event(state->uinput_fd, event);
+        return write_event(active_uinput_fd(state), event);
     }
 
     if (event->value != 0) {
@@ -386,7 +395,7 @@ static int process_key_event(
         return 0;
     }
     state->forwarded_down[code] = false;
-    return write_event(state->uinput_fd, event);
+    return write_event(active_uinput_fd(state), event);
 }
 
 static int process_event(
@@ -398,7 +407,7 @@ static int process_event(
                 state, &state->sources[source_index], event);
     }
     if (event->type == EV_SYN) {
-        return write_event(state->uinput_fd, event);
+        return write_event(active_uinput_fd(state), event);
     }
     return 0;
 }
@@ -460,7 +469,8 @@ static int enable_source_capabilities(
 static int create_virtual_keyboard(
         const struct source_device *sources,
         const int source_count,
-        const int uinput_fd) {
+        const int uinput_fd,
+        const int layout_index) {
     struct input_id source_id = {0};
     if (ioctl(sources[0].fd, EVIOCGID, &source_id) < 0) {
         return -1;
@@ -468,13 +478,21 @@ static int create_virtual_keyboard(
     struct uinput_setup setup = {
         .id = source_id,
     };
+    setup.id.vendor = MAGICDESK_VENDOR_ID;
+    setup.id.product = (uint16_t)(
+            MAGICDESK_KEYBOARD_PRODUCT_BASE + layout_index);
+    setup.id.version = 1;
     snprintf(setup.name, UINPUT_MAX_NAME_SIZE,
-            "MagicDesk Shizuku Keyboard");
+            "MagicDesk Shizuku Keyboard %d", layout_index);
+
+    char location[64];
+    snprintf(location, sizeof(location),
+            "magicdesk-shizuku-keyboard-%d", layout_index);
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
             || ioctl(uinput_fd, UI_SET_PHYS,
-                    "magicdesk-shizuku-keyboard") < 0) {
+                    location) < 0) {
         return -1;
     }
     for (int index = 0; index < source_count; ++index) {
@@ -554,7 +572,7 @@ static int release_forwarded_keys(struct bridge_state *state) {
             continue;
         }
         if (emit_key(
-                    state->uinput_fd,
+                    active_uinput_fd(state),
                     (unsigned short)code,
                     0) < 0) {
             return -1;
@@ -562,13 +580,34 @@ static int release_forwarded_keys(struct bridge_state *state) {
         state->forwarded_down[code] = false;
         released = true;
     }
-    return !released || emit_sync(state->uinput_fd) == 0 ? 0 : -1;
+    return !released || emit_sync(active_uinput_fd(state)) == 0 ? 0 : -1;
 }
 
 static int handle_control_line(
         struct bridge_state *state,
         const char *line) {
-    if (strcmp(line, "start") == 0 && !state->started) {
+    if (strncmp(line, "layout ", 7) == 0) {
+        char *end = NULL;
+        const long index = strtol(line + 7, &end, 10);
+        if (end == line + 7 || *end != '\0'
+                || index < 0 || index >= state->layout_count) {
+            fprintf(stderr,
+                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR layout=%s\n",
+                    line + 7);
+            return -1;
+        }
+        if (index != state->active_layout) {
+            if (release_forwarded_keys(state) < 0) {
+                return -1;
+            }
+            state->active_layout = (int)index;
+        }
+        char output[96];
+        snprintf(output, sizeof(output),
+                "MAGICDESK_SHIZUKU_KEYBOARD_LAYOUT index=%d",
+                state->active_layout);
+        emit_line(output);
+    } else if (strcmp(line, "start") == 0 && !state->started) {
         if (grab_sources(state->sources, state->source_count) < 0) {
             return -1;
         }
@@ -731,46 +770,83 @@ static int forward_events(struct bridge_state *state) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
+    if (argc < 4 || strcmp(argv[1], "--layouts") != 0) {
         fprintf(stderr,
-                "usage: %s /dev/input/eventN [/dev/input/eventN ...]\n",
+                "usage: %s --layouts N"
+                " /dev/input/eventN [/dev/input/eventN ...]\n",
                 argv[0]);
         return 64;
     }
+
+    char *layout_end = NULL;
+    const long parsed_layout_count = strtol(argv[2], &layout_end, 10);
+    if (layout_end == argv[2] || *layout_end != '\0'
+            || parsed_layout_count <= 0
+            || parsed_layout_count > MAX_LAYOUTS) {
+        fprintf(stderr,
+                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR layouts=%s\n",
+                argv[2]);
+        return 64;
+    }
+    const int layout_count = (int)parsed_layout_count;
 
     signal(SIGINT, request_stop);
     signal(SIGTERM, request_stop);
     signal(SIGPIPE, SIG_IGN);
 
-    const int source_count = argc - 1;
+    const int source_count = argc - 3;
     struct source_device *sources =
             calloc((size_t)source_count, sizeof(*sources));
     if (sources == NULL) {
         perror("allocate sources");
         return 1;
     }
-    if (open_sources(sources, source_count, &argv[1]) < 0) {
+    if (open_sources(sources, source_count, &argv[3]) < 0) {
         release_sources(sources, source_count);
         free(sources);
         return 1;
     }
 
-    const int uinput_fd =
-            open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (uinput_fd < 0) {
-        fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR uinput=open error=%s\n",
-                strerror(errno));
+    int *uinput_fds = calloc(
+            (size_t)layout_count, sizeof(*uinput_fds));
+    if (uinput_fds == NULL) {
+        perror("allocate virtual keyboards");
         release_sources(sources, source_count);
         free(sources);
         return 1;
     }
-    if (create_virtual_keyboard(
-                sources, source_count, uinput_fd) < 0) {
-        fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR uinput=create error=%s\n",
-                strerror(errno));
-        close(uinput_fd);
+    for (int index = 0; index < layout_count; ++index) {
+        uinput_fds[index] = -1;
+    }
+    int created_layouts = 0;
+    for (int index = 0; index < layout_count; ++index) {
+        const int uinput_fd = open(
+                "/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+        if (uinput_fd < 0
+                || create_virtual_keyboard(
+                        sources,
+                        source_count,
+                        uinput_fd,
+                        index) < 0) {
+            fprintf(stderr,
+                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR"
+                    " uinput=create layout=%d error=%s\n",
+                    index,
+                    strerror(errno));
+            if (uinput_fd >= 0) {
+                close(uinput_fd);
+            }
+            break;
+        }
+        uinput_fds[index] = uinput_fd;
+        created_layouts++;
+    }
+    if (created_layouts != layout_count) {
+        for (int index = 0; index < created_layouts; ++index) {
+            ioctl(uinput_fds[index], UI_DEV_DESTROY);
+            close(uinput_fds[index]);
+        }
+        free(uinput_fds);
         release_sources(sources, source_count);
         free(sources);
         return 1;
@@ -779,17 +855,24 @@ int main(int argc, char **argv) {
     struct bridge_state state = {
         .sources = sources,
         .source_count = source_count,
-        .uinput_fd = uinput_fd,
+        .uinput_fds = uinput_fds,
+        .layout_count = layout_count,
+        .active_layout = 0,
     };
-    printf("MAGICDESK_SHIZUKU_KEYBOARD_READY sources=%d uid=%d\n",
+    printf("MAGICDESK_SHIZUKU_KEYBOARD_READY"
+            " sources=%d layouts=%d uid=%d\n",
             source_count,
+            layout_count,
             getuid());
     fflush(stdout);
 
     const int result = forward_events(&state);
     release_forwarded_keys(&state);
-    ioctl(uinput_fd, UI_DEV_DESTROY);
-    close(uinput_fd);
+    for (int index = 0; index < layout_count; ++index) {
+        ioctl(uinput_fds[index], UI_DEV_DESTROY);
+        close(uinput_fds[index]);
+    }
+    free(uinput_fds);
     release_sources(sources, source_count);
     free(sources);
     return result == 0 ? 0 : 1;

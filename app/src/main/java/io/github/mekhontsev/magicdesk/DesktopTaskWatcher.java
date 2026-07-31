@@ -95,6 +95,7 @@ final class DesktopTaskWatcher {
     }
 
     synchronized void sendFocusStack(
+            final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
         if (mWriter == null && mShizukuStream == null) {
@@ -107,7 +108,10 @@ final class DesktopTaskWatcher {
         }
         try {
             final StringBuilder command =
-                    new StringBuilder("focus-stack ").append(sequence);
+                    new StringBuilder("focus-stack ")
+                            .append(sequence)
+                            .append(' ')
+                            .append(displayId);
             for (final Integer taskId : taskIds) {
                 command.append(' ').append(taskId.intValue());
             }

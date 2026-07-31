@@ -421,7 +421,7 @@ public final class MagicDeskRuntimeService extends Service
             return false;
         }
         final String name = device.getName();
-        return SHIZUKU_KEYBOARD_NAME.equals(name)
+        return name.startsWith(SHIZUKU_KEYBOARD_NAME)
                 || SHIZUKU_MOUSE_NAME.equals(name);
     }
 

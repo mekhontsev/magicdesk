@@ -55,6 +55,27 @@ public final class ConsoleInputRoutingOwnershipTest {
                         .findLegacyOwnedPorts(dump));
     }
 
+    @Test
+    public void legacyCleanupRecognizesIndexedVirtualKeyboardPorts()
+            throws Exception {
+        final String dump = inputDump(
+                "    port: dc:f0:90:67:42:3d  display: 21\n"
+                        + "    port: magicdesk-shizuku-keyboard-0"
+                        + "  display: 21\n"
+                        + "    port: magicdesk-shizuku-keyboard-1"
+                        + "  display: 21\n");
+
+        final Set<String> expected = new LinkedHashSet<>(
+                Arrays.asList(
+                        "dc:f0:90:67:42:3d",
+                        "magicdesk-shizuku-keyboard-0",
+                        "magicdesk-shizuku-keyboard-1"));
+        assertEquals(
+                expected,
+                ConsoleInputRoutingOwnership
+                        .findLegacyOwnedPorts(dump));
+    }
+
     private static String inputDump(
             final String runtimeAssociations) {
         return "Input Manager State:\n"

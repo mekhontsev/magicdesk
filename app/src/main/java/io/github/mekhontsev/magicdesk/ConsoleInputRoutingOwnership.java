@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 final class ConsoleInputRoutingOwnership {
     static final String SHIZUKU_KEYBOARD_LOCATION =
             "magicdesk-shizuku-keyboard";
+    private static final String SHIZUKU_KEYBOARD_LOCATION_PREFIX =
+            SHIZUKU_KEYBOARD_LOCATION + "-";
 
     private static final File OWNERSHIP_FILE = new File(
             "/data/local/tmp/magicdesk-input-routing-ports");
@@ -117,8 +119,14 @@ final class ConsoleInputRoutingOwnership {
         final Set<String> runtimeAssociations =
                 findRuntimeAssociations(inputDump);
         final Set<String> ownedPorts = new LinkedHashSet<>();
-        if (!runtimeAssociations.contains(
-                SHIZUKU_KEYBOARD_LOCATION)) {
+        boolean markerFound = false;
+        for (final String port : runtimeAssociations) {
+            if (isMagicDeskKeyboardPort(port)) {
+                markerFound = true;
+                break;
+            }
+        }
+        if (!markerFound) {
             return ownedPorts;
         }
         for (final ConsoleKeyboardDevice keyboard
@@ -134,8 +142,19 @@ final class ConsoleInputRoutingOwnership {
                 ownedPorts.add(mouse.location);
             }
         }
-        ownedPorts.add(SHIZUKU_KEYBOARD_LOCATION);
+        for (final String port : runtimeAssociations) {
+            if (isMagicDeskKeyboardPort(port)) {
+                ownedPorts.add(port);
+            }
+        }
         return ownedPorts;
+    }
+
+    private static boolean isMagicDeskKeyboardPort(
+            final String port) {
+        return SHIZUKU_KEYBOARD_LOCATION.equals(port)
+                || port.startsWith(
+                        SHIZUKU_KEYBOARD_LOCATION_PREFIX);
     }
 
     private static boolean isValidPort(final String port) {

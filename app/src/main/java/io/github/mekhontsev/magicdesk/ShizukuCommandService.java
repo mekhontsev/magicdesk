@@ -81,7 +81,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final HardwareKeyboardLayoutCommand.Result result =
                     HardwareKeyboardLayoutCommand.execute(
                             mode, currentDescriptor);
-            persistHardwareKeyboardLayout(result);
+            if (!"catalog".equals(mode)) {
+                persistHardwareKeyboardLayout(result);
+            }
             return result.format();
         } catch (ReflectiveOperationException
                 | IOException
@@ -115,10 +117,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final HardwareKeyboardLayoutCommand.Result result)
             throws IOException {
         final String command =
-                "/system/bin/settings put secure "
-                        + "selected_input_method_subtype "
-                        + result.subtypeHash + "; "
-                        + "/system/bin/settings put global "
+                "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_LABEL_STATE
                         + " " + shellQuote(result.code) + "; "
                         + "/system/bin/settings put global "

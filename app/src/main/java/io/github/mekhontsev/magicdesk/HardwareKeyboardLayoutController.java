@@ -21,6 +21,12 @@ final class HardwareKeyboardLayoutController {
             "io.github.mekhontsev.magicdesk.HardwareKeyboardLayoutCommand";
     private static final AtomicBoolean REFRESH_IN_PROGRESS =
             new AtomicBoolean();
+    private static final Object LAYOUT_SINK_LOCK = new Object();
+    private static LayoutSink sLayoutSink;
+
+    interface LayoutSink {
+        void select(int index) throws IOException;
+    }
 
     private HardwareKeyboardLayoutController() {
     }
@@ -50,6 +56,16 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void refresh(final Runnable completion) {
+        runRefresh(hasLayoutSink() ? "catalog" : "sync", completion);
+    }
+
+    static void configureVirtualLayouts(final Runnable completion) {
+        runRefresh("sync", completion);
+    }
+
+    private static void runRefresh(
+            final String mode,
+            final Runnable completion) {
         if (!RuntimeAccess.has(
                 RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
             runCompletion(completion);
@@ -64,12 +80,53 @@ final class HardwareKeyboardLayoutController {
         }
         ConsoleModeSwitcher.executeSerialized(() -> {
             try {
-                apply("sync");
+                apply(mode);
             } finally {
                 REFRESH_IN_PROGRESS.set(false);
                 runCompletion(completion);
             }
         });
+    }
+
+    static int catalogLayoutCount() throws IOException {
+        final String current = Settings.Global.getString(
+                MagicDeskApplication.applicationContext()
+                        .getContentResolver(),
+                LAYOUT_STATE);
+        final String output = ShizukuAccess.updateHardwareKeyboardLayout(
+                "catalog", current).trim();
+        final String count = parseOutputValue(output, "layouts");
+        try {
+            final int parsed = count == null ? -1 : Integer.parseInt(count);
+            if (parsed <= 0) {
+                throw new NumberFormatException("non-positive layout count");
+            }
+            return parsed;
+        } catch (NumberFormatException error) {
+            throw new IOException(
+                    "invalid hardware keyboard catalog: " + output,
+                    error);
+        }
+    }
+
+    static void attachLayoutSink(final LayoutSink sink) {
+        synchronized (LAYOUT_SINK_LOCK) {
+            sLayoutSink = sink;
+        }
+    }
+
+    static void detachLayoutSink(final LayoutSink sink) {
+        synchronized (LAYOUT_SINK_LOCK) {
+            if (sLayoutSink == sink) {
+                sLayoutSink = null;
+            }
+        }
+    }
+
+    private static boolean hasLayoutSink() {
+        synchronized (LAYOUT_SINK_LOCK) {
+            return sLayoutSink != null;
+        }
     }
 
     private static void runCompletion(final Runnable completion) {
@@ -101,56 +158,77 @@ final class HardwareKeyboardLayoutController {
             Log.w(TAG, "hardware keyboard layout command failed", e);
             return;
         }
-        if (RuntimeAccess.allowsShizukuCommands()
-                && !RuntimeAccess.allowsRootCommands()) {
-            Log.i(TAG,
-                    "hardware keyboard "
-                            + output.replace('\n', ' '));
-            return;
-        }
-
         final String descriptor =
                 parseOutputValue(output, "descriptor");
         final String code = parseOutputValue(output, "code");
         final String name64 = parseOutputValue(output, "name64");
-        final String subtype = parseOutputValue(output, "subtype");
+        final String indexValue = parseOutputValue(output, "index");
         if (descriptor == null || code == null
-                || name64 == null || subtype == null) {
+                || name64 == null || indexValue == null) {
             Log.w(TAG,
                     "hardware keyboard layout command failed output="
                             + output);
             return;
         }
-
-        final String name;
+        final int index;
         try {
-            name = new String(
-                    Base64.decode(name64, Base64.DEFAULT),
-                    StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
+            index = Integer.parseInt(indexValue);
+        } catch (NumberFormatException error) {
             Log.w(TAG,
-                    "invalid hardware keyboard layout name output="
+                    "invalid hardware keyboard layout index output="
                             + output,
-                    e);
+                    error);
             return;
         }
-        try {
-            PrivilegedCommandRunner.run(
-                    SETTINGS + " put secure selected_input_method_subtype "
-                            + shellQuote(subtype) + "; "
-                            + SETTINGS + " put global " + LAYOUT_LABEL_STATE
-                            + " " + shellQuote(code) + "; "
-                            + SETTINGS + " put global " + LAYOUT_NAME_STATE
-                            + " " + shellQuote(name) + "; "
-                            + SETTINGS + " put global " + LAYOUT_STATE
-                            + " " + shellQuote(descriptor));
-        } catch (IOException e) {
-            Log.w(TAG, "cannot persist hardware keyboard layout state", e);
-            return;
+
+        if (!RuntimeAccess.allowsShizukuCommands()
+                || RuntimeAccess.allowsRootCommands()) {
+            final String name;
+            try {
+                name = new String(
+                        Base64.decode(name64, Base64.DEFAULT),
+                        StandardCharsets.UTF_8);
+            } catch (IllegalArgumentException e) {
+                Log.w(TAG,
+                        "invalid hardware keyboard layout name output="
+                                + output,
+                        e);
+                return;
+            }
+            try {
+                PrivilegedCommandRunner.run(
+                        SETTINGS + " put global " + LAYOUT_LABEL_STATE
+                                + " " + shellQuote(code) + "; "
+                                + SETTINGS + " put global " + LAYOUT_NAME_STATE
+                                + " " + shellQuote(name) + "; "
+                                + SETTINGS + " put global " + LAYOUT_STATE
+                                + " " + shellQuote(descriptor));
+            } catch (IOException e) {
+                Log.w(TAG, "cannot persist hardware keyboard layout state", e);
+                return;
+            }
         }
+        selectVirtualLayout(index);
         Log.i(TAG,
                 "hardware keyboard "
                         + output.replace('\n', ' '));
+    }
+
+    private static void selectVirtualLayout(final int index) {
+        final LayoutSink sink;
+        synchronized (LAYOUT_SINK_LOCK) {
+            sink = sLayoutSink;
+        }
+        if (sink == null) {
+            return;
+        }
+        try {
+            sink.select(index);
+        } catch (IOException error) {
+            Log.w(TAG,
+                    "cannot select virtual keyboard layout " + index,
+                    error);
+        }
     }
 
     private static String parseOutputValue(
