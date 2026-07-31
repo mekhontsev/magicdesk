@@ -478,6 +478,16 @@ profile merely because Android starts. Auto fan control is opt-in, uses levels
 0 through 5 with temperature hysteresis, verifies the actual node state on
 each poll, and restores the pre-control fan state when the runtime stops.
 
+Shizuku deliberately does not write those hardware nodes. Instead it changes
+four bounded `Settings.System` values observed by the stock `cn.nubia.fan`
+service. Nubia's own policy process applies intelligent or extreme fan mode
+and low, medium, or fast liquid-pump flow to the hardware. MagicDesk uses the
+same ownership model as the direct Root backend: it captures both settings for
+a subsystem before its first change, verifies each request, and restores the
+captured values on **System**, shutdown, or interrupted-session recovery.
+The two backends therefore share polling, state, and lifecycle code rather than
+maintaining separate hardware controllers.
+
 Bypass charging deliberately uses the stock REDMAGIC control plane instead of
 writing charging sysfs nodes. MagicDesk writes only the firmware's
 `Settings.Global.charge_separation_switch` through the selected Root or
@@ -572,9 +582,10 @@ combinations. It consumes MagicDesk shortcuts before Android's global gesture
 handling. During `Ctrl+Space`, events arriving while the Binder layout update
 runs are queued and released only after the new layout is active; this avoids
 the first character using the previous language. The unmodified Meta key is
-suppressed, while `Win+L` stays on the normal Android path because phone locking
-is outside the Shizuku capability boundary. Outside Console Mode, Shizuku keeps
-the read-only `getevent` layout shortcut without grabbing the keyboard.
+suppressed. `Win+L` is consumed with the other desktop shortcuts and locks the
+device through WindowManager from the shell-UID UserService. Outside Console
+Mode, Shizuku keeps the read-only `getevent` layout shortcut without grabbing
+the keyboard.
 
 Both Shizuku processes require a heartbeat. Closing either stream, losing
 Shizuku, or stopping MagicDesk releases every grabbed source, destroys the

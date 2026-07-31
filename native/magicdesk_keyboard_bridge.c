@@ -203,6 +203,8 @@ static const char *shortcut_action(
     switch (code) {
         case KEY_BACKSPACE:
             return "META_BACKSPACE";
+        case KEY_L:
+            return "META_L";
         case KEY_N:
             return "META_N";
         case KEY_UP:

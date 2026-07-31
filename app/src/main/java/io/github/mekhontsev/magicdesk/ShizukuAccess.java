@@ -164,6 +164,23 @@ final class ShizukuAccess {
         }
     }
 
+    static ParcelFileDescriptor openSystemWallpaper() throws IOException {
+        try {
+            final ParcelFileDescriptor descriptor =
+                    requireService().openSystemWallpaper();
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no wallpaper");
+            }
+            return descriptor;
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException(
+                    "Shizuku wallpaper read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static StreamHandle openStream(final String command) throws IOException {
         if (command == null || command.isEmpty()) {
             throw new IOException("empty Shizuku stream command");

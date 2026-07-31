@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -130,7 +131,8 @@ final class DesktopWallpaperController {
     private Bitmap loadWallpaper(final int targetWidth, final int targetHeight)
             throws IOException {
         final File cacheFile = new File(mContext.getCacheDir(), "desktop-wallpaper");
-        if (!RuntimeAccess.allowsRootCommands()) {
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ)) {
             if (cacheFile.isFile() && cacheFile.length() > 0) {
                 try {
                     return decodeWallpaper(cacheFile, targetWidth, targetHeight);
@@ -175,6 +177,11 @@ final class DesktopWallpaperController {
     }
 
     private void copySystemWallpaper(final File destination) throws IOException {
+        if (RuntimeAccess.allowsShizukuCommands()
+                && !RuntimeAccess.allowsRootCommands()) {
+            copyShizukuWallpaper(destination);
+            return;
+        }
         final int userId = Process.myUid() / PER_USER_RANGE;
         final String wallpaperPath = "/data/system/users/" + userId + "/wallpaper";
         java.lang.Process process = null;
@@ -183,11 +190,7 @@ final class DesktopWallpaperController {
                     "/system/bin/cat " + wallpaperPath);
             try (InputStream input = process.getInputStream();
                     FileOutputStream output = new FileOutputStream(destination, false)) {
-                final byte[] buffer = new byte[BUFFER_SIZE];
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    output.write(buffer, 0, count);
-                }
+                copy(input, output);
             }
             final int exitCode = process.waitFor();
             if (exitCode != 0 || destination.length() == 0) {
@@ -201,6 +204,29 @@ final class DesktopWallpaperController {
             if (process != null) {
                 process.destroy();
             }
+        }
+    }
+
+    private static void copyShizukuWallpaper(final File destination)
+            throws IOException {
+        try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
+                        ShizukuAccess.openSystemWallpaper());
+                FileOutputStream output =
+                        new FileOutputStream(destination, false)) {
+            copy(input, output);
+        }
+        if (destination.length() == 0) {
+            throw new IOException("Shizuku wallpaper read returned no data");
+        }
+    }
+
+    private static void copy(
+            final InputStream input,
+            final FileOutputStream output) throws IOException {
+        final byte[] buffer = new byte[BUFFER_SIZE];
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            output.write(buffer, 0, count);
         }
     }
 

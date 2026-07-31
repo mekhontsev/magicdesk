@@ -6,7 +6,7 @@ import android.os.IBinder;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-/** Locks the device through WindowManager from MagicDesk's root app_process context. */
+/** Locks the device through WindowManager from a privileged app_process context. */
 public final class DeviceLockCommand {
     private DeviceLockCommand() {
     }

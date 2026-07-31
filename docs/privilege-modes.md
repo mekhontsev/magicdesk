@@ -57,7 +57,10 @@ Console Mode, launch Touch Panel, correct external-display geometry and DPI,
 reuse exact tasks, apply freeform/fullscreen `WindowContainerTransaction`
 changes, register a live task listener, take screenshots, dim or restore the
 phone display through the stock REDMAGIC controller, and control stock REDMAGIC
-bypass charging. The UserService exposes finite commands plus lifecycle-bound
+bypass charging. It can also lock the device, read the current static system
+wallpaper, monitor the firmware's readable thermal zones, and request stock
+intelligent/extreme fan or low/mid/fast liquid-pump profiles through Nubia's
+`NBFan` policy. The UserService exposes finite commands plus lifecycle-bound
 streams for task events and fail-open physical-input bridges.
 
 Shizuku Device Setup writes the two public windowing settings as UID 2000. The
@@ -81,7 +84,8 @@ listeners. In Console Mode, MagicDesk forwards the complete keyboard stream
 through an external virtual keyboard associated with the Console display. The
 bridge consumes only MagicDesk shortcuts, preserves ordinary combinations and
 key repeat, and pauses briefly during `Ctrl+Space` so the first subsequent key
-uses the newly selected layout. `Win+L` remains Root-only. For a physical mouse,
+uses the newly selected layout. `Win+L` calls WindowManager from the same
+shell-UID UserService. For a physical mouse,
 MagicDesk grabs the source before Nubia converts `BTN_RIGHT` to Back and
 forwards the complete pointer stream through an internal virtual mouse. This
 restores standard Android secondary-click behavior in both MagicDesk and
@@ -96,7 +100,9 @@ Android 16 nevertheless blocks UID 2000 from changing the enabled state of
 `cn.nubia.keymapcenter.mirror.MirrorInputService`, even though the shell package
 holds `CHANGE_COMPONENT_ENABLED_STATE`. Shizuku can therefore dim and restore
 the phone, but it cannot install MagicDesk's Root-mode guard against Nubia
-opening its phone-side text-input panel. Focusing a text field can wake the
+opening its phone-side text-input panel. The vendor activity checks
+`nubia_screen_off_tp` in `onResume()` and explicitly wakes the phone before an
+external close request can run. Focusing a text field can therefore wake the
 phone in a Shizuku session. Root mode disables that one service component while
 the phone is dimmed and restores it when the phone wakes or MagicDesk exits.
 
@@ -121,8 +127,10 @@ Root mode enables exact task observation and transitions, Console Mode
 automation, global shortcuts, physical input correction, display overrides,
 screenshots, guarded phone-screen controls, capability-probed REDMAGIC hardware
 monitoring/control, bypass charging, and the optional separately installed
-Kernel Fixes add-on. Fan and pump writes are never available to Basic or
-Shizuku shell sessions.
+Kernel Fixes add-on. Shizuku requests the firmware's stock cooling profiles
+through `NBFan`; Root additionally writes the probed hardware nodes directly,
+provides five explicit fan levels, and runs MagicDesk's temperature-driven fan
+curve.
 
 ### Auto
 

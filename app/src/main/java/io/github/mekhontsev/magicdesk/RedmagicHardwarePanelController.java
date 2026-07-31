@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
@@ -36,6 +37,7 @@ final class RedmagicHardwarePanelController
     private Button mPumpManual;
     private SeekBar mFanLevel;
     private SeekBar mPumpSpeed;
+    private LinearLayout mFanLevelRow;
     private boolean mUpdatingControls;
 
     RedmagicHardwarePanelController(
@@ -70,8 +72,14 @@ final class RedmagicHardwarePanelController
         addFanButton(fanModes, R.string.hardware_off,
                 RedmagicHardwareController.FanMode.OFF);
         mFanManual = createModeButton(R.string.hardware_manual);
-        mFanManual.setOnClickListener(view ->
-                applyFanMode(fanModeForLevel(mFanLevel.getProgress())));
+        final boolean vendorControl = usesVendorControl();
+        if (vendorControl) {
+            mFanManual.setText(R.string.hardware_extreme);
+        }
+        mFanManual.setOnClickListener(view -> applyFanMode(
+                vendorControl
+                        ? RedmagicHardwareController.FanMode.LEVEL_5
+                        : fanModeForLevel(mFanLevel.getProgress())));
         fanModes.addView(mFanManual, modeGridParams());
         parent.addView(fanModes, matchWidth());
 
@@ -99,7 +107,9 @@ final class RedmagicHardwarePanelController
                         }
                     }
                 });
-        parent.addView(levelRow(mFanLevelStatus, mFanLevel), matchWidth());
+        mFanLevelRow = levelRow(mFanLevelStatus, mFanLevel);
+        mFanLevelRow.setVisibility(vendorControl ? View.GONE : View.VISIBLE);
+        parent.addView(mFanLevelRow, matchWidth());
 
         mPumpStatus = addLabel(parent, R.string.hardware_pump);
         final GridLayout pumpModes = modeGrid(3);
@@ -152,26 +162,32 @@ final class RedmagicHardwarePanelController
         if (mStatus == null) {
             return;
         }
-        final boolean allowed = RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_CONTROL);
-        final boolean available = allowed && snapshot.isAvailable();
+        final boolean monitoringAllowed = RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_MONITORING);
+        final boolean controlsAllowed = RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_CONTROL)
+                || RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+        final boolean available = monitoringAllowed && snapshot.isAvailable();
         if (!available) {
-            mStatus.setText(allowed
+            mStatus.setText(monitoringAllowed
                     ? R.string.hardware_unavailable
-                    : R.string.hardware_root_required);
+                    : R.string.hardware_privileged_required);
         } else {
-            mStatus.setText(mActivity.getString(
+            final String status = mActivity.getString(
                     R.string.hardware_status,
                     temperature(snapshot.cpuMilliCelsius),
                     temperature(snapshot.gpuMilliCelsius),
                     temperature(snapshot.skinMilliCelsius),
-                    temperature(snapshot.batteryMilliCelsius)));
+                    temperature(snapshot.batteryMilliCelsius));
+            mStatus.setText(controlsAllowed
+                    ? status
+                    : mActivity.getString(
+                            R.string.hardware_monitoring_only, status));
         }
 
         if (mFanStatus != null) {
-            mFanStatus.setText(mActivity.getString(
-                    R.string.hardware_fan_status,
-                    value(snapshot.fanRpm)));
+            mFanStatus.setText(fanStatus(snapshot));
         }
         if (mPumpStatus != null) {
             mPumpStatus.setText(mActivity.getString(
@@ -195,19 +211,19 @@ final class RedmagicHardwarePanelController
         mUpdatingControls = false;
 
         updateModeButtons(mFanButtons, fanMode,
-                available && snapshot.fanAvailable);
+                controlsAllowed && snapshot.fanAvailable);
         updateModeButton(mFanManual, isManual(fanMode),
-                available && snapshot.fanAvailable);
+                controlsAllowed && snapshot.fanAvailable);
         updateModeButtons(mPumpButtons, pumpMode,
-                available && snapshot.pumpAvailable);
+                controlsAllowed && snapshot.pumpAvailable);
         updateModeButton(mPumpManual, isManual(pumpMode),
-                available && snapshot.pumpAvailable);
+                controlsAllowed && snapshot.pumpAvailable);
         if (mFanLevel != null) {
-            mFanLevel.setEnabled(available && snapshot.fanAvailable);
+            mFanLevel.setEnabled(controlsAllowed && snapshot.fanAvailable);
             mFanLevel.setAlpha(isManual(fanMode) ? 1f : 0.72f);
         }
         if (mPumpSpeed != null) {
-            mPumpSpeed.setEnabled(available && snapshot.pumpAvailable);
+            mPumpSpeed.setEnabled(controlsAllowed && snapshot.pumpAvailable);
             mPumpSpeed.setAlpha(isManual(pumpMode) ? 1f : 0.72f);
         }
     }
@@ -434,6 +450,12 @@ final class RedmagicHardwarePanelController
                         >= RedmagicHardwareController.FanMode.LEVEL_1.ordinal();
     }
 
+    private static boolean usesVendorControl() {
+        return !RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL)
+                && RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+    }
+
     private static boolean isManual(
             final RedmagicHardwareController.PumpMode mode) {
         return mode == RedmagicHardwareController.PumpMode.SLOW
@@ -506,6 +528,22 @@ final class RedmagicHardwarePanelController
     private static String value(final int value) {
         return value == RedmagicHardwareSnapshot.UNKNOWN
                 ? "--" : Integer.toString(value);
+    }
+
+    private String fanStatus(final RedmagicHardwareSnapshot snapshot) {
+        if (snapshot.fanRpm != RedmagicHardwareSnapshot.UNKNOWN) {
+            return mActivity.getString(
+                    R.string.hardware_fan_status,
+                    value(snapshot.fanRpm));
+        }
+        if (snapshot.fanAvailable) {
+            return mActivity.getString(
+                    R.string.hardware_fan_policy_status,
+                    mActivity.getString(snapshot.fanEnabled == 1
+                            ? R.string.state_on : R.string.state_off));
+        }
+        return mActivity.getString(
+                R.string.hardware_fan_policy_status, "--");
     }
 
     private String pumpStatus(final RedmagicHardwareSnapshot snapshot) {

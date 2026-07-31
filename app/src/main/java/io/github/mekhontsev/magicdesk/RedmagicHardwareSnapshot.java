@@ -125,7 +125,9 @@ final class RedmagicHardwareSnapshot {
     boolean isAvailable() {
         return fanAvailable || pumpAvailable
                 || cpuMilliCelsius != UNKNOWN
-                || gpuMilliCelsius != UNKNOWN;
+                || gpuMilliCelsius != UNKNOWN
+                || skinMilliCelsius != UNKNOWN
+                || batteryMilliCelsius != UNKNOWN;
     }
 
     int controlTemperatureMilliCelsius() {

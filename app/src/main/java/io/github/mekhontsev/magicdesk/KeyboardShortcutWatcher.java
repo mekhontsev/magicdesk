@@ -507,6 +507,10 @@ final class KeyboardShortcutWatcher {
             ConsoleModeSwitcher.sendSystemBack();
             return;
         }
+        if ("META_L".equals(action)) {
+            ConsoleModeSwitcher.lockDevice();
+            return;
+        }
         if ("META_N".equals(action)) {
             ConsoleModeSwitcher.toggleNotificationCenter();
             return;

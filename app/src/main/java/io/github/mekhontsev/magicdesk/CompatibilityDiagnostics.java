@@ -309,6 +309,18 @@ final class CompatibilityDiagnostics {
                 .append(", chargeSeparation=")
                 .append(RuntimeAccess.has(
                         RuntimeAccess.Capability.CHARGE_SEPARATION))
+                .append(", deviceLock=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.DEVICE_LOCK))
+                .append(", wallpaperRead=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ))
+                .append(", hardwareMonitoring=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_MONITORING))
+                .append(", hardwareVendorControl=")
+                .append(RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL))
                 .append(", hardwareControl=")
                 .append(RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL))
                 .append('\n');

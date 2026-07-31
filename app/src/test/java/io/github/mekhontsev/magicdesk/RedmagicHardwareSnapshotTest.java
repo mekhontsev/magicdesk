@@ -51,4 +51,18 @@ public final class RedmagicHardwareSnapshotTest {
                 RedmagicHardwareSnapshot.UNKNOWN,
                 snapshot.gpuMilliCelsius);
     }
+
+    @Test
+    public void acceptsThermalMonitoringWithoutRootControlNodes() {
+        final RedmagicHardwareSnapshot snapshot =
+                RedmagicHardwareSnapshot.parse(
+                        "thermal=skin-msm-therm|33000\n"
+                        + "thermal=battery|31500\n");
+
+        assertTrue(snapshot.isAvailable());
+        assertFalse(snapshot.fanAvailable);
+        assertFalse(snapshot.pumpAvailable);
+        assertEquals(33_000, snapshot.skinMilliCelsius);
+        assertEquals(31_500, snapshot.batteryMilliCelsius);
+    }
 }

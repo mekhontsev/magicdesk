@@ -81,8 +81,9 @@ tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
   the desktop Tools panel.
 - Stock REDMAGIC bypass-charging control in Root or Shizuku mode, with the
   vendor service retaining its normal safety and disconnect handling.
-- Capability-probed REDMAGIC fan, liquid-pump, temperature, and RPM monitoring
-  in Root mode, with manual profiles and an optional temperature-driven fan
+- Capability-probed REDMAGIC cooling monitoring and control. Shizuku uses the
+  stock intelligent/extreme fan and liquid-pump policy; Root additionally
+  provides direct five-level fan control and an optional temperature-driven
   curve.
 - Automatic external-desktop startup and window-layout restoration through
   `Win+D`.
@@ -202,10 +203,9 @@ useful when no physical keyboard or mouse is connected:
 | `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
 
 The unmodified Win key is deliberately unused. Root and Shizuku both provide
-global desktop shortcuts in Console Mode. Shizuku keeps `Win+L` on Android's
-normal input path because locking the phone is a Root-only operation; use the
-phone's lock control instead. The taskbar language indicator cycles the same
-configured layouts as `Ctrl+Space`. **Screenshot** captures the external
+global desktop shortcuts in Console Mode, including `Win+L`. The taskbar
+language indicator cycles the same configured layouts as `Ctrl+Space`.
+**Screenshot** captures the external
 display without leaving the Tools panel in the image.
 
 ## Phone And External Display Controls
@@ -229,8 +229,8 @@ The desktop taskbar Tools panel additionally provides:
 - External-display screenshot
 - Media volume, mute, output monitoring, and sound settings
 - REDMAGIC bypass charging when supported by the stock firmware
-- REDMAGIC CPU/GPU/skin/battery temperatures, fan RPM, fan profiles, and
-  liquid-pump profiles when compatible control nodes are detected
+- REDMAGIC CPU/GPU/skin/battery temperatures and stock cooling profiles in
+  Shizuku mode, plus direct fan RPM and granular profiles in Root mode
 - Device Setup and Diagnostics
 - Optional Kernel Fixes entry
 - Clean MagicDesk exit
@@ -254,8 +254,8 @@ Shizuku UserService API. A server started through ADB or wireless debugging
 runs MagicDesk commands as Android shell UID 2000 and enables REDMAGIC Console
 Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
 window operations, display density, screenshots, phone-screen dimming, bypass
-charging, and physical-keyboard layout control from both `Ctrl+Space` and the
-taskbar.
+charging, phone locking, system-wallpaper access, thermal monitoring, and
+physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
 After the one-time Device Setup and reboot, Shizuku uses native WMShell
 captions. MagicDesk temporarily reveals those caption layers during a Console
 session and restores REDMAGIC's current wired-privacy preference afterward.
@@ -263,8 +263,9 @@ Shizuku also corrects REDMAGIC's physical-right-button-to-Back conversion
 through a lifecycle-bound virtual mouse bridge and provides global desktop
 shortcuts through an equivalent virtual-keyboard bridge. It cannot suppress
 Nubia's phone-side text-input panel, so focusing a text field can wake a phone
-dimmed in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L` remain
-Root-only.
+dimmed in Shizuku mode. Cooling changes use the stock `NBFan` policy service;
+direct five-level fan control remains available only in Root mode. The
+phone-side input-panel wake guard and kernel fixes also remain Root-only.
 
 The trust boundaries are deliberately narrow:
 

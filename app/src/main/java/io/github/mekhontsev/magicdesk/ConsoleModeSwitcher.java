@@ -269,12 +269,17 @@ final class ConsoleModeSwitcher {
     }
 
     static void lockDevice() {
+        if (!RuntimeAccess.has(RuntimeAccess.Capability.DEVICE_LOCK)) {
+            Log.w(TAG, "device lock unavailable for backend="
+                    + RuntimeAccess.backendName());
+            return;
+        }
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final String output =
-                            runRootCommand(AppProcessCommand.run(
+                    final String output = runConsoleCommand(
+                            AppProcessCommand.run(
                                     DEVICE_LOCK_COMMAND)).trim();
                     if (!output.contains("device-locked")) {
                         Log.w(TAG, "device lock shortcut failed output="

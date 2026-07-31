@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
+import android.app.WallpaperManager;
 import android.content.Context;
 import android.os.ParcelFileDescriptor;
 import android.system.Os;
@@ -84,6 +86,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                             + usefulMessage(error),
                     error);
         }
+    }
+
+    @Override
+    @SuppressLint("MissingPermission")
+    public ParcelFileDescriptor openSystemWallpaper() {
+        if (mContext == null) {
+            throw new IllegalStateException("Shizuku service context is unavailable");
+        }
+        // This method runs in the Shizuku UserService. Android's shell UID
+        // holds READ_WALLPAPER_INTERNAL; the ordinary APK process never calls
+        // WallpaperManager.getWallpaperFile directly.
+        final ParcelFileDescriptor descriptor = WallpaperManager
+                .getInstance(mContext)
+                .getWallpaperFile(WallpaperManager.FLAG_SYSTEM);
+        if (descriptor == null) {
+            throw new IllegalStateException("system wallpaper is unavailable");
+        }
+        return descriptor;
     }
 
     private static void persistHardwareKeyboardLayout(

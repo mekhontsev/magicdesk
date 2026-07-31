@@ -30,8 +30,9 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        if (RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_CONTROL)) {
+        if (RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL)
+                || RuntimeAccess.has(
+                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)) {
             RedmagicHardwareController.restoreChangedState(
                     success -> {
                         if (!success) {

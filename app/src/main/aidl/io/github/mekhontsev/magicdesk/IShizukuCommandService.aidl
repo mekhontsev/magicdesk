@@ -19,4 +19,6 @@ interface IShizukuCommandService {
 
     String updateHardwareKeyboardLayout(
         String mode, String currentDescriptor) = 7;
+
+    ParcelFileDescriptor openSystemWallpaper() = 8;
 }

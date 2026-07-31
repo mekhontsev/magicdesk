@@ -42,8 +42,12 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
                 RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY,
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL,
+                RuntimeAccess.Capability.DEVICE_LOCK,
                 RuntimeAccess.Capability.SCREENSHOT,
-                RuntimeAccess.Capability.CHARGE_SEPARATION);
+                RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ,
+                RuntimeAccess.Capability.CHARGE_SEPARATION,
+                RuntimeAccess.Capability.HARDWARE_MONITORING,
+                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
 
         assertEquals(
                 expected,
@@ -59,8 +63,18 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
         assertTrue(expected.contains(
                 RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.DEVICE_LOCK));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.HARDWARE_MONITORING));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD));
+        assertFalse(expected.contains(
+                RuntimeAccess.Capability.HARDWARE_CONTROL));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.KERNEL_FIXES));
     }

@@ -47,9 +47,15 @@ successful build.
   ActivityRecord, process, and freeform bounds.
 - [ ] Validate the Tools audio section with phone, HDMI, USB, and Bluetooth
   output where available.
-- [ ] Validate REDMAGIC monitoring values against sysfs, then test each fan and
-  pump profile. Confirm **System**, **Exit MagicDesk**, and a simulated process
-  interruption restore the exact pre-control baseline.
+- [ ] Validate REDMAGIC monitoring values against sysfs and test every direct
+  Root profile, including **System**, **Exit MagicDesk**, and interrupted
+  process recovery.
+- [x] Test the stock Shizuku cooling policy on hardware. Intelligent/extreme
+  fan and low/mid/fast pump requests were stable. **System** restored an absent
+  pump-flow value and its original `main=100`; forced process death retained
+  the fan baseline and the next manual MagicDesk start restored `-100/0` and
+  cleared ownership. UID 2000 cannot read fan RPM, so the Shizuku UI reports
+  the effective on/off state instead of a synthetic value.
 
 - [x] Run the post-refactor Root Console regression pass. Verify Console Mode
   startup, Start and Tools overlays, windowed/fullscreen transitions, taskbar
@@ -122,12 +128,19 @@ successful build.
   `/dev/uinput` pointer, inject events, write physical-keyboard layouts,
   inspect/listen to tasks, and use display commands. It cannot open raw input
   for writing, acquire `MONITOR_INPUT`, read the private InputManager XML, or
-  access fan/pump nodes.
+  access fan/pump nodes. Cooling control therefore uses the stock `NBFan`
+  settings policy instead of direct hardware writes.
 - [x] Run the safe phone-screen restore path through the real Shizuku
   UserService. `openScreenOffTP(false)` completed as UID 2000 in
   `u:r:shell:s0`; direct Binder inspection confirmed that the REDMAGIC service
   delegates the transition inside `system_server` without a caller permission
   check.
+- [x] Read the current system wallpaper through a Shizuku UserService file
+  descriptor. The desktop loaded it without Root and picked up a wallpaper
+  changed after MagicDesk had already started.
+- [x] Lock the phone through WindowManager from shell UID 2000. The same
+  `DeviceLockCommand` used by `Win+L` returned `device-locked`, and the phone
+  entered its normal lock screen.
 - [ ] Verify Shizuku phone-screen dimming with an external display attached,
   including the documented limitation that Nubia's text-input panel may wake
   the phone. Android 16 rejects component-state changes for

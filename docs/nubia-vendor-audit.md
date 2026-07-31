@@ -164,6 +164,56 @@ contained old tasks for removed display ids 14 and 15. Any consumer must:
 Shizuku's `TaskStackListener` remains the correct source for exact task
 observation and control.
 
+## Stock Cooling Policy
+
+The system application `/system/priv-app/NBFan/NBFan.apk` runs as
+`cn.nubia.fan`. Its exported `FanService` is bound by `system_server`; the
+service observes a small group of `Settings.System` values and performs the
+protected fan and liquid-pump writes itself. Shell UID 2000 cannot write the
+underlying sysfs/procfs nodes, but it can safely request the same stock policy
+states:
+
+| Setting | Verified values used by MagicDesk |
+| --- | --- |
+| `fan_state_of_manual` | `0` off, `1` enabled, `-100`/`100` stock automatic sentinels |
+| `fan_state_of_mode` | `1` intelligent, `0` extreme |
+| `liquid_cooling_main_switch` | `0` off, `1` enabled, `-100`/`100` stock automatic sentinels |
+| `liquid_cooling_flow_speed_mode` | `low`, `mid`, `fast` |
+
+`Settings.Global.game_fan_off_on` and
+`Settings.System.liquid_cooling_off_on` report the resulting effective state.
+They are monitoring outputs, not MagicDesk control inputs.
+
+Restoration has a non-obvious transition requirement. Replacing an active
+manual fan request (`1`) directly with the previous automatic sentinel
+(`-100` or `100`) leaves the manual request active on the verified firmware.
+The pump policy behaves similarly. MagicDesk must first write the subsystem's
+main/manual setting to `0`, then restore the saved mode/flow and original
+main/manual value. Every command uses only the hardcoded keys above, validates
+the read-back, and retains its ownership marker if restoration fails.
+
+This path preserves Nubia's own thermal and safety policy and is the Shizuku
+backend for cooling controls. Root mode keeps the direct node backend for
+five-level fan control and MagicDesk's temperature-driven curve.
+
+## Phone Input-Panel Wake
+
+When a mirrored application requests text input, `DisplayMirrorCtrl` starts
+`MirrorInputService` with `reason=open_input_panel`. The service launches
+`MirrorInputActivity`; its `onResume()` checks
+`Settings.Global.nubia_screen_off_tp` and immediately calls
+`RedMagicAppManager.openScreenOffTP(false)` when the phone is dimmed. No
+reviewed `DisplayMirrorCtrl` command or setting disables only this automatic
+input-panel path.
+
+Closing the panel after launch is too late because the activity has already
+woken the phone. Registering a panel token changes input routing but does not
+suppress the launch. Android 16 also rejects UID 2000 changing the enabled
+state of `MirrorInputService`. MagicDesk therefore keeps the targeted component
+guard in Root mode only. Suspending or repeatedly force-stopping the entire
+`cn.nubia.keymapcenter` package would also remove the user-requested Touch Panel
+and is not used as a Shizuku fallback.
+
 ## Physical Input Findings
 
 Nubia's Console input path reinjects physical-keyboard events through
