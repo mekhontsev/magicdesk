@@ -252,13 +252,14 @@ Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
 window operations, display density, screenshots, phone-screen dimming, bypass
 charging, and physical-keyboard layout control from both `Ctrl+Space` and the
 taskbar.
-System WMShell captions require device provisioning unavailable to a clean
-Shizuku-only installation; taskbar window controls remain available. Shizuku
-also corrects REDMAGIC's physical-right-button-to-Back conversion through a
-lifecycle-bound virtual mouse bridge and provides global desktop shortcuts
-through an equivalent virtual-keyboard bridge. It cannot suppress Nubia's
-phone-side text-input panel, so focusing a text field can wake a phone dimmed
-in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L` remain Root-only.
+The current clean-Shizuku setup leaves persistent WMShell provisioning
+unchanged, so native system captions are absent; taskbar window controls remain
+available. Shizuku also corrects REDMAGIC's physical-right-button-to-Back
+conversion through a lifecycle-bound virtual mouse bridge and provides global
+desktop shortcuts through an equivalent virtual-keyboard bridge. It cannot
+suppress Nubia's phone-side text-input panel, so focusing a text field can wake
+a phone dimmed in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L`
+remain Root-only.
 
 The trust boundaries are deliberately narrow:
 
@@ -280,7 +281,9 @@ The trust boundaries are deliberately narrow:
 The detailed root commands, vendor interfaces, lifecycle, and cleanup behavior
 are documented in [Architecture](docs/architecture.md). The current runtime
 and display boundaries are documented in
-[Privilege and display modes](docs/privilege-modes.md).
+[Privilege and display modes](docs/privilege-modes.md). Verified lower-level
+firmware behavior and candidate privilege reductions are recorded separately
+in the [Nubia vendor interface audit](docs/nubia-vendor-audit.md).
 
 ## Optional Kernel Fixes
 

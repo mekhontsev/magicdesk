@@ -6,6 +6,16 @@ successful build.
 
 ## Completed Locally
 
+- [x] Run the debug-only Nubia vendor probe as MagicDesk's real
+  `u:r:untrusted_app:s0` UID. Confirm read access to mirror state,
+  `scenedecision`, and `zte_backlight`; confirm the exported no-permission
+  Mirror Input service; confirm `Settings.Global` remains denied; and verify a
+  temporary allowlisted REDMAGIC property write restores its original value.
+- [x] Register Nubia's `scenedecision` task callback from the untrusted app UID.
+  It delivered package, activity, stack, display, process, and window-mode
+  fields. It also retained stale entries for removed external displays, so it
+  is documented as a filtered Basic-mode hint rather than an authoritative
+  task source.
 - [x] Install an isolated Basic-mode build beside the signed production app.
   Verify first-run setup, diagnostics, Primary and Current targets,
   phone/desktop layout changes across rotation, and the absence of a child `su`
@@ -18,6 +28,19 @@ successful build.
 
 ## External Display
 
+- [ ] On a clean external-display session, test Basic app-UID Console
+  activation through the vendor DisplayManager command, then exit through the
+  same path. Verify physical disconnect and process death restore normal
+  projection state.
+- [ ] With a known Nubia wired-privacy preference, verify whether app-UID
+  SurfaceFlinger option 1102 can be owned and restored without Root. Do not
+  automate this until the pre-test value can be determined reliably.
+- [ ] Compare the Basic `scenedecision` callback against live tasks across
+  launch, move, minimize, display removal, and reconnect. Confirm filtering
+  removed display ids is sufficient before using it in the Basic taskbar.
+- [ ] Test whether a live Nubia input-panel token changes physical-key routing
+  on the external display. Source inspection indicates it suppresses
+  reinjection during text input but does not replace input-port association.
 - [x] Validate the DeX-style task controls with overlapping windows and move
   one task external -> phone -> external without Activity recreation. Golly
   moved from Console display 5 to display 0 and back as task 1832 with the same
@@ -62,12 +85,13 @@ successful build.
   Verify existing-task reuse, freeform/fullscreen transitions, display-density
   controls, screenshots, and the absence of root-only input services. After a
   clean reboot, the two global windowing settings were `1` while both
-  Root-only persistent desktop properties remained `true`. The UID-2000
-  Shizuku backend activated Console Mode, launched Touch Panel, corrected the
-  display to 1920x1080 at 160 DPI, reused fullscreen Chrome as freeform, cold
-  launched Gmail as freeform, and promoted Gmail to true fullscreen. The
-  bidirectional task watcher remained alive for focus commands. Native WMShell
-  captions were correctly absent; no Root helper was used.
+  persistent desktop properties still owned by Root setup remained `true`.
+  The UID-2000 Shizuku backend activated Console Mode, launched Touch Panel,
+  corrected the display to 1920x1080 at 160 DPI, reused fullscreen Chrome as
+  freeform, cold launched Gmail as freeform, and promoted Gmail to true
+  fullscreen. The bidirectional task watcher remained alive for focus
+  commands. Native WMShell captions were correctly absent; no Root helper was
+  used.
 - [x] Restore physical right click in Shizuku shell mode.
   A ProtoArc external mouse was grabbed read-only as UID 2000 and forwarded
   unchanged through a `BUS_VIRTUAL` `/dev/uinput` pointer. Movement remained
@@ -166,7 +190,7 @@ successful build.
   not previously been provisioned with root.
 - [ ] Test Shizuku onboarding on a device without working `su`. Runtime
   behavior has been exercised as the real UID-2000 shell service with
-  Root-only properties restored, but this device still used local ADB started
+  persistent properties restored, but this device still used local ADB started
   through Root to bootstrap Shizuku.
 - [x] Verify permission denial and later recovery for overlays, notifications,
   and Shizuku authorization. Overlay denial left the manual setup available

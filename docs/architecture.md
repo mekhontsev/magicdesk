@@ -336,11 +336,17 @@ The firmware then removes external-output layers whose debug names contain
 receive input but may be invisible. After Console Mode becomes ready,
 MagicDesk calls `setSFOption(1102, 0)` through a short-lived privileged helper.
 
-This SurfaceFlinger option is Root-only. Root reads
+The current production implementation owns this SurfaceFlinger option only in
+Root mode. Root reads
 NubiaProjectionScreen's `PRIVATE_MODE_WIRED` preference before changing it,
 records the value, and restores the latest Nubia preference or the recorded
 value when the provider is temporarily unavailable. A clean Shizuku session
 does not touch this option and does not claim native caption support.
+
+Firmware audit confirmed that the verified REDMAGIC build does not enforce a
+Root caller for this transaction. Production use from a less-privileged
+backend still needs a reliable read/restore policy because the vendor API has
+no getter. See [Nubia vendor interface audit](nubia-vendor-audit.md).
 
 ### Teardown
 
@@ -738,10 +744,16 @@ The first two correspond to Android's **Enable freeform windows** and **Force
 activities to be resizable** developer options. MagicDesk does not enable the
 Developer Options master switch.
 
-Shizuku applies and records only those first two global settings through shell
-`WRITE_SECURE_SETTINGS`. It cannot modify either persistent property. This is
-the intentional clean Shizuku profile: direct task transactions are available,
-while WMShell native captions are not.
+The current Shizuku setup applies and records only those first two global
+settings through shell `WRITE_SECURE_SETTINGS`; it does not yet modify either
+persistent property. This is the current clean Shizuku profile: direct task
+transactions are available, while WMShell native captions are not.
+
+On the verified firmware, the ordinary application UID can write system
+properties through an unprotected REDMAGIC Binder service. A future
+allowlisted setup path can close this provisioning gap without granting Root,
+but the generic vendor setter is intentionally not exposed. See
+[Nubia vendor interface audit](nubia-vendor-audit.md).
 
 No other `persist.wm.debug.desktop_*` value is currently required. MagicDesk
 does not force desktop mode on every freeform display, enable cross-display
@@ -835,4 +847,5 @@ The tagged release workflow:
 
 - [Fullscreen transitions](fullscreen-transitions.md)
 - [Compatibility and issue reports](compatibility.md)
+- [Nubia vendor interface audit](nubia-vendor-audit.md)
 - [VITURE XR resolution fix](xr-resolution-fix.md)

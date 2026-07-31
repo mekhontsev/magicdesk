@@ -52,7 +52,7 @@ phone display through the stock REDMAGIC controller, and control stock REDMAGIC
 bypass charging. The UserService exposes finite commands plus lifecycle-bound
 streams for task events and fail-open physical-input bridges.
 
-A clean Shizuku-only installation cannot disable the firmware's
+The current clean Shizuku setup does not disable the firmware's
 `desktop_mode_enforce_device_restrictions` property. WMShell therefore does not
 create `DesktopTasksController` or its system captions. MagicDesk falls back at
 the capability boundary to direct Android task transactions; window launch,
@@ -60,7 +60,9 @@ fullscreen, restore, snap, minimize, focus, and close remain available through
 the taskbar and other MagicDesk controls, but the native draggable caption is
 absent. If the device was provisioned previously and WMShell's desktop command
 is genuinely available to shell, MagicDesk can use that native path without
-granting runtime root.
+granting runtime root. The verified firmware also exposes an unprotected
+property service that could provision this state without Root; that path is
+under review and is not part of the current runtime contract.
 
 Shell can read raw `/dev/input/event*`, acquire `EVIOCGRAB`, create
 `/dev/uinput` devices, change physical-keyboard layouts, and register task
@@ -154,17 +156,22 @@ setprop persist.wm.debug.desktop_use_rounded_corners false
 The first two values map to **Enable freeform windows** and **Force activities
 to be resizable** in Android Developer options. Basic users can enable them
 manually; Shizuku can apply and restore them through `WRITE_SECURE_SETTINGS`.
-The persistent properties remain Root-only: disabling device restrictions
-enables the complete WMShell desktop path on this firmware, while disabling
-rounded corners is a cosmetic consistency setting.
+The current production setup changes the persistent properties only in Root
+mode: disabling device restrictions enables the complete WMShell desktop path
+on this firmware, while disabling rounded corners is a cosmetic consistency
+setting. Firmware audit found that an ordinary app UID can reach the vendor's
+unprotected property setter. MagicDesk does not yet rely on that weakness and
+will expose only hardcoded reviewed operations if the path is adopted.
 
 WMShell and ActivityTaskManager cache this configuration, so Device Setup asks
-for a real reboot after changing the two global settings or the Root-only
-properties. Shizuku cannot apply the persistent property changes. A device
-configured previously with Root can later run MagicDesk in Shizuku mode
-without granting root at runtime; a clean Shizuku installation uses direct
-task transactions instead of WMShell desktop captions. Diagnostics reports
-both the active backend and the effective provisioning state.
+for a real reboot after changing the two global settings or persistent
+properties. Current Shizuku setup does not apply the persistent property
+changes. A device configured previously with Root can later run MagicDesk in
+Shizuku mode without granting root at runtime; a clean Shizuku installation
+uses direct task transactions instead of WMShell desktop captions. Diagnostics
+reports both the active backend and the effective provisioning state. See
+[Nubia vendor interface audit](nubia-vendor-audit.md) for the verified
+lower-privilege candidates and their safety constraints.
 
 Launch overrides are available for development:
 
