@@ -582,6 +582,12 @@ final class KeyboardShortcutWatcher {
             return;
         }
 
+        if ("KEY_D".equals(keyName) && isMetaOnlyDown()) {
+            Log.i(TAG, "Meta+D");
+            ConsoleModeSwitcher.showMagicDesk();
+            return;
+        }
+
         if (!fullShortcutMode) {
             return;
         }
@@ -631,11 +637,6 @@ final class KeyboardShortcutWatcher {
                 Log.i(TAG, "Meta+Right");
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
-                return;
-            }
-            if ("KEY_D".equals(keyName)) {
-                Log.i(TAG, "Meta+D");
-                ConsoleModeSwitcher.showMagicDesk();
                 return;
             }
             if (isPrintScreenKey(keyName)) {

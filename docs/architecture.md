@@ -592,7 +592,10 @@ The shell-UID UserService owns both Shizuku helper heartbeats. Binder death of
 the APK closes their streams. Closing either stream, losing Shizuku, or
 stopping MagicDesk releases every grabbed source, destroys the
 virtual keyboard, removes input-port associations, and clears the vendor
-routing state within six seconds.
+routing state within six seconds. Stream shutdown closes helper stdin first and
+allows heartbeat-owned helpers to process EOF before sending a termination
+signal; this is required for non-file-descriptor cleanup such as restoring
+physical display power during package force-stop.
 
 The global shortcut watcher handles desktop operations while another
 application owns focus. Shortcuts operate on exact task ids and the current

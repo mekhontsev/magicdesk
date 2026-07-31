@@ -141,27 +141,22 @@ successful build.
 - [x] Lock the phone through WindowManager from shell UID 2000. The same
   `DeviceLockCommand` used by `Win+L` returned `device-locked`, and the phone
   entered its normal lock screen.
-- [ ] Validate the integrated physical-display Shizuku wake guard with an
-  external display attached. Use `cmd display power-off 0` while leaving
-  `nubia_screen_off_tp=0`; focus a real text field and confirm that Nubia's
-  input panel does not wake display 0, keyboard layout switching and repeat
-  remain intact, and the external desktop remains active. Then verify the
-  physical power button, explicit restore, Console exit, MagicDesk/Shizuku
-  process death, and cable removal all restore display 0 through
-  `cmd display power-reset 0`. Do not ship this path without a heartbeat-bound
-  fail-open owner. The implementation now uses UserService-owned heartbeat
-  streams and an independent four-second helper timeout. A local fail-open test on
-  2026-07-31 observed display 0 committed `OFF`, then `heartbeat-timeout` and
-  committed `ON` about five seconds later, before the independent safety reset;
-  forced APK shutdown also removed the app and display helper immediately.
-  A later external-display test exposed Nubia's separate `cfreezer`: it froze
-  MagicDesk despite TOP/FGS state and produced an input ANR while display 0
-  remained off. A persistent dynamic whitelist was verified but rejected after
-  forced helper termination left its entry behind. A 12-second isolated test
-  instead refreshed the shell-accessible transient service-working state;
-  display 0 remained off while MagicDesk stayed unfrozen, and cleanup restored
-  display power without leaving an exemption.
-  This item remains open until the complete external-hardware sequence passes.
+- [x] Validate the integrated physical-display Shizuku wake guard with an
+  external display attached. The completed 2026-08-01 test kept display 0 at
+  committed `OFF` while Termux text input, `Ctrl+Space`, key repeat, right
+  click, and the external desktop remained active. MagicDesk stayed unfrozen
+  through REDMAGIC `cfreezer`'s transient service-working state without a
+  persistent whitelist entry. The physical power button plus unlock, explicit
+  Wake action, switch to screen mirroring, forced guard termination, package
+  force-stop, raw Shizuku UserService `SIGKILL`, and physical display-cable
+  removal all restored display 0 to `ON`.
+  Package force-stop initially exposed an ordering bug: UserService closed
+  helper stdin and immediately terminated the process before it could restore
+  display power. Heartbeat-owned streams now receive a bounded graceful EOF
+  phase before termination. The repeated force-stop restored display 0 during
+  its first one-second sample; raw UserService death also restored display 0,
+  rebound a new UserService, and recreated keyboard and mouse bridges without
+  restarting the APK.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found
   the configured English and Russian layouts while Unexpected Keyboard was
@@ -172,7 +167,10 @@ successful build.
   A source-identity `/dev/uinput` keyboard associated with the Console display
   preserved ordinary typing and repeat, consumed MagicDesk shortcuts, and
   switched EN -> RU -> EN without leaking the first post-switch key through the
-  previous layout. The bridge remained heartbeat-bound and fail-open.
+  previous layout. The bridge remained heartbeat-bound and fail-open. The
+  mirror-mode read-only watcher also handles `Win+D` before the full-shortcut
+  gate, allowing External Desktop to start without first opening MagicDesk on
+  the phone; this was verified after switching back to mirroring.
 - [x] Exercise the Primary, Current, External, and Auto targets with display
   connection and disconnection between launches.
   Auto was verified not to target REDMAGIC's physical presentation display in

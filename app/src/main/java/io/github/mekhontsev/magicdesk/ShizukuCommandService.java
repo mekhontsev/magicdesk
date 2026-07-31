@@ -19,10 +19,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private static final String TAG = "MagicDeskShizuku";
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
+    private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
     private final Context mContext;
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
@@ -334,9 +336,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 heartbeatThread.interrupt();
             }
             closeQuietly(commandWriter);
+            if (ownerToken != null) {
+                awaitProcessExit();
+            }
             closeQuietly(writeSide);
-            process.destroy();
+            if (process.isAlive()) {
+                process.destroy();
+            }
             thread.interrupt();
+        }
+
+        private void awaitProcessExit() {
+            try {
+                process.waitFor(
+                        STREAM_STOP_GRACE_MILLIS,
+                        TimeUnit.MILLISECONDS);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         synchronized void writeLine(final String line) throws IOException {
