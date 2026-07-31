@@ -81,6 +81,16 @@ successful build.
   inspect/listen to tasks, and use display commands. It cannot open raw input
   for writing, acquire `MONITOR_INPUT`, read the private InputManager XML, or
   access fan/pump nodes.
+- [x] Run the safe phone-screen restore path through the real Shizuku
+  UserService. `openScreenOffTP(false)` completed as UID 2000 in
+  `u:r:shell:s0`; direct Binder inspection confirmed that the REDMAGIC service
+  delegates the transition inside `system_server` without a caller permission
+  check.
+- [ ] Verify Shizuku phone-screen dimming with an external display attached,
+  including the documented limitation that Nubia's text-input panel may wake
+  the phone. Android 16 rejects component-state changes for
+  `MirrorInputService` specifically from UID 2000, so the Root-mode anti-wake
+  guard is intentionally not retried in Shizuku mode.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found
   the configured English and Russian layouts while Unexpected Keyboard was

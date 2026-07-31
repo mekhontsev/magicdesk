@@ -455,7 +455,8 @@ public final class MagicDeskRuntimeService extends Service
         if (mDestroyed) {
             return;
         }
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+        if (!RuntimeAccess.has(
+                RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD)) {
             mMirrorInputProxyEnabled = null;
             mHandler.removeCallbacks(mMirrorInputRetryRunnable);
             return;

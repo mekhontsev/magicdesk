@@ -52,10 +52,13 @@ final class ConsoleModeSwitcher {
             public void run() {
                 boolean success = false;
                 try {
-                    final boolean proxySuccess =
-                            NubiaTouchpadController
-                                    .setMirrorInputProxyEnabledInternal(
-                                            !screenOff);
+                    boolean proxySuccess = true;
+                    if (RuntimeAccess.has(
+                            RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD)) {
+                        proxySuccess = NubiaTouchpadController
+                                .setMirrorInputProxyEnabledInternal(
+                                        !screenOff);
+                    }
                     if (screenOff && !proxySuccess) {
                         Log.w(TAG, "phone screen will remain on because the Nubia input "
                                 + "proxy could not be disabled");
@@ -68,10 +71,18 @@ final class ConsoleModeSwitcher {
                     final String command = AppProcessCommand.run(
                             CONSOLE_CONTROL_COMMAND,
                             "phone-screen " + screenOff);
-                    final String output = runRootCommand(command).trim();
+                    final String output = runConsoleCommand(command).trim();
                     success = proxySuccess
                             && output.contains("phone-screen=" + screenOff);
                     Log.i(TAG, "phone screen off=" + screenOff + " output=" + output);
+                    if (!success) {
+                        CompatibilityDiagnostics.record(
+                                "NUBIA-SCREEN-002",
+                                "Could not change the phone screen state",
+                                "backend=" + RuntimeAccess.backendName()
+                                        + " screenOff=" + screenOff
+                                        + " output=" + output);
+                    }
                 } finally {
                     closeRootShell();
                     if (callback != null) {
@@ -376,5 +387,20 @@ final class ConsoleModeSwitcher {
 
     static String runRootCommand(final String command) {
         return ROOT_SHELL.run(command);
+    }
+
+    static String runConsoleCommand(final String command) {
+        if (RuntimeAccess.allowsRootCommands()) {
+            return runRootCommand(command);
+        }
+        if (!RuntimeAccess.allowsShizukuCommands()) {
+            return "";
+        }
+        try {
+            return PrivilegedCommandRunner.run(command);
+        } catch (IOException error) {
+            Log.w(TAG, "Console command failed: " + command, error);
+            return "";
+        }
     }
 }

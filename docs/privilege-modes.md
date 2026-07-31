@@ -47,9 +47,10 @@ A Shizuku server started through ADB or wireless debugging runs the service as
 Android shell UID 2000. On the verified firmware it can activate REDMAGIC
 Console Mode, launch Touch Panel, correct external-display geometry and DPI,
 reuse exact tasks, apply freeform/fullscreen `WindowContainerTransaction`
-changes, register a live task listener, take screenshots, and control stock
-REDMAGIC bypass charging. The UserService exposes finite commands plus
-lifecycle-bound streams for task events and fail-open physical-input bridges.
+changes, register a live task listener, take screenshots, dim or restore the
+phone display through the stock REDMAGIC controller, and control stock REDMAGIC
+bypass charging. The UserService exposes finite commands plus lifecycle-bound
+streams for task events and fail-open physical-input bridges.
 
 A clean Shizuku-only installation cannot disable the firmware's
 `desktop_mode_enforce_device_restrictions` property. WMShell therefore does not
@@ -76,6 +77,16 @@ MagicDesk queries `IInputManager` for the selected layout of every enabled IME
 subtype, matching Android's own layout-mapping model without reading private
 InputManager files.
 
+The firmware's `redmagic.app.manager` Binder accepts the phone-screen command
+from shell and performs the brightness transition inside `system_server`.
+Android 16 nevertheless blocks UID 2000 from changing the enabled state of
+`cn.nubia.keymapcenter.mirror.MirrorInputService`, even though the shell package
+holds `CHANGE_COMPONENT_ENABLED_STATE`. Shizuku can therefore dim and restore
+the phone, but it cannot install MagicDesk's Root-mode guard against Nubia
+opening its phone-side text-input panel. Focusing a text field can wake the
+phone in a Shizuku session. Root mode disables that one service component while
+the phone is dimmed and restores it when the phone wakes or MagicDesk exits.
+
 The keyboard and mouse bridges are active only while Shizuku Console Mode and
 the corresponding physical device are present. Heartbeats make them fail open:
 if the APK, UserService, or control stream disappears, each native helper
@@ -95,7 +106,7 @@ mode for the complete feature set.
 
 Root mode enables exact task observation and transitions, Console Mode
 automation, global shortcuts, physical input correction, display overrides,
-screenshots, phone-screen controls, capability-probed REDMAGIC hardware
+screenshots, guarded phone-screen controls, capability-probed REDMAGIC hardware
 monitoring/control, bypass charging, and the optional separately installed
 Kernel Fixes add-on. Fan and pump writes are never available to Basic or
 Shizuku shell sessions.

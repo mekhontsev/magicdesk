@@ -249,14 +249,16 @@ and calendar with explicit limitations. Strict Shizuku mode uses the official
 Shizuku UserService API. A server started through ADB or wireless debugging
 runs MagicDesk commands as Android shell UID 2000 and enables REDMAGIC Console
 Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
-window operations, display density, screenshots, bypass charging, and
-physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
+window operations, display density, screenshots, phone-screen dimming, bypass
+charging, and physical-keyboard layout control from both `Ctrl+Space` and the
+taskbar.
 System WMShell captions require device provisioning unavailable to a clean
 Shizuku-only installation; taskbar window controls remain available. Shizuku
 also corrects REDMAGIC's physical-right-button-to-Back conversion through a
 lifecycle-bound virtual mouse bridge and provides global desktop shortcuts
-through an equivalent virtual-keyboard bridge. It does not enable phone-screen
-dimming, fan/pump controls, kernel fixes, or `Win+L`.
+through an equivalent virtual-keyboard bridge. It cannot suppress Nubia's
+phone-side text-input panel, so focusing a text field can wake a phone dimmed
+in Shizuku mode. Fan/pump controls, kernel fixes, and `Win+L` remain Root-only.
 
 The trust boundaries are deliberately narrow:
 

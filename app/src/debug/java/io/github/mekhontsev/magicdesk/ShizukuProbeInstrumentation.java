@@ -8,15 +8,20 @@ import android.os.Bundle;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import rikka.shizuku.Shizuku;
 
 public final class ShizukuProbeInstrumentation extends Instrumentation {
     private static final long BINDER_TIMEOUT_SECONDS = 5;
+    private static final long OPERATION_TIMEOUT_SECONDS = 10;
+    private boolean mProbePhoneScreen;
 
     @Override
     public void onCreate(final Bundle arguments) {
         super.onCreate(arguments);
+        mProbePhoneScreen = arguments != null
+                && "true".equals(arguments.getString("phone_screen"));
         start();
     }
 
@@ -29,6 +34,11 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
                 ShizukuAccess.initialize(context);
                 awaitShizukuBinder();
                 result.putString("shizuku_probe", ShizukuAccess.probeCapabilities());
+                if (mProbePhoneScreen) {
+                    result.putString(
+                            "phone_screen_probe",
+                            probePhoneScreen(context));
+                }
                 finish(Activity.RESULT_OK, result);
             } catch (IOException | InterruptedException | RuntimeException error) {
                 if (error instanceof InterruptedException) {
@@ -56,5 +66,28 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
         } finally {
             Shizuku.removeBinderReceivedListener(listener);
         }
+    }
+
+    private static String probePhoneScreen(final Context context)
+            throws IOException, InterruptedException {
+        final int serviceUid = ShizukuAccess.connectAndGetUid();
+        final RuntimeAccess.Backend backend = serviceUid == 0
+                ? RuntimeAccess.Backend.SHIZUKU_ROOT
+                : RuntimeAccess.Backend.SHIZUKU_SHELL;
+        RuntimeAccess.configure(SessionProfile.load(context), backend);
+
+        final CountDownLatch completed = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        ConsoleModeSwitcher.setPhoneScreenOff(false, value -> {
+            success.set(value);
+            completed.countDown();
+        });
+        if (!completed.await(OPERATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IOException("phone-screen safe probe timed out");
+        }
+        if (!success.get()) {
+            throw new IOException("phone-screen safe probe failed");
+        }
+        return "granted | uid=" + serviceUid;
     }
 }

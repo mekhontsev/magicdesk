@@ -40,6 +40,7 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.RIGHT_CLICK_REMAP,
                 RuntimeAccess.Capability.CONSOLE_CONTROL,
                 RuntimeAccess.Capability.DISPLAY_OVERRIDES,
+                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL,
                 RuntimeAccess.Capability.SCREENSHOT,
                 RuntimeAccess.Capability.CHARGE_SEPARATION);
 
@@ -53,6 +54,10 @@ public final class RuntimeAccessTest {
                         RuntimeAccess.Backend.SHIZUKU_ROOT));
         assertTrue(expected.contains(
                 RuntimeAccess.Capability.GLOBAL_INPUT));
+        assertTrue(expected.contains(
+                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
+        assertFalse(expected.contains(
+                RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD));
         assertFalse(expected.contains(
                 RuntimeAccess.Capability.KERNEL_FIXES));
     }

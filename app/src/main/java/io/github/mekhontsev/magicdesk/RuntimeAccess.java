@@ -24,6 +24,7 @@ final class RuntimeAccess {
         CONSOLE_CONTROL,
         DISPLAY_OVERRIDES,
         PHONE_SCREEN_CONTROL,
+        PHONE_SCREEN_WAKE_GUARD,
         SCREENSHOT,
         CHARGE_SEPARATION,
         HARDWARE_CONTROL,
@@ -109,6 +110,7 @@ final class RuntimeAccess {
                     Capability.RIGHT_CLICK_REMAP,
                     Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
+                    Capability.PHONE_SCREEN_CONTROL,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
         }
@@ -123,6 +125,7 @@ final class RuntimeAccess {
                     Capability.RIGHT_CLICK_REMAP,
                     Capability.CONSOLE_CONTROL,
                     Capability.DISPLAY_OVERRIDES,
+                    Capability.PHONE_SCREEN_CONTROL,
                     Capability.SCREENSHOT,
                     Capability.CHARGE_SEPARATION);
         }
