@@ -37,7 +37,6 @@ final class KeyboardShortcutWatcher {
     private static ShizukuAccess.StreamHandle sShizukuStream;
     private static ShizukuAccess.StreamHandle sShizukuRoutingStream;
     private static Thread sThread;
-    private static ShizukuHeartbeat sHeartbeat;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
 
@@ -68,7 +67,6 @@ final class KeyboardShortcutWatcher {
         final ShizukuAccess.StreamHandle shizukuStream;
         final ShizukuAccess.StreamHandle routingStream;
         final Thread thread;
-        final ShizukuHeartbeat heartbeat;
         final boolean cancelAltTab;
         synchronized (LOCK) {
             sRunning = false;
@@ -79,12 +77,10 @@ final class KeyboardShortcutWatcher {
             shizukuStream = sShizukuStream;
             routingStream = sShizukuRoutingStream;
             thread = sThread;
-            heartbeat = sHeartbeat;
             sProcess = null;
             sShizukuStream = null;
             sShizukuRoutingStream = null;
             sThread = null;
-            sHeartbeat = null;
             sFullShortcutMode = false;
         }
         if (cancelAltTab) {
@@ -95,9 +91,6 @@ final class KeyboardShortcutWatcher {
         }
         closeQuietly(shizukuStream);
         closeQuietly(routingStream);
-        if (heartbeat != null) {
-            heartbeat.close();
-        }
         if (thread != null) {
             thread.interrupt();
         }
@@ -226,7 +219,6 @@ final class KeyboardShortcutWatcher {
         ShizukuAccess.StreamHandle routingStream = null;
         BufferedReader keyboardReader = null;
         BufferedReader routingReader = null;
-        ShizukuHeartbeat heartbeat = null;
         Thread routingMonitor = null;
         final AtomicBoolean sessionClosing = new AtomicBoolean();
         try {
@@ -238,7 +230,7 @@ final class KeyboardShortcutWatcher {
                         "no external alphabetic keyboard was found");
             }
 
-            keyboardStream = ShizukuAccess.openStream(
+            keyboardStream = ShizukuAccess.openHeartbeatStream(
                     buildShizukuKeyboardCommand(keyboards));
             setShizukuStream(
                     keyboardStream, generation, false);
@@ -249,7 +241,7 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_SHIZUKU_KEYBOARD_READY",
                     "keyboard bridge");
 
-            routingStream = ShizukuAccess.openStream(
+            routingStream = ShizukuAccess.openHeartbeatStream(
                     AppProcessCommand.exec(SHIZUKU_ROUTING_COMMAND));
             setShizukuRoutingStream(routingStream, generation);
             routingReader = new BufferedReader(new InputStreamReader(
@@ -268,8 +260,6 @@ final class KeyboardShortcutWatcher {
 
             final ShizukuAccess.StreamHandle activeKeyboardStream =
                     keyboardStream;
-            final ShizukuAccess.StreamHandle activeRoutingStream =
-                    routingStream;
             final BufferedReader activeRoutingReader = routingReader;
             final Thread sessionThread = Thread.currentThread();
             routingMonitor = new Thread(
@@ -282,23 +272,6 @@ final class KeyboardShortcutWatcher {
                     "MagicDeskShizukuInputRouting");
             routingMonitor.setDaemon(true);
             routingMonitor.start();
-
-            heartbeat = ShizukuHeartbeat.start(
-                    "MagicDeskShizukuKeyboardHeartbeat",
-                    error -> {
-                        if (!sessionClosing.get()
-                                && isRunning(generation)) {
-                            Log.w(TAG,
-                                    "Shizuku keyboard heartbeat failed",
-                                    error);
-                            closeQuietly(activeKeyboardStream);
-                            closeQuietly(activeRoutingStream);
-                            sessionThread.interrupt();
-                        }
-                    },
-                    activeKeyboardStream,
-                    activeRoutingStream);
-            setHeartbeat(heartbeat, generation);
 
             syncHardwareKeyboardLayout();
             keyboardStream.writeLine("start");
@@ -324,14 +297,10 @@ final class KeyboardShortcutWatcher {
             }
         } finally {
             sessionClosing.set(true);
-            if (heartbeat != null) {
-                heartbeat.close();
-            }
             closeQuietly(keyboardReader);
             closeQuietly(routingReader);
             closeQuietly(keyboardStream);
             closeQuietly(routingStream);
-            clearHeartbeat(heartbeat);
             clearShizukuRoutingStream(routingStream);
             clearShizukuStream(keyboardStream);
             clearModifierState();
@@ -839,16 +808,6 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void setHeartbeat(
-            final ShizukuHeartbeat heartbeat,
-            final long generation) {
-        synchronized (LOCK) {
-            if (sRunning && sGeneration == generation) {
-                sHeartbeat = heartbeat;
-            }
-        }
-    }
-
     private static void setFullShortcutMode(
             final boolean enabled,
             final long generation) {
@@ -892,14 +851,6 @@ final class KeyboardShortcutWatcher {
                 if (sProcess == null && sShizukuStream == null) {
                     sFullShortcutMode = false;
                 }
-            }
-        }
-    }
-
-    private static void clearHeartbeat(final ShizukuHeartbeat heartbeat) {
-        synchronized (LOCK) {
-            if (sHeartbeat == heartbeat) {
-                sHeartbeat = null;
             }
         }
     }

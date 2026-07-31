@@ -3,7 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 import android.system.Os;
 import android.util.Log;
 
@@ -20,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private static final String TAG = "MagicDeskShizuku";
+    private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private final Context mContext;
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
@@ -154,6 +157,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public ParcelFileDescriptor openStream(
             final String command, final long requestId) {
+        return openStream(command, requestId, null);
+    }
+
+    @Override
+    public ParcelFileDescriptor openHeartbeatStream(
+            final String command,
+            final long requestId,
+            final IBinder ownerToken) {
+        if (ownerToken == null) {
+            throw new IllegalArgumentException("missing stream owner token");
+        }
+        return openStream(command, requestId, ownerToken);
+    }
+
+    private ParcelFileDescriptor openStream(
+            final String command,
+            final long requestId,
+            final IBinder ownerToken) {
         if (command == null || command.isEmpty()) {
             throw new IllegalArgumentException("empty stream command");
         }
@@ -171,12 +192,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     .redirectErrorStream(true)
                     .start();
             final StreamSession session = new StreamSession(
-                    requestId, process, writeSide);
+                    requestId, process, writeSide, ownerToken);
             mStreams.put(Long.valueOf(requestId), session);
-            session.start();
+            try {
+                session.start();
+            } catch (RemoteException error) {
+                mStreams.remove(Long.valueOf(requestId), session);
+                session.stop();
+                throw error;
+            }
             Log.i(TAG, "stream opened id=" + requestId);
             return readSide;
-        } catch (IOException error) {
+        } catch (IOException | RemoteException error) {
             if (process != null) {
                 process.destroyForcibly();
             }
@@ -249,27 +276,63 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final ParcelFileDescriptor writeSide;
         final Thread thread;
         final BufferedWriter commandWriter;
+        final IBinder ownerToken;
+        final IBinder.DeathRecipient ownerDeathRecipient;
+        final Thread heartbeatThread;
         volatile boolean stopped;
+        boolean ownerLinked;
 
         StreamSession(
                 final long requestId,
                 final Process process,
-                final ParcelFileDescriptor writeSide) {
+                final ParcelFileDescriptor writeSide,
+                final IBinder ownerToken) {
             this.requestId = requestId;
             this.process = process;
             this.writeSide = writeSide;
+            this.ownerToken = ownerToken;
             commandWriter = new BufferedWriter(new OutputStreamWriter(
                     process.getOutputStream(), StandardCharsets.UTF_8));
             thread = new Thread(this, "MagicDeskShizukuStream-" + requestId);
             thread.setDaemon(true);
+            if (ownerToken == null) {
+                ownerDeathRecipient = null;
+                heartbeatThread = null;
+            } else {
+                ownerDeathRecipient = () -> {
+                    Log.i(TAG, "stream owner died id=" + requestId);
+                    closeStream(requestId);
+                };
+                heartbeatThread = new Thread(
+                        this::runHeartbeat,
+                        "MagicDeskShizukuHeartbeat-" + requestId);
+                heartbeatThread.setDaemon(true);
+            }
         }
 
-        void start() {
+        synchronized void start() throws RemoteException {
+            if (ownerToken != null) {
+                ownerToken.linkToDeath(ownerDeathRecipient, 0);
+                ownerLinked = true;
+            }
             thread.start();
+            if (heartbeatThread != null) {
+                heartbeatThread.start();
+            }
         }
 
-        void stop() {
+        synchronized void stop() {
+            if (stopped) {
+                return;
+            }
             stopped = true;
+            if (ownerLinked) {
+                ownerToken.unlinkToDeath(ownerDeathRecipient, 0);
+                ownerLinked = false;
+            }
+            if (heartbeatThread != null) {
+                heartbeatThread.interrupt();
+            }
             closeQuietly(commandWriter);
             closeQuietly(writeSide);
             process.destroy();
@@ -283,6 +346,26 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             commandWriter.write(line == null ? "" : line);
             commandWriter.newLine();
             commandWriter.flush();
+        }
+
+        private void runHeartbeat() {
+            while (!stopped) {
+                try {
+                    writeLine("ping");
+                    Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
+                } catch (IOException error) {
+                    if (!stopped) {
+                        Log.w(TAG,
+                                "stream heartbeat failed id=" + requestId,
+                                error);
+                        closeStream(requestId);
+                    }
+                    return;
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
 
         @Override
@@ -303,8 +386,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                             error);
                 }
             } finally {
-                process.destroy();
                 mStreams.remove(Long.valueOf(requestId), this);
+                stop();
             }
         }
     }

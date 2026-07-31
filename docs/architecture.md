@@ -68,7 +68,8 @@ unchanged forwarded `BTN_RIGHT` becomes Android `BUTTON_SECONDARY`.
 One native helper unions their key/relative capabilities, creates one virtual
 pointer, then grabs and forwards the physical streams. It is started only in
 Shizuku Console Mode and is restarted after physical input hot-plug. The app
-sends a one-second heartbeat; after six seconds without one, or after stdin
+opens a Binder-owned stream whose shell-UID UserService sends a one-second
+heartbeat; after six seconds without one, or after stdin
 closes, the helper destroys its `uinput` device and releases all grabs. Kernel
 file-descriptor cleanup provides the same release after an uncatchable process
 termination.
@@ -587,8 +588,9 @@ device through WindowManager from the shell-UID UserService. Outside Console
 Mode, Shizuku keeps the read-only `getevent` layout shortcut without grabbing
 the keyboard.
 
-Both Shizuku processes require a heartbeat. Closing either stream, losing
-Shizuku, or stopping MagicDesk releases every grabbed source, destroys the
+The shell-UID UserService owns both Shizuku helper heartbeats. Binder death of
+the APK closes their streams. Closing either stream, losing Shizuku, or
+stopping MagicDesk releases every grabbed source, destroys the
 virtual keyboard, removes input-port associations, and clears the vendor
 routing state within six seconds.
 
@@ -712,9 +714,14 @@ component immediately when the phone wakes or the session ends.
 
 Shizuku leaves that vendor state untouched and asks DisplayManager to put
 physical display 0 in `OFF`. `PhoneDisplayGuardCommand` owns the override only
-while its Shizuku stream receives the shared one-second heartbeat. Explicit
-restore, `ACTION_SCREEN_ON`, Console exit, runtime-service teardown, stream
-EOF, or a four-second heartbeat timeout runs `power-reset 0`. The helper never
+while its Shizuku stream receives the UserService's one-second heartbeat. Each
+heartbeat also calls REDMAGIC `cfreezer`'s transient
+`noteCpuFreezerUidWorking(..., "service")` API. The firmware otherwise freezes
+the desktop HOME process even when Android reports it as TOP with a foreground
+service, causing input ANRs. Explicit restore, `ACTION_SCREEN_ON`, Console
+exit, runtime-service teardown, stream EOF, or a four-second heartbeat timeout
+runs `power-reset 0` and clears the working state. If the helper dies before
+cleanup, `cfreezer` expires the unrefreshed state itself. The helper never
 reapplies `OFF` after failure, so every lifecycle error is fail-open.
 
 ## Notifications And System Panels

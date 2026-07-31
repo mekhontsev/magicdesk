@@ -7,6 +7,7 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -182,18 +183,34 @@ final class ShizukuAccess {
     }
 
     static StreamHandle openStream(final String command) throws IOException {
+        return openStream(command, false);
+    }
+
+    static StreamHandle openHeartbeatStream(final String command)
+            throws IOException {
+        return openStream(command, true);
+    }
+
+    private static StreamHandle openStream(
+            final String command,
+            final boolean userServiceHeartbeat) throws IOException {
         if (command == null || command.isEmpty()) {
             throw new IOException("empty Shizuku stream command");
         }
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
+        final IBinder ownerToken = userServiceHeartbeat
+                ? new Binder() : null;
         try {
-            final ParcelFileDescriptor descriptor =
-                    requireService().openStream(command, requestId);
+            final IShizukuCommandService service = requireService();
+            final ParcelFileDescriptor descriptor = userServiceHeartbeat
+                    ? service.openHeartbeatStream(
+                            command, requestId, ownerToken)
+                    : service.openStream(command, requestId);
             if (descriptor == null) {
                 throw new IOException(
                         "Shizuku command service returned no stream");
             }
-            return new StreamHandle(requestId, descriptor);
+            return new StreamHandle(requestId, descriptor, ownerToken);
         } catch (RemoteException | RuntimeException error) {
             clearService();
             throw new IOException("Shizuku command stream failed: "
@@ -369,13 +386,18 @@ final class ShizukuAccess {
     static final class StreamHandle implements Closeable {
         private final long mRequestId;
         private final InputStream mInput;
+        // Keep the local Binder alive while the UserService owns this stream.
+        @SuppressWarnings("unused")
+        private final IBinder mOwnerToken;
         private final AtomicBoolean mClosed = new AtomicBoolean();
 
         StreamHandle(
                 final long requestId,
-                final ParcelFileDescriptor descriptor) {
+                final ParcelFileDescriptor descriptor,
+                final IBinder ownerToken) {
             mRequestId = requestId;
             mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+            mOwnerToken = ownerToken;
         }
 
         InputStream inputStream() {

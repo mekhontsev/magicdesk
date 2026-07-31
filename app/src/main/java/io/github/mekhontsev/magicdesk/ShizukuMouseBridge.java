@@ -25,7 +25,6 @@ final class ShizukuMouseBridge {
     private boolean mReady;
     private int mGeneration;
     private Thread mSupervisorThread;
-    private ShizukuHeartbeat mHeartbeat;
     private ShizukuAccess.StreamHandle mStream;
 
     ShizukuMouseBridge(final Context context) {
@@ -57,7 +56,6 @@ final class ShizukuMouseBridge {
     void stop() {
         final ShizukuAccess.StreamHandle stream;
         final Thread supervisor;
-        final ShizukuHeartbeat heartbeat;
         synchronized (mLock) {
             if (!mRequested && mStream == null) {
                 return;
@@ -67,15 +65,10 @@ final class ShizukuMouseBridge {
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
-            heartbeat = mHeartbeat;
             mStream = null;
             mSupervisorThread = null;
-            mHeartbeat = null;
         }
         closeQuietly(stream);
-        if (heartbeat != null) {
-            heartbeat.close();
-        }
         if (supervisor != null) {
             supervisor.interrupt();
         }
@@ -142,7 +135,7 @@ final class ShizukuMouseBridge {
         }
 
         final ShizukuAccess.StreamHandle stream =
-                ShizukuAccess.openStream(command.toString());
+                ShizukuAccess.openHeartbeatStream(command.toString());
         synchronized (mLock) {
             if (!isActiveLocked(generation)) {
                 closeQuietly(stream);
@@ -150,24 +143,6 @@ final class ShizukuMouseBridge {
             }
             mStream = stream;
             mReady = false;
-        }
-
-        final ShizukuHeartbeat heartbeat = ShizukuHeartbeat.start(
-                "MagicDeskShizukuMouseHeartbeat",
-                error -> {
-                    if (isActive(generation)) {
-                        Log.w(TAG, "mouse bridge heartbeat failed", error);
-                        closeQuietly(stream);
-                    }
-                },
-                stream);
-        synchronized (mLock) {
-            if (!isActiveLocked(generation) || mStream != stream) {
-                heartbeat.close();
-                closeQuietly(stream);
-                return;
-            }
-            mHeartbeat = heartbeat;
         }
 
         try (BufferedReader reader = new BufferedReader(
@@ -181,14 +156,10 @@ final class ShizukuMouseBridge {
                 throw new IOException("uinput bridge exited unexpectedly");
             }
         } finally {
-            heartbeat.close();
             synchronized (mLock) {
                 if (mStream == stream) {
                     mStream = null;
                     mReady = false;
-                }
-                if (mHeartbeat == heartbeat) {
-                    mHeartbeat = null;
                 }
             }
             closeQuietly(stream);

@@ -24,21 +24,29 @@ public final class PhoneDisplayGuardCommand {
     private final AtomicBoolean mDisplayOverrideActive =
             new AtomicBoolean();
     private final AtomicLong mLastHeartbeat = new AtomicLong();
+    private final int mAppUid;
     private volatile boolean mFinished;
+    private volatile NubiaCpuFreezerWorkingState.Session mFreezerSession;
 
-    private PhoneDisplayGuardCommand() {
+    private PhoneDisplayGuardCommand(final int appUid) {
+        mAppUid = appUid;
     }
 
     public static void main(final String[] arguments) {
-        final PhoneDisplayGuardCommand guard =
-                new PhoneDisplayGuardCommand();
+        final PhoneDisplayGuardCommand guard;
+        try {
+            guard = new PhoneDisplayGuardCommand(parseAppUid(arguments));
+        } catch (IllegalArgumentException error) {
+            System.out.println(ERROR + " " + usefulMessage(error));
+            return;
+        }
         final Thread shutdownHook = new Thread(
                 guard::restoreDisplay,
                 "MagicDeskPhoneDisplayShutdown");
         Runtime.getRuntime().addShutdownHook(shutdownHook);
         try {
             guard.run();
-        } catch (IOException error) {
+        } catch (IOException | ReflectiveOperationException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
         } finally {
             guard.mFinished = true;
@@ -53,7 +61,8 @@ public final class PhoneDisplayGuardCommand {
         }
     }
 
-    private void run() throws IOException {
+    private void run() throws IOException, ReflectiveOperationException {
+        mFreezerSession = NubiaCpuFreezerWorkingState.begin(mAppUid);
         // Claim ownership before the command so every later exit path resets
         // even if the process dies immediately after DisplayManager accepts it.
         mDisplayOverrideActive.set(true);
@@ -70,6 +79,7 @@ public final class PhoneDisplayGuardCommand {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (HEARTBEAT.equals(line)) {
+                    mFreezerSession.refresh();
                     mLastHeartbeat.set(
                             android.os.SystemClock.elapsedRealtime());
                 } else if (RESTORE.equals(line)) {
@@ -111,15 +121,36 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private boolean restoreDisplay() {
-        if (!mDisplayOverrideActive.compareAndSet(true, false)) {
+        if (mDisplayOverrideActive.compareAndSet(true, false)) {
+            if (!requestDisplayPower("power-reset")) {
+                mDisplayOverrideActive.set(true);
+                System.err.println(ERROR + " power-reset-failed");
+                return false;
+            }
+        }
+        final NubiaCpuFreezerWorkingState.Session session = mFreezerSession;
+        if (session == null || session.close()) {
+            mFreezerSession = null;
             return true;
         }
-        if (requestDisplayPower("power-reset")) {
-            return true;
-        }
-        mDisplayOverrideActive.set(true);
-        System.err.println(ERROR + " power-reset-failed");
+        System.err.println(ERROR + " cfreezer-working-state-release-failed");
         return false;
+    }
+
+    private static int parseAppUid(final String[] arguments) {
+        if (arguments == null || arguments.length != 1) {
+            throw new IllegalArgumentException("expected application UID");
+        }
+        final int uid;
+        try {
+            uid = Integer.parseInt(arguments[0]);
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("invalid application UID", error);
+        }
+        if (uid < 10_000) {
+            throw new IllegalArgumentException("invalid application UID " + uid);
+        }
+        return uid;
     }
 
     private static boolean requestDisplayPower(final String operation) {

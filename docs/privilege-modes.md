@@ -103,12 +103,17 @@ Nubia's input-panel activity then has no dimmed-panel state to cancel when an
 external application requests text input. A heartbeat-bound helper owns this
 physical display override and calls `power-reset 0` when the user restores the
 screen, Console Mode exits, MagicDesk or Shizuku disappears, or its control
-stream times out. Root mode retains the narrower, already validated vendor
-component guard and stock REDMAGIC screen transition.
+stream times out. The same heartbeat refreshes REDMAGIC `cfreezer`'s transient
+service-working state; without it the firmware freezes MagicDesk's desktop HOME
+process while display 0 is off. The state is cleared on normal restore and
+expires inside the vendor service after an abnormal stop. Root mode retains the
+narrower, already validated vendor component guard and stock REDMAGIC screen
+transition.
 
 The keyboard and mouse bridges are active only while Shizuku Console Mode and
-the corresponding physical device are present. A shared heartbeat component
-services their independent streams and the optional phone-display guard. If
+the corresponding physical device are present. The shell-UID UserService
+services their independent heartbeat streams and the optional phone-display
+guard. If
 the APK, UserService, or a control stream disappears, each helper fails open:
 input helpers destroy their virtual devices and release every physical source,
 while the display helper restores DisplayManager ownership. Input-device

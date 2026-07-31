@@ -228,6 +228,19 @@ process, Shizuku service, or Console session ends. The helper is not restarted
 after an unexpected failure, so it cannot turn a user-restored screen off
 again.
 
+The same firmware contains the Binder service `cfreezer`
+(`com.zte.performance.cfreezer.ICpuFreezerManager`). Turning display 0 off
+caused direct `am_freeze` events for MagicDesk even while ActivityManager
+classified the process as TOP with a foreground service; `cmd activity
+unfreeze --sticky` did not override this separate vendor freezer. The service's
+`noteCpuFreezerUidWorking(uid, working, "service")` API is accessible to shell
+UID 2000 and is the firmware's own transient protection for an executing
+service. The display helper refreshes it with the existing heartbeat and clears
+it after `power-reset`. If cleanup cannot run, `cfreezer` expires an unrefreshed
+working state internally. A dynamic `setFrozenWhiteList` entry was also tested
+successfully but rejected for production because abrupt helper termination
+could leave that persistent entry behind.
+
 Two apparent event sources are not sufficient by themselves. Nubia's
 `zte_backlight` callback reports only calls to `setNit`, `setBacklight`, and
 `setHbmMsg`; it is not a callback for physical display power. Likewise,

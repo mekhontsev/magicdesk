@@ -149,11 +149,18 @@ successful build.
   physical power button, explicit restore, Console exit, MagicDesk/Shizuku
   process death, and cable removal all restore display 0 through
   `cmd display power-reset 0`. Do not ship this path without a heartbeat-bound
-  fail-open owner. The implementation now uses a shared Shizuku heartbeat and
-  an independent four-second helper timeout. A local fail-open test on
+  fail-open owner. The implementation now uses UserService-owned heartbeat
+  streams and an independent four-second helper timeout. A local fail-open test on
   2026-07-31 observed display 0 committed `OFF`, then `heartbeat-timeout` and
   committed `ON` about five seconds later, before the independent safety reset;
   forced APK shutdown also removed the app and display helper immediately.
+  A later external-display test exposed Nubia's separate `cfreezer`: it froze
+  MagicDesk despite TOP/FGS state and produced an input ANR while display 0
+  remained off. A persistent dynamic whitelist was verified but rejected after
+  forced helper termination left its entry behind. A 12-second isolated test
+  instead refreshed the shell-accessible transient service-working state;
+  display 0 remained off while MagicDesk stayed unfrozen, and cleanup restored
+  display power without leaving an exemption.
   This item remains open until the complete external-hardware sequence passes.
 - [x] Cycle physical-keyboard layouts through the Shizuku shell backend.
   Binder-only discovery reproduced Android's all-enabled-IME mapping and found

@@ -265,9 +265,13 @@ shortcuts through an equivalent virtual-keyboard bridge. Phone-screen dimming
 uses a heartbeat-owned physical display override instead of Nubia's
 `nubia_screen_off_tp` state, preventing the vendor text-input panel from
 claiming that it must wake the phone. Loss of MagicDesk, Shizuku, or the guard
-stream restores DisplayManager's normal power state. Cooling changes use the
-stock `NBFan` policy service; direct five-level fan control and kernel fixes
-remain available only in Root mode.
+stream restores DisplayManager's normal power state. While the override is
+active, the same heartbeat refreshes REDMAGIC's transient `service working`
+state for MagicDesk; this prevents the firmware from freezing the desktop HOME
+process while display 0 is off. The vendor service expires that state when the
+heartbeat disappears, so no persistent freezer exemption is left behind.
+Cooling changes use the stock `NBFan` policy service; direct five-level fan
+control and kernel fixes remain available only in Root mode.
 
 The trust boundaries are deliberately narrow:
 

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 
 interface IShizukuCommandService {
@@ -21,4 +22,7 @@ interface IShizukuCommandService {
         String mode, String currentDescriptor) = 7;
 
     ParcelFileDescriptor openSystemWallpaper() = 8;
+
+    ParcelFileDescriptor openHeartbeatStream(
+        String command, long requestId, IBinder ownerToken) = 9;
 }

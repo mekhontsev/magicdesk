@@ -173,7 +173,6 @@ final class ShizukuPhoneDisplayGuard {
         private volatile boolean mGuardReady;
         private volatile String mFailure = "guard exited before ready";
         private volatile ShizukuAccess.StreamHandle mStream;
-        private ShizukuHeartbeat mHeartbeat;
 
         Session(final int generation) {
             mGeneration = generation;
@@ -240,8 +239,10 @@ final class ShizukuPhoneDisplayGuard {
             BufferedReader reader = null;
             boolean expected = false;
             try {
-                stream = ShizukuAccess.openStream(
-                        AppProcessCommand.exec(GUARD_COMMAND));
+                stream = ShizukuAccess.openHeartbeatStream(
+                        AppProcessCommand.exec(
+                                GUARD_COMMAND,
+                                Integer.toString(android.os.Process.myUid())));
                 mStream = stream;
                 if (mRestoreRequested) {
                     requestRestore();
@@ -258,7 +259,6 @@ final class ShizukuPhoneDisplayGuard {
                         mGuardReady = true;
                         mReady.countDown();
                         onReady(this);
-                        startHeartbeat(stream);
                     } else if (PhoneDisplayGuardCommand.RESTORED.equals(line)) {
                         expected = true;
                     } else if (line.startsWith(
@@ -269,7 +269,8 @@ final class ShizukuPhoneDisplayGuard {
                     }
                 }
                 expected = expected || mRestoreRequested;
-                if (!expected && mGuardReady) {
+                if (!expected && mGuardReady
+                        && "guard exited before ready".equals(mFailure)) {
                     mFailure = "guard stream ended unexpectedly";
                 }
             } catch (IOException error) {
@@ -278,25 +279,12 @@ final class ShizukuPhoneDisplayGuard {
             } finally {
                 mGuardReady = false;
                 mReady.countDown();
-                closeQuietly(mHeartbeat);
                 closeQuietly(reader);
                 closeQuietly(stream);
                 mStream = null;
                 onStopped(this, expected, mFailure);
                 mStopped.countDown();
             }
-        }
-
-        private void startHeartbeat(
-                final ShizukuAccess.StreamHandle stream) {
-            mHeartbeat = ShizukuHeartbeat.start(
-                    "MagicDeskPhoneDisplayHeartbeat-" + mGeneration,
-                    error -> {
-                        mFailure = "heartbeat failed: "
-                                + usefulMessage(error);
-                        closeQuietly(stream);
-                    },
-                    stream);
         }
     }
 }
