@@ -187,14 +187,6 @@ public final class DeviceSetupActivity extends Activity {
                         ? R.string.setup_value_available
                         : R.string.setup_value_unavailable),
                 overlaysGranted);
-        setStatusValue(mSetupView.freeformValue(),
-                getString(audit.freeformEnabled
-                        ? R.string.setup_value_enabled : R.string.setup_value_disabled),
-                audit.freeformEnabled);
-        setStatusValue(mSetupView.resizableValue(),
-                getString(audit.resizableEnabled
-                        ? R.string.setup_value_enabled : R.string.setup_value_disabled),
-                audit.resizableEnabled);
         setStatusValue(mSetupView.restrictionsValue(),
                 getString(audit.restrictionsDisabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),

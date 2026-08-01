@@ -20,8 +20,6 @@ final class DeviceSetupView {
     private TextView mDeviceValue;
     private TextView mShizukuValue;
     private TextView mOverlayValue;
-    private TextView mFreeformValue;
-    private TextView mResizableValue;
     private TextView mRestrictionsValue;
     private TextView mCornersValue;
     private TextView mRebootValue;
@@ -98,8 +96,6 @@ final class DeviceSetupView {
         mDeviceValue = addStatusRow(rows, R.string.setup_item_device);
         mShizukuValue = addStatusRow(rows, R.string.setup_item_shizuku);
         mOverlayValue = addStatusRow(rows, R.string.setup_item_overlays);
-        mFreeformValue = addStatusRow(rows, R.string.setup_item_freeform);
-        mResizableValue = addStatusRow(rows, R.string.setup_item_resizable);
         mRestrictionsValue = addStatusRow(
                 rows, R.string.setup_item_desktop_eligibility);
         mCornersValue =
@@ -207,14 +203,6 @@ final class DeviceSetupView {
 
     TextView overlayValue() {
         return mOverlayValue;
-    }
-
-    TextView freeformValue() {
-        return mFreeformValue;
-    }
-
-    TextView resizableValue() {
-        return mResizableValue;
     }
 
     TextView restrictionsValue() {
