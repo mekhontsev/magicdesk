@@ -165,10 +165,13 @@ not supported runtime modes:
 
 - [x] Unit tests cover session-profile parsing, strict Shizuku readiness,
   display-density policy, parsers, and controller policies.
+- [x] Task observation and exact-stack focus use one Binder-owned observer
+  inside the existing shell UserService; no separate task-watcher process or
+  textual event protocol remains.
 - [x] Android lint, debug assembly, unit tests, APK boundary verification, and
   certificate checks run in the release workflow.
 - [ ] Add an instrumentation regression that opens one freeform task, performs
-  fullscreen/restore through the Shizuku task watcher, and verifies the same
+  fullscreen/restore through the shell task observer, and verifies the same
   task ID and Activity instance when CI device coverage becomes available.
 
 ## Next Release

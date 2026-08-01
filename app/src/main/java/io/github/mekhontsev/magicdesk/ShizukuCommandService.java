@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -28,6 +29,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Context mContext;
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
+    private final ShellTaskObserverManager mTaskObserverManager =
+            new ShellTaskObserverManager();
 
     public ShizukuCommandService() {
         this(null);
@@ -167,6 +170,45 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void startTaskObserver(final ITaskObserverCallback callback) {
+        mTaskObserverManager.start(callback);
+    }
+
+    @Override
+    public void configureTaskObserver(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int displayLeft,
+            final int displayTop,
+            final int displayRight,
+            final int displayBottom,
+            final int workLeft,
+            final int workTop,
+            final int workRight,
+            final int workBottom) {
+        mTaskObserverManager.configure(
+                callback,
+                displayId,
+                new Rect(displayLeft, displayTop, displayRight, displayBottom),
+                new Rect(workLeft, workTop, workRight, workBottom));
+    }
+
+    @Override
+    public void focusTaskStack(
+            final ITaskObserverCallback callback,
+            final long sequence,
+            final int displayId,
+            final int[] taskIds) {
+        mTaskObserverManager.focusStack(
+                callback, sequence, displayId, taskIds);
+    }
+
+    @Override
+    public void stopTaskObserver(final ITaskObserverCallback callback) {
+        mTaskObserverManager.stop(callback);
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -257,6 +299,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void destroy() {
         Log.i(TAG, "command service stopped");
+        mTaskObserverManager.close();
         for (final StreamSession session
                 : new ArrayList<>(mStreams.values())) {
             closeStream(session.requestId);

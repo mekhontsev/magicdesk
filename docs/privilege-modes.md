@@ -43,6 +43,12 @@ the manager, permission, API version, and UID again. Device Setup and
 Diagnostics can request an explicit fresh probe. A command failure also causes
 one refresh before later work is allowed to continue.
 
+Exact task observation runs directly inside the existing shell UserService.
+The APK registers one typed AIDL callback; its Binder owns the corresponding
+`TaskStackListener` and supplemental task-state monitor. Stopping the desktop,
+losing the APK, or losing Shizuku unregisters the listener without leaving a
+separate `app_process` behind.
+
 ## Input Streams
 
 REDMAGIC routes physical input differently on its virtual desktop display.

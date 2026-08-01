@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
 
 interface IShizukuCommandService {
     void destroy() = 16777114;
@@ -26,4 +27,26 @@ interface IShizukuCommandService {
 
     ParcelFileDescriptor openOwnedStream(
         String command, long requestId, IBinder ownerToken) = 10;
+
+    void startTaskObserver(ITaskObserverCallback callback) = 11;
+
+    void configureTaskObserver(
+        ITaskObserverCallback callback,
+        int displayId,
+        int displayLeft,
+        int displayTop,
+        int displayRight,
+        int displayBottom,
+        int workLeft,
+        int workTop,
+        int workRight,
+        int workBottom) = 12;
+
+    void focusTaskStack(
+        ITaskObserverCallback callback,
+        long sequence,
+        int displayId,
+        in int[] taskIds) = 13;
+
+    void stopTaskObserver(ITaskObserverCallback callback) = 14;
 }

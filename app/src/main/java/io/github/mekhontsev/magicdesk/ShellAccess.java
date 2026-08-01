@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
@@ -260,6 +261,34 @@ final class ShellAccess {
     static StreamHandle openHeartbeatStream(final String command)
             throws IOException {
         return openStream(command, true);
+    }
+
+    static TaskObserverHandle openTaskObserver(
+            final ITaskObserverCallback callback,
+            final Runnable disconnected) throws IOException {
+        if (callback == null) {
+            throw new IOException("missing task observer callback");
+        }
+        final IShizukuCommandService service = requireService();
+        final TaskObserverHandle handle = new TaskObserverHandle(
+                service, callback, disconnected);
+        try {
+            handle.start();
+            return handle;
+        } catch (RemoteException error) {
+            handle.closeAfterStartFailure();
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku task observer failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            handle.closeAfterStartFailure();
+            throw new IOException(
+                    "Shizuku task observer failed: "
+                            + usefulMessage(error),
+                    error);
+        }
     }
 
     private static StreamHandle openStream(
@@ -547,6 +576,159 @@ final class ShellAccess {
             } catch (RemoteException | RuntimeException ignored) {
                 // Closing a disconnected UserService is already complete.
             }
+        }
+    }
+
+    static final class TaskObserverHandle implements Closeable {
+        private final IShizukuCommandService mService;
+        private final IBinder mServiceBinder;
+        private final ITaskObserverCallback mCallback;
+        private final Runnable mDisconnected;
+        private final IBinder.DeathRecipient mServiceDeathRecipient;
+        private final AtomicBoolean mClosed = new AtomicBoolean();
+
+        private volatile boolean mRegistered;
+        private boolean mServiceLinked;
+
+        TaskObserverHandle(
+                final IShizukuCommandService service,
+                final ITaskObserverCallback callback,
+                final Runnable disconnected) {
+            mService = service;
+            mServiceBinder = service.asBinder();
+            mCallback = callback;
+            mDisconnected = disconnected;
+            mServiceDeathRecipient = this::serviceDisconnected;
+        }
+
+        void start() throws RemoteException {
+            mServiceBinder.linkToDeath(mServiceDeathRecipient, 0);
+            synchronized (this) {
+                mServiceLinked = true;
+            }
+            mService.startTaskObserver(mCallback);
+            if (mClosed.get()) {
+                try {
+                    mService.stopTaskObserver(mCallback);
+                } catch (RemoteException | RuntimeException ignored) {
+                    // The service disconnected while registering the observer.
+                }
+                throw new RemoteException(
+                        "task observer disconnected during registration");
+            }
+            mRegistered = true;
+        }
+
+        void configure(
+                final int displayId,
+                final Rect displayBounds,
+                final Rect workAreaBounds) throws IOException {
+            if (displayBounds == null || workAreaBounds == null) {
+                throw new IOException("missing task observer bounds");
+            }
+            callService(() -> mService.configureTaskObserver(
+                    mCallback,
+                    displayId,
+                    displayBounds.left,
+                    displayBounds.top,
+                    displayBounds.right,
+                    displayBounds.bottom,
+                    workAreaBounds.left,
+                    workAreaBounds.top,
+                    workAreaBounds.right,
+                    workAreaBounds.bottom));
+        }
+
+        void focusStack(
+                final long sequence,
+                final int displayId,
+                final int[] taskIds) throws IOException {
+            callService(() -> mService.focusTaskStack(
+                    mCallback, sequence, displayId, taskIds));
+        }
+
+        boolean isClosed() {
+            return mClosed.get();
+        }
+
+        @Override
+        public void close() {
+            if (!mClosed.compareAndSet(false, true)) {
+                return;
+            }
+            unlinkServiceDeath();
+            if (!mRegistered) {
+                return;
+            }
+            mRegistered = false;
+            try {
+                mService.stopTaskObserver(mCallback);
+            } catch (RemoteException | RuntimeException ignored) {
+                // A disconnected service has already released its observer.
+            }
+        }
+
+        private void callService(final RemoteServiceCall call)
+                throws IOException {
+            if (mClosed.get()) {
+                throw new IOException("task observer is closed");
+            }
+            try {
+                call.run();
+            } catch (RemoteException error) {
+                serviceDisconnected();
+                throw new IOException(
+                        "task observer call failed: "
+                                + usefulMessage(error),
+                        error);
+            } catch (RuntimeException error) {
+                stopRemoteObserver();
+                serviceDisconnected();
+                throw new IOException(
+                        "task observer call failed: "
+                                + usefulMessage(error),
+                        error);
+            }
+        }
+
+        private void stopRemoteObserver() {
+            try {
+                mService.stopTaskObserver(mCallback);
+            } catch (RemoteException | RuntimeException ignored) {
+                // The observer may already have failed or disconnected.
+            }
+        }
+
+        private void closeAfterStartFailure() {
+            stopRemoteObserver();
+            if (!mClosed.compareAndSet(false, true)) {
+                return;
+            }
+            unlinkServiceDeath();
+        }
+
+        private void serviceDisconnected() {
+            if (!mClosed.compareAndSet(false, true)) {
+                return;
+            }
+            mRegistered = false;
+            unlinkServiceDeath();
+            if (mDisconnected != null) {
+                mDisconnected.run();
+            }
+        }
+
+        private synchronized void unlinkServiceDeath() {
+            if (!mServiceLinked) {
+                return;
+            }
+            mServiceBinder.unlinkToDeath(mServiceDeathRecipient, 0);
+            mServiceLinked = false;
+        }
+
+        @FunctionalInterface
+        private interface RemoteServiceCall {
+            void run() throws RemoteException;
         }
     }
 }

@@ -133,8 +133,11 @@ process, but no runtime integration.
 ### Tasks and windows
 
 - `TaskRepository` reads exact tasks and performs narrow shell operations.
-- `DesktopTaskWatcher` owns a bidirectional `TaskStackListener` stream and
-  immediate focus acknowledgements.
+- `DesktopTaskWatcher` owns the application-side typed task-observer callback
+  and immediate focus acknowledgements.
+- `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
+  shell UserService. `ShellTaskObserver` registers the framework listener, and
+  `ShellTaskStateMonitor` isolates the supplemental bounds/immersive polling.
 - `DesktopTaskController` orchestrates native task transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
@@ -170,20 +173,31 @@ or fallback runtime branch.
 runtime snapshot. Shizuku Binder and permission events update the snapshot;
 finite operations read it without repeating package, permission, version, and
 UID probes. Explicit setup/diagnostic audits and command failures refresh it.
-Finite operations use typed AIDL calls or bounded shell commands. Long-lived
-operations use `ParcelFileDescriptor` streams owned by an APK Binder token:
+Finite operations use typed AIDL calls or bounded shell commands. Task events,
+focus requests, and acknowledgements use a typed one-way AIDL callback. The
+callback Binder owns the single task-observer session, so client death removes
+the framework listener without a child `app_process` or textual protocol.
 
-- task events and focus commands;
+Other long-lived operations use `ParcelFileDescriptor` streams owned by an APK
+Binder token:
+
 - keyboard forwarding and shortcut events;
 - mouse forwarding;
 - phone-display power ownership.
 
-The UserService links every long-lived helper to its APK owner token. Task and
-input helpers block on real descriptor activity; Binder death, EOF, or explicit
-close initiates bounded graceful cleanup before process termination. They do
-not use periodic keepalives. `PhoneDisplayGuard` is the deliberate exception:
-its one-second heartbeat refreshes REDMAGIC's transient `cfreezer` state and
+The UserService links every long-lived helper to its APK owner token. Input
+helpers block on real descriptor activity; Binder death, EOF, or explicit close
+initiates bounded graceful cleanup before process termination. They do not use
+periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
+one-second heartbeat refreshes REDMAGIC's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
+
+`TaskStackListener` does not reliably report changes to app-requested system-bar
+visibility or native freeform bounds on the verified firmware. While a desktop
+session is active, `ShellTaskStateMonitor` therefore samples at 150 ms and scans
+at most 16 tasks on the selected display. It reuses one task snapshot for both
+checks and sleeps indefinitely before the observer is configured or after it is
+closed.
 
 Framework commands that need hidden signatures run from the shell UserService
 through `app_process` with the main APK on the class path. `hidden-api-stubs`

@@ -116,8 +116,7 @@ final class DesktopTaskController {
                     @Override
                     public void onReady(final int generation) {
                         mTaskWatcherReady = true;
-                        sendImmersiveWatchCommand();
-                        sendNativeMaximizeWatchCommand();
+                        configureTaskWatcher();
                         scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
                     }
 
@@ -144,11 +143,15 @@ final class DesktopTaskController {
                     }
 
                     @Override
-                    public void onNativeMaximizeEvent(
+                    public void onNativeMaximizeChanged(
                             final int generation,
-                            final String event,
-                            final int taskId) {
-                        Log.d(TAG, event + " task=" + taskId);
+                            final int taskId,
+                            final boolean enteredFullscreen) {
+                        Log.d(TAG,
+                                (enteredFullscreen
+                                        ? "native maximize"
+                                        : "native maximize exit")
+                                        + " task=" + taskId);
                         scheduleRefresh(0);
                     }
 
@@ -171,7 +174,7 @@ final class DesktopTaskController {
             return;
         }
         if (mRunning && mDisplayId == displayId) {
-            sendNativeMaximizeWatchCommand();
+            configureTaskWatcher();
             scheduleRefresh(0);
             return;
         }
@@ -473,37 +476,15 @@ final class DesktopTaskController {
         mTaskWatcher.start(generation);
     }
 
-    private boolean sendWatcherCommand(final String command) {
-        return mTaskWatcher.sendCommand(command);
-    }
-
-    private void sendNativeMaximizeWatchCommand() {
+    private void configureTaskWatcher() {
         if (mWindowContext == null) {
             return;
         }
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
-        sendWatcherCommand("watch-native-maximize " + mDisplayId
-                + " " + displayBounds.left
-                + " " + displayBounds.top
-                + " " + displayBounds.right
-                + " " + displayBounds.bottom
-                + " " + workAreaBounds.left
-                + " " + workAreaBounds.top
-                + " " + workAreaBounds.right
-                + " " + workAreaBounds.bottom);
-    }
-
-    private void sendImmersiveWatchCommand() {
-        if (!mTaskWatcherReady) {
-            return;
-        }
-        if (mDisplayId >= 0) {
-            sendWatcherCommand("watch-immersive " + mDisplayId);
-        } else {
-            sendWatcherCommand("pause-immersive");
-        }
+        mTaskWatcher.configure(
+                mDisplayId, displayBounds, workAreaBounds);
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {
