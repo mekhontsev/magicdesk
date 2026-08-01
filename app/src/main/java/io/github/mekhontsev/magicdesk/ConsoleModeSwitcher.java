@@ -48,6 +48,12 @@ final class ConsoleModeSwitcher {
             @Override
             public void run() {
                 boolean success = false;
+                final boolean pointerCaptured = MagicDeskRuntimeService
+                        .capturePointerPositionIfRunning();
+                if (pointerCaptured) {
+                    MagicDeskRuntimeService
+                            .restorePointerPositionOnNextMotionIfRunning();
+                }
                 try {
                     success = screenOff
                             ? PhoneDisplayGuard.enable()

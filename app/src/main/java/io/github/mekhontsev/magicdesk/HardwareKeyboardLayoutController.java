@@ -37,9 +37,15 @@ final class HardwareKeyboardLayoutController {
             return;
         }
         ConsoleModeSwitcher.executeSerialized(() -> {
+            final boolean pointerCaptured = MagicDeskRuntimeService
+                    .capturePointerPositionIfRunning();
             try {
                 apply("next");
             } finally {
+                if (pointerCaptured) {
+                    MagicDeskRuntimeService
+                            .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
+                }
                 runCompletion(completion);
             }
         });

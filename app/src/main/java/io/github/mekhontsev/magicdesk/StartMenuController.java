@@ -307,6 +307,8 @@ final class StartMenuController {
         mSearch.setShowSoftInputOnFocus(false);
         mFocusable = focusable;
         render();
+        final boolean pointerCaptured = MagicDeskRuntimeService
+                .capturePointerPositionIfRunning();
         final int width = getWidth();
         final int height = getHeight();
         final int left = mActivity.getDesktopAreaLeft() + mUi.desktopDp(
@@ -324,6 +326,10 @@ final class StartMenuController {
         }
         if (mPanel.hasWindowFocus()) {
             focusSearch();
+        }
+        if (pointerCaptured) {
+            MagicDeskRuntimeService
+                    .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
         }
     }
 

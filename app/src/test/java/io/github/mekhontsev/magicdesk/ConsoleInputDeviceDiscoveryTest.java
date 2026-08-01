@@ -14,10 +14,10 @@ public final class ConsoleInputDeviceDiscoveryTest {
                         + "Event Hub State:\n"
                         + "  Devices:\n"
                         + "    15: MagicDesk Shizuku Mouse\n"
-                        + "      Classes: CURSOR\n"
+                        + "      Classes: CURSOR | EXTERNAL\n"
                         + "      Path: /dev/input/event13\n"
-                        + "      Location: virtual\n"
-                        + "      Identifier: bus=0x0006, vendor=0x4d44, "
+                        + "      Location: magicdesk-shizuku-mouse\n"
+                        + "      Identifier: bus=0x0005, vendor=0x4d44, "
                         + "product=0x0001, version=0x0001\n"
                         + "    13: ProtoArc Mouse\n"
                         + "      Classes: CURSOR | EXTERNAL\n"
@@ -29,12 +29,18 @@ public final class ConsoleInputDeviceDiscoveryTest {
 
         final List<ConsoleMouseDevice> mice =
                 ConsoleInputDeviceDiscovery.findMice(dump);
+        final List<ConsoleMouseDevice> routable =
+                ConsoleInputDeviceDiscovery.findRoutableMice(dump);
 
         assertEquals(1, mice.size());
         assertEquals("/dev/input/event12", mice.get(0).path);
         assertEquals("dc:f0:90:67:42:3d", mice.get(0).location);
         assertEquals(0x3554, mice.get(0).vendorId);
         assertEquals(0xf605, mice.get(0).productId);
+        assertEquals(2, routable.size());
+        assertEquals(
+                "magicdesk-shizuku-mouse",
+                routable.get(0).location);
     }
 
     @Test

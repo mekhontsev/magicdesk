@@ -168,7 +168,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             }
         }
         for (final ConsoleMouseDevice mouse
-                : ConsoleInputDeviceDiscovery.findMice()) {
+                : ConsoleInputDeviceDiscovery.findRoutableMice()) {
             if (associatePort(
                     mAddPortAssociation,
                     mouse.location,

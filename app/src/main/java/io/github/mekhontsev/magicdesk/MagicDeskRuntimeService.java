@@ -130,6 +130,38 @@ public final class MagicDeskRuntimeService extends Service
                 && service.mConsoleMouseBridge.isReady();
     }
 
+    static boolean capturePointerPositionIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null
+                || service.mDestroyed
+                || service.mConsoleMouseBridge == null
+                || !service.mConsoleMouseBridge.isReady()
+                || !ShellAccess.capturePointerPosition()) {
+            return false;
+        }
+        return true;
+    }
+
+    static void restorePointerPositionOnNextMotionIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed
+                || service.mConsoleMouseBridge == null) {
+            return;
+        }
+        service.mConsoleMouseBridge
+                .restorePointerPositionIfDisplacedOnNextMotion();
+    }
+
+    static void restorePointerPositionIfDisplacedOnNextMotionIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed
+                || service.mConsoleMouseBridge == null) {
+            return;
+        }
+        service.mConsoleMouseBridge
+                .restorePointerPositionIfDisplacedOnNextMotion();
+    }
+
     static boolean showStartIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null || service.mDestroyed || service.mHandler == null) {

@@ -31,6 +31,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager =
             new ShellTaskObserverManager();
+    private final NubiaPointerPositionGuard mPointerPositionGuard;
 
     public ShizukuCommandService() {
         this(null);
@@ -38,6 +39,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     public ShizukuCommandService(final Context context) {
         mContext = context;
+        mPointerPositionGuard = new NubiaPointerPositionGuard();
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -209,6 +211,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean capturePointerPosition() {
+        return mPointerPositionGuard.capture();
+    }
+
+    @Override
+    public void restorePointerPositionIfDisplaced() {
+        mPointerPositionGuard.restoreIfDisplaced();
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -299,6 +311,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void destroy() {
         Log.i(TAG, "command service stopped");
+        mPointerPositionGuard.close();
         mTaskObserverManager.close();
         for (final StreamSession session
                 : new ArrayList<>(mStreams.values())) {

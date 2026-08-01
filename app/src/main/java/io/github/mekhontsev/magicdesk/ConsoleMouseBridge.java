@@ -17,12 +17,12 @@ final class ConsoleMouseBridge {
     private static final String DUMPSYS_INPUT =
             "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MILLIS = 1_000L;
-
     private final Object mLock = new Object();
     private final Context mContext;
 
     private boolean mRequested;
     private boolean mReady;
+    private boolean mPointerRestoreArmed;
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellAccess.StreamHandle mStream;
@@ -57,6 +57,7 @@ final class ConsoleMouseBridge {
             }
             mRequested = false;
             mReady = false;
+            mPointerRestoreArmed = false;
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
@@ -100,6 +101,20 @@ final class ConsoleMouseBridge {
             stream.writeLine(command.toString());
         } catch (IOException error) {
             Log.w(TAG, "Could not refresh mouse sources", error);
+        }
+    }
+
+    void restorePointerPositionIfDisplacedOnNextMotion() {
+        final ShellAccess.StreamHandle stream;
+        synchronized (mLock) {
+            if (!mRequested) {
+                return;
+            }
+            mPointerRestoreArmed = true;
+            stream = mStream;
+        }
+        if (stream != null) {
+            writeControl(stream, "restore-pointer-on-motion");
         }
     }
 
@@ -194,12 +209,28 @@ final class ConsoleMouseBridge {
             final ShellAccess.StreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_READY")) {
+            final boolean restorePointer;
             synchronized (mLock) {
                 if (isActiveLocked(generation) && mStream == stream) {
                     mReady = true;
                 }
+                restorePointer = mPointerRestoreArmed;
+            }
+            if (restorePointer) {
+                writeControl(stream, "restore-pointer-on-motion");
             }
             Log.i(TAG, line);
+            return;
+        }
+        if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_POINTER_MOTION")) {
+            synchronized (mLock) {
+                if (!isActiveLocked(generation) || mStream != stream
+                        || !mPointerRestoreArmed) {
+                    return;
+                }
+                mPointerRestoreArmed = false;
+            }
+            ShellAccess.restorePointerPositionIfDisplaced();
             return;
         }
         if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_ERROR")) {
@@ -221,6 +252,16 @@ final class ConsoleMouseBridge {
 
     private static String shellQuote(final String value) {
         return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    private static void writeControl(
+            final ShellAccess.StreamHandle stream,
+            final String command) {
+        try {
+            stream.writeLine(command);
+        } catch (IOException error) {
+            Log.w(TAG, "Could not configure mouse bridge", error);
+        }
     }
 
     private static void closeQuietly(final Closeable closeable) {

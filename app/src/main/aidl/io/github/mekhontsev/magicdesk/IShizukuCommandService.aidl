@@ -49,4 +49,8 @@ interface IShizukuCommandService {
         in int[] taskIds) = 13;
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
+
+    boolean capturePointerPosition() = 15;
+
+    void restorePointerPositionIfDisplaced() = 16;
 }

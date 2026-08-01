@@ -98,31 +98,40 @@ final class NubiaTouchpadController {
     }
 
     private static boolean requestTouchpad() {
-        final String touchpadOutput = runConsoleCommand(
-                AppProcessCommand.run(
-                        CONSOLE_DISPLAY_COMMAND,
-                        "touchpad 0")).trim();
-        if (!touchpadOutput.contains("display-command=touchpad")) {
-            Log.w(TAG,
-                    "Shell touchpad command failed output="
-                            + touchpadOutput);
-            return false;
+        final boolean pointerCaptured = MagicDeskRuntimeService
+                .capturePointerPositionIfRunning();
+        try {
+            final String touchpadOutput = runConsoleCommand(
+                    AppProcessCommand.run(
+                            CONSOLE_DISPLAY_COMMAND,
+                            "touchpad 0")).trim();
+            if (!touchpadOutput.contains("display-command=touchpad")) {
+                Log.w(TAG,
+                        "Shell touchpad command failed output="
+                                + touchpadOutput);
+                return false;
+            }
+            final String viewportOutput = runConsoleCommand(
+                    AppProcessCommand.run(
+                            MOUSE_VIEWPORT_COMMAND)).trim();
+            if (!viewportOutput.contains("mouse-viewport=updated")) {
+                Log.w(TAG,
+                        "Shell mouse viewport update failed output="
+                                + viewportOutput);
+                return false;
+            }
+            final boolean visible = waitForActivity(true);
+            if (!visible) {
+                Log.w(TAG,
+                        "Nubia touchpad did not appear after the shell request");
+            }
+            return visible;
+        } finally {
+            if (pointerCaptured) {
+                MagicDeskRuntimeService
+                        .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
+            }
         }
-        final String viewportOutput = runConsoleCommand(
-                AppProcessCommand.run(
-                        MOUSE_VIEWPORT_COMMAND)).trim();
-        if (!viewportOutput.contains("mouse-viewport=updated")) {
-            Log.w(TAG,
-                    "Shell mouse viewport update failed output="
-                            + viewportOutput);
-            return false;
-        }
-        final boolean visible = waitForActivity(true);
-        if (!visible) {
-            Log.w(TAG,
-                    "Nubia touchpad did not appear after the shell request");
-        }
-        return visible;
     }
 
     private static boolean waitForActivity(

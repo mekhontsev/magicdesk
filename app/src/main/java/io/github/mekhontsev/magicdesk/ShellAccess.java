@@ -235,6 +235,29 @@ final class ShellAccess {
         }
     }
 
+    static boolean capturePointerPosition() {
+        if (!isReady()) {
+            return false;
+        }
+        try {
+            return requireService().capturePointerPosition();
+        } catch (IOException | RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return false;
+        }
+    }
+
+    static void restorePointerPositionIfDisplaced() {
+        if (!isReady()) {
+            return;
+        }
+        try {
+            requireService().restorePointerPositionIfDisplaced();
+        } catch (IOException | RemoteException | RuntimeException error) {
+            handleServiceFailure();
+        }
+    }
+
     static ParcelFileDescriptor openSystemWallpaper() throws IOException {
         try {
             final ParcelFileDescriptor descriptor =

@@ -18,6 +18,9 @@
 #define CONTROL_BUFFER_SIZE 2048
 #define MAX_SOURCES 16
 #define SOURCE_PATH_SIZE 128
+#define MAGICDESK_VENDOR_ID 0x4d44
+#define MAGICDESK_MOUSE_PRODUCT_ID 0x0001
+#define MAGICDESK_MOUSE_LOCATION "magicdesk-shizuku-mouse"
 
 struct source_device {
     int fd;
@@ -33,6 +36,8 @@ struct bridge_state {
     uint16_t key_down_count[KEY_MAX + 1];
     bool forwarded_down[KEY_MAX + 1];
     bool started;
+    bool pointer_restore_armed;
+    bool pointer_moved;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -84,21 +89,27 @@ static void emit_line(const char *line) {
     fflush(stdout);
 }
 
-static int create_virtual_mouse(const int uinput_fd) {
+static int create_virtual_mouse(
+        const int uinput_fd,
+        const struct source_device *sources) {
+    struct input_id source_id = {0};
+    if (ioctl(sources[0].fd, EVIOCGID, &source_id) < 0) {
+        return -1;
+    }
     struct uinput_setup setup = {
-        .id = {
-            .bustype = BUS_VIRTUAL,
-            .vendor = 0x4d44,
-            .product = 0x0001,
-            .version = 1,
-        },
+        .id = source_id,
     };
+    setup.id.vendor = MAGICDESK_VENDOR_ID;
+    setup.id.product = MAGICDESK_MOUSE_PRODUCT_ID;
+    setup.id.version = 1;
     snprintf(setup.name, UINPUT_MAX_NAME_SIZE, "MagicDesk Shizuku Mouse");
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_REL) < 0
-            || ioctl(uinput_fd, UI_SET_PROPBIT, INPUT_PROP_POINTER) < 0) {
+            || ioctl(uinput_fd, UI_SET_PROPBIT, INPUT_PROP_POINTER) < 0
+            || ioctl(uinput_fd, UI_SET_PHYS,
+                    MAGICDESK_MOUSE_LOCATION) < 0) {
         return -1;
     }
     for (unsigned int code = BTN_MOUSE; code <= BTN_TASK; ++code) {
@@ -441,8 +452,25 @@ static int process_event(
         return process_key_event(
                 state, &state->sources[source_index], event);
     }
-    if (event->type == EV_SYN || event->type == EV_REL) {
+    if (event->type == EV_REL) {
+        if (state->pointer_restore_armed
+                && (event->code == REL_X || event->code == REL_Y)
+                && event->value != 0) {
+            state->pointer_moved = true;
+        }
         return write_event(state->uinput_fd, event);
+    }
+    if (event->type == EV_SYN) {
+        if (write_event(state->uinput_fd, event) < 0) {
+            return -1;
+        }
+        if (state->pointer_restore_armed && state->pointer_moved
+                && event->code == SYN_REPORT) {
+            state->pointer_restore_armed = false;
+            state->pointer_moved = false;
+            emit_line("MAGICDESK_SHIZUKU_MOUSE_POINTER_MOTION");
+        }
+        return 0;
     }
     return 0;
 }
@@ -455,6 +483,11 @@ static int handle_control_line(
     }
     if (strncmp(line, "sources ", 8) == 0) {
         return reconcile_sources(state, line + 8);
+    }
+    if (strcmp(line, "restore-pointer-on-motion") == 0) {
+        state->pointer_restore_armed = true;
+        state->pointer_moved = false;
+        return 0;
     }
     return 0;
 }
@@ -628,7 +661,7 @@ int main(int argc, char **argv) {
         free(sources);
         return 1;
     }
-    if (create_virtual_mouse(uinput_fd) < 0) {
+    if (create_virtual_mouse(uinput_fd, sources) < 0) {
         fprintf(stderr,
                 "MAGICDESK_SHIZUKU_MOUSE_ERROR uinput=create error=%s\n",
                 strerror(errno));

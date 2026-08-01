@@ -27,10 +27,10 @@ final class DesktopInputController {
                 && !mActivity.hasVisiblePanel()) {
             mActivity.captureInteractionStackForPanel();
         }
+        updateLastPointer(event, useRawCoordinates);
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             return false;
         }
-        updateLastPointer(event, useRawCoordinates);
         final int action = event.getActionMasked();
         final boolean contextButtonDown = hasContextButtonState(event);
 
@@ -62,7 +62,6 @@ final class DesktopInputController {
             return false;
         }
         updateLastPointer(event, useRawCoordinates);
-
         final int action = event.getActionMasked();
         final boolean contextButtonState = hasContextButtonState(event);
         final boolean contextPress =

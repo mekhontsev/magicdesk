@@ -43,7 +43,7 @@ public final class ConsoleInputRoutingCommand {
             final List<ConsoleKeyboardDevice> keyboards =
                     waitForVirtualKeyboards(expectedVirtualKeyboards);
             final List<ConsoleMouseDevice> mice =
-                    ConsoleInputDeviceDiscovery.findMice();
+                    ConsoleInputDeviceDiscovery.findRoutableMice();
             routing = ConsoleInputRoutingSession.open(keyboards, mice);
             final ConsoleInputRoutingSession openedRouting = routing;
             Runtime.getRuntime().addShutdownHook(new Thread(
