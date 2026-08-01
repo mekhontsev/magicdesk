@@ -97,6 +97,10 @@ final class ConsoleControlsController {
         }
     }
 
+    void setHardwarePanelVisible(final boolean visible) {
+        mHardware.setMonitoringActive(visible);
+    }
+
     void populateTools(final LinearLayout parent, final int spacing) {
         addDpiControls(parent);
 

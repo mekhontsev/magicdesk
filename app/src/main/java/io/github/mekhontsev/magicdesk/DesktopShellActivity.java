@@ -912,6 +912,10 @@ public abstract class DesktopShellActivity extends Activity
         mConsoleControls.update();
     }
 
+    void setHardwarePanelVisible(final boolean visible) {
+        mConsoleControls.setHardwarePanelVisible(visible);
+    }
+
     void togglePhoneScreen() {
         mConsoleControls.togglePhoneScreen();
     }

@@ -117,7 +117,7 @@ final class DesktopTaskWatcher {
                 "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand");
         ShellAccess.StreamHandle stream = null;
         try {
-            stream = ShellAccess.openStream(command);
+            stream = ShellAccess.openOwnedStream(command);
             final InputStream input = stream.inputStream();
             synchronized (this) {
                 if (!mListener.isActive(generation)) {

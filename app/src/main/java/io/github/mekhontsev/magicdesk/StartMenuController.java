@@ -67,6 +67,18 @@ final class StartMenuController {
                 dp(18),
                 DesktopUiFactory.COLOR_CYAN));
         menu.setVisibility(View.GONE);
+        menu.addOnAttachStateChangeListener(
+                new View.OnAttachStateChangeListener() {
+                    @Override
+                    public void onViewAttachedToWindow(final View view) {
+                        syncHardwareMonitoring();
+                    }
+
+                    @Override
+                    public void onViewDetachedFromWindow(final View view) {
+                        mActivity.setHardwarePanelVisible(false);
+                    }
+                });
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -152,6 +164,7 @@ final class StartMenuController {
         if (mContent == null) {
             return;
         }
+        syncHardwareMonitoring();
         mContent.removeAllViews();
         mBody = null;
 
@@ -436,6 +449,13 @@ final class StartMenuController {
 
     private static boolean isUtilityMode(final int mode) {
         return mode == MENU_TOOLS || mode == MENU_HARDWARE;
+    }
+
+    private void syncHardwareMonitoring() {
+        mActivity.setHardwarePanelVisible(
+                mMode == MENU_HARDWARE
+                        && mPanel != null
+                        && mPanel.isAttachedToWindow());
     }
 
     private View createAppTile(final AppItem app, final boolean selected) {

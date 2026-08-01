@@ -156,9 +156,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public ParcelFileDescriptor openStream(
-            final String command, final long requestId) {
-        return openStream(command, requestId, null);
+    public ParcelFileDescriptor openOwnedStream(
+            final String command,
+            final long requestId,
+            final IBinder ownerToken) {
+        if (ownerToken == null) {
+            throw new IllegalArgumentException("missing stream owner token");
+        }
+        return openStream(command, requestId, ownerToken, false);
     }
 
     @Override
@@ -169,13 +174,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         if (ownerToken == null) {
             throw new IllegalArgumentException("missing stream owner token");
         }
-        return openStream(command, requestId, ownerToken);
+        return openStream(command, requestId, ownerToken, true);
     }
 
     private ParcelFileDescriptor openStream(
             final String command,
             final long requestId,
-            final IBinder ownerToken) {
+            final IBinder ownerToken,
+            final boolean heartbeatEnabled) {
         if (command == null || command.isEmpty()) {
             throw new IllegalArgumentException("empty stream command");
         }
@@ -193,7 +199,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     .redirectErrorStream(true)
                     .start();
             final StreamSession session = new StreamSession(
-                    requestId, process, writeSide, ownerToken);
+                    requestId,
+                    process,
+                    writeSide,
+                    ownerToken,
+                    heartbeatEnabled);
             mStreams.put(Long.valueOf(requestId), session);
             try {
                 session.start();
@@ -287,7 +297,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 final long requestId,
                 final Process process,
                 final ParcelFileDescriptor writeSide,
-                final IBinder ownerToken) {
+                final IBinder ownerToken,
+                final boolean heartbeatEnabled) {
             this.requestId = requestId;
             this.process = process;
             this.writeSide = writeSide;
@@ -296,26 +307,23 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     process.getOutputStream(), StandardCharsets.UTF_8));
             thread = new Thread(this, "MagicDeskShizukuStream-" + requestId);
             thread.setDaemon(true);
-            if (ownerToken == null) {
-                ownerDeathRecipient = null;
-                heartbeatThread = null;
-            } else {
-                ownerDeathRecipient = () -> {
-                    Log.i(TAG, "stream owner died id=" + requestId);
-                    closeStream(requestId);
-                };
+            ownerDeathRecipient = () -> {
+                Log.i(TAG, "stream owner died id=" + requestId);
+                closeStream(requestId);
+            };
+            if (heartbeatEnabled) {
                 heartbeatThread = new Thread(
                         this::runHeartbeat,
                         "MagicDeskShizukuHeartbeat-" + requestId);
                 heartbeatThread.setDaemon(true);
+            } else {
+                heartbeatThread = null;
             }
         }
 
         synchronized void start() throws RemoteException {
-            if (ownerToken != null) {
-                ownerToken.linkToDeath(ownerDeathRecipient, 0);
-                ownerLinked = true;
-            }
+            ownerToken.linkToDeath(ownerDeathRecipient, 0);
+            ownerLinked = true;
             thread.start();
             if (heartbeatThread != null) {
                 heartbeatThread.start();
@@ -335,9 +343,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 heartbeatThread.interrupt();
             }
             closeQuietly(commandWriter);
-            if (ownerToken != null) {
-                awaitProcessExit();
-            }
+            awaitProcessExit();
             closeQuietly(writeSide);
             if (process.isAlive()) {
                 process.destroy();

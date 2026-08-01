@@ -158,7 +158,7 @@ final class ConsoleMouseBridge {
         }
 
         final ShellAccess.StreamHandle stream =
-                ShellAccess.openHeartbeatStream(command.toString());
+                ShellAccess.openOwnedStream(command.toString());
         synchronized (mLock) {
             if (!isActiveLocked(generation)) {
                 closeQuietly(stream);

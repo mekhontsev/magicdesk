@@ -56,13 +56,14 @@ MagicDesk therefore uses two lifecycle-bound native helpers:
   forwards their complete pointer stream through a virtual mouse. This prevents
   REDMAGIC from converting `BTN_RIGHT` into Android Back.
 
-The UserService sends heartbeats over owned streams. If the APK, UserService,
-or stream disappears, each helper releases its physical devices and destroys
-its virtual device. During a live Console session, input hot-plug updates the
-physical source descriptors inside the existing helpers. Their virtual device
-identity remains stable, avoiding application configuration changes. A source
-is grabbed only after it reaches a neutral key/button state, so a wake sequence
-cannot be divided between Android and the virtual device.
+The UserService links each helper stream to an APK Binder owner. If the APK,
+UserService, or stream disappears, EOF or Binder death releases the physical
+devices and destroys the virtual device; idle helpers do not send keepalives.
+During a live Console session, input hot-plug updates the physical source
+descriptors inside the existing helpers. Their virtual device identity remains
+stable, avoiding application configuration changes. A source is grabbed only
+after it reaches a neutral key/button state, so a wake sequence cannot be
+divided between Android and the virtual device.
 
 Layout selection follows Android's enabled IME subtype order. MagicDesk never
 selects an IME or hardcodes a language. An IME that keeps languages internally

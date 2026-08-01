@@ -138,7 +138,7 @@ final class KeyboardShortcutWatcher {
                 }
 
                 final boolean fullShortcutMode = false;
-                inputStream = ShellAccess.openStream(
+                inputStream = ShellAccess.openOwnedStream(
                         INPUT_EVENT_COMMAND);
                 setInputStream(
                         inputStream, generation, fullShortcutMode);
@@ -211,7 +211,7 @@ final class KeyboardShortcutWatcher {
             final int layoutCount =
                     HardwareKeyboardLayoutController.catalogLayoutCount();
 
-            keyboardStream = ShellAccess.openHeartbeatStream(
+            keyboardStream = ShellAccess.openOwnedStream(
                     buildKeyboardCommand(
                             keyboards, layoutCount));
             setInputStream(
@@ -223,7 +223,7 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_SHIZUKU_KEYBOARD_READY",
                     "keyboard bridge");
 
-            routingStream = ShellAccess.openHeartbeatStream(
+            routingStream = ShellAccess.openOwnedStream(
                     AppProcessCommand.exec(
                             ROUTING_COMMAND,
                             Integer.toString(layoutCount)));

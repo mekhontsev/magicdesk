@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
@@ -69,8 +70,11 @@ final class RedmagicHardwareController {
     private static final Object CONTROL_LOCK = new Object();
     private static final Set<Listener> LISTENERS =
             new CopyOnWriteArraySet<>();
+    private static final Set<Listener> MONITORING_LISTENERS =
+            new CopyOnWriteArraySet<>();
 
     private static ScheduledExecutorService sExecutor;
+    private static ScheduledFuture<?> sPollTask;
     private static Context sContext;
     private static volatile RedmagicHardwareSnapshot sSnapshot =
             RedmagicHardwareSnapshot.UNAVAILABLE;
@@ -102,13 +106,13 @@ final class RedmagicHardwareController {
             sExecutor.execute(
                     RedmagicHardwareController::recoverBaselineIfNeeded);
         }
-        sExecutor.scheduleWithFixedDelay(
-                RedmagicHardwareController::pollInternal,
-                0, POLL_SECONDS, TimeUnit.SECONDS);
+        sExecutor.execute(RedmagicHardwareController::pollInternal);
+        updatePollingLocked(POLL_SECONDS);
     }
 
     static synchronized void stop() {
         sStopping = true;
+        cancelPollingLocked();
         if (sExecutor != null) {
             sExecutor.shutdownNow();
             sExecutor = null;
@@ -136,7 +140,23 @@ final class RedmagicHardwareController {
     }
 
     static void removeListener(final Listener listener) {
+        setMonitoringEnabled(listener, false);
         LISTENERS.remove(listener);
+    }
+
+    static synchronized void setMonitoringEnabled(
+            final Listener listener,
+            final boolean enabled) {
+        if (listener == null) {
+            return;
+        }
+        final boolean changed = enabled
+                ? MONITORING_LISTENERS.add(listener)
+                : MONITORING_LISTENERS.remove(listener);
+        if (!changed) {
+            return;
+        }
+        updatePollingLocked(enabled ? 0L : POLL_SECONDS);
     }
 
     static RedmagicHardwareSnapshot snapshot() {
@@ -217,6 +237,29 @@ final class RedmagicHardwareController {
         final RedmagicHardwareSnapshot snapshot = readSnapshot();
         sSnapshot = snapshot;
         notifyListeners();
+    }
+
+    private static void updatePollingLocked(final long initialDelaySeconds) {
+        if (sExecutor == null || sExecutor.isShutdown()
+                || MONITORING_LISTENERS.isEmpty()) {
+            cancelPollingLocked();
+            return;
+        }
+        if (sPollTask != null && !sPollTask.isDone()) {
+            return;
+        }
+        sPollTask = sExecutor.scheduleWithFixedDelay(
+                RedmagicHardwareController::pollInternal,
+                initialDelaySeconds,
+                POLL_SECONDS,
+                TimeUnit.SECONDS);
+    }
+
+    private static void cancelPollingLocked() {
+        if (sPollTask != null) {
+            sPollTask.cancel(false);
+            sPollTask = null;
+        }
     }
 
     private static boolean applyFanMode(final FanMode mode) {

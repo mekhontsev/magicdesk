@@ -11,12 +11,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
-#include <time.h>
 #include <unistd.h>
 
 #define BITS_PER_LONG (sizeof(unsigned long) * 8U)
 #define BIT_WORDS(maximum) (((maximum) / BITS_PER_LONG) + 1U)
-#define HEARTBEAT_TIMEOUT_SECONDS 6
 #define MAX_QUEUED_EVENTS 2048
 #define CONTROL_BUFFER_SIZE 2048
 #define MAX_LAYOUTS 16
@@ -73,14 +71,6 @@ static int active_uinput_fd(const struct bridge_state *state) {
 static void request_stop(int signal_number) {
     (void)signal_number;
     stop_requested = 1;
-}
-
-static long monotonic_seconds(void) {
-    struct timespec value;
-    if (clock_gettime(CLOCK_MONOTONIC, &value) < 0) {
-        return 0;
-    }
-    return value.tv_sec;
 }
 
 static bool bit_is_set(
@@ -854,14 +844,12 @@ static int handle_control_line(
 static int read_control(
         struct bridge_state *state,
         char *control_buffer,
-        size_t *control_length,
-        long *last_heartbeat) {
+        size_t *control_length) {
     char bytes[128];
     const ssize_t count = read(STDIN_FILENO, bytes, sizeof(bytes));
     if (count <= 0) {
         return -1;
     }
-    *last_heartbeat = monotonic_seconds();
     for (ssize_t index = 0; index < count; ++index) {
         const char value = bytes[index];
         if (value == '\n') {
@@ -885,7 +873,6 @@ static int read_control(
 }
 
 static int forward_events(struct bridge_state *state) {
-    long last_heartbeat = monotonic_seconds();
     char control_buffer[CONTROL_BUFFER_SIZE];
     size_t control_length = 0;
     struct input_event events[64];
@@ -901,18 +888,11 @@ static int forward_events(struct bridge_state *state) {
                     POLLIN | POLLHUP | POLLERR;
         }
         const int poll_result =
-                poll(poll_descriptors, (nfds_t)descriptor_count, 250);
+                poll(poll_descriptors, (nfds_t)descriptor_count, -1);
         if (poll_result < 0) {
             if (errno == EINTR) {
                 continue;
             }
-            result = -1;
-            break;
-        }
-        if (monotonic_seconds() - last_heartbeat
-                > HEARTBEAT_TIMEOUT_SECONDS) {
-            fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR heartbeat=timeout\n");
             result = -1;
             break;
         }
@@ -924,8 +904,7 @@ static int forward_events(struct bridge_state *state) {
             if (read_control(
                     state,
                     control_buffer,
-                    &control_length,
-                    &last_heartbeat) < 0) {
+                    &control_length) < 0) {
                 break;
             }
             // A sources command can replace descriptors from this poll set.

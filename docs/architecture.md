@@ -89,8 +89,8 @@ and the client-preserving refresh described in
 | --- | --- | --- |
 | Main application | `io.github.mekhontsev.magicdesk` | Phone control, desktop shell, taskbar, setup, diagnostics, and runtime service |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
-| Mouse helper | `native/magicdesk_uinput_bridge.c` | Heartbeat-bound external-to-virtual pointer forwarding |
-| Keyboard helper | `native/magicdesk_keyboard_bridge.c` | Heartbeat-bound keyboard forwarding and shortcut interception |
+| Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned external-to-virtual pointer forwarding |
+| Keyboard helper | `native/magicdesk_keyboard_bridge.c` | Binder-owned keyboard forwarding and shortcut interception |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
 The main APK contains no `.ko`, kernel loader, root command path, or reference
@@ -178,11 +178,12 @@ operations use `ParcelFileDescriptor` streams owned by an APK Binder token:
 - mouse forwarding;
 - phone-display power ownership.
 
-The UserService links to the owner token and sends a one-second heartbeat to
-owned helpers. Binder death, EOF, explicit close, or timeout initiates bounded
-graceful cleanup before process termination. This ordering matters: immediate
-`SIGKILL` can leave display power or grabbed input in an incorrect state until
-the kernel closes the final descriptor.
+The UserService links every long-lived helper to its APK owner token. Task and
+input helpers block on real descriptor activity; Binder death, EOF, or explicit
+close initiates bounded graceful cleanup before process termination. They do
+not use periodic keepalives. `PhoneDisplayGuard` is the deliberate exception:
+its one-second heartbeat refreshes REDMAGIC's transient `cfreezer` state and
+provides fail-open display restoration if ownership is lost.
 
 Framework commands that need hidden signatures run from the shell UserService
 through `app_process` with the main APK on the class path. `hidden-api-stubs`
@@ -347,6 +348,11 @@ actions use the stock `NBFan` settings policy; bypass charging uses the stock
 global setting observed by the vendor service. MagicDesk captures each original
 value before its first write and restores only state it owns on System, exit,
 or interrupted-session recovery.
+
+The runtime takes one initial hardware snapshot. Repeated thermal and vendor
+state reads run only while the Hardware panel is visible; closing or switching
+away from that panel cancels the polling task without disabling controls or
+discarding owned fan and pump state.
 
 The main application does not write fan or pump sysfs nodes and does not claim
 RPM data unavailable to shell UID 2000. Controls are capability-probed because

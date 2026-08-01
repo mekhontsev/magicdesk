@@ -12,8 +12,6 @@ interface IShizukuCommandService {
 
     String probeCapabilities() = 3;
 
-    ParcelFileDescriptor openStream(String command, long requestId) = 4;
-
     void closeStream(long requestId) = 5;
 
     void writeStream(long requestId, String line) = 6;
@@ -25,4 +23,7 @@ interface IShizukuCommandService {
 
     ParcelFileDescriptor openHeartbeatStream(
         String command, long requestId, IBinder ownerToken) = 9;
+
+    ParcelFileDescriptor openOwnedStream(
+        String command, long requestId, IBinder ownerToken) = 10;
 }

@@ -91,8 +91,9 @@ retired prototypes are listed separately and are not current product modes.
   virtual mouse. Right click reaches MagicDesk, Chrome, and Firefox instead of
   becoming Android Back; movement, wheel, left click, and multiple devices
   remain intact.
-- [x] Force-stop the APK and kill the UserService. Heartbeat timeout releases
-  input grabs and removes virtual devices; rebinding recreates both bridges.
+- [x] Force-stop the APK and kill the UserService. Binder ownership or pipe EOF
+  releases input grabs and removes virtual devices; rebinding recreates both
+  bridges.
 - [x] Connect, use, and disconnect a sleeping secondary keyboard while an old
   SDL game remains focused. Confirm stable virtual device IDs, complete key
   release state, native repeat, and no Activity relaunch or process crash.

@@ -6,11 +6,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 public final class ConsoleInputRoutingCommand {
-    private static final long HEARTBEAT_TIMEOUT_MILLIS = 6_000L;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
@@ -63,7 +60,7 @@ public final class ConsoleInputRoutingCommand {
                             + " virtualKeyboards="
                             + countVirtualKeyboards(keyboards));
             System.out.flush();
-            waitForHeartbeats(routing);
+            processCommands(routing);
         } catch (Exception error) {
             System.err.println(
                     "MAGICDESK_SHIZUKU_ROUTING_ERROR " + error);
@@ -107,45 +104,29 @@ public final class ConsoleInputRoutingCommand {
         return count;
     }
 
-    private static void waitForHeartbeats(
-            final ConsoleInputRoutingSession routing)
-            throws InterruptedException {
-        final AtomicBoolean inputOpen = new AtomicBoolean(true);
-        final AtomicLong lastHeartbeat = new AtomicLong(
-                SystemClock.uptimeMillis());
-        final Thread reader = new Thread(() -> {
-            try (BufferedReader input = new BufferedReader(
-                    new InputStreamReader(System.in))) {
-                String line;
-                while ((line = input.readLine()) != null) {
-                    lastHeartbeat.set(SystemClock.uptimeMillis());
-                    if ("refresh".equals(line)) {
-                        try {
-                            final int added = routing.refreshAssociations();
-                            System.out.println(
-                                    "MAGICDESK_SHIZUKU_ROUTING_REFRESHED"
-                                            + " added=" + added);
-                            System.out.flush();
-                        } catch (Exception error) {
-                            System.err.println(
-                                    "MAGICDESK_SHIZUKU_ROUTING_REFRESH_ERROR "
-                                            + error);
-                        }
-                    }
+    private static void processCommands(
+            final ConsoleInputRoutingSession routing) {
+        try (BufferedReader input = new BufferedReader(
+                new InputStreamReader(System.in))) {
+            String line;
+            while ((line = input.readLine()) != null) {
+                if (!"refresh".equals(line)) {
+                    continue;
                 }
-            } catch (IOException ignored) {
-                // A broken parent pipe is also a stop request.
-            } finally {
-                inputOpen.set(false);
+                try {
+                    final int added = routing.refreshAssociations();
+                    System.out.println(
+                            "MAGICDESK_SHIZUKU_ROUTING_REFRESHED"
+                                    + " added=" + added);
+                    System.out.flush();
+                } catch (Exception error) {
+                    System.err.println(
+                            "MAGICDESK_SHIZUKU_ROUTING_REFRESH_ERROR "
+                                    + error);
+                }
             }
-        }, "MagicDeskInputRoutingHeartbeat");
-        reader.setDaemon(true);
-        reader.start();
-
-        while (inputOpen.get()
-                && SystemClock.uptimeMillis() - lastHeartbeat.get()
-                        <= HEARTBEAT_TIMEOUT_MILLIS) {
-            Thread.sleep(250L);
+        } catch (IOException ignored) {
+            // A broken owner pipe is also a stop request.
         }
     }
 }

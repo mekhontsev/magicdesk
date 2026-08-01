@@ -252,7 +252,8 @@ final class ShellAccess {
         }
     }
 
-    static StreamHandle openStream(final String command) throws IOException {
+    static StreamHandle openOwnedStream(final String command)
+            throws IOException {
         return openStream(command, false);
     }
 
@@ -263,24 +264,31 @@ final class ShellAccess {
 
     private static StreamHandle openStream(
             final String command,
-            final boolean userServiceHeartbeat) throws IOException {
+            final boolean heartbeatEnabled) throws IOException {
         if (command == null || command.isEmpty()) {
             throw new IOException("empty Shizuku stream command");
         }
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
-        final IBinder ownerToken = userServiceHeartbeat
-                ? new Binder() : null;
+        final IBinder ownerToken = new Binder();
         try {
             final IShizukuCommandService service = requireService();
-            final ParcelFileDescriptor descriptor = userServiceHeartbeat
-                    ? service.openHeartbeatStream(
-                            command, requestId, ownerToken)
-                    : service.openStream(command, requestId);
+            final ParcelFileDescriptor descriptor;
+            if (heartbeatEnabled) {
+                descriptor = service.openHeartbeatStream(
+                        command, requestId, ownerToken);
+            } else {
+                descriptor = service.openOwnedStream(
+                        command, requestId, ownerToken);
+            }
             if (descriptor == null) {
                 throw new IOException(
                         "Shizuku command service returned no stream");
             }
-            return new StreamHandle(requestId, descriptor, ownerToken);
+            return new StreamHandle(
+                    requestId,
+                    descriptor,
+                    ownerToken,
+                    service);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
             throw new IOException("Shizuku command stream failed: "
@@ -491,15 +499,18 @@ final class ShellAccess {
         // Keep the local Binder alive while the UserService owns this stream.
         @SuppressWarnings("unused")
         private final IBinder mOwnerToken;
+        private final IShizukuCommandService mService;
         private final AtomicBoolean mClosed = new AtomicBoolean();
 
         StreamHandle(
                 final long requestId,
                 final ParcelFileDescriptor descriptor,
-                final IBinder ownerToken) {
+                final IBinder ownerToken,
+                final IShizukuCommandService service) {
             mRequestId = requestId;
             mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
             mOwnerToken = ownerToken;
+            mService = service;
         }
 
         InputStream inputStream() {
@@ -510,16 +521,8 @@ final class ShellAccess {
             if (mClosed.get()) {
                 throw new IOException("Shizuku stream is closed");
             }
-            final IShizukuCommandService service;
-            synchronized (LOCK) {
-                service = sService;
-            }
-            if (service == null) {
-                throw new IOException(
-                        "Shizuku command service disconnected");
-            }
             try {
-                service.writeStream(mRequestId, line);
+                mService.writeStream(mRequestId, line);
             } catch (RemoteException | RuntimeException error) {
                 throw new IOException(
                         "Shizuku stream write failed: "
@@ -539,15 +542,8 @@ final class ShellAccess {
                 // The remote stream may already have ended.
             }
 
-            final IShizukuCommandService service;
-            synchronized (LOCK) {
-                service = sService;
-            }
-            if (service == null) {
-                return;
-            }
             try {
-                service.closeStream(mRequestId);
+                mService.closeStream(mRequestId);
             } catch (RemoteException | RuntimeException ignored) {
                 // Closing a disconnected UserService is already complete.
             }

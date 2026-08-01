@@ -32,6 +32,7 @@ final class RedmagicHardwarePanelController
     private Button mPumpManual;
     private SeekBar mPumpSpeed;
     private boolean mUpdatingControls;
+    private boolean mMonitoringActive;
 
     RedmagicHardwarePanelController(
             final DesktopShellActivity activity,
@@ -45,7 +46,16 @@ final class RedmagicHardwarePanelController
     }
 
     void stop() {
+        setMonitoringActive(false);
         RedmagicHardwareController.removeListener(this);
+    }
+
+    void setMonitoringActive(final boolean active) {
+        if (mMonitoringActive == active) {
+            return;
+        }
+        mMonitoringActive = active;
+        RedmagicHardwareController.setMonitoringEnabled(this, active);
     }
 
     void populate(final LinearLayout parent, final int spacing) {
