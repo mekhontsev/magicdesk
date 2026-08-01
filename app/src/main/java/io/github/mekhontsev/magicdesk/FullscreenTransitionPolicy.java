@@ -20,8 +20,8 @@ final class FullscreenTransitionPolicy {
         }
         final ComponentName component = task.topActivityName == null
                 ? null : ComponentName.unflattenFromString(task.topActivityName);
-        if (component != null && isNativeActivity(context, component)) {
-            return true;
+        if (component != null) {
+            return isNativeActivity(context, component);
         }
         return packageContainsNativeActivity(context, task.packageName);
     }
