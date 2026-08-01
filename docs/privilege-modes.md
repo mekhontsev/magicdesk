@@ -58,8 +58,11 @@ MagicDesk therefore uses two lifecycle-bound native helpers:
 
 The UserService sends heartbeats over owned streams. If the APK, UserService,
 or stream disappears, each helper releases its physical devices and destroys
-its virtual device. Input hot-plug restarts only the affected bridge with a new
-device inventory.
+its virtual device. During a live Console session, input hot-plug updates the
+physical source descriptors inside the existing helpers. Their virtual device
+identity remains stable, avoiding application configuration changes. A source
+is grabbed only after it reaches a neutral key/button state, so a wake sequence
+cannot be divided between Android and the virtual device.
 
 Layout selection follows Android's enabled IME subtype order. MagicDesk never
 selects an IME or hardcodes a language. An IME that keeps languages internally

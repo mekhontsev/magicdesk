@@ -85,6 +85,7 @@ public final class FreeformLauncherActivity extends Activity {
             if (!existingTask) {
                 final ActivityOptions options = ActivityOptions.makeBasic();
                 invokeIntOption(options, "setLaunchDisplayId", displayId);
+                options.setLaunchBounds(defaultLaunchBounds());
                 Log.i(TAG, "launch package=" + packageName + " display=" + displayId);
                 startActivity(launchIntent, options.toBundle());
             }

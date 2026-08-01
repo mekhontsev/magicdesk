@@ -36,6 +36,7 @@ final class KeyboardShortcutWatcher {
     private static Thread sThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
+    private static boolean sConsoleMode;
 
     private KeyboardShortcutWatcher() {
     }
@@ -47,6 +48,7 @@ final class KeyboardShortcutWatcher {
                 return;
             }
             sRunning = true;
+            sConsoleMode = consoleMode;
             generation = ++sGeneration;
             sThread = new Thread(new Runnable() {
                 @Override
@@ -76,6 +78,7 @@ final class KeyboardShortcutWatcher {
             sRoutingStream = null;
             sThread = null;
             sFullShortcutMode = false;
+            sConsoleMode = false;
         }
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
@@ -97,6 +100,29 @@ final class KeyboardShortcutWatcher {
     static boolean isFullShortcutMode() {
         synchronized (LOCK) {
             return isRunning() && sFullShortcutMode;
+        }
+    }
+
+    static void refreshConsoleInputSources(
+            final List<ConsoleKeyboardDevice> keyboards) {
+        final ShellAccess.StreamHandle inputStream;
+        final ShellAccess.StreamHandle routingStream;
+        synchronized (LOCK) {
+            if (!sRunning || !sConsoleMode) {
+                return;
+            }
+            inputStream = sInputStream;
+            routingStream = sRoutingStream;
+        }
+        try {
+            if (inputStream != null) {
+                inputStream.writeLine(buildSourcesCommand(keyboards));
+            }
+            if (routingStream != null) {
+                routingStream.writeLine("refresh");
+            }
+        } catch (IOException error) {
+            Log.w(TAG, "Could not refresh console input sources", error);
         }
     }
 
@@ -300,6 +326,15 @@ final class KeyboardShortcutWatcher {
                         .append(layoutCount);
         for (final ConsoleKeyboardDevice keyboard : keyboards) {
             command.append(' ').append(shellQuote(keyboard.path));
+        }
+        return command.toString();
+    }
+
+    private static String buildSourcesCommand(
+            final List<ConsoleKeyboardDevice> keyboards) {
+        final StringBuilder command = new StringBuilder("sources");
+        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+            command.append(' ').append(keyboard.path);
         }
         return command.toString();
     }

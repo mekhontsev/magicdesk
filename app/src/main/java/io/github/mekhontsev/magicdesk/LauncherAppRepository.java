@@ -166,6 +166,11 @@ final class LauncherAppRepository {
                 && (activityInfo.flags & ActivityInfo.FLAG_IMMERSIVE) != 0) {
             return AppItem.FULLSCREEN_REASON_IMMERSIVE;
         }
+        if (activityInfo != null
+                && (activityInfo.flags
+                        & ActivityInfo.FLAG_PREFER_MINIMAL_POST_PROCESSING) != 0) {
+            return AppItem.FULLSCREEN_REASON_GAME;
+        }
         final Integer resizeMode = getResizeMode(activityInfo);
         if (resizeMode != null
                 && resizeMode.intValue() == RESIZE_MODE_UNRESIZEABLE) {

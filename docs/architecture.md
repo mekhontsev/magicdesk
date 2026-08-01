@@ -310,8 +310,17 @@ The mouse helper forwards movement, wheels, buttons, and multitouch-derived
 pointer events. It exists specifically because REDMAGIC consumes physical
 `BTN_RIGHT` as Back. `Win+Backspace` remains the explicit system Back shortcut.
 
-Both helpers discover devices dynamically. New devices trigger an inventory
-refresh rather than an application restart.
+Both helpers keep their virtual devices alive for the complete Console session.
+InputManager inventory changes replace only the physical source descriptors,
+so Android does not deliver keyboard/navigation configuration changes to every
+foreground application. This matters for older SDL applications that cannot
+safely recreate their rendering state during an input hot-plug.
+
+A newly opened source is captured only after `EVIOCGKEY` reports a neutral
+state both before and after `EVIOCGRAB`. Until then Android receives the whole
+physical key or button sequence and the helper discards its duplicate copy.
+This prevents a wake key from being split so that Android sees key-down while
+only the virtual device receives key-up. No timing threshold is involved.
 
 ## Phone Screen And Touch Panel
 

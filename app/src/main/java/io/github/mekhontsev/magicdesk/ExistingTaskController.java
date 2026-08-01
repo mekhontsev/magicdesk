@@ -85,6 +85,8 @@ final class ExistingTaskController {
         }
         final boolean restoreTouchpad =
                 nativeDesktop && ConsoleModeSwitcher.isTouchpadVisible();
+        final boolean taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
+        final boolean taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
         if (task.displayId != targetDisplayId) {
             final String command = CMD + " activity display move-stack " + task.rootTaskId
                     + " " + targetDisplayId;
@@ -93,11 +95,11 @@ final class ExistingTaskController {
             waitForTaskDisplay(task.taskId, targetDisplayId);
         }
 
-        final boolean taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
-        final boolean taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
         if (nativeDesktop) {
-            NativeDesktopController.moveTaskToDesktop(task.taskId);
-            waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
+            if (!taskIsFreeform) {
+                NativeDesktopController.moveTaskToDesktop(task.taskId);
+                waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
+            }
             setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
         } else if (targetFreeform && taskIsFullscreen) {
             Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);

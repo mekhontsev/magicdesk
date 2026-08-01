@@ -90,7 +90,7 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Right click reaches Chrome, Firefox, MagicDesk, and other applications
   instead of being converted to Android Back by REDMAGIC firmware.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are
-  handled without restarting MagicDesk.
+  handled without recreating the virtual devices or restarting applications.
 
 ## Requirements
 

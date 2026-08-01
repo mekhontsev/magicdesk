@@ -63,7 +63,7 @@ public final class ConsoleInputRoutingCommand {
                             + " virtualKeyboards="
                             + countVirtualKeyboards(keyboards));
             System.out.flush();
-            waitForHeartbeats();
+            waitForHeartbeats(routing);
         } catch (Exception error) {
             System.err.println(
                     "MAGICDESK_SHIZUKU_ROUTING_ERROR " + error);
@@ -107,7 +107,8 @@ public final class ConsoleInputRoutingCommand {
         return count;
     }
 
-    private static void waitForHeartbeats()
+    private static void waitForHeartbeats(
+            final ConsoleInputRoutingSession routing)
             throws InterruptedException {
         final AtomicBoolean inputOpen = new AtomicBoolean(true);
         final AtomicLong lastHeartbeat = new AtomicLong(
@@ -118,6 +119,19 @@ public final class ConsoleInputRoutingCommand {
                 String line;
                 while ((line = input.readLine()) != null) {
                     lastHeartbeat.set(SystemClock.uptimeMillis());
+                    if ("refresh".equals(line)) {
+                        try {
+                            final int added = routing.refreshAssociations();
+                            System.out.println(
+                                    "MAGICDESK_SHIZUKU_ROUTING_REFRESHED"
+                                            + " added=" + added);
+                            System.out.flush();
+                        } catch (Exception error) {
+                            System.err.println(
+                                    "MAGICDESK_SHIZUKU_ROUTING_REFRESH_ERROR "
+                                            + error);
+                        }
+                    }
                 }
             } catch (IOException ignored) {
                 // A broken parent pipe is also a stop request.

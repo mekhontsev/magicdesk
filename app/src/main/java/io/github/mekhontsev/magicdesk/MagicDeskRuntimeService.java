@@ -23,6 +23,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.InputDevice;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,6 +69,7 @@ public final class MagicDeskRuntimeService extends Service
     private boolean mDestroyed;
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
+    private int mInputSourceRefreshGeneration;
 
     private final ShellAccess.StateListener mShellStateListener =
             snapshot -> {
@@ -335,14 +337,20 @@ public final class MagicDeskRuntimeService extends Service
         logInputState();
         if (keyboardChanged) {
             updateNotification();
+        }
+        if (mConsoleModeActive) {
+            updateKeyboardWatcher();
+            updateConsoleMouseBridge();
+            refreshConsoleInputSources();
+            return;
+        }
+        if (keyboardChanged) {
             updateKeyboardWatcher();
         } else if ((mouseChanged || inputInventoryChanged)
                 && mKeyboardWatcherRunning) {
             restartKeyboardWatcher();
         }
-        if (mouseChanged || inputInventoryChanged) {
-            restartConsoleMouseBridge();
-        }
+        updateConsoleMouseBridge();
     }
 
     private boolean hasHardwareKeyboard() {
@@ -466,6 +474,7 @@ public final class MagicDeskRuntimeService extends Service
         final boolean activeStateChanged = consoleModeActive != wasConsoleModeActive;
         mConsoleModeActive = consoleModeActive;
         mConsoleDisplayId = consoleDisplayId;
+        ++mInputSourceRefreshGeneration;
         Log.i(TAG, "consoleMode=" + mConsoleModeActive
                 + " display=" + mConsoleDisplayId);
         if (activeStateChanged) {
@@ -530,8 +539,10 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void updateKeyboardWatcher() {
-        final boolean shouldRun = mHasHardwareKeyboard
-                && ShellAccess.isReady();
+        final boolean shouldRun = ShellAccess.isReady()
+                && (mHasHardwareKeyboard
+                        || (mConsoleModeActive
+                                && mKeyboardWatcherRunning));
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
@@ -547,12 +558,11 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void restartKeyboardWatcher() {
-        if (!mKeyboardWatcherRunning) {
-            updateKeyboardWatcher();
-            return;
+        if (mKeyboardWatcherRunning) {
+            KeyboardShortcutWatcher.stop();
+            mKeyboardWatcherRunning = false;
         }
-        KeyboardShortcutWatcher.stop();
-        KeyboardShortcutWatcher.start(mConsoleModeActive);
+        updateKeyboardWatcher();
     }
 
     private void updateConsoleMouseBridge() {
@@ -566,21 +576,44 @@ public final class MagicDeskRuntimeService extends Service
         }
     }
 
-    private void restartConsoleMouseBridge() {
-        if (mConsoleMouseBridge == null) {
-            return;
-        }
-        if (shouldRunConsoleMouseBridge()) {
-            mConsoleMouseBridge.restart();
-        } else {
-            mConsoleMouseBridge.stop();
-        }
-    }
-
     private boolean shouldRunConsoleMouseBridge() {
         return mConsoleModeActive
-                && mHasExternalMouse
+                && (mHasExternalMouse
+                        || (mConsoleMouseBridge != null
+                                && mConsoleMouseBridge.isRunning()))
                 && ShellAccess.isReady();
+    }
+
+    private void refreshConsoleInputSources() {
+        if (!mConsoleModeActive || !ShellAccess.isReady()) {
+            return;
+        }
+        final int generation = ++mInputSourceRefreshGeneration;
+        final Thread refreshThread = new Thread(() -> {
+            try {
+                final String inputDump = ShellAccess.run(
+                        "/system/bin/dumpsys input");
+                final List<ConsoleKeyboardDevice> keyboards =
+                        ConsoleInputDeviceDiscovery.findKeyboards(inputDump);
+                final List<ConsoleMouseDevice> mice =
+                        ConsoleInputDeviceDiscovery.findMice(inputDump);
+                mHandler.post(() -> {
+                    if (mDestroyed || !mConsoleModeActive
+                            || generation != mInputSourceRefreshGeneration) {
+                        return;
+                    }
+                    KeyboardShortcutWatcher.refreshConsoleInputSources(
+                            keyboards);
+                    if (mConsoleMouseBridge != null) {
+                        mConsoleMouseBridge.refreshSources(mice);
+                    }
+                });
+            } catch (IOException error) {
+                Log.w(TAG, "Could not refresh console input sources", error);
+            }
+        }, "MagicDeskInputRefresh");
+        refreshThread.setDaemon(true);
+        refreshThread.start();
     }
 
     private void handleShellStateChanged() {

@@ -48,11 +48,6 @@ final class ConsoleMouseBridge {
         }
     }
 
-    void restart() {
-        stop();
-        start();
-    }
-
     void stop() {
         final ShellAccess.StreamHandle stream;
         final Thread supervisor;
@@ -77,6 +72,34 @@ final class ConsoleMouseBridge {
     boolean isReady() {
         synchronized (mLock) {
             return mRequested && mReady && mStream != null;
+        }
+    }
+
+    boolean isRunning() {
+        synchronized (mLock) {
+            return mRequested;
+        }
+    }
+
+    void refreshSources(final List<ConsoleMouseDevice> mice) {
+        final ShellAccess.StreamHandle stream;
+        synchronized (mLock) {
+            if (!mRequested) {
+                return;
+            }
+            stream = mStream;
+        }
+        if (stream == null) {
+            return;
+        }
+        final StringBuilder command = new StringBuilder("sources");
+        for (final ConsoleMouseDevice mouse : mice) {
+            command.append(' ').append(mouse.path);
+        }
+        try {
+            stream.writeLine(command.toString());
+        } catch (IOException error) {
+            Log.w(TAG, "Could not refresh mouse sources", error);
         }
     }
 

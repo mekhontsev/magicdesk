@@ -23,12 +23,14 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             new LinkedHashSet<>();
 
     private Object mInputManager;
+    private Method mAddPortAssociation;
     private Method mRemovePortAssociation;
     private Object mDisplayManager;
     private Method mNotePanelStatus;
     private Binder mPanelToken;
     private boolean mMouseInputSourceOverride;
     private int mConsoleDisplayId = -1;
+    private int mDisplayPort = -1;
     private int mKeyboardAssociationCount;
     private boolean mClosed;
 
@@ -101,8 +103,8 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
     private void start(
             final List<ConsoleKeyboardDevice> keyboards,
             final List<ConsoleMouseDevice> mice) throws Exception {
-        final int displayPort = findExternalDisplayPort();
-        if (displayPort < 0) {
+        mDisplayPort = findExternalDisplayPort();
+        if (mDisplayPort < 0) {
             throw new IllegalStateException(
                     "external physical display port not found");
         }
@@ -112,7 +114,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
-        final Method addPortAssociation = inputManagerInterface.getMethod(
+        mAddPortAssociation = inputManagerInterface.getMethod(
                 "addPortAssociation", String.class, int.class);
         mRemovePortAssociation = inputManagerInterface.getMethod(
                 "removePortAssociation", String.class);
@@ -129,7 +131,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         int keyboardAssociations = 0;
         for (final ConsoleKeyboardDevice keyboard : keyboards) {
             if (associatePort(
-                    addPortAssociation, keyboard.location, displayPort)) {
+                    mAddPortAssociation, keyboard.location, mDisplayPort)) {
                 keyboardAssociations++;
             }
         }
@@ -139,7 +141,8 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
         mKeyboardAssociationCount = keyboardAssociations;
         for (final ConsoleMouseDevice mouse : mice) {
-            associatePort(addPortAssociation, mouse.location, displayPort);
+            associatePort(
+                    mAddPortAssociation, mouse.location, mDisplayPort);
         }
 
         mDisplayManager = getService(
@@ -151,6 +154,37 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         mPanelToken = new Binder();
         mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
         setMouseInputSourceOverride(true);
+    }
+
+    synchronized int refreshAssociations() throws Exception {
+        if (mClosed || mInputManager == null
+                || mAddPortAssociation == null || mDisplayPort < 0) {
+            return 0;
+        }
+        int added = 0;
+        for (final ConsoleKeyboardDevice keyboard
+                : ConsoleInputDeviceDiscovery.findRoutableKeyboards()) {
+            if (associatePort(
+                    mAddPortAssociation,
+                    keyboard.location,
+                    mDisplayPort)) {
+                mKeyboardAssociationCount++;
+                added++;
+            }
+        }
+        for (final ConsoleMouseDevice mouse
+                : ConsoleInputDeviceDiscovery.findMice()) {
+            if (associatePort(
+                    mAddPortAssociation,
+                    mouse.location,
+                    mDisplayPort)) {
+                added++;
+            }
+        }
+        if (added > 0) {
+            ConsoleInputRoutingOwnership.record(mAssociatedInputPorts);
+        }
+        return added;
     }
 
     private boolean associatePort(
@@ -328,6 +362,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         mAssociatedInputPorts.clear();
         mPanelToken = null;
         mConsoleDisplayId = -1;
+        mDisplayPort = -1;
         mKeyboardAssociationCount = 0;
     }
 

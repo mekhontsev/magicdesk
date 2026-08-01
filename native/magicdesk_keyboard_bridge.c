@@ -18,8 +18,10 @@
 #define BIT_WORDS(maximum) (((maximum) / BITS_PER_LONG) + 1U)
 #define HEARTBEAT_TIMEOUT_SECONDS 6
 #define MAX_QUEUED_EVENTS 2048
-#define CONTROL_BUFFER_SIZE 256
+#define CONTROL_BUFFER_SIZE 2048
 #define MAX_LAYOUTS 16
+#define MAX_SOURCES 16
+#define SOURCE_PATH_SIZE 128
 #define MAGICDESK_VENDOR_ID 0x4d44
 #define MAGICDESK_KEYBOARD_PRODUCT_BASE 0x4b00
 
@@ -30,7 +32,8 @@
 
 struct source_device {
     int fd;
-    const char *path;
+    char path[SOURCE_PATH_SIZE];
+    bool grabbed;
     bool key_down[KEY_MAX + 1];
     bool consumed[KEY_MAX + 1];
 };
@@ -72,19 +75,19 @@ static void request_stop(int signal_number) {
     stop_requested = 1;
 }
 
-static bool bit_is_set(
-        const unsigned long *bits,
-        unsigned int bit) {
-    return (bits[bit / BITS_PER_LONG]
-            & (1UL << (bit % BITS_PER_LONG))) != 0;
-}
-
 static long monotonic_seconds(void) {
     struct timespec value;
     if (clock_gettime(CLOCK_MONOTONIC, &value) < 0) {
         return 0;
     }
     return value.tv_sec;
+}
+
+static bool bit_is_set(
+        const unsigned long *bits,
+        const unsigned int bit) {
+    return (bits[bit / BITS_PER_LONG]
+            & (1UL << (bit % BITS_PER_LONG))) != 0;
 }
 
 static bool is_modifier(const unsigned short code) {
@@ -448,28 +451,8 @@ static int drain_queue(struct bridge_state *state) {
     return 0;
 }
 
-static int enable_source_capabilities(
-        const int source_fd,
-        const int uinput_fd) {
-    unsigned long key_bits[BIT_WORDS(KEY_MAX)] = {0};
-    if (ioctl(
-                source_fd,
-                EVIOCGBIT(EV_KEY, sizeof(key_bits)),
-                key_bits) < 0) {
-        return -1;
-    }
-    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
-        if (bit_is_set(key_bits, code)
-                && ioctl(uinput_fd, UI_SET_KEYBIT, code) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
 static int create_virtual_keyboard(
         const struct source_device *sources,
-        const int source_count,
         const int uinput_fd,
         const int layout_index) {
     struct input_id source_id = {0};
@@ -496,9 +479,12 @@ static int create_virtual_keyboard(
                     location) < 0) {
         return -1;
     }
-    for (int index = 0; index < source_count; ++index) {
-        if (enable_source_capabilities(
-                    sources[index].fd, uinput_fd) < 0) {
+    for (unsigned int code = 1; code <= KEY_MAX; ++code) {
+        // BTN_* codes would make Android classify this as a pointer or gamepad.
+        if (code >= BTN_MISC && code < KEY_OK) {
+            continue;
+        }
+        if (ioctl(uinput_fd, UI_SET_KEYBIT, code) < 0) {
             return -1;
         }
     }
@@ -516,10 +502,43 @@ static void release_sources(
         if (sources[index].fd < 0) {
             continue;
         }
-        ioctl(sources[index].fd, EVIOCGRAB, 0);
+        if (sources[index].grabbed) {
+            ioctl(sources[index].fd, EVIOCGRAB, 0);
+        }
         close(sources[index].fd);
         sources[index].fd = -1;
+        sources[index].path[0] = '\0';
     }
+}
+
+static void drain_source(const int source_fd);
+static int try_grab_source(struct source_device *source);
+
+static int open_source(
+        struct source_device *source,
+        const char *path,
+        const bool grab) {
+    memset(source, 0, sizeof(*source));
+    source->fd = -1;
+    if (strlen(path) >= sizeof(source->path)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    strcpy(source->path, path);
+    source->fd = open(
+                source->path,
+                O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (source->fd < 0) {
+        return -1;
+    }
+    if (grab) {
+        if (try_grab_source(source) < 0) {
+            close(source->fd);
+            source->fd = -1;
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int open_sources(
@@ -527,15 +546,10 @@ static int open_sources(
         const int source_count,
         char **paths) {
     for (int index = 0; index < source_count; ++index) {
-        sources[index].fd = -1;
-        sources[index].path = paths[index];
-        sources[index].fd = open(
-                sources[index].path,
-                O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (sources[index].fd < 0) {
+        if (open_source(&sources[index], paths[index], false) < 0) {
             fprintf(stderr,
                     "MAGICDESK_SHIZUKU_KEYBOARD_ERROR open=%s error=%s\n",
-                    sources[index].path,
+                    paths[index],
                     strerror(errno));
             return -1;
         }
@@ -550,12 +564,51 @@ static void drain_source(const int source_fd) {
     }
 }
 
+static int source_has_active_keys(const int source_fd) {
+    unsigned long key_bits[BIT_WORDS(KEY_MAX)] = {0};
+    if (ioctl(
+                source_fd,
+                EVIOCGKEY(sizeof(key_bits)),
+                key_bits) < 0) {
+        return -1;
+    }
+    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
+        if (bit_is_set(key_bits, code)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int try_grab_source(struct source_device *source) {
+    // Let Android finish an in-flight physical key sequence before capture.
+    if (source->grabbed) {
+        return 1;
+    }
+    const int active_before = source_has_active_keys(source->fd);
+    if (active_before != 0) {
+        return active_before < 0 ? -1 : 0;
+    }
+    drain_source(source->fd);
+    if (ioctl(source->fd, EVIOCGRAB, 1) < 0) {
+        return -1;
+    }
+    source->grabbed = true;
+    const int active_after = source_has_active_keys(source->fd);
+    if (active_after <= 0) {
+        return active_after < 0 ? -1 : 1;
+    }
+    ioctl(source->fd, EVIOCGRAB, 0);
+    source->grabbed = false;
+    drain_source(source->fd);
+    return 0;
+}
+
 static int grab_sources(
         struct source_device *sources,
         const int source_count) {
     for (int index = 0; index < source_count; ++index) {
-        drain_source(sources[index].fd);
-        if (ioctl(sources[index].fd, EVIOCGRAB, 1) < 0) {
+        if (try_grab_source(&sources[index]) < 0) {
             fprintf(stderr,
                     "MAGICDESK_SHIZUKU_KEYBOARD_ERROR grab=%s error=%s\n",
                     sources[index].path,
@@ -584,9 +637,184 @@ static int release_forwarded_keys(struct bridge_state *state) {
     return !released || emit_sync(active_uinput_fd(state)) == 0 ? 0 : -1;
 }
 
+static int clear_input_state(struct bridge_state *state) {
+    if (release_forwarded_keys(state) < 0) {
+        return -1;
+    }
+    if (state->alt_tab_active) {
+        emit_line("MAGICDESK_ALT_TAB_COMMIT");
+    }
+    memset(state->key_down_count, 0, sizeof(state->key_down_count));
+    memset(state->forwarded_down, 0, sizeof(state->forwarded_down));
+    memset(state->modifier_pending, 0, sizeof(state->modifier_pending));
+    memset(state->modifier_consumed, 0, sizeof(state->modifier_consumed));
+    memset(state->modifier_order, 0, sizeof(state->modifier_order));
+    memset(state->modifier_down_event, 0,
+            sizeof(state->modifier_down_event));
+    state->next_modifier_order = 0;
+    state->alt_tab_active = false;
+    state->queue_head = 0;
+    state->queue_count = 0;
+    for (int index = 0; index < state->source_count; ++index) {
+        memset(state->sources[index].key_down, 0,
+                sizeof(state->sources[index].key_down));
+        memset(state->sources[index].consumed, 0,
+                sizeof(state->sources[index].consumed));
+    }
+    return 0;
+}
+
+static void close_source(struct source_device *source) {
+    if (source->fd >= 0) {
+        if (source->grabbed) {
+            ioctl(source->fd, EVIOCGRAB, 0);
+        }
+        close(source->fd);
+    }
+    memset(source, 0, sizeof(*source));
+    source->fd = -1;
+}
+
+static int parse_source_paths(
+        const char *value,
+        char paths[MAX_SOURCES][SOURCE_PATH_SIZE]) {
+    int count = 0;
+    const char *cursor = value;
+    while (*cursor != '\0') {
+        while (*cursor == ' ') {
+            cursor++;
+        }
+        if (*cursor == '\0') {
+            break;
+        }
+        const char *end = strchr(cursor, ' ');
+        const size_t length = end == NULL
+                ? strlen(cursor) : (size_t)(end - cursor);
+        if (length == 0 || length >= SOURCE_PATH_SIZE
+                || count >= MAX_SOURCES) {
+            return -1;
+        }
+        memcpy(paths[count], cursor, length);
+        paths[count][length] = '\0';
+        bool duplicate = false;
+        for (int index = 0; index < count; ++index) {
+            if (strcmp(paths[index], paths[count]) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) {
+            count++;
+        }
+        cursor = end == NULL ? cursor + length : end + 1;
+    }
+    return count;
+}
+
+static int reconcile_sources(
+        struct bridge_state *state,
+        const char *value) {
+    char paths[MAX_SOURCES][SOURCE_PATH_SIZE];
+    const int requested_count = parse_source_paths(value, paths);
+    if (requested_count < 0) {
+        fprintf(stderr,
+                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR sources=invalid\n");
+        return 0;
+    }
+    bool unchanged = requested_count == state->source_count;
+    for (int index = 0; unchanged && index < requested_count; ++index) {
+        unchanged = strcmp(
+                paths[index], state->sources[index].path) == 0;
+    }
+    if (unchanged) {
+        return 0;
+    }
+    if (clear_input_state(state) < 0) {
+        return -1;
+    }
+
+    struct source_device next[MAX_SOURCES];
+    memset(next, 0, sizeof(next));
+    for (int index = 0; index < MAX_SOURCES; ++index) {
+        next[index].fd = -1;
+    }
+    int next_count = 0;
+    for (int requested = 0; requested < requested_count; ++requested) {
+        int existing = -1;
+        for (int index = 0; index < state->source_count; ++index) {
+            if (state->sources[index].fd >= 0
+                    && strcmp(state->sources[index].path,
+                            paths[requested]) == 0) {
+                existing = index;
+                break;
+            }
+        }
+        if (existing >= 0) {
+            next[next_count++] = state->sources[existing];
+            state->sources[existing].fd = -1;
+            state->sources[existing].path[0] = '\0';
+            continue;
+        }
+        if (open_source(
+                    &next[next_count],
+                    paths[requested],
+                    state->started) < 0) {
+            fprintf(stderr,
+                    "MAGICDESK_SHIZUKU_KEYBOARD_SOURCE_SKIPPED"
+                    " path=%s error=%s\n",
+                    paths[requested],
+                    strerror(errno));
+            continue;
+        }
+        next_count++;
+    }
+    release_sources(state->sources, state->source_count);
+    memcpy(state->sources, next, sizeof(next));
+    state->source_count = next_count;
+
+    char output[96];
+    snprintf(output, sizeof(output),
+            "MAGICDESK_SHIZUKU_KEYBOARD_SOURCES count=%d",
+            state->source_count);
+    emit_line(output);
+    return 0;
+}
+
+static int remove_source(
+        struct bridge_state *state,
+        const int source_index) {
+    if (clear_input_state(state) < 0) {
+        return -1;
+    }
+    close_source(&state->sources[source_index]);
+    if (source_index + 1 < state->source_count) {
+        memmove(
+                &state->sources[source_index],
+                &state->sources[source_index + 1],
+                (size_t)(state->source_count - source_index - 1)
+                        * sizeof(state->sources[0]));
+    }
+    state->source_count--;
+    memset(&state->sources[state->source_count], 0,
+            sizeof(state->sources[0]));
+    state->sources[state->source_count].fd = -1;
+    char output[96];
+    snprintf(output, sizeof(output),
+            "MAGICDESK_SHIZUKU_KEYBOARD_SOURCES count=%d",
+            state->source_count);
+    emit_line(output);
+    return 0;
+}
+
 static int handle_control_line(
         struct bridge_state *state,
         const char *line) {
+    if (strcmp(line, "sources") == 0) {
+        return reconcile_sources(state, "");
+    }
+    if (strncmp(line, "sources ", 8) == 0) {
+        return reconcile_sources(state, line + 8);
+    }
     if (strncmp(line, "layout ", 7) == 0) {
         char *end = NULL;
         const long index = strtol(line + 7, &end, 10);
@@ -657,26 +885,21 @@ static int read_control(
 }
 
 static int forward_events(struct bridge_state *state) {
-    const int descriptor_count = state->source_count + 1;
-    struct pollfd *poll_descriptors =
-            calloc((size_t)descriptor_count, sizeof(*poll_descriptors));
-    if (poll_descriptors == NULL) {
-        return -1;
-    }
-    poll_descriptors[0].fd = STDIN_FILENO;
-    poll_descriptors[0].events = POLLIN | POLLHUP;
-    for (int index = 0; index < state->source_count; ++index) {
-        poll_descriptors[index + 1].fd = state->sources[index].fd;
-        poll_descriptors[index + 1].events =
-                POLLIN | POLLHUP | POLLERR;
-    }
-
     long last_heartbeat = monotonic_seconds();
     char control_buffer[CONTROL_BUFFER_SIZE];
     size_t control_length = 0;
     struct input_event events[64];
     int result = 0;
     while (!stop_requested) {
+        struct pollfd poll_descriptors[MAX_SOURCES + 1] = {0};
+        const int descriptor_count = state->source_count + 1;
+        poll_descriptors[0].fd = STDIN_FILENO;
+        poll_descriptors[0].events = POLLIN | POLLHUP;
+        for (int index = 0; index < state->source_count; ++index) {
+            poll_descriptors[index + 1].fd = state->sources[index].fd;
+            poll_descriptors[index + 1].events =
+                    POLLIN | POLLHUP | POLLERR;
+        }
         const int poll_result =
                 poll(poll_descriptors, (nfds_t)descriptor_count, 250);
         if (poll_result < 0) {
@@ -697,13 +920,16 @@ static int forward_events(struct bridge_state *state) {
                 & (POLLHUP | POLLERR)) != 0) {
             break;
         }
-        if ((poll_descriptors[0].revents & POLLIN) != 0
-                && read_control(
-                        state,
-                        control_buffer,
-                        &control_length,
-                        &last_heartbeat) < 0) {
-            break;
+        if ((poll_descriptors[0].revents & POLLIN) != 0) {
+            if (read_control(
+                    state,
+                    control_buffer,
+                    &control_length,
+                    &last_heartbeat) < 0) {
+                break;
+            }
+            // A sources command can replace descriptors from this poll set.
+            continue;
         }
         if (!state->started) {
             continue;
@@ -714,9 +940,11 @@ static int forward_events(struct bridge_state *state) {
                 ++index) {
             const short revents =
                     poll_descriptors[index + 1].revents;
-            if ((revents & (POLLHUP | POLLERR)) != 0) {
-                result = -1;
-                stop_requested = 1;
+            if ((revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
+                if (remove_source(state, index) < 0) {
+                    result = -1;
+                    stop_requested = 1;
+                }
                 break;
             }
             if ((revents & POLLIN) == 0) {
@@ -730,13 +958,25 @@ static int forward_events(struct bridge_state *state) {
                 if (errno == EAGAIN || errno == EINTR) {
                     continue;
                 }
-                result = -1;
-                stop_requested = 1;
+                if (remove_source(state, index) < 0) {
+                    result = -1;
+                    stop_requested = 1;
+                }
                 break;
             }
             if (bytes == 0) {
-                result = -1;
-                stop_requested = 1;
+                if (remove_source(state, index) < 0) {
+                    result = -1;
+                    stop_requested = 1;
+                }
+                break;
+            }
+            if (!state->sources[index].grabbed) {
+                if (try_grab_source(&state->sources[index]) < 0
+                        && remove_source(state, index) < 0) {
+                    result = -1;
+                    stop_requested = 1;
+                }
                 break;
             }
             const size_t event_count =
@@ -766,7 +1006,6 @@ static int forward_events(struct bridge_state *state) {
             }
         }
     }
-    free(poll_descriptors);
     return result;
 }
 
@@ -796,11 +1035,19 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     const int source_count = argc - 3;
+    if (source_count > MAX_SOURCES) {
+        fprintf(stderr,
+                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR sources=too-many\n");
+        return 64;
+    }
     struct source_device *sources =
-            calloc((size_t)source_count, sizeof(*sources));
+            calloc(MAX_SOURCES, sizeof(*sources));
     if (sources == NULL) {
         perror("allocate sources");
         return 1;
+    }
+    for (int index = 0; index < MAX_SOURCES; ++index) {
+        sources[index].fd = -1;
     }
     if (open_sources(sources, source_count, &argv[3]) < 0) {
         release_sources(sources, source_count);
@@ -826,7 +1073,6 @@ int main(int argc, char **argv) {
         if (uinput_fd < 0
                 || create_virtual_keyboard(
                         sources,
-                        source_count,
                         uinput_fd,
                         index) < 0) {
             fprintf(stderr,
@@ -874,7 +1120,7 @@ int main(int argc, char **argv) {
         close(uinput_fds[index]);
     }
     free(uinput_fds);
-    release_sources(sources, source_count);
+    release_sources(sources, state.source_count);
     free(sources);
     return result == 0 ? 0 : 1;
 }
