@@ -30,6 +30,7 @@ public final class DeviceSetupActivity extends Activity {
     private boolean mManual;
     private boolean mBusy;
     private boolean mContentCreated;
+    private boolean mAwaitingOverlayPermission;
     private DeviceSetupManager.Audit mAudit;
     private SessionProfile mSessionProfile;
     private final ShellAccess.StateListener mShellStateListener =
@@ -273,11 +274,17 @@ public final class DeviceSetupActivity extends Activity {
             return;
         }
         if (!overlaysGranted) {
+            mAwaitingOverlayPermission = false;
             mSetupView.summary().setText(R.string.setup_status_overlay_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);
-            mSetupView.primaryAction().setText(R.string.setup_action_grant_overlay);
+            mSetupView.primaryAction().setText(R.string.setup_action_continue);
             mSetupView.primaryAction().setOnClickListener(view -> openOverlayPermission());
             mSetupView.secondaryAction().setVisibility(View.GONE);
+            return;
+        }
+        if (mAwaitingOverlayPermission) {
+            mAwaitingOverlayPermission = false;
+            continueFromSetup();
             return;
         }
 
@@ -345,6 +352,7 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void openOverlayPermission() {
+        mAwaitingOverlayPermission = true;
         final Intent intent = new Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:" + getPackageName()));

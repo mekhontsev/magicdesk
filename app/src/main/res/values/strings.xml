@@ -283,8 +283,7 @@
     <string name="setup_action_configure">Configure device</string>
     <string name="setup_action_reboot_now">Reboot now</string>
     <string name="setup_action_later">Later</string>
-    <string name="setup_action_continue">Continue to MagicDesk</string>
-    <string name="setup_action_grant_overlay">Grant overlay access</string>
+    <string name="setup_action_continue">Start MagicDesk</string>
     <string name="setup_action_get_shizuku">Get official Shizuku</string>
     <string name="setup_action_open_shizuku">Open Shizuku</string>
     <string name="setup_action_allow_shizuku">Allow through Shizuku</string>
