@@ -77,6 +77,12 @@ final class PhoneHomeRecoveryController {
                 + " -n " + PRIMARY_PHONE_HOME;
     }
 
+    static boolean shouldIncludeMigratedMagicDesk(
+            final boolean consoleModeActive,
+            final boolean consoleExitRecoveryPending) {
+        return !consoleModeActive && consoleExitRecoveryPending;
+    }
+
     static boolean needsPrimaryHomeRestore(
             final List<TaskRepository.TaskEntry> tasks,
             final boolean includeMigratedMagicDesk) {

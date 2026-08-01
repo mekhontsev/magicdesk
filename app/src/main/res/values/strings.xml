@@ -95,8 +95,8 @@
     <string name="status_charge_separation_failed">Could not change bypass charging</string>
     <string name="badge_window">Window</string>
     <string name="badge_fullscreen">Full screen</string>
-    <string name="tools_status_full">D%1$d | Phone %2$s | Runtime %3$s | Bridge %4$s | %5$s</string>
-    <string name="system_status_description">Runtime %1$s, external desktop %2$s, bridge %3$s</string>
+    <string name="tools_status_full">D%1$d | Phone %2$s | Shell %3$s | Bridge %4$s | %5$s</string>
+    <string name="system_status_description">Shell access %1$s, external desktop %2$s, bridge %3$s</string>
     <string name="state_on">on</string>
     <string name="state_off">off</string>
     <string name="state_ready">ready</string>
@@ -181,7 +181,7 @@
     <string name="control_panel_subtitle">Phone control panel</string>
     <string name="control_status_ready">Ready</string>
     <string name="control_status_console_active">External desktop active</string>
-    <string name="control_runtime_status">Runtime: %1$s</string>
+    <string name="control_runtime_status">Shell access: %1$s</string>
     <string name="control_display_status">This display: %1$d | External desktop: %2$s</string>
     <string name="search_apps_hint">Search apps</string>
     <string name="search_no_results">No matching apps</string>

@@ -103,7 +103,7 @@ final class ShellAccess {
     }
 
     static String statusLabel() {
-        return isReady() ? "Shizuku" : "Unavailable";
+        return isReady() ? "ready" : "unavailable";
     }
 
     static void addStateListener(final StateListener listener) {

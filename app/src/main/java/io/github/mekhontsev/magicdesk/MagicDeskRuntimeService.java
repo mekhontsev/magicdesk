@@ -189,7 +189,6 @@ public final class MagicDeskRuntimeService extends Service
             scheduleLocalDesktopCleanup();
         }
         RedmagicHardwareController.start(this);
-        schedulePhoneHomeRecovery();
         logInputState();
         Log.i(TAG, "started, hardwareKeyboard=" + mHasHardwareKeyboard
                 + " externalMouse=" + mHasExternalMouse);
@@ -214,6 +213,7 @@ public final class MagicDeskRuntimeService extends Service
         updateKeyboardWatcher();
         updateConsoleMouseBridge();
         updateDesktopTasks();
+        schedulePhoneHomeRecovery();
         return START_NOT_STICKY;
     }
 
@@ -504,8 +504,7 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void schedulePhoneHomeRecovery() {
-        if (mDestroyed || mHandler == null || mConsoleModeActive
-                || !ShellAccess.isReady()) {
+        if (mDestroyed || mHandler == null || !ShellAccess.isReady()) {
             return;
         }
         mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
@@ -513,7 +512,7 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void restorePrimaryPhoneHomeIfNeeded() {
-        if (mDestroyed || mConsoleModeActive) {
+        if (mDestroyed || !ShellAccess.isReady()) {
             return;
         }
         if (mPhoneHomeRecoveryInFlight) {
@@ -522,7 +521,9 @@ public final class MagicDeskRuntimeService extends Service
         }
         mPhoneHomeRecoveryInFlight = true;
         final boolean includeMigratedMagicDesk =
-                mConsoleExitRecoveryPending;
+                PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+                        mConsoleModeActive,
+                        mConsoleExitRecoveryPending);
         PhoneHomeRecoveryController.restoreIfNeeded(
                 includeMigratedMagicDesk,
                 settled -> mHandler.post(() -> {
@@ -627,6 +628,7 @@ public final class MagicDeskRuntimeService extends Service
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
                     mConsoleModeActive);
             RedmagicHardwareController.start(this);
+            schedulePhoneHomeRecovery();
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
             RedmagicHardwareController.stop();

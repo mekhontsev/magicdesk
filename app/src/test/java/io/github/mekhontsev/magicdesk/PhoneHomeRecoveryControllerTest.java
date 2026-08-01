@@ -32,6 +32,20 @@ public final class PhoneHomeRecoveryControllerTest {
     }
 
     @Test
+    public void activeConsoleRecoveryOnlyRepairsSecondaryHome() {
+        assertFalse(PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+                true,
+                true));
+    }
+
+    @Test
+    public void consoleExitRecoveryAlsoRepairsMigratedMagicDesk() {
+        assertTrue(PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+                false,
+                true));
+    }
+
+    @Test
     public void ignoresInvisibleOrNonHomeSecondaryTask() {
         assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
                 Arrays.asList(
