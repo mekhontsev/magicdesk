@@ -21,7 +21,7 @@ public final class HardwareKeyboardLayoutCommand {
     private static final String INPUT_METHOD_SERVICE = "input_method";
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
     private static final String MAGICDESK_VIRTUAL_KEYBOARD_NAME =
-            "MagicDesk Shizuku Keyboard";
+            "MagicDesk Keyboard";
     private static final String MAGICDESK_VIRTUAL_KEYBOARD_PREFIX =
             MAGICDESK_VIRTUAL_KEYBOARD_NAME + " ";
 

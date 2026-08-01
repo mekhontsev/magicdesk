@@ -208,7 +208,7 @@ final class ConsoleMouseBridge {
             final String line,
             final ShellAccess.StreamHandle stream,
             final int generation) {
-        if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_READY")) {
+        if (line.startsWith("MAGICDESK_MOUSE_READY")) {
             final boolean restorePointer;
             synchronized (mLock) {
                 if (isActiveLocked(generation) && mStream == stream) {
@@ -222,7 +222,7 @@ final class ConsoleMouseBridge {
             Log.i(TAG, line);
             return;
         }
-        if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_POINTER_MOTION")) {
+        if (line.startsWith("MAGICDESK_MOUSE_POINTER_MOTION")) {
             synchronized (mLock) {
                 if (!isActiveLocked(generation) || mStream != stream
                         || !mPointerRestoreArmed) {
@@ -233,7 +233,7 @@ final class ConsoleMouseBridge {
             ShellAccess.restorePointerPositionIfDisplaced();
             return;
         }
-        if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_ERROR")) {
+        if (line.startsWith("MAGICDESK_MOUSE_ERROR")) {
             Log.w(TAG, line);
         } else if (!line.isEmpty()) {
             Log.d(TAG, line);

@@ -111,7 +111,7 @@ final class ConsoleInputDeviceDiscovery {
                     && record.classes.contains("EXTERNAL")
                     && (includeMagicDeskKeyboard
                             || !record.name.startsWith(
-                                    "MagicDesk Shizuku Keyboard"))) {
+                                    "MagicDesk Keyboard"))) {
                 result.add(new ConsoleKeyboardDevice(
                         record.path,
                         record.location,

@@ -11,7 +11,7 @@ public final class ConsoleInputRoutingCommand {
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
-            "magicdesk-shizuku-keyboard-";
+            "magicdesk-keyboard-";
 
     private ConsoleInputRoutingCommand() {
     }
@@ -25,7 +25,7 @@ public final class ConsoleInputRoutingCommand {
                         ConsoleInputRoutingSession
                                 .cleanupStaleAssociations();
                 System.out.println(
-                        "MAGICDESK_SHIZUKU_ROUTING_CLEAN"
+                        "MAGICDESK_ROUTING_CLEAN"
                                 + " associations=" + cleaned);
                 System.out.flush();
                 return;
@@ -51,7 +51,7 @@ public final class ConsoleInputRoutingCommand {
                     "MagicDeskInputRoutingCleanup"));
 
             System.out.println(
-                    "MAGICDESK_SHIZUKU_ROUTING_READY display="
+                    "MAGICDESK_ROUTING_READY display="
                             + routing.consoleDisplayId()
                             + " associations="
                             + routing.associationCount()
@@ -63,7 +63,7 @@ public final class ConsoleInputRoutingCommand {
             processCommands(routing);
         } catch (Exception error) {
             System.err.println(
-                    "MAGICDESK_SHIZUKU_ROUTING_ERROR " + error);
+                    "MAGICDESK_ROUTING_ERROR " + error);
             error.printStackTrace(System.err);
             System.exit(1);
         } finally {
@@ -116,12 +116,12 @@ public final class ConsoleInputRoutingCommand {
                 try {
                     final int added = routing.refreshAssociations();
                     System.out.println(
-                            "MAGICDESK_SHIZUKU_ROUTING_REFRESHED"
+                            "MAGICDESK_ROUTING_REFRESHED"
                                     + " added=" + added);
                     System.out.flush();
                 } catch (Exception error) {
                     System.err.println(
-                            "MAGICDESK_SHIZUKU_ROUTING_REFRESH_ERROR "
+                            "MAGICDESK_ROUTING_REFRESH_ERROR "
                                     + error);
                 }
             }

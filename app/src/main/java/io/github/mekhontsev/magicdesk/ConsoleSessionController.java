@@ -109,7 +109,7 @@ final class ConsoleSessionController {
         } catch (IOException error) {
             Log.w(TAG, "Shell MagicDesk launch failed", error);
             CompatibilityDiagnostics.record(
-                    "SHIZUKU-CONSOLE-002",
+                    "SHELL-CONSOLE-002",
                     "Could not open MagicDesk on the Console display",
                     error.getMessage());
         } finally {

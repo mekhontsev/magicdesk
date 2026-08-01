@@ -44,9 +44,9 @@ public final class MagicDeskRuntimeService extends Service
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String MAGICDESK_KEYBOARD_NAME =
-            "MagicDesk Shizuku Keyboard";
+            "MagicDesk Keyboard";
     private static final String MAGICDESK_MOUSE_NAME =
-            "MagicDesk Shizuku Mouse";
+            "MagicDesk Mouse";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
 

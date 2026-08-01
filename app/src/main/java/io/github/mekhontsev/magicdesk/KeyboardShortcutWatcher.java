@@ -184,7 +184,7 @@ final class KeyboardShortcutWatcher {
                         ROUTING_COMMAND,
                         "cleanup-stale"));
         if (!output.contains(
-                "MAGICDESK_SHIZUKU_ROUTING_CLEAN")) {
+                "MAGICDESK_ROUTING_CLEAN")) {
             throw new IOException(
                     "stale input routing cleanup failed: "
                             + output);
@@ -220,7 +220,7 @@ final class KeyboardShortcutWatcher {
                     keyboardStream.inputStream()));
             waitForLine(
                     keyboardReader,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_READY",
+                    "MAGICDESK_KEYBOARD_READY",
                     "keyboard bridge");
 
             routingStream = ShellAccess.openOwnedStream(
@@ -232,7 +232,7 @@ final class KeyboardShortcutWatcher {
                     routingStream.inputStream()));
             final String routingReady = waitForLine(
                     routingReader,
-                    "MAGICDESK_SHIZUKU_ROUTING_READY",
+                    "MAGICDESK_ROUTING_READY",
                     "input routing");
             final int routedKeyboards =
                     parseIntegerValue(routingReady, "keyboards");
@@ -268,7 +268,7 @@ final class KeyboardShortcutWatcher {
             keyboardStream.writeLine("start");
             waitForLine(
                     keyboardReader,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_STARTED",
+                    "MAGICDESK_KEYBOARD_STARTED",
                     "keyboard capture");
             setFullShortcutMode(true, generation);
             Log.i(TAG, "input watcher started shell="

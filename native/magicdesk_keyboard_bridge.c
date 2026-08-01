@@ -412,7 +412,7 @@ static int queue_event(
         const struct input_event *event) {
     if (state->queue_count >= MAX_QUEUED_EVENTS) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR queue=overflow\n");
+                "MAGICDESK_KEYBOARD_ERROR queue=overflow\n");
         return -1;
     }
     const size_t index =
@@ -457,11 +457,11 @@ static int create_virtual_keyboard(
             MAGICDESK_KEYBOARD_PRODUCT_BASE + layout_index);
     setup.id.version = 1;
     snprintf(setup.name, UINPUT_MAX_NAME_SIZE,
-            "MagicDesk Shizuku Keyboard %d", layout_index);
+            "MagicDesk Keyboard %d", layout_index);
 
     char location[64];
     snprintf(location, sizeof(location),
-            "magicdesk-shizuku-keyboard-%d", layout_index);
+            "magicdesk-keyboard-%d", layout_index);
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
@@ -538,7 +538,7 @@ static int open_sources(
     for (int index = 0; index < source_count; ++index) {
         if (open_source(&sources[index], paths[index], false) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR open=%s error=%s\n",
+                    "MAGICDESK_KEYBOARD_ERROR open=%s error=%s\n",
                     paths[index],
                     strerror(errno));
             return -1;
@@ -600,7 +600,7 @@ static int grab_sources(
     for (int index = 0; index < source_count; ++index) {
         if (try_grab_source(&sources[index]) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR grab=%s error=%s\n",
+                    "MAGICDESK_KEYBOARD_ERROR grab=%s error=%s\n",
                     sources[index].path,
                     strerror(errno));
             return -1;
@@ -708,7 +708,7 @@ static int reconcile_sources(
     const int requested_count = parse_source_paths(value, paths);
     if (requested_count < 0) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR sources=invalid\n");
+                "MAGICDESK_KEYBOARD_ERROR sources=invalid\n");
         return 0;
     }
     bool unchanged = requested_count == state->source_count;
@@ -750,7 +750,7 @@ static int reconcile_sources(
                     paths[requested],
                     state->started) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_SOURCE_SKIPPED"
+                    "MAGICDESK_KEYBOARD_SOURCE_SKIPPED"
                     " path=%s error=%s\n",
                     paths[requested],
                     strerror(errno));
@@ -764,7 +764,7 @@ static int reconcile_sources(
 
     char output[96];
     snprintf(output, sizeof(output),
-            "MAGICDESK_SHIZUKU_KEYBOARD_SOURCES count=%d",
+            "MAGICDESK_KEYBOARD_SOURCES count=%d",
             state->source_count);
     emit_line(output);
     return 0;
@@ -790,7 +790,7 @@ static int remove_source(
     state->sources[state->source_count].fd = -1;
     char output[96];
     snprintf(output, sizeof(output),
-            "MAGICDESK_SHIZUKU_KEYBOARD_SOURCES count=%d",
+            "MAGICDESK_KEYBOARD_SOURCES count=%d",
             state->source_count);
     emit_line(output);
     return 0;
@@ -811,7 +811,7 @@ static int handle_control_line(
         if (end == line + 7 || *end != '\0'
                 || index < 0 || index >= state->layout_count) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR layout=%s\n",
+                    "MAGICDESK_KEYBOARD_ERROR layout=%s\n",
                     line + 7);
             return -1;
         }
@@ -823,7 +823,7 @@ static int handle_control_line(
         }
         char output[96];
         snprintf(output, sizeof(output),
-                "MAGICDESK_SHIZUKU_KEYBOARD_LAYOUT index=%d",
+                "MAGICDESK_KEYBOARD_LAYOUT index=%d",
                 state->active_layout);
         emit_line(output);
     } else if (strcmp(line, "start") == 0 && !state->started) {
@@ -831,7 +831,7 @@ static int handle_control_line(
             return -1;
         }
         state->started = true;
-        emit_line("MAGICDESK_SHIZUKU_KEYBOARD_STARTED");
+        emit_line("MAGICDESK_KEYBOARD_STARTED");
     } else if (strcmp(line, "resume") == 0 && state->paused) {
         state->paused = false;
         if (drain_queue(state) < 0) {
@@ -1003,7 +1003,7 @@ int main(int argc, char **argv) {
             || parsed_layout_count <= 0
             || parsed_layout_count > MAX_LAYOUTS) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR layouts=%s\n",
+                "MAGICDESK_KEYBOARD_ERROR layouts=%s\n",
                 argv[2]);
         return 64;
     }
@@ -1016,7 +1016,7 @@ int main(int argc, char **argv) {
     const int source_count = argc - 3;
     if (source_count > MAX_SOURCES) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_KEYBOARD_ERROR sources=too-many\n");
+                "MAGICDESK_KEYBOARD_ERROR sources=too-many\n");
         return 64;
     }
     struct source_device *sources =
@@ -1055,7 +1055,7 @@ int main(int argc, char **argv) {
                         uinput_fd,
                         index) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_KEYBOARD_ERROR"
+                    "MAGICDESK_KEYBOARD_ERROR"
                     " uinput=create layout=%d error=%s\n",
                     index,
                     strerror(errno));
@@ -1085,7 +1085,7 @@ int main(int argc, char **argv) {
         .layout_count = layout_count,
         .active_layout = 0,
     };
-    printf("MAGICDESK_SHIZUKU_KEYBOARD_READY"
+    printf("MAGICDESK_KEYBOARD_READY"
             " sources=%d layouts=%d uid=%d\n",
             source_count,
             layout_count,

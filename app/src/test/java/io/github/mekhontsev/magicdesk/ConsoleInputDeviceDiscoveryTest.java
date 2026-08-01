@@ -13,10 +13,10 @@ public final class ConsoleInputDeviceDiscoveryTest {
                 "Input Manager State:\n"
                         + "Event Hub State:\n"
                         + "  Devices:\n"
-                        + "    15: MagicDesk Shizuku Mouse\n"
+                        + "    15: MagicDesk Mouse\n"
                         + "      Classes: CURSOR | EXTERNAL\n"
                         + "      Path: /dev/input/event13\n"
-                        + "      Location: magicdesk-shizuku-mouse\n"
+                        + "      Location: magicdesk-mouse\n"
                         + "      Identifier: bus=0x0005, vendor=0x4d44, "
                         + "product=0x0001, version=0x0001\n"
                         + "    13: ProtoArc Mouse\n"
@@ -39,7 +39,7 @@ public final class ConsoleInputDeviceDiscoveryTest {
         assertEquals(0xf605, mice.get(0).productId);
         assertEquals(2, routable.size());
         assertEquals(
-                "magicdesk-shizuku-mouse",
+                "magicdesk-mouse",
                 routable.get(0).location);
     }
 
@@ -50,10 +50,10 @@ public final class ConsoleInputDeviceDiscoveryTest {
                 "Input Manager State:\n"
                         + "Event Hub State:\n"
                         + "  Devices:\n"
-                        + "    18: MagicDesk Shizuku Keyboard 0\n"
+                        + "    18: MagicDesk Keyboard 0\n"
                         + "      Classes: KEYBOARD | ALPHAKEY | EXTERNAL\n"
                         + "      Path: /dev/input/event18\n"
-                        + "      Location: magicdesk-shizuku-keyboard-0\n"
+                        + "      Location: magicdesk-keyboard-0\n"
                         + "      Identifier: bus=0x0005, vendor=0x3554, "
                         + "product=0xf603, version=0x0101\n"
                         + "    11: ProtoArc Keyboard\n"
@@ -73,7 +73,7 @@ public final class ConsoleInputDeviceDiscoveryTest {
         assertEquals("/dev/input/event10", physical.get(0).path);
         assertEquals(2, routable.size());
         assertEquals(
-                "magicdesk-shizuku-keyboard-0",
+                "magicdesk-keyboard-0",
                 routable.get(0).location);
     }
 }

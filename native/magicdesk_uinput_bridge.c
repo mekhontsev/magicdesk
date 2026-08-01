@@ -20,7 +20,7 @@
 #define SOURCE_PATH_SIZE 128
 #define MAGICDESK_VENDOR_ID 0x4d44
 #define MAGICDESK_MOUSE_PRODUCT_ID 0x0001
-#define MAGICDESK_MOUSE_LOCATION "magicdesk-shizuku-mouse"
+#define MAGICDESK_MOUSE_LOCATION "magicdesk-mouse"
 
 struct source_device {
     int fd;
@@ -102,7 +102,7 @@ static int create_virtual_mouse(
     setup.id.vendor = MAGICDESK_VENDOR_ID;
     setup.id.product = MAGICDESK_MOUSE_PRODUCT_ID;
     setup.id.version = 1;
-    snprintf(setup.name, UINPUT_MAX_NAME_SIZE, "MagicDesk Shizuku Mouse");
+    snprintf(setup.name, UINPUT_MAX_NAME_SIZE, "MagicDesk Mouse");
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
@@ -210,7 +210,7 @@ static int open_sources(
     for (int index = 0; index < source_count; ++index) {
         if (open_source(&sources[index], paths[index], false) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_MOUSE_ERROR open=%s error=%s\n",
+                    "MAGICDESK_MOUSE_ERROR open=%s error=%s\n",
                     paths[index],
                     strerror(errno));
             return -1;
@@ -244,7 +244,7 @@ static int grab_sources(
     for (int index = 0; index < source_count; ++index) {
         if (try_grab_source(&sources[index]) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_MOUSE_ERROR grab=%s error=%s\n",
+                    "MAGICDESK_MOUSE_ERROR grab=%s error=%s\n",
                     sources[index].path,
                     strerror(errno));
             return -1;
@@ -318,7 +318,7 @@ static int reconcile_sources(
     char paths[MAX_SOURCES][SOURCE_PATH_SIZE];
     const int requested_count = parse_source_paths(value, paths);
     if (requested_count < 0) {
-        fprintf(stderr, "MAGICDESK_SHIZUKU_MOUSE_ERROR sources=invalid\n");
+        fprintf(stderr, "MAGICDESK_MOUSE_ERROR sources=invalid\n");
         return 0;
     }
     bool unchanged = requested_count == state->source_count;
@@ -359,7 +359,7 @@ static int reconcile_sources(
                     paths[requested],
                     state->started) < 0) {
             fprintf(stderr,
-                    "MAGICDESK_SHIZUKU_MOUSE_SOURCE_SKIPPED"
+                    "MAGICDESK_MOUSE_SOURCE_SKIPPED"
                     " path=%s error=%s\n",
                     paths[requested],
                     strerror(errno));
@@ -373,7 +373,7 @@ static int reconcile_sources(
 
     char output[96];
     snprintf(output, sizeof(output),
-            "MAGICDESK_SHIZUKU_MOUSE_SOURCES count=%d",
+            "MAGICDESK_MOUSE_SOURCES count=%d",
             state->source_count);
     emit_line(output);
     return 0;
@@ -399,7 +399,7 @@ static int remove_source(
     state->sources[state->source_count].fd = -1;
     char output[96];
     snprintf(output, sizeof(output),
-            "MAGICDESK_SHIZUKU_MOUSE_SOURCES count=%d",
+            "MAGICDESK_MOUSE_SOURCES count=%d",
             state->source_count);
     emit_line(output);
     return 0;
@@ -468,7 +468,7 @@ static int process_event(
                 && event->code == SYN_REPORT) {
             state->pointer_restore_armed = false;
             state->pointer_moved = false;
-            emit_line("MAGICDESK_SHIZUKU_MOUSE_POINTER_MOTION");
+            emit_line("MAGICDESK_MOUSE_POINTER_MOTION");
         }
         return 0;
     }
@@ -655,7 +655,7 @@ int main(int argc, char **argv) {
             open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
     if (uinput_fd < 0) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_MOUSE_ERROR uinput=open error=%s\n",
+                "MAGICDESK_MOUSE_ERROR uinput=open error=%s\n",
                 strerror(errno));
         release_sources(sources, source_count);
         free(sources);
@@ -663,7 +663,7 @@ int main(int argc, char **argv) {
     }
     if (create_virtual_mouse(uinput_fd, sources) < 0) {
         fprintf(stderr,
-                "MAGICDESK_SHIZUKU_MOUSE_ERROR uinput=create error=%s\n",
+                "MAGICDESK_MOUSE_ERROR uinput=create error=%s\n",
                 strerror(errno));
         close(uinput_fd);
         release_sources(sources, source_count);
@@ -686,7 +686,7 @@ int main(int argc, char **argv) {
         .uinput_fd = uinput_fd,
         .started = true,
     };
-    printf("MAGICDESK_SHIZUKU_MOUSE_READY sources=%d uid=%d\n",
+    printf("MAGICDESK_MOUSE_READY sources=%d uid=%d\n",
             source_count,
             getuid());
     fflush(stdout);
