@@ -173,8 +173,7 @@ final class ConsoleControlsController {
         final Button screenshot = mUi.actionButton(
                 R.string.action_screenshot,
                 DesktopUiFactory.COLOR_CYAN);
-        screenshot.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.SCREENSHOT));
+        screenshot.setEnabled(ShellAccess.isReady());
         screenshot.setOnClickListener(view ->
                 mActivity.captureDesktopScreenshot());
         addActionButton(actionGrid, screenshot);
@@ -243,8 +242,7 @@ final class ConsoleControlsController {
         mActivity.taskbar().updateKeyboardLayout();
 
         final boolean phoneScreenOff = isPhoneScreenOff();
-        final boolean phoneScreenControl = RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL);
+        final boolean phoneScreenControl = ShellAccess.isReady();
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off;
@@ -261,7 +259,7 @@ final class ConsoleControlsController {
                     mActivity.getString(phoneScreenOff
                             ? R.string.state_off
                             : R.string.state_on),
-                    RuntimeAccess.backendName(),
+                    ShellAccess.statusLabel(),
                     mActivity.getString(
                             KeyboardShortcutWatcher.isFullShortcutMode()
                                     ? R.string.state_ready
@@ -269,8 +267,7 @@ final class ConsoleControlsController {
                     mActivity.getMonitorProfileLabel()));
         }
         final boolean consoleModeActive = isConsoleModeActive();
-        final boolean consoleControl = RuntimeAccess.has(
-                RuntimeAccess.Capability.CONSOLE_CONTROL);
+        final boolean consoleControl = ShellAccess.isReady();
         if (mTouchpadAction != null) {
             mTouchpadAction.setEnabled(consoleModeActive && consoleControl);
         }
@@ -286,8 +283,7 @@ final class ConsoleControlsController {
     }
 
     void togglePhoneScreen() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         final boolean screenOff = !isPhoneScreenOff();
@@ -322,8 +318,7 @@ final class ConsoleControlsController {
     }
 
     private void toggleConsoleMode() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         if (!isConsoleModeActive()) {
@@ -439,8 +434,7 @@ final class ConsoleControlsController {
                         && state.canChange());
 
         final int descriptionResId;
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.CHARGE_SEPARATION)) {
+        if (!ShellAccess.isReady()) {
             descriptionResId =
                     R.string.charge_separation_privileged_required;
         } else if (state.enabled) {
@@ -511,8 +505,7 @@ final class ConsoleControlsController {
                 DPI_MIN, DisplayMetrics.DENSITY_DEVICE_STABLE);
         final int current = clampDpi(mActivity.getResources()
                 .getDisplayMetrics().densityDpi, maximum);
-        final boolean enabled = RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES);
+        final boolean enabled = ShellAccess.isReady();
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.HORIZONTAL);

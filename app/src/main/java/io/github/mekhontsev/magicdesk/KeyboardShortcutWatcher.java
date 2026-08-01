@@ -14,11 +14,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 final class KeyboardShortcutWatcher {
     private static final String TAG = "MagicDeskKeys";
-    private static final String SHIZUKU_ROUTING_COMMAND =
-            "io.github.mekhontsev.magicdesk.ShizukuInputRoutingCommand";
-    private static final String SHIZUKU_INPUT_COMMAND =
+    private static final String ROUTING_COMMAND =
+            "io.github.mekhontsev.magicdesk.ConsoleInputRoutingCommand";
+    private static final String INPUT_EVENT_COMMAND =
             "/system/bin/getevent -lt";
-    private static final String SHIZUKU_KEYBOARD_HELPER =
+    private static final String KEYBOARD_HELPER =
             "libmagicdesk_keyboard_bridge.so";
     private static final String DUMPSYS_INPUT =
             "/system/bin/dumpsys input";
@@ -31,8 +31,8 @@ final class KeyboardShortcutWatcher {
     private static boolean sAltTabActive;
     private static boolean sShiftDown;
     private static boolean sMetaDown;
-    private static ShizukuAccess.StreamHandle sShizukuStream;
-    private static ShizukuAccess.StreamHandle sShizukuRoutingStream;
+    private static ShellAccess.StreamHandle sInputStream;
+    private static ShellAccess.StreamHandle sRoutingStream;
     private static Thread sThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
@@ -60,8 +60,8 @@ final class KeyboardShortcutWatcher {
     }
 
     static void stop() {
-        final ShizukuAccess.StreamHandle shizukuStream;
-        final ShizukuAccess.StreamHandle routingStream;
+        final ShellAccess.StreamHandle inputStream;
+        final ShellAccess.StreamHandle routingStream;
         final Thread thread;
         final boolean cancelAltTab;
         synchronized (LOCK) {
@@ -69,18 +69,18 @@ final class KeyboardShortcutWatcher {
             sGeneration++;
             cancelAltTab = sAltTabActive;
             clearModifierStateLocked();
-            shizukuStream = sShizukuStream;
-            routingStream = sShizukuRoutingStream;
+            inputStream = sInputStream;
+            routingStream = sRoutingStream;
             thread = sThread;
-            sShizukuStream = null;
-            sShizukuRoutingStream = null;
+            sInputStream = null;
+            sRoutingStream = null;
             sThread = null;
             sFullShortcutMode = false;
         }
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
         }
-        closeQuietly(shizukuStream);
+        closeQuietly(inputStream);
         closeQuietly(routingStream);
         if (thread != null) {
             thread.interrupt();
@@ -89,8 +89,8 @@ final class KeyboardShortcutWatcher {
 
     static boolean isRunning() {
         synchronized (LOCK) {
-            return sRunning && (sShizukuStream != null
-                    || sShizukuRoutingStream != null);
+            return sRunning && (sInputStream != null
+                    || sRoutingStream != null);
         }
     }
 
@@ -102,23 +102,23 @@ final class KeyboardShortcutWatcher {
 
     private static void runLoop(final boolean consoleMode, final long generation) {
         while (isRunning(generation)) {
-            ShizukuAccess.StreamHandle shizukuStream = null;
+            ShellAccess.StreamHandle inputStream = null;
             BufferedReader reader = null;
             try {
                 cleanupStaleInputRouting();
                 if (consoleMode) {
-                    runShizukuConsoleSession(generation);
+                    runConsoleSession(generation);
                     continue;
                 }
 
                 final boolean fullShortcutMode = false;
-                shizukuStream = ShizukuAccess.openStream(
-                        SHIZUKU_INPUT_COMMAND);
-                setShizukuStream(
-                        shizukuStream, generation, fullShortcutMode);
-                final InputStream input = shizukuStream.inputStream();
-                Log.i(TAG, "input watcher started backend="
-                        + RuntimeAccess.backendName()
+                inputStream = ShellAccess.openStream(
+                        INPUT_EVENT_COMMAND);
+                setInputStream(
+                        inputStream, generation, fullShortcutMode);
+                final InputStream input = inputStream.inputStream();
+                Log.i(TAG, "input watcher started shell="
+                        + ShellAccess.statusLabel()
                         + " full=" + fullShortcutMode
                         + " console=" + consoleMode);
 
@@ -133,14 +133,14 @@ final class KeyboardShortcutWatcher {
                     CompatibilityDiagnostics.record(
                             "INPUT-BRIDGE-001",
                             "The keyboard shortcut watcher stopped",
-                            "backend=" + RuntimeAccess.backendName()
+                            "shell=" + ShellAccess.statusLabel()
                                     + " consoleMode=" + consoleMode,
                             e);
                 }
             } finally {
                 closeQuietly(reader);
-                closeQuietly(shizukuStream);
-                clearShizukuStream(shizukuStream);
+                closeQuietly(inputStream);
+                clearInputStream(inputStream);
                 clearModifierState();
             }
 
@@ -153,9 +153,9 @@ final class KeyboardShortcutWatcher {
 
     private static void cleanupStaleInputRouting()
             throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 AppProcessCommand.run(
-                        SHIZUKU_ROUTING_COMMAND,
+                        ROUTING_COMMAND,
                         "cleanup-stale"));
         if (!output.contains(
                 "MAGICDESK_SHIZUKU_ROUTING_CLEAN")) {
@@ -165,10 +165,10 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void runShizukuConsoleSession(final long generation)
+    private static void runConsoleSession(final long generation)
             throws IOException {
-        ShizukuAccess.StreamHandle keyboardStream = null;
-        ShizukuAccess.StreamHandle routingStream = null;
+        ShellAccess.StreamHandle keyboardStream = null;
+        ShellAccess.StreamHandle routingStream = null;
         BufferedReader keyboardReader = null;
         BufferedReader routingReader = null;
         Thread routingMonitor = null;
@@ -177,7 +177,7 @@ final class KeyboardShortcutWatcher {
         try {
             final List<ConsoleKeyboardDevice> keyboards =
                     ConsoleInputDeviceDiscovery.findKeyboards(
-                            ShizukuAccess.run(DUMPSYS_INPUT));
+                            ShellAccess.run(DUMPSYS_INPUT));
             if (keyboards.isEmpty()) {
                 throw new IOException(
                         "no external alphabetic keyboard was found");
@@ -185,10 +185,10 @@ final class KeyboardShortcutWatcher {
             final int layoutCount =
                     HardwareKeyboardLayoutController.catalogLayoutCount();
 
-            keyboardStream = ShizukuAccess.openHeartbeatStream(
-                    buildShizukuKeyboardCommand(
+            keyboardStream = ShellAccess.openHeartbeatStream(
+                    buildKeyboardCommand(
                             keyboards, layoutCount));
-            setShizukuStream(
+            setInputStream(
                     keyboardStream, generation, false);
             keyboardReader = new BufferedReader(new InputStreamReader(
                     keyboardStream.inputStream()));
@@ -197,11 +197,11 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_SHIZUKU_KEYBOARD_READY",
                     "keyboard bridge");
 
-            routingStream = ShizukuAccess.openHeartbeatStream(
+            routingStream = ShellAccess.openHeartbeatStream(
                     AppProcessCommand.exec(
-                            SHIZUKU_ROUTING_COMMAND,
+                            ROUTING_COMMAND,
                             Integer.toString(layoutCount)));
-            setShizukuRoutingStream(routingStream, generation);
+            setRoutingStream(routingStream, generation);
             routingReader = new BufferedReader(new InputStreamReader(
                     routingStream.inputStream()));
             final String routingReady = waitForLine(
@@ -219,7 +219,7 @@ final class KeyboardShortcutWatcher {
                                 + routingReady);
             }
 
-            final ShizukuAccess.StreamHandle activeKeyboardStream =
+            final ShellAccess.StreamHandle activeKeyboardStream =
                     keyboardStream;
             final BufferedReader activeRoutingReader = routingReader;
             final Thread sessionThread = Thread.currentThread();
@@ -230,7 +230,7 @@ final class KeyboardShortcutWatcher {
                             sessionThread,
                             sessionClosing,
                             generation),
-                    "MagicDeskShizukuInputRouting");
+                    "MagicDeskInputRouting");
             routingMonitor.setDaemon(true);
             routingMonitor.start();
 
@@ -245,8 +245,8 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_SHIZUKU_KEYBOARD_STARTED",
                     "keyboard capture");
             setFullShortcutMode(true, generation);
-            Log.i(TAG, "input watcher started backend="
-                    + RuntimeAccess.backendName()
+            Log.i(TAG, "input watcher started shell="
+                    + ShellAccess.statusLabel()
                     + " full=true console=true"
                     + " keyboards=" + routedKeyboards
                     + " layouts=" + layoutCount);
@@ -254,12 +254,12 @@ final class KeyboardShortcutWatcher {
             String line;
             while (isRunning(generation)
                     && (line = keyboardReader.readLine()) != null) {
-                handleShizukuBridgeLine(
+                handleKeyboardBridgeLine(
                         line, activeKeyboardStream, generation);
             }
             if (isRunning(generation)) {
                 throw new IOException(
-                        "Shizuku keyboard bridge exited unexpectedly");
+                        "Keyboard bridge exited unexpectedly");
             }
         } finally {
             sessionClosing.set(true);
@@ -267,8 +267,8 @@ final class KeyboardShortcutWatcher {
             closeQuietly(routingReader);
             closeQuietly(keyboardStream);
             closeQuietly(routingStream);
-            clearShizukuRoutingStream(routingStream);
-            clearShizukuStream(keyboardStream);
+            clearRoutingStream(routingStream);
+            clearInputStream(keyboardStream);
             HardwareKeyboardLayoutController.detachLayoutSink(
                     layoutSink);
             clearModifierState();
@@ -281,14 +281,14 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static String buildShizukuKeyboardCommand(
+    private static String buildKeyboardCommand(
             final List<ConsoleKeyboardDevice> keyboards,
             final int layoutCount)
             throws IOException {
         final File helper = new File(
                 MagicDeskApplication.applicationContext()
                         .getApplicationInfo().nativeLibraryDir,
-                SHIZUKU_KEYBOARD_HELPER);
+                KEYBOARD_HELPER);
         if (!helper.isFile()) {
             throw new IOException(
                     "packaged keyboard bridge is missing: " + helper);
@@ -359,7 +359,7 @@ final class KeyboardShortcutWatcher {
 
     private static void monitorRouting(
             final BufferedReader reader,
-            final ShizukuAccess.StreamHandle keyboardStream,
+            final ShellAccess.StreamHandle keyboardStream,
             final Thread sessionThread,
             final AtomicBoolean sessionClosing,
             final long generation) {
@@ -373,7 +373,7 @@ final class KeyboardShortcutWatcher {
             }
         } catch (IOException error) {
             if (isRunning(generation)) {
-                Log.w(TAG, "Shizuku input routing stopped", error);
+                Log.w(TAG, "Input routing stopped", error);
             }
         } finally {
             if (!sessionClosing.get() && isRunning(generation)) {
@@ -383,9 +383,9 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void handleShizukuBridgeLine(
+    private static void handleKeyboardBridgeLine(
             final String line,
-            final ShizukuAccess.StreamHandle keyboardStream,
+            final ShellAccess.StreamHandle keyboardStream,
             final long generation) {
         if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")
                 || "MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
@@ -406,7 +406,7 @@ final class KeyboardShortcutWatcher {
         if ("CTRL_SPACE".equals(action)) {
             Log.i(TAG, "Ctrl+Space");
             HardwareKeyboardLayoutController.toggle(
-                    () -> resumeShizukuKeyboard(
+                    () -> resumeKeyboard(
                             keyboardStream, generation));
             return;
         }
@@ -464,8 +464,8 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void resumeShizukuKeyboard(
-            final ShizukuAccess.StreamHandle keyboardStream,
+    private static void resumeKeyboard(
+            final ShellAccess.StreamHandle keyboardStream,
             final long generation) {
         if (!isRunning(generation)) {
             return;
@@ -473,7 +473,7 @@ final class KeyboardShortcutWatcher {
         try {
             keyboardStream.writeLine("resume");
         } catch (IOException error) {
-            Log.w(TAG, "cannot resume Shizuku keyboard", error);
+            Log.w(TAG, "cannot resume keyboard bridge", error);
             closeQuietly(keyboardStream);
         }
     }
@@ -747,24 +747,24 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void setShizukuStream(
-            final ShizukuAccess.StreamHandle stream,
+    private static void setInputStream(
+            final ShellAccess.StreamHandle stream,
             final long generation,
             final boolean fullShortcutMode) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
-                sShizukuStream = stream;
+                sInputStream = stream;
                 sFullShortcutMode = fullShortcutMode;
             }
         }
     }
 
-    private static void setShizukuRoutingStream(
-            final ShizukuAccess.StreamHandle stream,
+    private static void setRoutingStream(
+            final ShellAccess.StreamHandle stream,
             final long generation) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
-                sShizukuRoutingStream = stream;
+                sRoutingStream = stream;
             }
         }
     }
@@ -779,24 +779,24 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void clearShizukuStream(
-            final ShizukuAccess.StreamHandle stream) {
+    private static void clearInputStream(
+            final ShellAccess.StreamHandle stream) {
         synchronized (LOCK) {
-            if (sShizukuStream == stream) {
-                sShizukuStream = null;
-                if (sShizukuRoutingStream == null) {
+            if (sInputStream == stream) {
+                sInputStream = null;
+                if (sRoutingStream == null) {
                     sFullShortcutMode = false;
                 }
             }
         }
     }
 
-    private static void clearShizukuRoutingStream(
-            final ShizukuAccess.StreamHandle stream) {
+    private static void clearRoutingStream(
+            final ShellAccess.StreamHandle stream) {
         synchronized (LOCK) {
-            if (sShizukuRoutingStream == stream) {
-                sShizukuRoutingStream = null;
-                if (sShizukuStream == null) {
+            if (sRoutingStream == stream) {
+                sRoutingStream = null;
+                if (sInputStream == null) {
                     sFullShortcutMode = false;
                 }
             }

@@ -31,13 +31,13 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
             final Bundle result = new Bundle();
             try {
                 final Context context = getTargetContext().getApplicationContext();
-                ShizukuAccess.initialize(context);
+                ShellAccess.initialize();
                 awaitShizukuBinder();
-                result.putString("shizuku_probe", ShizukuAccess.probeCapabilities());
+                result.putString("shizuku_probe", ShellAccess.probeCapabilities());
                 if (mProbePhoneScreen) {
                     result.putString(
                             "phone_screen_probe",
-                            probePhoneScreen(context));
+                            probePhoneScreen());
                 }
                 finish(Activity.RESULT_OK, result);
             } catch (IOException | InterruptedException | RuntimeException error) {
@@ -68,17 +68,14 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
         }
     }
 
-    private static String probePhoneScreen(final Context context)
+    private static String probePhoneScreen()
             throws IOException, InterruptedException {
-        final int serviceUid = ShizukuAccess.connectAndGetUid();
-        if (serviceUid != RuntimeBackendPolicy.SHELL_UID) {
+        final int serviceUid = ShellAccess.connectAndGetUid();
+        if (serviceUid != ShellAccess.SHELL_UID) {
             throw new IOException(
                     "Shizuku must run as shell UID 2000; found UID "
                             + serviceUid);
         }
-        RuntimeAccess.configure(
-                SessionProfile.load(context),
-                RuntimeAccess.Backend.SHIZUKU);
 
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();

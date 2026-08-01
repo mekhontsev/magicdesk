@@ -85,8 +85,7 @@ final class AppTaskController {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_fullscreen, app.label));
         try {
-            if (RuntimeAccess.has(
-                    RuntimeAccess.Capability.TASK_CONTROL)) {
+            if (ShellAccess.isReady()) {
                 final ExistingTaskController.ReuseResult reuseResult =
                         ExistingTaskController.reuseIfExists(
                                 app.packageName,
@@ -157,7 +156,7 @@ final class AppTaskController {
     }
 
     private static boolean canControlWindowing() {
-        return RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
+        return ShellAccess.isReady();
     }
 
     void focusTask(

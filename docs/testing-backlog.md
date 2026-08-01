@@ -13,7 +13,7 @@ retired prototypes are listed separately and are not current product modes.
 
 ## Completed: Setup And Runtime
 
-- [x] Verify strict backend selection. A stopped server, denied permission,
+- [x] Verify strict Shizuku admission. A stopped server, denied permission,
   UserService failure, UID 0, or any UID other than 2000 leaves runtime access
   unavailable and never invokes `su` or an app-UID fallback.
 - [x] Provision both global windowing settings through shell UID 2000 and the
@@ -23,7 +23,7 @@ retired prototypes are listed separately and are not current product modes.
   has no boot receiver or boot permission; manual launch starts one runtime
   service only.
 - [x] Deny and later grant Shizuku access. Runtime remains stopped while denied
-  and starts after a successful UID-2000 audit without another backend.
+  and starts after a successful UID-2000 audit without a fallback path.
 - [x] Verify Device Setup can complete after a clean reboot without flashing
   setup UI when every audit item already passes.
 - [x] Exercise phone control, **Open desktop here**, and external desktop from
@@ -159,8 +159,8 @@ not supported runtime modes:
 
 ## Automated Coverage
 
-- [x] Unit tests cover session-profile parsing, strict backend selection,
-  capability mapping, display-density policy, parsers, and controller policies.
+- [x] Unit tests cover session-profile parsing, strict Shizuku readiness,
+  display-density policy, parsers, and controller policies.
 - [x] Android lint, debug assembly, unit tests, APK boundary verification, and
   certificate checks run in the release workflow.
 - [ ] Add an instrumentation regression that opens one freeform task, performs

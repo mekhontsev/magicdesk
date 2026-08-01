@@ -55,8 +55,7 @@ final class ChargeSeparationController {
         }
 
         boolean canChange() {
-            if (!supported || !RuntimeAccess.has(
-                    RuntimeAccess.Capability.CHARGE_SEPARATION)) {
+            if (!supported || !ShellAccess.isReady()) {
                 return false;
             }
             return enabled || canEnable(
@@ -157,8 +156,7 @@ final class ChargeSeparationController {
         }
         if (enabled && !canEnable(
                 mState.supported,
-                RuntimeAccess.has(
-                        RuntimeAccess.Capability.CHARGE_SEPARATION),
+                ShellAccess.isReady(),
                 mState.plugged,
                 mState.batteryPercent)) {
             complete(callback, false,
@@ -177,7 +175,7 @@ final class ChargeSeparationController {
             boolean success = false;
             String message = "";
             try {
-                PrivilegedCommandRunner.run(
+                ShellAccess.run(
                         "/system/bin/settings put global "
                                 + SETTING + " " + (enabled ? "1" : "0"));
                 success = readEnabled() == enabled;

@@ -14,7 +14,6 @@ final class DeviceSetupRuntimeController {
         if (audit == null) {
             return;
         }
-        RuntimeAccess.configure(audit.sessionProfile, audit.backend);
         if (audit.canEnterMagicDesk()) {
             reconcileServices(context);
         } else {
@@ -41,8 +40,7 @@ final class DeviceSetupRuntimeController {
             return;
         }
         if (sRuntimeAuthorized
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.PUBLIC_APP_LAUNCH)) {
+                && ShellAccess.isReady()) {
             MagicDeskRuntimeService.start(context.getApplicationContext());
         } else {
             stopServices(context);
@@ -51,7 +49,7 @@ final class DeviceSetupRuntimeController {
 
     private static void stopServices(final Context context) {
         KeyboardShortcutWatcher.stop();
-        ShizukuPhoneDisplayGuard.requestRestore();
+        PhoneDisplayGuard.requestRestore();
         if (context != null) {
             MagicDeskRuntimeService.stop(context.getApplicationContext());
         }

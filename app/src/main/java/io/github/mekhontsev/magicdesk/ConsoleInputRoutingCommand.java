@@ -9,14 +9,14 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-public final class ShizukuInputRoutingCommand {
+public final class ConsoleInputRoutingCommand {
     private static final long HEARTBEAT_TIMEOUT_MILLIS = 6_000L;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
             "magicdesk-shizuku-keyboard-";
 
-    private ShizukuInputRoutingCommand() {
+    private ConsoleInputRoutingCommand() {
     }
 
     public static void main(final String[] args) {

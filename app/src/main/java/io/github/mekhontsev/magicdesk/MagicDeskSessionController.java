@@ -28,8 +28,7 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        if (RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)) {
+        if (ShellAccess.isReady()) {
             RedmagicHardwareController.restoreChangedState(
                     success -> {
                         if (!success) {
@@ -113,7 +112,7 @@ final class MagicDeskSessionController {
 
     private void cleanupPhoneTasksBeforeExit(
             final Runnable continuation) {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             continuation.run();
             return;
         }
@@ -144,7 +143,7 @@ final class MagicDeskSessionController {
 
     private static String runCommand(final String command)
             throws IOException {
-        return PrivilegedCommandRunner.run(command);
+        return ShellAccess.run(command);
     }
 
     private static void runCommandBestEffort(

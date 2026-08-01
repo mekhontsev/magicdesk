@@ -281,7 +281,7 @@ final class ExistingTaskController {
     }
 
     private static String runCommand(final String command) throws IOException {
-        return PrivilegedCommandRunner.run(command);
+        return ShellAccess.run(command);
     }
 
     static final class ReuseResult {

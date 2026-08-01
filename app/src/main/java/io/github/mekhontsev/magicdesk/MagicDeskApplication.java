@@ -10,8 +10,7 @@ public final class MagicDeskApplication extends Application {
     public void onCreate() {
         super.onCreate();
         sApplicationContext = getApplicationContext();
-        RuntimeAccess.initialize(this);
-        ShizukuAccess.initialize(this);
+        ShellAccess.initialize();
         CompatibilityDiagnostics.initialize(this);
     }
 

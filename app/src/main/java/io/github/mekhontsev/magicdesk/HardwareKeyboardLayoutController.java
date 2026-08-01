@@ -31,8 +31,7 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void toggle(final Runnable completion) {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             Log.w(TAG, "hardware keyboard layout control unavailable");
             runCompletion(completion);
             return;
@@ -61,8 +60,7 @@ final class HardwareKeyboardLayoutController {
     private static void runRefresh(
             final String mode,
             final Runnable completion) {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             runCompletion(completion);
             return;
         }
@@ -88,7 +86,7 @@ final class HardwareKeyboardLayoutController {
                 MagicDeskApplication.applicationContext()
                         .getContentResolver(),
                 LAYOUT_STATE);
-        final String output = ShizukuAccess.updateHardwareKeyboardLayout(
+        final String output = ShellAccess.updateHardwareKeyboardLayout(
                 "catalog", current).trim();
         final String count = parseOutputValue(output, "layouts");
         try {
@@ -137,7 +135,7 @@ final class HardwareKeyboardLayoutController {
                     MagicDeskApplication.applicationContext()
                             .getContentResolver(),
                     LAYOUT_STATE);
-            output = ShizukuAccess.updateHardwareKeyboardLayout(
+            output = ShellAccess.updateHardwareKeyboardLayout(
                     mode, current).trim();
         } catch (IOException e) {
             Log.w(TAG, "hardware keyboard layout command failed", e);

@@ -5,8 +5,6 @@ abstract class ConsoleInputDevice {
     final String location;
     final int vendorId;
     final int productId;
-    int inputDeviceId = -1;
-    boolean remapped;
 
     ConsoleInputDevice(
             final String path,
@@ -31,8 +29,6 @@ final class ConsoleMouseDevice extends ConsoleInputDevice {
 }
 
 final class ConsoleKeyboardDevice extends ConsoleInputDevice {
-    long tabDownTime;
-
     ConsoleKeyboardDevice(
             final String path,
             final String location,

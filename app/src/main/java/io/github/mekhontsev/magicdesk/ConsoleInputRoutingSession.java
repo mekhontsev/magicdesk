@@ -337,7 +337,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             final Set<String> inputPorts)
             throws ReflectiveOperationException {
         for (final String inputPort : inputPorts) {
-            if (ConsoleInputRoutingOwnership.SHIZUKU_KEYBOARD_LOCATION
+            if (ConsoleInputRoutingOwnership.VIRTUAL_KEYBOARD_LOCATION
                     .equals(inputPort)) {
                 continue;
             }
@@ -345,11 +345,11 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
         if (inputPorts.contains(
                 ConsoleInputRoutingOwnership
-                        .SHIZUKU_KEYBOARD_LOCATION)) {
+                        .VIRTUAL_KEYBOARD_LOCATION)) {
             removePortAssociation.invoke(
                     inputManager,
                     ConsoleInputRoutingOwnership
-                            .SHIZUKU_KEYBOARD_LOCATION);
+                            .VIRTUAL_KEYBOARD_LOCATION);
         }
     }
 

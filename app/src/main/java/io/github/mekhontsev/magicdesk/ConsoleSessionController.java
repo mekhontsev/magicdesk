@@ -69,9 +69,9 @@ final class ConsoleSessionController {
             final int desktopTaskId =
                     findDesktopHomeTask(consoleDisplayId);
             if (desktopTaskId >= 0) {
-                final String focusOutput = PrivilegedCommandRunner.run(
+                final String focusOutput = ShellAccess.run(
                         AM + " task focus " + desktopTaskId).trim();
-                Log.i(TAG, "Shizuku MagicDesk focus task=" + desktopTaskId
+                Log.i(TAG, "Shell MagicDesk focus task=" + desktopTaskId
                         + " output=" + focusOutput.replace('\n', ' '));
                 if (restoreWindows) {
                     DesktopRuntimeBridge.restoreLastVisibleWindows();
@@ -81,7 +81,7 @@ final class ConsoleSessionController {
                 }
                 return;
             }
-            final String output = PrivilegedCommandRunner.run(
+            final String output = ShellAccess.run(
                     AM + " start -W --display " + consoleDisplayId
                             + " --windowingMode 1"
                             + " --activityType 2"
@@ -100,14 +100,14 @@ final class ConsoleSessionController {
                             "Exception occurred while executing")) {
                 throw new IOException(output);
             }
-            Log.i(TAG, "Shizuku MagicDesk launch display=" + consoleDisplayId
+            Log.i(TAG, "Shell MagicDesk launch display=" + consoleDisplayId
                     + " output=" + output.replace('\n', ' '));
             if (startedConsoleMode
                     && waitForDesktopReady(consoleDisplayId)) {
                 NubiaTouchpadController.refreshOrOpen();
             }
         } catch (IOException error) {
-            Log.w(TAG, "Shizuku MagicDesk launch failed", error);
+            Log.w(TAG, "Shell MagicDesk launch failed", error);
             CompatibilityDiagnostics.record(
                     "SHIZUKU-CONSOLE-002",
                     "Could not open MagicDesk on the Console display",
@@ -118,8 +118,7 @@ final class ConsoleSessionController {
     }
 
     static boolean setExternalTaskCaptionsEnabled(final boolean enabled) {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
+        if (!ShellAccess.isReady()) {
             return true;
         }
         return NubiaCaptionVisibilityManager.setEnabled(enabled);
@@ -127,7 +126,7 @@ final class ConsoleSessionController {
 
     private static int findDesktopHomeTask(final int displayId)
             throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 AppProcessCommand.run(
                         TASK_CONTROL_COMMAND,
                         "desktop-home-task-id " + displayId));
@@ -142,7 +141,7 @@ final class ConsoleSessionController {
 
     private static boolean hasVisibleAppTask(final int displayId)
             throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 AppProcessCommand.run(
                         TASK_CONTROL_COMMAND,
                         "has-visible-app " + displayId)).trim();
@@ -158,14 +157,14 @@ final class ConsoleSessionController {
 
     private static boolean startConsoleSeedTask()
             throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 AM + " start -W --display 0"
                         + " --windowingMode 1"
                         + " --activity-reorder-to-front"
                         + " --activity-single-top"
                         + " -n " + SEED_COMPONENT).trim();
         if (output.contains("Status: ok")) {
-            Log.i(TAG, "prepared Shizuku Console seed task");
+            Log.i(TAG, "prepared Console seed task");
             return true;
         }
         CompatibilityDiagnostics.record(

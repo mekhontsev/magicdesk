@@ -156,13 +156,10 @@ public abstract class DesktopShellActivity extends Activity
         mConsoleControls.start();
         mDisplayProfiles.start();
         MagicDeskRuntimeService.start(this);
-        if (RuntimeAccess.has(
-                RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL)) {
+        if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
         }
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)
-                && !RuntimeAccess.has(
-                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT)) {
+        if (!ShellAccess.isReady()) {
             KeyboardShortcutWatcher.stop();
         }
         renderApps();

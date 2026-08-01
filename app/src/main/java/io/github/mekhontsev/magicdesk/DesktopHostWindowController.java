@@ -35,7 +35,7 @@ final class DesktopHostWindowController {
             return;
         }
         if (mPending || mAttempts >= MAX_ATTEMPTS
-                || !RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+                || !ShellAccess.isReady()) {
             return;
         }
 

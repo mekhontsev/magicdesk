@@ -11,7 +11,7 @@ MagicDesk follows these constraints:
 1. Android applications remain real Android tasks.
 2. The firmware's `ShellTaskOrganizer` and native window decorations remain in
    control of move, resize, snap, maximize, minimize, and close.
-3. Runtime system access uses one explicit backend: Shizuku shell UID 2000.
+3. Runtime system access requires Shizuku running as shell UID 2000.
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
 6. Optional root and kernel code stays outside the main APK.
@@ -55,7 +55,7 @@ application receives it. Shell UID 2000 cannot change the physical keymap, but
 it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
 a `BUS_VIRTUAL` pointer through `/dev/uinput`.
 
-`ShizukuMouseBridge` discovers only EventHub devices marked
+`ConsoleMouseBridge` discovers only EventHub devices marked
 `CURSOR | EXTERNAL`. One native helper unions their capabilities, creates one
 virtual pointer, grabs the sources, and forwards the complete stream unchanged.
 REDMAGIC does not apply its Back conversion to the virtual device, so normal
@@ -148,7 +148,7 @@ process, but no runtime integration.
 - `ConsoleModeSwitcher` serializes public session transitions.
 - `ConsoleSessionController` owns activation and teardown.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
-- `KeyboardShortcutWatcher`, `ShizukuMouseBridge`, and
+- `KeyboardShortcutWatcher`, `ConsoleMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
 - `NubiaTouchpadController` starts and repairs REDMAGIC Touch Panel routing.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,
@@ -162,13 +162,16 @@ desktop panels. Keep this split when adding vendor-specific behavior.
 
 ## Shizuku Runtime
 
-`RuntimeAccess` starts as unavailable. `DeviceSetupManager` accepts a backend
-only after the bound `ShizukuCommandService` reports UID 2000. There is no root,
-basic, automatic, or fallback runtime branch.
+`DeviceSetupManager` accepts Shizuku only after the bound
+`ShizukuCommandService` reports UID 2000. There is no root, basic, automatic,
+or fallback runtime branch.
 
-`ShizukuAccess` owns the official UserService connection. Finite operations use
-typed AIDL calls or bounded shell commands. Long-lived operations use
-`ParcelFileDescriptor` streams owned by an APK Binder token:
+`ShellAccess` owns the official UserService connection and an immutable
+runtime snapshot. Shizuku Binder and permission events update the snapshot;
+finite operations read it without repeating package, permission, version, and
+UID probes. Explicit setup/diagnostic audits and command failures refresh it.
+Finite operations use typed AIDL calls or bounded shell commands. Long-lived
+operations use `ParcelFileDescriptor` streams owned by an APK Binder token:
 
 - task events and focus commands;
 - keyboard forwarding and shortcut events;
@@ -315,7 +318,7 @@ refresh rather than an application restart.
 REDMAGIC's `nubia_screen_off_tp` path lets its text-input activity wake display
 0 whenever an external text field receives focus. MagicDesk instead uses the
 shell DisplayManager `power-off 0`/`power-reset 0` contract. A heartbeat-owned
-`ShizukuPhoneDisplayGuard` restores power after normal or abnormal teardown.
+`PhoneDisplayGuard` restores power after normal or abnormal teardown.
 
 While display 0 is off, REDMAGIC's independent `cfreezer` can freeze even a
 foreground-service HOME process. The same heartbeat refreshes the vendor's
@@ -362,7 +365,7 @@ enters the control panel without flashing setup UI.
 
 **Restore previous values** restores only values whose original state was
 captured and whose ownership marker remains. Diagnostics and background audits
-never activate a runtime backend or start services.
+never authorize a runtime session or start services.
 
 ## Diagnostics
 

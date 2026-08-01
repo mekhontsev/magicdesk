@@ -182,7 +182,7 @@ final class DesktopTaskController {
         }
         mGeneration++;
         setActiveController(this);
-        if (RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+        if (ShellAccess.isReady()) {
             startTaskWatcher(mGeneration);
         }
         scheduleRefresh(0);

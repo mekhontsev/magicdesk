@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Keeps display 0 physically off while a Shizuku heartbeat remains alive. */
+/** Keeps display 0 physically off while its controlling shell stream is alive. */
 public final class PhoneDisplayGuardCommand {
     static final String READY = "MAGICDESK_PHONE_DISPLAY_READY";
     static final String RESTORED = "MAGICDESK_PHONE_DISPLAY_RESTORED";

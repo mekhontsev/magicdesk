@@ -45,8 +45,7 @@ final class DesktopRuntimeBridge {
         }
         sDesktop = new WeakReference<>(activity);
         if (activity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.TASK_CONTROL)) {
+                && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
         MagicDeskRuntimeService.refreshDesktopTasksIfRunning();

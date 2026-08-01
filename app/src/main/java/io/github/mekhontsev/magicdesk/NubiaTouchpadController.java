@@ -104,7 +104,7 @@ final class NubiaTouchpadController {
                         "touchpad 0")).trim();
         if (!touchpadOutput.contains("display-command=touchpad")) {
             Log.w(TAG,
-                    "Shizuku touchpad command failed output="
+                    "Shell touchpad command failed output="
                             + touchpadOutput);
             return false;
         }
@@ -113,14 +113,14 @@ final class NubiaTouchpadController {
                         MOUSE_VIEWPORT_COMMAND)).trim();
         if (!viewportOutput.contains("mouse-viewport=updated")) {
             Log.w(TAG,
-                    "Shizuku mouse viewport update failed output="
+                    "Shell mouse viewport update failed output="
                             + viewportOutput);
             return false;
         }
         final boolean visible = waitForActivity(true);
         if (!visible) {
             Log.w(TAG,
-                    "Nubia touchpad did not appear after Shizuku request");
+                    "Nubia touchpad did not appear after the shell request");
         }
         return visible;
     }
@@ -147,11 +147,11 @@ final class NubiaTouchpadController {
     }
 
     private static String runConsoleCommand(final String command) {
-        if (!RuntimeAccess.allowsShizukuCommands()) {
+        if (!ShellAccess.isReady()) {
             return "";
         }
         try {
-            return PrivilegedCommandRunner.run(command);
+            return ShellAccess.run(command);
         } catch (IOException error) {
             Log.w(TAG, "Console command failed: " + command, error);
             return "";

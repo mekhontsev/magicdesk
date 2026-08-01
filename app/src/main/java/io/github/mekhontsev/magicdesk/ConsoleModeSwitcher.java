@@ -50,15 +50,15 @@ final class ConsoleModeSwitcher {
                 boolean success = false;
                 try {
                     success = screenOff
-                            ? ShizukuPhoneDisplayGuard.enable()
-                            : ShizukuPhoneDisplayGuard.disable();
-                    Log.i(TAG, "Shizuku phone display off="
+                            ? PhoneDisplayGuard.enable()
+                            : PhoneDisplayGuard.disable();
+                    Log.i(TAG, "Shell phone display off="
                             + screenOff + " success=" + success);
                     if (!success) {
                         CompatibilityDiagnostics.record(
                                 "NUBIA-SCREEN-002",
                                 "Could not change the phone screen state",
-                                "backend=" + RuntimeAccess.backendName()
+                                "shizuku=" + ShellAccess.statusLabel()
                                         + " screenOff=" + screenOff);
                     }
                 } finally {
@@ -145,9 +145,7 @@ final class ConsoleModeSwitcher {
                             }
                         }
                     }
-                    if (success && RuntimeAccess.has(
-                            RuntimeAccess.Capability
-                                    .EXTERNAL_CAPTION_VISIBILITY)) {
+                    if (success && ShellAccess.isReady()) {
                         ConsoleSessionController
                                 .setExternalTaskCaptionsEnabled(false);
                     }
@@ -172,7 +170,7 @@ final class ConsoleModeSwitcher {
                         success = true;
                         return;
                     }
-                    final String output = PrivilegedCommandRunner.run(
+                    final String output = ShellAccess.run(
                             AppProcessCommand.run(
                                     CONSOLE_TASK_RETURN_COMMAND,
                                     Integer.toString(displayId))).trim();
@@ -222,9 +220,9 @@ final class ConsoleModeSwitcher {
     }
 
     static void lockDevice() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.DEVICE_LOCK)) {
-            Log.w(TAG, "device lock unavailable for backend="
-                    + RuntimeAccess.backendName());
+        if (!ShellAccess.isReady()) {
+            Log.w(TAG, "device lock unavailable; shizuku="
+                    + ShellAccess.statusLabel());
             return;
         }
         EXECUTOR.execute(new Runnable() {
@@ -260,9 +258,9 @@ final class ConsoleModeSwitcher {
     }
 
     static void captureScreenshot() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.SCREENSHOT)) {
-            Log.w(TAG, "screenshot unavailable for backend="
-                    + RuntimeAccess.backendName());
+        if (!ShellAccess.isReady()) {
+            Log.w(TAG, "screenshot unavailable; shizuku="
+                    + ShellAccess.statusLabel());
             return;
         }
         EXECUTOR.execute(new Runnable() {
@@ -316,7 +314,7 @@ final class ConsoleModeSwitcher {
                     + " -d " + shellQuote("file://" + path)
                     + " >/dev/null"
                     + " && echo " + shellQuote("screenshot-saved=" + path);
-            final String output = PrivilegedCommandRunner.run(command).trim();
+            final String output = ShellAccess.run(command).trim();
             if (!output.contains("screenshot-saved=" + path)) {
                 throw new IOException(
                         "unexpected screenshot response: "
@@ -334,11 +332,11 @@ final class ConsoleModeSwitcher {
     }
 
     static String runConsoleCommand(final String command) {
-        if (!RuntimeAccess.allowsShizukuCommands()) {
+        if (!ShellAccess.isReady()) {
             return "";
         }
         try {
-            return PrivilegedCommandRunner.run(command);
+            return ShellAccess.run(command);
         } catch (IOException error) {
             Log.w(TAG, "Console command failed: " + command, error);
             return "";

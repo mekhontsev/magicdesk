@@ -15,10 +15,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class ConsoleInputRoutingOwnership {
-    static final String SHIZUKU_KEYBOARD_LOCATION =
+    static final String VIRTUAL_KEYBOARD_LOCATION =
             "magicdesk-shizuku-keyboard";
-    private static final String SHIZUKU_KEYBOARD_LOCATION_PREFIX =
-            SHIZUKU_KEYBOARD_LOCATION + "-";
+    private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
+            VIRTUAL_KEYBOARD_LOCATION + "-";
 
     private static final File OWNERSHIP_FILE = new File(
             "/data/local/tmp/magicdesk-input-routing-ports");
@@ -152,9 +152,9 @@ final class ConsoleInputRoutingOwnership {
 
     private static boolean isMagicDeskKeyboardPort(
             final String port) {
-        return SHIZUKU_KEYBOARD_LOCATION.equals(port)
+        return VIRTUAL_KEYBOARD_LOCATION.equals(port)
                 || port.startsWith(
-                        SHIZUKU_KEYBOARD_LOCATION_PREFIX);
+                        VIRTUAL_KEYBOARD_LOCATION_PREFIX);
     }
 
     private static boolean isValidPort(final String port) {

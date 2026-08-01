@@ -1,7 +1,8 @@
 # Shizuku And Display Modes
 
-MagicDesk has one runtime backend: an official Shizuku UserService running as
-Android shell UID 2000. Display selection is an independent session property.
+MagicDesk has one runtime privilege path: an official Shizuku UserService
+running as Android shell UID 2000. Display selection is an independent session
+property.
 
 ## Runtime Contract
 
@@ -9,7 +10,7 @@ MagicDesk uses `dev.rikka.shizuku` API 13 and a bound UserService. It does not
 use the deprecated `Shizuku.newProcess()` protocol, invoke `su`, or fall back to
 an ordinary application-UID mode.
 
-The backend is deliberately strict:
+The runtime contract is deliberately strict:
 
 - Shizuku must be installed and running.
 - The user must grant MagicDesk access.
@@ -36,10 +37,11 @@ On the verified firmware, shell UID 2000 can:
 - read and grab external input devices and create `/dev/uinput` devices;
 - use stock REDMAGIC bypass-charging, fan, pump, and thermal interfaces.
 
-These capabilities are represented by `RuntimeAccess`. UI code checks a named
-capability instead of invoking commands directly. `PrivilegedCommandRunner`
-has only the Shizuku transport, so an unavailable service cannot accidentally
-promote the application to another backend.
+`ShellAccess` owns an immutable cached state. Binder-received, Binder-dead,
+and permission-result events update that state; ordinary commands do not probe
+the manager, permission, API version, and UID again. Device Setup and
+Diagnostics can request an explicit fresh probe. A command failure also causes
+one refresh before later work is allowed to continue.
 
 ## Input Streams
 

@@ -18,8 +18,6 @@ import android.widget.Toast;
 
 import java.io.IOException;
 
-import rikka.shizuku.Shizuku;
-
 public final class DeviceSetupActivity extends Activity {
     private static final String TAG = "MagicDeskSetup";
     private static final String EXTRA_MANUAL = "manual_setup";
@@ -34,17 +32,8 @@ public final class DeviceSetupActivity extends Activity {
     private boolean mContentCreated;
     private DeviceSetupManager.Audit mAudit;
     private SessionProfile mSessionProfile;
-    private final Shizuku.OnBinderReceivedListener mShizukuBinderReceivedListener =
-            this::handleShizukuStateChanged;
-    private final Shizuku.OnBinderDeadListener mShizukuBinderDeadListener =
-            this::handleShizukuStateChanged;
-    private final Shizuku.OnRequestPermissionResultListener
-            mShizukuPermissionResultListener =
-                    (requestCode, grantResult) -> {
-                        if (requestCode == ShizukuAccess.REQUEST_PERMISSION_CODE) {
-                            handleShizukuStateChanged();
-                        }
-                    };
+    private final ShellAccess.StateListener mShellStateListener =
+            state -> handleShellStateChanged();
 
     static Intent createLaunchIntent(final Context context) {
         return new Intent(context, DeviceSetupActivity.class)
@@ -66,22 +55,15 @@ public final class DeviceSetupActivity extends Activity {
         mSetupView = new DeviceSetupView(this);
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         mManual = getIntent().getBooleanExtra(EXTRA_MANUAL, false);
-        Shizuku.addBinderReceivedListenerSticky(mShizukuBinderReceivedListener);
-        Shizuku.addBinderDeadListener(mShizukuBinderDeadListener);
-        Shizuku.addRequestPermissionResultListener(
-                mShizukuPermissionResultListener);
         if (mManual) {
             ensureSetupContent();
         }
-        runAudit();
+        ShellAccess.addStateListener(mShellStateListener);
     }
 
     @Override
     protected void onDestroy() {
-        Shizuku.removeBinderReceivedListener(mShizukuBinderReceivedListener);
-        Shizuku.removeBinderDeadListener(mShizukuBinderDeadListener);
-        Shizuku.removeRequestPermissionResultListener(
-                mShizukuPermissionResultListener);
+        ShellAccess.removeStateListener(mShellStateListener);
         super.onDestroy();
     }
 
@@ -194,10 +176,10 @@ public final class DeviceSetupActivity extends Activity {
                 audit.compatibleDevice);
         setStatusValue(
                 mSetupView.shizukuValue(),
-                getString(audit.backend == RuntimeAccess.Backend.SHIZUKU
+                getString(audit.shellReady
                         ? R.string.setup_value_available
                         : R.string.setup_value_unavailable),
-                audit.backend == RuntimeAccess.Backend.SHIZUKU);
+                audit.shellReady);
         final boolean overlaysGranted = Settings.canDrawOverlays(this);
         setStatusValue(
                 mSetupView.overlayValue(),
@@ -230,28 +212,26 @@ public final class DeviceSetupActivity extends Activity {
 
         mSetupView.primaryAction().setVisibility(View.VISIBLE);
         mSetupView.secondaryAction().setVisibility(View.VISIBLE);
-        final boolean shizukuBackend =
-                audit.backend == RuntimeAccess.Backend.SHIZUKU;
-        final boolean canRestore = shizukuBackend && audit.hasManagedChanges;
+        final boolean canRestore = audit.shellReady && audit.hasManagedChanges;
         mSetupView.restoreAction().setVisibility(
                 canRestore ? View.VISIBLE : View.GONE);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
-        if (!audit.shizuku.running) {
-            mSetupView.summary().setText(audit.shizuku.installed
+        if (!audit.shellState.running) {
+            mSetupView.summary().setText(audit.shellState.installed
                     ? R.string.setup_status_shizuku_stopped
                     : R.string.setup_status_shizuku_not_installed);
             mSetupView.summary().setTextColor(COLOR_AMBER);
-            mSetupView.primaryAction().setText(audit.shizuku.installed
+            mSetupView.primaryAction().setText(audit.shellState.installed
                     ? R.string.setup_action_open_shizuku
                     : R.string.setup_action_get_shizuku);
             mSetupView.primaryAction().setOnClickListener(
-                    view -> ShizukuAccess.openManagerOrWebsite(this));
+                    view -> ShellAccess.openManagerOrWebsite(this));
             setCloseAction();
             return;
         }
-        if (!audit.shizuku.permissionGranted) {
+        if (!audit.shellState.permissionGranted) {
             mSetupView.summary().setText(R.string.setup_status_shizuku_permission);
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_allow_shizuku);
@@ -260,7 +240,7 @@ public final class DeviceSetupActivity extends Activity {
             setCloseAction();
             return;
         }
-        if (!shizukuBackend) {
+        if (!audit.shellReady) {
             mSetupView.summary().setText(getString(
                     R.string.setup_status_shizuku_failed,
                     audit.runtimeError));
@@ -289,7 +269,7 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.secondaryAction().setOnClickListener(view -> finishSetupScreen());
             return;
         }
-        if (!audit.configurationReady && shizukuBackend) {
+        if (!audit.configurationReady && audit.shellReady) {
             mSetupView.summary().setText(
                     R.string.setup_status_configuration_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);
@@ -313,7 +293,7 @@ public final class DeviceSetupActivity extends Activity {
 
         mSetupView.summary().setText(getString(
                 R.string.setup_status_shizuku_ready,
-                audit.shizuku.uid));
+                audit.shellState.uid));
         mSetupView.summary().setTextColor(COLOR_CYAN);
         mSetupView.primaryAction().setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);
@@ -388,7 +368,7 @@ public final class DeviceSetupActivity extends Activity {
 
     private void requestShizukuPermission() {
         try {
-            ShizukuAccess.requestPermission();
+            ShellAccess.requestPermission();
         } catch (RuntimeException error) {
             Log.w(TAG, "could not request Shizuku permission", error);
             Toast.makeText(
@@ -400,7 +380,7 @@ public final class DeviceSetupActivity extends Activity {
         }
     }
 
-    private void handleShizukuStateChanged() {
+    private void handleShellStateChanged() {
         runOnUiThread(() -> {
             if (!isActivityUnavailable() && mSessionProfile != null) {
                 runAudit();

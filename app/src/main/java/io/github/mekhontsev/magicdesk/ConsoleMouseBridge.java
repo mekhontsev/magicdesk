@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 
-final class ShizukuMouseBridge {
+final class ConsoleMouseBridge {
     private static final String TAG = "MagicDeskMouse";
     private static final String HELPER_NAME =
             "libmagicdesk_uinput_bridge.so";
@@ -25,9 +25,9 @@ final class ShizukuMouseBridge {
     private boolean mReady;
     private int mGeneration;
     private Thread mSupervisorThread;
-    private ShizukuAccess.StreamHandle mStream;
+    private ShellAccess.StreamHandle mStream;
 
-    ShizukuMouseBridge(final Context context) {
+    ConsoleMouseBridge(final Context context) {
         mContext = context.getApplicationContext();
     }
 
@@ -42,7 +42,7 @@ final class ShizukuMouseBridge {
             generation = ++mGeneration;
             mSupervisorThread = new Thread(
                     () -> runSupervisor(generation),
-                    "MagicDeskShizukuMouse");
+                    "MagicDeskMouseBridge");
             mSupervisorThread.setDaemon(true);
             mSupervisorThread.start();
         }
@@ -54,7 +54,7 @@ final class ShizukuMouseBridge {
     }
 
     void stop() {
-        final ShizukuAccess.StreamHandle stream;
+        final ShellAccess.StreamHandle stream;
         final Thread supervisor;
         synchronized (mLock) {
             if (!mRequested && mStream == null) {
@@ -86,11 +86,11 @@ final class ShizukuMouseBridge {
                 runOnce(generation);
             } catch (IOException error) {
                 if (isActive(generation)) {
-                    Log.w(TAG, "Shizuku mouse bridge failed", error);
+                    Log.w(TAG, "Mouse bridge failed", error);
                     CompatibilityDiagnostics.record(
                             "INPUT-MOUSE-001",
-                            "The Shizuku right-click bridge stopped",
-                            "backend=" + RuntimeAccess.backendName(),
+                            "The global right-click bridge stopped",
+                            "shell=" + ShellAccess.statusLabel(),
                             error);
                 }
             }
@@ -112,7 +112,7 @@ final class ShizukuMouseBridge {
     }
 
     private void runOnce(final int generation) throws IOException {
-        final String inputDump = ShizukuAccess.run(DUMPSYS_INPUT);
+        final String inputDump = ShellAccess.run(DUMPSYS_INPUT);
         final List<ConsoleMouseDevice> mice =
                 ConsoleInputDeviceDiscovery.findMice(inputDump);
         if (mice.isEmpty()) {
@@ -134,8 +134,8 @@ final class ShizukuMouseBridge {
             command.append(' ').append(shellQuote(mouse.path));
         }
 
-        final ShizukuAccess.StreamHandle stream =
-                ShizukuAccess.openHeartbeatStream(command.toString());
+        final ShellAccess.StreamHandle stream =
+                ShellAccess.openHeartbeatStream(command.toString());
         synchronized (mLock) {
             if (!isActiveLocked(generation)) {
                 closeQuietly(stream);
@@ -168,7 +168,7 @@ final class ShizukuMouseBridge {
 
     private void handleLine(
             final String line,
-            final ShizukuAccess.StreamHandle stream,
+            final ShellAccess.StreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_SHIZUKU_MOUSE_READY")) {
             synchronized (mLock) {

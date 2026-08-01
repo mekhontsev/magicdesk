@@ -145,7 +145,7 @@ final class ConsoleDisplayController {
 
     static void ensureLandscape(final int displayId)
             throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 WM + " size -d " + displayId);
         final Matcher matcher = WM_SIZE_PATTERN.matcher(output);
         int width = -1;
@@ -159,18 +159,18 @@ final class ConsoleDisplayController {
                     + output.trim());
         }
         if (width < height) {
-            PrivilegedCommandRunner.run(
+            ShellAccess.run(
                     WM + " size " + height + "x" + width
                             + " -d " + displayId);
         }
-        PrivilegedCommandRunner.run(
+        ShellAccess.run(
                 WM + " fixed-to-user-rotation -d " + displayId + " enabled");
-        PrivilegedCommandRunner.run(
+        ShellAccess.run(
                 WM + " user-rotation -d " + displayId + " lock 0");
     }
 
     static String getExternalPhysicalDisplayId() throws IOException {
-        final String output = PrivilegedCommandRunner.run(
+        final String output = ShellAccess.run(
                 DISPLAY + " get-displays --type external");
         final Matcher matcher =
                 EXTERNAL_PHYSICAL_DISPLAY_PATTERN.matcher(output);
@@ -189,11 +189,11 @@ final class ConsoleDisplayController {
     }
 
     private static String runCommand(final String command) {
-        if (!RuntimeAccess.allowsShizukuCommands()) {
+        if (!ShellAccess.isReady()) {
             return "";
         }
         try {
-            return PrivilegedCommandRunner.run(command);
+            return ShellAccess.run(command);
         } catch (IOException error) {
             Log.w(TAG, "display command failed: " + command, error);
             return "";

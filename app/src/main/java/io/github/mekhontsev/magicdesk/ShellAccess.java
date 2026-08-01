@@ -15,23 +15,52 @@ import android.os.RemoteException;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import rikka.shizuku.Shizuku;
 
-final class ShizukuAccess {
+final class ShellAccess {
     static final int REQUEST_PERMISSION_CODE = 7104;
+    static final int SHELL_UID = 2000;
     static final String MANAGER_PACKAGE = "moe.shizuku.privileged.api";
     private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
     private static final long BIND_TIMEOUT_MILLIS = 10_000;
     private static final Object LOCK = new Object();
     private static final AtomicLong NEXT_STREAM_ID =
             new AtomicLong();
+    private static final Set<StateListener> STATE_LISTENERS =
+            new CopyOnWriteArraySet<>();
 
-    private static Context sContext;
     private static IShizukuCommandService sService;
     private static boolean sBinding;
+    private static boolean sInitialized;
+    private static volatile Snapshot sSnapshot = Snapshot.unavailable(
+            false, "Shizuku access is not initialized");
+
+    interface StateListener {
+        void onShellStateChanged(Snapshot snapshot);
+    }
+
+    private static final Shizuku.OnBinderReceivedListener BINDER_RECEIVED = () -> {
+        clearService();
+        refresh();
+    };
+    private static final Shizuku.OnBinderDeadListener BINDER_DEAD = () -> {
+        clearService();
+        publish(Snapshot.unavailable(
+                sSnapshot.installed,
+                "Shizuku server is not running"));
+    };
+    private static final Shizuku.OnRequestPermissionResultListener
+            PERMISSION_RESULT = (requestCode, grantResult) -> {
+                if (requestCode == REQUEST_PERMISSION_CODE) {
+                    refresh();
+                }
+            };
 
     private static final ServiceConnection CONNECTION = new ServiceConnection() {
         @Override
@@ -55,15 +84,46 @@ final class ShizukuAccess {
         }
     };
 
-    private ShizukuAccess() {
+    private ShellAccess() {
     }
 
-    static void initialize(final Context context) {
-        sContext = context.getApplicationContext();
+    static synchronized void initialize() {
+        if (sInitialized) {
+            return;
+        }
+        sInitialized = true;
+        Shizuku.addBinderReceivedListenerSticky(BINDER_RECEIVED);
+        Shizuku.addBinderDeadListener(BINDER_DEAD);
+        Shizuku.addRequestPermissionResultListener(PERMISSION_RESULT);
+        refresh();
     }
 
-    static Snapshot inspect() {
-        final Context context = sContext;
+    static boolean isReady() {
+        return sSnapshot.isReady();
+    }
+
+    static String statusLabel() {
+        return isReady() ? "Shizuku" : "Unavailable";
+    }
+
+    static void addStateListener(final StateListener listener) {
+        if (listener == null) {
+            return;
+        }
+        STATE_LISTENERS.add(listener);
+        listener.onShellStateChanged(sSnapshot);
+    }
+
+    static void removeStateListener(final StateListener listener) {
+        STATE_LISTENERS.remove(listener);
+    }
+
+    static synchronized Snapshot refresh() {
+        return publish(inspectNow());
+    }
+
+    private static Snapshot inspectNow() {
+        final Context context = MagicDeskApplication.applicationContext();
         if (context == null) {
             return Snapshot.unavailable(false, "Shizuku access is not initialized");
         }
@@ -85,9 +145,17 @@ final class ShizukuAccess {
             final boolean permissionGranted =
                     Shizuku.checkSelfPermission()
                             == PackageManager.PERMISSION_GRANTED;
+            final String error;
+            if (!permissionGranted) {
+                error = "Shizuku permission is not granted";
+            } else if (uid != SHELL_UID) {
+                error = "Shizuku must run as shell UID 2000; found UID " + uid;
+            } else {
+                error = "";
+            }
             return new Snapshot(
                     installed, true, permissionGranted, uid, version,
-                    permissionGranted ? "" : "Shizuku permission is not granted");
+                    error);
         } catch (RuntimeException error) {
             return Snapshot.unavailable(installed, usefulMessage(error));
         }
@@ -97,7 +165,7 @@ final class ShizukuAccess {
         try {
             return requireService().uid();
         } catch (RemoteException | RuntimeException error) {
-            clearService();
+            handleServiceFailure();
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
@@ -108,7 +176,7 @@ final class ShizukuAccess {
         try {
             encoded = requireService().execute(command);
         } catch (RemoteException | RuntimeException error) {
-            clearService();
+            handleServiceFailure();
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
@@ -138,7 +206,7 @@ final class ShizukuAccess {
             }
             return report;
         } catch (RemoteException | RuntimeException error) {
-            clearService();
+            handleServiceFailure();
             throw new IOException("Shizuku capability probe failed: "
                     + usefulMessage(error), error);
         }
@@ -152,12 +220,13 @@ final class ShizukuAccess {
             return requireService().updateHardwareKeyboardLayout(
                     mode, currentDescriptor);
         } catch (RemoteException error) {
-            clearService();
+            handleServiceFailure();
             throw new IOException(
                     "Shizuku keyboard layout update failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
+            handleServiceFailure();
             throw new IOException(
                     "Shizuku keyboard layout update failed: "
                             + usefulMessage(error),
@@ -175,6 +244,7 @@ final class ShizukuAccess {
             }
             return descriptor;
         } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
             throw new IOException(
                     "Shizuku wallpaper read failed: "
                             + usefulMessage(error),
@@ -212,14 +282,14 @@ final class ShizukuAccess {
             }
             return new StreamHandle(requestId, descriptor, ownerToken);
         } catch (RemoteException | RuntimeException error) {
-            clearService();
+            handleServiceFailure();
             throw new IOException("Shizuku command stream failed: "
                     + usefulMessage(error), error);
         }
     }
 
     static void requestPermission() {
-        final Snapshot snapshot = inspect();
+        final Snapshot snapshot = refresh();
         if (!snapshot.running) {
             throw new IllegalStateException(snapshot.error);
         }
@@ -255,15 +325,13 @@ final class ShizukuAccess {
     }
 
     private static IShizukuCommandService requireService() throws IOException {
-        final Snapshot snapshot = inspect();
-        if (!snapshot.running) {
-            throw new IOException(snapshot.error);
-        }
-        if (!snapshot.permissionGranted) {
-            throw new IOException("Shizuku permission is not granted");
+        final Snapshot snapshot = sSnapshot;
+        if (!snapshot.isReady()) {
+            throw new IOException(snapshot.error.isEmpty()
+                    ? "Shizuku shell access is unavailable" : snapshot.error);
         }
         synchronized (LOCK) {
-            if (sService != null && sService.asBinder().pingBinder()) {
+            if (sService != null) {
                 return sService;
             }
             if (!sBinding) {
@@ -304,7 +372,7 @@ final class ShizukuAccess {
     }
 
     private static Shizuku.UserServiceArgs userServiceArgs() {
-        final Context context = sContext;
+        final Context context = MagicDeskApplication.applicationContext();
         if (context == null) {
             throw new IllegalStateException("Shizuku access is not initialized");
         }
@@ -323,6 +391,23 @@ final class ShizukuAccess {
             sBinding = false;
             LOCK.notifyAll();
         }
+    }
+
+    private static void handleServiceFailure() {
+        clearService();
+        refresh();
+    }
+
+    private static synchronized Snapshot publish(final Snapshot snapshot) {
+        final Snapshot previous = sSnapshot;
+        sSnapshot = snapshot;
+        if (previous.sameState(snapshot)) {
+            return snapshot;
+        }
+        for (final StateListener listener : STATE_LISTENERS) {
+            listener.onShellStateChanged(snapshot);
+        }
+        return snapshot;
     }
 
     private static boolean isManagerInstalled(final Context context) {
@@ -381,6 +466,23 @@ final class ShizukuAccess {
                 final boolean installed, final String error) {
             return new Snapshot(installed, false, false, -1, -1, error);
         }
+
+        boolean isReady() {
+            return running
+                    && permissionGranted
+                    && uid == SHELL_UID
+                    && version >= 11;
+        }
+
+        private boolean sameState(final Snapshot other) {
+            return other != null
+                    && installed == other.installed
+                    && running == other.running
+                    && permissionGranted == other.permissionGranted
+                    && uid == other.uid
+                    && version == other.version
+                    && Objects.equals(error, other.error);
+        }
     }
 
     static final class StreamHandle implements Closeable {
@@ -412,7 +514,7 @@ final class ShizukuAccess {
             synchronized (LOCK) {
                 service = sService;
             }
-            if (service == null || !service.asBinder().pingBinder()) {
+            if (service == null) {
                 throw new IOException(
                         "Shizuku command service disconnected");
             }
@@ -441,7 +543,7 @@ final class ShizukuAccess {
             synchronized (LOCK) {
                 service = sService;
             }
-            if (service == null || !service.asBinder().pingBinder()) {
+            if (service == null) {
                 return;
             }
             try {

@@ -20,7 +20,7 @@ final class NativeDesktopController {
     }
 
     static boolean shouldUse() {
-        return RuntimeAccess.allowsShizukuCommands() && isAvailable();
+        return ShellAccess.isReady() && isAvailable();
     }
 
     static boolean shouldUse(final boolean shizukuCommands,
@@ -65,7 +65,7 @@ final class NativeDesktopController {
     }
 
     private static String runCommand(final String command) throws IOException {
-        return PrivilegedCommandRunner.run(command);
+        return ShellAccess.run(command);
     }
 
 }

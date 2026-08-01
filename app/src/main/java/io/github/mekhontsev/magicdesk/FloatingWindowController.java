@@ -48,6 +48,6 @@ final class FloatingWindowController {
     }
 
     private static String runCommand(final String command) throws IOException {
-        return PrivilegedCommandRunner.run(command);
+        return ShellAccess.run(command);
     }
 }

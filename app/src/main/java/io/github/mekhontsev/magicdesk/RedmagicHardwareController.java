@@ -82,7 +82,7 @@ final class RedmagicHardwareController {
     }
 
     static synchronized void start(final Context context) {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_MONITORING)
+        if (!ShellAccess.isReady()
                 || sExecutor != null) {
             return;
         }
@@ -98,7 +98,7 @@ final class RedmagicHardwareController {
                         return thread;
                     }
                 });
-        if (hasAnyControlCapability()) {
+        if (canControlHardware()) {
             sExecutor.execute(
                     RedmagicHardwareController::recoverBaselineIfNeeded);
         }
@@ -114,7 +114,7 @@ final class RedmagicHardwareController {
             sExecutor = null;
         }
         synchronized (CONTROL_LOCK) {
-            if (sContext != null && hasAnyControlCapability()
+            if (sContext != null && canControlHardware()
                     && hasOwnedState()
                     && !restoreBaselineIfOwned()) {
                 Log.w(TAG, "hardware state remains owned after runtime stop");
@@ -154,7 +154,7 @@ final class RedmagicHardwareController {
     static void setFanMode(final FanMode mode, final ResultCallback callback) {
         final ScheduledExecutorService executor = sExecutor;
         if (executor == null || mode == null
-                || !hasAnyControlCapability()) {
+                || !canControlHardware()) {
             complete(callback, false);
             return;
         }
@@ -170,7 +170,7 @@ final class RedmagicHardwareController {
     static void setPumpMode(final PumpMode mode, final ResultCallback callback) {
         final ScheduledExecutorService executor = sExecutor;
         if (executor == null || mode == null
-                || !hasAnyControlCapability()) {
+                || !canControlHardware()) {
             complete(callback, false);
             return;
         }
@@ -284,8 +284,7 @@ final class RedmagicHardwareController {
     }
 
     private static RedmagicHardwareSnapshot readSnapshot() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_MONITORING)) {
+        if (!ShellAccess.isReady()) {
             return RedmagicHardwareSnapshot.UNAVAILABLE;
         }
         String monitoringCommand =
@@ -297,13 +296,13 @@ final class RedmagicHardwareController {
         monitoringCommand += vendorMonitoringCommand();
         try {
             return RedmagicHardwareSnapshot.parse(
-                    PrivilegedCommandRunner.run(monitoringCommand));
+                    ShellAccess.run(monitoringCommand));
         } catch (IOException error) {
-            Log.w(TAG, "Shizuku thermal read failed", error);
+            Log.w(TAG, "Shell thermal read failed", error);
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-MONITOR-001",
                     "Could not read REDMAGIC thermal sensors",
-                    "backend=" + RuntimeAccess.backendName(),
+                    "shell=" + ShellAccess.statusLabel(),
                     error);
             return RedmagicHardwareSnapshot.UNAVAILABLE;
         }
@@ -364,11 +363,9 @@ final class RedmagicHardwareController {
     }
 
     private static boolean restoreBaselineIfOwned() {
-        final boolean vendorFan = !RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
+        final boolean vendorFan = !ShellAccess.isReady()
                 || restoreVendorFanState();
-        final boolean vendorPump = !RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
+        final boolean vendorPump = !ShellAccess.isReady()
                 || restoreVendorPumpState();
         return vendorFan && vendorPump;
     }
@@ -439,17 +436,15 @@ final class RedmagicHardwareController {
 
     private static boolean hasOwnedState() {
         final SharedPreferences preferences = preferences();
-        return RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
+        return ShellAccess.isReady()
                 && (preferences.getBoolean(
                                 OWNER_VENDOR_FAN_ACTIVE, false)
                         || preferences.getBoolean(
                                 OWNER_VENDOR_PUMP_ACTIVE, false));
     }
 
-    private static boolean hasAnyControlCapability() {
-        return RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+    private static boolean canControlHardware() {
+        return ShellAccess.isReady();
     }
 
     private static String readVendorSettings(
@@ -466,13 +461,13 @@ final class RedmagicHardwareController {
                         + "/system/bin/settings get system " + second
                         + ")\"";
         try {
-            return PrivilegedCommandRunner.run(command);
+            return ShellAccess.run(command);
         } catch (IOException error) {
             Log.w(TAG, "vendor hardware settings read failed", error);
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-VENDOR-READ-001",
                     "Could not read REDMAGIC hardware settings",
-                    "backend=" + RuntimeAccess.backendName(),
+                    "shell=" + ShellAccess.statusLabel(),
                     error);
             return null;
         }
@@ -500,7 +495,7 @@ final class RedmagicHardwareController {
             final String writes,
             final String verification) {
         try {
-            final String output = PrivilegedCommandRunner.run(
+            final String output = ShellAccess.run(
                     writes + verification
                             + "printf 'write=ok\\n'");
             if (output.contains("write=ok")) {
@@ -511,14 +506,14 @@ final class RedmagicHardwareController {
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-VENDOR-WRITE-001",
                     "A REDMAGIC vendor hardware request failed",
-                    "backend=" + RuntimeAccess.backendName(),
+                    "shell=" + ShellAccess.statusLabel(),
                     error);
             return false;
         }
         CompatibilityDiagnostics.record(
                 "REDMAGIC-HW-VENDOR-WRITE-001",
                 "A REDMAGIC vendor hardware request failed",
-                "backend=" + RuntimeAccess.backendName());
+                "shell=" + ShellAccess.statusLabel());
         return false;
     }
 
@@ -574,7 +569,7 @@ final class RedmagicHardwareController {
                 "REDMAGIC-HW-RESTORE-001",
                 "Could not restore REDMAGIC vendor hardware state",
                 "component=" + component
-                        + " backend=" + RuntimeAccess.backendName());
+                        + " shell=" + ShellAccess.statusLabel());
     }
 
     private static SharedPreferences preferences() {

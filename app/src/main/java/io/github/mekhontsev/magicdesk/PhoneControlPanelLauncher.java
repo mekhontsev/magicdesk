@@ -28,14 +28,14 @@ final class PhoneControlPanelLauncher {
         final Display display = source.getDisplay();
         final boolean crossDisplay = display != null
                 && display.getDisplayId() != Display.DEFAULT_DISPLAY;
-        if (crossDisplay && RuntimeAccess.allowsShizukuCommands()) {
+        if (crossDisplay && ShellAccess.isReady()) {
             final String command = createLaunchCommand(
                     source.getPackageName(),
                     ControlActivity.class.getName());
             EXECUTOR.execute(() -> {
                 try {
                     final String output =
-                            PrivilegedCommandRunner.run(command);
+                            ShellAccess.run(command);
                     if (commandFailed(output)) {
                         throw new IOException(output.trim());
                     }
@@ -44,7 +44,7 @@ final class PhoneControlPanelLauncher {
                     CompatibilityDiagnostics.record(
                             "NUBIA-DISPLAY-003",
                             "Could not open the MagicDesk phone control panel",
-                            "backend=" + RuntimeAccess.backendName(),
+                            "shell=" + ShellAccess.statusLabel(),
                             error);
                     source.runOnUiThread(() -> openWithAndroidApi(source));
                 }

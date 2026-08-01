@@ -49,7 +49,7 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - Shizuku installation, permission, UserService UID, and required
   desktop-windowing values;
-- for an active Shizuku backend, a non-destructive UserService capability
+- for active Shizuku shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, task APIs, and
   REDMAGIC hardware-node access;

@@ -42,9 +42,9 @@ public final class MagicDeskRuntimeService extends Service
     private static final long DEVICE_CHANGE_DEBOUNCE_MILLIS = 600;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
-    private static final String SHIZUKU_KEYBOARD_NAME =
+    private static final String MAGICDESK_KEYBOARD_NAME =
             "MagicDesk Shizuku Keyboard";
-    private static final String SHIZUKU_MOUSE_NAME =
+    private static final String MAGICDESK_MOUSE_NAME =
             "MagicDesk Shizuku Mouse";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
@@ -61,13 +61,21 @@ public final class MagicDeskRuntimeService extends Service
     private boolean mPhoneHomeRecoveryInFlight;
     private boolean mPhoneHomeRecoveryAgain;
     private boolean mKeyboardWatcherRunning;
-    private ShizukuMouseBridge mShizukuMouseBridge;
+    private ConsoleMouseBridge mConsoleMouseBridge;
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
     private boolean mDestroyed;
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
+
+    private final ShellAccess.StateListener mShellStateListener =
+            snapshot -> {
+                final Handler handler = mHandler;
+                if (handler != null) {
+                    handler.post(this::handleShellStateChanged);
+                }
+            };
 
     private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
     private final Runnable mPhoneHomeRecoveryRunnable =
@@ -112,12 +120,12 @@ public final class MagicDeskRuntimeService extends Service
         service.scheduleLocalDesktopCleanup();
     }
 
-    static boolean isShizukuMouseBridgeReadyIfRunning() {
+    static boolean isConsoleMouseBridgeReadyIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         return service != null
                 && !service.mDestroyed
-                && service.mShizukuMouseBridge != null
-                && service.mShizukuMouseBridge.isReady();
+                && service.mConsoleMouseBridge != null
+                && service.mConsoleMouseBridge.isReady();
     }
 
     static boolean showStartIfRunning() {
@@ -139,6 +147,7 @@ public final class MagicDeskRuntimeService extends Service
         mDestroyed = false;
         sInstance = new WeakReference<>(this);
         mHandler = new Handler(Looper.getMainLooper());
+        ShellAccess.addStateListener(mShellStateListener);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
     }
@@ -149,7 +158,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         mInitialized = true;
         mDesktopTasks = new DesktopTaskController(this, mHandler);
-        mShizukuMouseBridge = new ShizukuMouseBridge(this);
+        mConsoleMouseBridge = new ConsoleMouseBridge(this);
         mDisplayManager = getSystemService(DisplayManager.class);
         mInputManager = getSystemService(InputManager.class);
         mHasHardwareKeyboard = hasHardwareKeyboard();
@@ -165,15 +174,14 @@ public final class MagicDeskRuntimeService extends Service
         }
         registerConfigurationReceiver();
         registerConsoleModeObserver();
-        if (RuntimeAccess.has(
-                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
+        if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
                     mConsoleModeActive);
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
         }
         updateKeyboardWatcher();
-        updateShizukuMouseBridge();
+        updateConsoleMouseBridge();
         updateDesktopTasks();
         if (LocalDesktopSessionState.isCleanupPending(this)) {
             scheduleLocalDesktopCleanup();
@@ -191,20 +199,18 @@ public final class MagicDeskRuntimeService extends Service
         initialize();
         if (intent != null) {
             if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
-                if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+                if (ShellAccess.isReady()) {
                     ConsoleModeSwitcher.showMagicDesk();
-                } else if (RuntimeAccess.allowsShizukuCommands()) {
-                    ConsoleModeSwitcher.showMagicDesk(mConsoleDisplayId);
                 } else {
                     startActivity(DeviceSetupActivity.createLaunchIntent(this));
                 }
             } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
-                    && RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+                    && ShellAccess.isReady()) {
                 ConsoleModeSwitcher.openTouchpad();
             }
         }
         updateKeyboardWatcher();
-        updateShizukuMouseBridge();
+        updateConsoleMouseBridge();
         updateDesktopTasks();
         return START_NOT_STICKY;
     }
@@ -234,6 +240,7 @@ public final class MagicDeskRuntimeService extends Service
         if (sInstance.get() == this) {
             sInstance = new WeakReference<>(null);
         }
+        ShellAccess.removeStateListener(mShellStateListener);
         if (mInputManager != null) {
             mInputManager.unregisterInputDeviceListener(this);
         }
@@ -256,12 +263,12 @@ public final class MagicDeskRuntimeService extends Service
         if (mDesktopTasks != null) {
             mDesktopTasks.stop();
         }
-        if (mShizukuMouseBridge != null) {
-            mShizukuMouseBridge.stop();
+        if (mConsoleMouseBridge != null) {
+            mConsoleMouseBridge.stop();
         }
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
-        ShizukuPhoneDisplayGuard.requestRestore();
+        PhoneDisplayGuard.requestRestore();
         super.onDestroy();
     }
 
@@ -334,7 +341,7 @@ public final class MagicDeskRuntimeService extends Service
             restartKeyboardWatcher();
         }
         if (mouseChanged || inputInventoryChanged) {
-            restartShizukuMouseBridge();
+            restartConsoleMouseBridge();
         }
     }
 
@@ -413,8 +420,8 @@ public final class MagicDeskRuntimeService extends Service
             return false;
         }
         final String name = device.getName();
-        return name.startsWith(SHIZUKU_KEYBOARD_NAME)
-                || SHIZUKU_MOUSE_NAME.equals(name);
+        return name.startsWith(MAGICDESK_KEYBOARD_NAME)
+                || MAGICDESK_MOUSE_NAME.equals(name);
     }
 
     private void registerConfigurationReceiver() {
@@ -424,7 +431,7 @@ public final class MagicDeskRuntimeService extends Service
                 if (Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction())) {
                     scheduleDeviceStateCheck();
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
-                        && ShizukuPhoneDisplayGuard.isActive()) {
+                        && PhoneDisplayGuard.isActive()) {
                     ConsoleModeSwitcher.setPhoneScreenOff(false, null);
                 }
             }
@@ -467,21 +474,18 @@ public final class MagicDeskRuntimeService extends Service
                 mConsoleExitRecoveryPending = false;
             }
         }
-        updateShizukuMouseBridge();
-        if (RuntimeAccess.has(
-                RuntimeAccess.Capability.EXTERNAL_CAPTION_VISIBILITY)) {
+        updateConsoleMouseBridge();
+        if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
         }
         updateDesktopTasks();
         if (wasConsoleModeActive && !consoleModeActive
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+                && ShellAccess.isReady()) {
             ConsoleModeSwitcher.setPhoneScreenOff(false, null);
         }
         if (wasConsoleModeActive && !consoleModeActive) {
             mConsoleExitRecoveryPending = true;
-            if (RuntimeAccess.has(
-                    RuntimeAccess.Capability.EXACT_TASKS)) {
+            if (ShellAccess.isReady()) {
                 schedulePhoneHomeRecovery();
             } else {
                 PhoneHomeRecoveryController.restoreAfterConsoleExit(this);
@@ -492,8 +496,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void schedulePhoneHomeRecovery() {
         if (mDestroyed || mHandler == null || mConsoleModeActive
-                || !RuntimeAccess.has(
-                        RuntimeAccess.Capability.EXACT_TASKS)) {
+                || !ShellAccess.isReady()) {
             return;
         }
         mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
@@ -528,9 +531,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void updateKeyboardWatcher() {
         final boolean shouldRun = mHasHardwareKeyboard
-                && (RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT)
-                        || RuntimeAccess.has(
-                                RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT));
+                && ShellAccess.isReady();
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
@@ -554,34 +555,51 @@ public final class MagicDeskRuntimeService extends Service
         KeyboardShortcutWatcher.start(mConsoleModeActive);
     }
 
-    private void updateShizukuMouseBridge() {
-        if (mShizukuMouseBridge == null) {
+    private void updateConsoleMouseBridge() {
+        if (mConsoleMouseBridge == null) {
             return;
         }
-        if (shouldRunShizukuMouseBridge()) {
-            mShizukuMouseBridge.start();
+        if (shouldRunConsoleMouseBridge()) {
+            mConsoleMouseBridge.start();
         } else {
-            mShizukuMouseBridge.stop();
+            mConsoleMouseBridge.stop();
         }
     }
 
-    private void restartShizukuMouseBridge() {
-        if (mShizukuMouseBridge == null) {
+    private void restartConsoleMouseBridge() {
+        if (mConsoleMouseBridge == null) {
             return;
         }
-        if (shouldRunShizukuMouseBridge()) {
-            mShizukuMouseBridge.restart();
+        if (shouldRunConsoleMouseBridge()) {
+            mConsoleMouseBridge.restart();
         } else {
-            mShizukuMouseBridge.stop();
+            mConsoleMouseBridge.stop();
         }
     }
 
-    private boolean shouldRunShizukuMouseBridge() {
+    private boolean shouldRunConsoleMouseBridge() {
         return mConsoleModeActive
                 && mHasExternalMouse
-                && RuntimeAccess.allowsShizukuCommands()
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.RIGHT_CLICK_REMAP);
+                && ShellAccess.isReady();
+    }
+
+    private void handleShellStateChanged() {
+        if (mDestroyed || !mInitialized) {
+            return;
+        }
+        updateKeyboardWatcher();
+        updateConsoleMouseBridge();
+        updateDesktopTasks();
+        if (ShellAccess.isReady()) {
+            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
+                    mConsoleModeActive);
+            RedmagicHardwareController.start(this);
+        } else {
+            NubiaCaptionVisibilityManager.setEnabled(false);
+            RedmagicHardwareController.stop();
+        }
+        updateNotification();
+        DesktopRuntimeBridge.refreshConsoleControls();
     }
 
     private int getConsoleDisplayId() {
@@ -606,7 +624,7 @@ public final class MagicDeskRuntimeService extends Service
         final int displayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (displayId >= 0
-                && RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS)) {
+                && ShellAccess.isReady()) {
             mDesktopTasks.start(displayId);
         } else {
             mDesktopTasks.stop();
@@ -631,8 +649,8 @@ public final class MagicDeskRuntimeService extends Service
                         == android.view.Display.DEFAULT_DISPLAY) {
             return;
         }
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
-            Log.w(TAG, "pending phone freeform cleanup requires Shizuku task control");
+        if (!ShellAccess.isReady()) {
+            Log.w(TAG, "pending phone freeform cleanup requires shell task control");
             return;
         }
         mLocalDesktopCleanupInFlight = true;
@@ -716,7 +734,7 @@ public final class MagicDeskRuntimeService extends Service
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(showMagicDeskPendingIntent);
-        if (RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+        if (ShellAccess.isReady()) {
             builder.addAction(
                         R.drawable.ic_touchpad,
                         getString(R.string.notification_open_touchpad),

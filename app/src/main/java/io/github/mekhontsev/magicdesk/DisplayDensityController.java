@@ -26,8 +26,7 @@ final class DisplayDensityController {
     }
 
     void apply(final int dpi) {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -54,8 +53,7 @@ final class DisplayDensityController {
     }
 
     void reset() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -72,8 +70,7 @@ final class DisplayDensityController {
     }
 
     void ensurePreferred() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.DISPLAY_OVERRIDES)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -217,6 +214,6 @@ final class DisplayDensityController {
 
     private static String runCommand(final String command)
             throws IOException {
-        return PrivilegedCommandRunner.run(command);
+        return ShellAccess.run(command);
     }
 }

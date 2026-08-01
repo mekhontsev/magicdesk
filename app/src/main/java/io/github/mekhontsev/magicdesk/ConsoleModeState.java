@@ -9,7 +9,7 @@ final class ConsoleModeState {
     static final String PHONE_SCREEN_OFF_SETTING = "nubia_screen_off_tp";
 
     private static final String TAG = "MagicDeskConsoleState";
-    private static volatile boolean sShizukuPhoneScreenOff;
+    private static volatile boolean sPhoneScreenOff;
 
     private ConsoleModeState() {
     }
@@ -31,14 +31,14 @@ final class ConsoleModeState {
     }
 
     static boolean isPhoneScreenOff(final Context context) {
-        return sShizukuPhoneScreenOff;
+        return sPhoneScreenOff;
     }
 
-    static boolean setShizukuPhoneScreenOff(final boolean screenOff) {
-        if (sShizukuPhoneScreenOff == screenOff) {
+    static boolean setPhoneScreenOff(final boolean screenOff) {
+        if (sPhoneScreenOff == screenOff) {
             return false;
         }
-        sShizukuPhoneScreenOff = screenOff;
+        sPhoneScreenOff = screenOff;
         return true;
     }
 }

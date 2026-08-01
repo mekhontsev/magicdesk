@@ -119,10 +119,8 @@ final class RedmagicHardwarePanelController
         if (mStatus == null) {
             return;
         }
-        final boolean monitoringAllowed = RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_MONITORING);
-        final boolean controlsAllowed = RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+        final boolean monitoringAllowed = ShellAccess.isReady();
+        final boolean controlsAllowed = ShellAccess.isReady();
         final boolean available = monitoringAllowed && snapshot.isAvailable();
         if (!available) {
             mStatus.setText(monitoringAllowed

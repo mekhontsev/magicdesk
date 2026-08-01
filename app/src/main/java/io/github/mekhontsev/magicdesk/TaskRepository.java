@@ -196,7 +196,7 @@ final class TaskRepository {
 
     static void normalizePhoneFreeformTasks(
             final ActionCallback callback) {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             complete(callback, true, "task cleanup unavailable");
             return;
         }
@@ -297,7 +297,7 @@ final class TaskRepository {
     }
 
     private static String createTaskFocusCommand(final int taskId) {
-        if (RuntimeAccess.allowsShizukuCommands()) {
+        if (ShellAccess.isReady()) {
             return TaskFocusCommands.createShellCommand(
                     Arrays.asList(Integer.valueOf(taskId)));
         }
@@ -428,7 +428,7 @@ final class TaskRepository {
     private static CommandResult runCommand(final String command) {
         try {
             return new CommandResult(
-                    true, PrivilegedCommandRunner.run(command));
+                    true, ShellAccess.run(command));
         } catch (IOException e) {
             Log.d(TAG, "privileged command unavailable: " + command + ": "
                     + e.getMessage());

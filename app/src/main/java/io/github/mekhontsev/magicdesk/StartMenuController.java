@@ -196,8 +196,7 @@ final class StartMenuController {
         fullscreen.setTextColor(DesktopUiFactory.COLOR_TEXT);
         fullscreen.setTextSize(13);
         fullscreen.setGravity(Gravity.CENTER_VERTICAL);
-        final boolean windowControl = RuntimeAccess.has(
-                RuntimeAccess.Capability.TASK_CONTROL);
+        final boolean windowControl = ShellAccess.isReady();
         fullscreen.setChecked(mForceFullscreen || !windowControl);
         fullscreen.setEnabled(windowControl);
         fullscreen.setOnCheckedChangeListener((button, checked) ->

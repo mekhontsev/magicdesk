@@ -32,9 +32,7 @@ final class PhoneHomeRecoveryController {
 
     static void restoreAfterConsoleExit(final Context context) {
         if (context == null
-                || RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS)
-                || !RuntimeAccess.has(
-                        RuntimeAccess.Capability.PUBLIC_APP_LAUNCH)) {
+                || ShellAccess.isReady()) {
             return;
         }
         try {
@@ -61,7 +59,7 @@ final class PhoneHomeRecoveryController {
     static void restoreIfNeeded(
             final boolean includeMigratedMagicDesk,
             final ResultCallback callback) {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS)) {
+        if (!ShellAccess.isReady()) {
             complete(callback, true);
             return;
         }
@@ -122,7 +120,7 @@ final class PhoneHomeRecoveryController {
         }
         try {
             final String output =
-                    PrivilegedCommandRunner.run(primaryHomeCommand()).trim();
+                    ShellAccess.run(primaryHomeCommand()).trim();
             if (output.startsWith("Error:")
                     || output.contains(
                             "Exception occurred while executing")) {

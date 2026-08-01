@@ -71,7 +71,7 @@ public final class ControlActivity extends Activity
 
     @Override
     public void showExternalDesktop() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         mStatus = getString(R.string.status_console_starting);
@@ -81,7 +81,7 @@ public final class ControlActivity extends Activity
 
     @Override
     public void switchToMirror() {
-        if (!RuntimeAccess.has(RuntimeAccess.Capability.CONSOLE_CONTROL)
+        if (!ShellAccess.isReady()
                 || !ConsoleModeState.isActive(this)) {
             return;
         }
@@ -111,8 +111,7 @@ public final class ControlActivity extends Activity
 
     @Override
     public void togglePhoneScreen() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
+        if (!ShellAccess.isReady()) {
             return;
         }
         final boolean screenOff =
@@ -199,13 +198,11 @@ public final class ControlActivity extends Activity
                 consoleActive
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                                 consoleDisplayId),
-                RuntimeAccess.has(
-                        RuntimeAccess.Capability.CONSOLE_CONTROL),
+                ShellAccess.isReady(),
                 ConsoleModeState.isPhoneScreenOff(this),
-                RuntimeAccess.has(
-                        RuntimeAccess.Capability.PHONE_SCREEN_CONTROL),
+                ShellAccess.isReady(),
                 mStatus,
-                RuntimeAccess.backendName(),
+                ShellAccess.statusLabel(),
                 currentDisplayId(),
                 consoleDisplayId));
     }

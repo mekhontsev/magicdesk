@@ -239,8 +239,7 @@ final class AppContextMenuController {
                         mActivity.focusTask(app, task);
                     }
                 });
-        final boolean windowControl = RuntimeAccess.has(
-                RuntimeAccess.Capability.TASK_CONTROL);
+        final boolean windowControl = ShellAccess.isReady();
         if (app.canFloat && windowControl) {
             addAction(
                     R.string.action_open_floating,
@@ -271,8 +270,7 @@ final class AppContextMenuController {
                             ? R.string.action_send_to_phone
                             : R.string.action_send_to_external_display,
                     DesktopUiFactory.COLOR_PANEL_ALT,
-                    RuntimeAccess.has(
-                            RuntimeAccess.Capability.TASK_CONTROL),
+                    ShellAccess.isReady(),
                     view -> mActivity.moveTaskToOtherDisplay(
                             app, task));
         }
@@ -321,7 +319,7 @@ final class AppContextMenuController {
         addAction(
                 R.string.action_force_stop,
                 DesktopUiFactory.COLOR_RED,
-                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL),
+                ShellAccess.isReady(),
                 view -> mActivity.confirmForceStop(app));
         positionAndShow(x, y);
     }

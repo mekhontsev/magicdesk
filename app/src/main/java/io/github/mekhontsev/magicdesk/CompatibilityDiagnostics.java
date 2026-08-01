@@ -112,7 +112,7 @@ final class CompatibilityDiagnostics {
     static String buildReport(final Context context) {
         final Context appContext = context.getApplicationContext();
         final DeviceSetupManager.Audit audit =
-                DeviceSetupManager.audit(appContext, RuntimeAccess.profile());
+                DeviceSetupManager.audit(appContext, SessionProfile.load(appContext));
         final StringBuilder report = new StringBuilder(24_000);
         report.append("# MagicDesk compatibility report\n\n")
                 .append("Report format: 1\n")
@@ -163,7 +163,8 @@ final class CompatibilityDiagnostics {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         report.append("## Runtime profile\n")
-                .append("Active backend: ").append(RuntimeAccess.backendName()).append('\n')
+                .append("Shizuku runtime: ")
+                .append(ShellAccess.statusLabel()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
                 .append("System provisioning: ")
                 .append(audit.configurationReady ? "ready" : "incomplete").append('\n')
@@ -176,14 +177,13 @@ final class CompatibilityDiagnostics {
                 "Firmware profile verified by maintainers",
                 audit.verifiedDevice ? "REDMAGIC 11 Pro / NX809J / 20260204.221845"
                         : "Unverified model or firmware; capability probing is required");
-        final boolean shizukuReady =
-                audit.backend == RuntimeAccess.Backend.SHIZUKU;
+        final boolean shellReady = audit.shellReady;
         appendCheck(report, "SHIZUKU-001",
-                shizukuReady,
+                shellReady,
                 "Shizuku command service",
-                shizukuReady
-                        ? "API " + audit.shizuku.version
-                                + ", service uid=" + audit.shizuku.uid
+                shellReady
+                        ? "API " + audit.shellState.version
+                                + ", service uid=" + audit.shellState.uid
                         : audit.runtimeError);
         appendCheck(report, "WM-FREEFORM-001", audit.freeformEnabled,
                 "Freeform support setting",
@@ -217,12 +217,11 @@ final class CompatibilityDiagnostics {
                         : TextUtils.isEmpty(notificationSnapshot.connectionIssueCode)
                                 ? "not connected"
                                 : notificationSnapshot.connectionIssueCode);
-        final boolean taskControl =
-                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
+        final boolean taskControl = ShellAccess.isReady();
         final boolean nativeDesktopRequired =
                 taskControl && audit.configurationReady;
         final boolean privilegedTransactions =
-                RuntimeAccess.allowsShizukuCommands();
+                ShellAccess.isReady();
         final boolean nativeDesktopAvailable =
                 nativeDesktopRequired && NativeDesktopController.isAvailable();
         appendCheck(report, "NATIVE-DESKTOP-001",
@@ -236,86 +235,50 @@ final class CompatibilityDiagnostics {
                                 ? "direct WindowContainerTransaction fallback"
                         : taskControl
                                 ? "privileged transaction backend unavailable"
-                                : "disabled by the selected runtime backend");
+                                : "Shizuku runtime unavailable");
         appendCheck(report, "NUBIA-INPUT-001",
                 hasPackage(context, "cn.nubia.keymapcenter"),
                 "Nubia mirror input package", "cn.nubia.keymapcenter");
         appendCheck(report, "NUBIA-LAUNCHER-001",
                 hasPackage(context, "com.zte.mifavor.launcher"),
                 "ZTE launcher package", "com.zte.mifavor.launcher");
-        final boolean globalInput =
-                RuntimeAccess.has(RuntimeAccess.Capability.GLOBAL_INPUT);
+        final boolean globalInput = ShellAccess.isReady();
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),
                 "Global keyboard/input bridge",
                 globalInput
                         ? (KeyboardShortcutWatcher.isFullShortcutMode()
                                 ? "running" : "not running")
-                        : "disabled by the selected runtime backend");
-        final boolean shizukuRightClick =
-                RuntimeAccess.allowsShizukuCommands()
-                        && RuntimeAccess.has(
-                                RuntimeAccess.Capability.RIGHT_CLICK_REMAP);
-        final boolean shizukuMouseBridgeExpected =
-                shizukuRightClick
+                        : "Shizuku runtime unavailable");
+        final boolean shellRightClick = ShellAccess.isReady();
+        final boolean mouseBridgeExpected =
+                shellRightClick
                         && Settings.Global.getInt(
                                 context.getContentResolver(),
                                 "app_mirror_displayid",
                                 -1) > 0
                         && hasExternalMouse();
-        final boolean shizukuMouseBridgeReady =
+        final boolean mouseBridgeReady =
                 MagicDeskRuntimeService
-                        .isShizukuMouseBridgeReadyIfRunning();
-        final String shizukuMouseBridgeDetail;
-        if (!shizukuRightClick) {
-            shizukuMouseBridgeDetail =
-                    "not required by the selected runtime backend";
-        } else if (!shizukuMouseBridgeExpected) {
-            shizukuMouseBridgeDetail =
+                        .isConsoleMouseBridgeReadyIfRunning();
+        final String mouseBridgeDetail;
+        if (!shellRightClick) {
+            mouseBridgeDetail =
+                    "Shizuku runtime unavailable";
+        } else if (!mouseBridgeExpected) {
+            mouseBridgeDetail =
                     "idle; Console Mode and an external mouse are required";
         } else {
-            shizukuMouseBridgeDetail =
-                    shizukuMouseBridgeReady ? "running" : "not running";
+            mouseBridgeDetail =
+                    mouseBridgeReady ? "running" : "not running";
         }
         appendCheck(report, "INPUT-MOUSE-001",
-                !shizukuMouseBridgeExpected
-                        || shizukuMouseBridgeReady,
-                "Shizuku right-click bridge",
-                shizukuMouseBridgeDetail);
-        report.append("Capabilities: publicLaunch=")
-                .append(RuntimeAccess.has(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH))
-                .append(", exactTasks=")
-                .append(RuntimeAccess.has(RuntimeAccess.Capability.EXACT_TASKS))
-                .append(", taskControl=")
-                .append(taskControl)
-                .append(", globalInput=")
-                .append(globalInput)
-                .append(", keyboardLayoutControl=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL))
-                .append(", keyboardLayoutShortcut=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT))
-                .append(", rightClickRemap=")
-                .append(RuntimeAccess.has(RuntimeAccess.Capability.RIGHT_CLICK_REMAP))
-                .append(", displayOverrides=")
-                .append(RuntimeAccess.has(RuntimeAccess.Capability.DISPLAY_OVERRIDES))
-                .append(", chargeSeparation=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.CHARGE_SEPARATION))
-                .append(", deviceLock=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.DEVICE_LOCK))
-                .append(", wallpaperRead=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ))
-                .append(", hardwareMonitoring=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_MONITORING))
-                .append(", hardwareVendorControl=")
-                .append(RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL))
-                .append('\n');
+                !mouseBridgeExpected
+                        || mouseBridgeReady,
+                "Global right-click bridge",
+                mouseBridgeDetail);
+        report.append("Shell command access: ")
+                .append(ShellAccess.isReady()).append('\n');
         report.append("REDMAGIC charge separation: package=")
                 .append(ChargeSeparationController.isSupported(context))
                 .append(", enabled=")
@@ -375,12 +338,12 @@ final class CompatibilityDiagnostics {
     private static void appendShizukuProbe(
             final StringBuilder report,
             final DeviceSetupManager.Audit audit) {
-        if (audit.backend != RuntimeAccess.Backend.SHIZUKU) {
+        if (!audit.shellReady) {
             return;
         }
         report.append("## Shizuku capability probe\n");
         try {
-            report.append(ShizukuAccess.probeCapabilities());
+            report.append(ShellAccess.probeCapabilities());
         } catch (IOException | RuntimeException error) {
             report.append("probe=failed | ")
                     .append(cleanSingleLine(
@@ -519,7 +482,7 @@ final class CompatibilityDiagnostics {
 
     private static String runCommand(final String command, final int maxChars) {
         try {
-            final String output = PrivilegedCommandRunner.run(command);
+            final String output = ShellAccess.run(command);
             return output.length() <= maxChars
                     ? output : output.substring(0, maxChars);
         } catch (IOException e) {

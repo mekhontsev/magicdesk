@@ -9,8 +9,8 @@ import java.io.InputStreamReader;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/** Owns the fail-open physical display override used by the Shizuku backend. */
-final class ShizukuPhoneDisplayGuard {
+/** Owns the fail-open physical display override while the shell stream is alive. */
+final class PhoneDisplayGuard {
     private static final String TAG = "MagicDeskPhoneDisplay";
     private static final String GUARD_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDisplayGuardCommand";
@@ -23,7 +23,7 @@ final class ShizukuPhoneDisplayGuard {
     private static Session sSession;
     private static int sGeneration;
 
-    private ShizukuPhoneDisplayGuard() {
+    private PhoneDisplayGuard() {
     }
 
     static boolean enable() {
@@ -112,10 +112,10 @@ final class ShizukuPhoneDisplayGuard {
             publishState(false);
         }
         if (!expected) {
-            Log.w(TAG, "Shizuku phone display guard stopped: " + failure);
+            Log.w(TAG, "Phone display guard stopped: " + failure);
             CompatibilityDiagnostics.record(
                     "NUBIA-SCREEN-003",
-                    "The Shizuku phone-screen guard stopped",
+                    "The phone-screen guard stopped",
                     failure);
         }
     }
@@ -132,7 +132,7 @@ final class ShizukuPhoneDisplayGuard {
 
     private static boolean resetWithoutSession() {
         try {
-            ShizukuAccess.run(POWER_RESET);
+            ShellAccess.run(POWER_RESET);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "Cannot reset phone display", error);
@@ -141,7 +141,7 @@ final class ShizukuPhoneDisplayGuard {
     }
 
     private static void publishState(final boolean screenOff) {
-        if (!ConsoleModeState.setShizukuPhoneScreenOff(screenOff)) {
+        if (!ConsoleModeState.setPhoneScreenOff(screenOff)) {
             return;
         }
         MagicDeskRuntimeService.refreshNotificationIfRunning();
@@ -172,7 +172,7 @@ final class ShizukuPhoneDisplayGuard {
         private volatile boolean mRestoreRequested;
         private volatile boolean mGuardReady;
         private volatile String mFailure = "guard exited before ready";
-        private volatile ShizukuAccess.StreamHandle mStream;
+        private volatile ShellAccess.StreamHandle mStream;
 
         Session(final int generation) {
             mGeneration = generation;
@@ -216,7 +216,7 @@ final class ShizukuPhoneDisplayGuard {
 
         void requestRestore() {
             mRestoreRequested = true;
-            final ShizukuAccess.StreamHandle stream = mStream;
+            final ShellAccess.StreamHandle stream = mStream;
             if (stream == null) {
                 return;
             }
@@ -235,11 +235,11 @@ final class ShizukuPhoneDisplayGuard {
 
         @Override
         public void run() {
-            ShizukuAccess.StreamHandle stream = null;
+            ShellAccess.StreamHandle stream = null;
             BufferedReader reader = null;
             boolean expected = false;
             try {
-                stream = ShizukuAccess.openHeartbeatStream(
+                stream = ShellAccess.openHeartbeatStream(
                         AppProcessCommand.exec(
                                 GUARD_COMMAND,
                                 Integer.toString(android.os.Process.myUid())));

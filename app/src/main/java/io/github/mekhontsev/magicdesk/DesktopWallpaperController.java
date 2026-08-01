@@ -127,8 +127,7 @@ final class DesktopWallpaperController {
     private Bitmap loadWallpaper(final int targetWidth, final int targetHeight)
             throws IOException {
         final File cacheFile = new File(mContext.getCacheDir(), "desktop-wallpaper");
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.SYSTEM_WALLPAPER_READ)) {
+        if (!ShellAccess.isReady()) {
             if (cacheFile.isFile() && cacheFile.length() > 0) {
                 try {
                     return decodeWallpaper(cacheFile, targetWidth, targetHeight);
@@ -173,19 +172,19 @@ final class DesktopWallpaperController {
     }
 
     private void copySystemWallpaper(final File destination) throws IOException {
-        copyShizukuWallpaper(destination);
+        copyShellWallpaper(destination);
     }
 
-    private static void copyShizukuWallpaper(final File destination)
+    private static void copyShellWallpaper(final File destination)
             throws IOException {
         try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
-                        ShizukuAccess.openSystemWallpaper());
+                        ShellAccess.openSystemWallpaper());
                 FileOutputStream output =
                         new FileOutputStream(destination, false)) {
             copy(input, output);
         }
         if (destination.length() == 0) {
-            throw new IOException("Shizuku wallpaper read returned no data");
+            throw new IOException("Shell wallpaper read returned no data");
         }
     }
 

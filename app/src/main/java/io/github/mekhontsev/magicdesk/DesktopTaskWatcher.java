@@ -36,7 +36,7 @@ final class DesktopTaskWatcher {
             new HashMap<>();
 
     private long mNextFocusSequence;
-    private ShizukuAccess.StreamHandle mShizukuStream;
+    private ShellAccess.StreamHandle mStream;
 
     DesktopTaskWatcher(final Handler handler, final Listener listener) {
         mHandler = handler;
@@ -49,12 +49,12 @@ final class DesktopTaskWatcher {
 
     synchronized void stop() {
         failPendingFocusCallbacks("task watcher stopped");
-        closeQuietly(mShizukuStream);
-        mShizukuStream = null;
+        closeQuietly(mStream);
+        mStream = null;
     }
 
     synchronized boolean sendCommand(final String command) {
-        if (mShizukuStream == null) {
+        if (mStream == null) {
             return false;
         }
         try {
@@ -62,8 +62,8 @@ final class DesktopTaskWatcher {
             return true;
         } catch (IOException e) {
             Log.w(TAG, "failed to send task watcher command: " + command, e);
-            closeQuietly(mShizukuStream);
-            mShizukuStream = null;
+            closeQuietly(mStream);
+            mStream = null;
             return false;
         }
     }
@@ -72,7 +72,7 @@ final class DesktopTaskWatcher {
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
-        if (mShizukuStream == null) {
+        if (mStream == null) {
             completeFocusCallback(callback, false, "task watcher unavailable");
             return;
         }
@@ -94,8 +94,8 @@ final class DesktopTaskWatcher {
             mFocusCallbacks.remove(Long.valueOf(sequence));
             completeFocusCallback(callback, false, "task watcher write failed");
             Log.w(TAG, "failed to send task stack focus", e);
-            closeQuietly(mShizukuStream);
-            mShizukuStream = null;
+            closeQuietly(mStream);
+            mStream = null;
         }
     }
 
@@ -114,16 +114,16 @@ final class DesktopTaskWatcher {
     private void run(final int generation) {
         final String command = AppProcessCommand.exec(
                 "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand");
-        ShizukuAccess.StreamHandle shizukuStream = null;
+        ShellAccess.StreamHandle stream = null;
         try {
-            shizukuStream = ShizukuAccess.openStream(command);
-            final InputStream input = shizukuStream.inputStream();
+            stream = ShellAccess.openStream(command);
+            final InputStream input = stream.inputStream();
             synchronized (this) {
                 if (!mListener.isActive(generation)) {
-                    closeQuietly(shizukuStream);
+                    closeQuietly(stream);
                     return;
                 }
-                mShizukuStream = shizukuStream;
+                mStream = stream;
             }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(input))) {
@@ -138,11 +138,11 @@ final class DesktopTaskWatcher {
             }
         } finally {
             synchronized (this) {
-                if (mShizukuStream == shizukuStream) {
-                    mShizukuStream = null;
+                if (mStream == stream) {
+                    mStream = null;
                 }
             }
-            closeQuietly(shizukuStream);
+            closeQuietly(stream);
             if (mListener.isActive(generation)) {
                 mHandler.post(() -> {
                     if (mListener.isActive(generation)) {
@@ -155,8 +155,8 @@ final class DesktopTaskWatcher {
     }
 
     private void writeCommand(final String command) throws IOException {
-        if (mShizukuStream != null) {
-            mShizukuStream.writeLine(command);
+        if (mStream != null) {
+            mStream.writeLine(command);
             return;
         }
         throw new IOException("task watcher unavailable");

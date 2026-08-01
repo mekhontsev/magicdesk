@@ -219,7 +219,7 @@ final class DisplayProfileController {
     }
 
     private static String readConnectedEdidHashes() throws IOException {
-        return PrivilegedCommandRunner.run(
+        return ShellAccess.run(
                 "for d in /sys/class/drm/card*-DP-*; do "
                         + "[ -d \"$d\" ] || continue; "
                         + "[ \"$(/system/bin/cat \"$d/status\" 2>/dev/null)\" "

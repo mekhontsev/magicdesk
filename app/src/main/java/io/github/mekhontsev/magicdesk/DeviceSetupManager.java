@@ -57,42 +57,40 @@ final class DeviceSetupManager {
 
         Map<String, String> values = readUnprivilegedValues(context);
         String runtimeError = "";
-        boolean shizukuReady = false;
+        boolean shellReady = false;
         int shizukuUid = -1;
-        ShizukuAccess.Snapshot shizuku = ShizukuAccess.inspect();
-        runtimeError = shizuku.error;
-        if (shizuku.running && shizuku.permissionGranted) {
+        ShellAccess.Snapshot shellState = ShellAccess.refresh();
+        runtimeError = shellState.error;
+        if (shellState.isReady()) {
             try {
-                final int serviceUid = ShizukuAccess.connectAndGetUid();
+                final int serviceUid = ShellAccess.connectAndGetUid();
                 shizukuUid = serviceUid;
-                if (serviceUid != RuntimeBackendPolicy.SHELL_UID) {
+                if (serviceUid != ShellAccess.SHELL_UID) {
                     throw new IOException(
                             "Shizuku must run as shell UID 2000; found UID "
                                     + serviceUid);
                 }
-                values = parseValues(ShizukuAccess.run(buildAuditCommand()));
-                shizukuReady = true;
-                shizuku = new ShizukuAccess.Snapshot(
-                        shizuku.installed,
+                values = parseValues(ShellAccess.run(buildAuditCommand()));
+                shellReady = true;
+                shellState = new ShellAccess.Snapshot(
+                        shellState.installed,
                         true,
                         true,
                         serviceUid,
-                        shizuku.version,
+                        shellState.version,
                         "");
                 runtimeError = "";
             } catch (IOException error) {
                 runtimeError = usefulMessage(error);
-                shizuku = new ShizukuAccess.Snapshot(
-                        shizuku.installed,
+                shellState = new ShellAccess.Snapshot(
+                        shellState.installed,
                         true,
                         true,
                         shizukuUid,
-                        shizuku.version,
+                        shellState.version,
                         runtimeError);
             }
         }
-        final RuntimeAccess.Backend backend = RuntimeBackendPolicy.select(
-                shizukuReady, shizukuUid);
         final String bootId = value(values, "BOOT_ID");
         boolean rebootRequired = false;
         final String pendingBootId = preferences.getString(KEY_PENDING_BOOT_ID, "");
@@ -133,7 +131,7 @@ final class DeviceSetupManager {
                     "Unverified ZTE/nubia firmware",
                     Build.FINGERPRINT);
         }
-        if (backend != RuntimeAccess.Backend.SHIZUKU) {
+        if (!shellReady) {
             CompatibilityDiagnostics.record(
                     "SHIZUKU-001",
                     "Shizuku runtime is unavailable",
@@ -142,9 +140,9 @@ final class DeviceSetupManager {
 
         return new Audit(
                 runtimeError,
-                shizuku,
+                shellState,
                 sessionProfile,
-                backend,
+                shellReady,
                 compatibleDevice,
                 verifiedDevice,
                 Build.MANUFACTURER,
@@ -170,16 +168,15 @@ final class DeviceSetupManager {
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
-        if (before.backend != RuntimeAccess.Backend.SHIZUKU) {
+        if (!before.shellReady) {
             throw new IOException(
-                    "a running Shizuku shell backend is required");
+                    "running Shizuku shell access is required");
         }
         if (!before.compatibleDevice) {
             throw new IOException(
                     "requires a ZTE/nubia device with Android 16 or newer");
         }
 
-        RuntimeAccess.configure(before.sessionProfile, before.backend);
         final SharedPreferences preferences = preferences(context);
         final SharedPreferences.Editor originals = preferences.edit();
         final List<String> commands = new ArrayList<>();
@@ -227,7 +224,7 @@ final class DeviceSetupManager {
             throw new IOException("could not save Shizuku setup state");
         }
         if (!commands.isEmpty()) {
-            PrivilegedCommandRunner.run(joinCommands(commands));
+            ShellAccess.run(joinCommands(commands));
         }
         for (final NubiaDesktopPropertyManager.Property property : properties) {
             NubiaDesktopPropertyManager.write(property, "false");
@@ -249,12 +246,10 @@ final class DeviceSetupManager {
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
-        if (before.backend != RuntimeAccess.Backend.SHIZUKU) {
+        if (!before.shellReady) {
             throw new IOException(
-                    "a running Shizuku shell backend is required");
+                    "running Shizuku shell access is required");
         }
-        RuntimeAccess.configure(before.sessionProfile, before.backend);
-
         final SharedPreferences preferences = preferences(context);
         final List<String> commands = new ArrayList<>();
         final List<PropertyRestore> propertyRestores = new ArrayList<>();
@@ -273,7 +268,7 @@ final class DeviceSetupManager {
                 ITEM_ROUNDED_CORNERS,
                 NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS);
         if (!commands.isEmpty()) {
-            PrivilegedCommandRunner.run(joinCommands(commands));
+            ShellAccess.run(joinCommands(commands));
         }
         for (final PropertyRestore restore : propertyRestores) {
             NubiaDesktopPropertyManager.write(restore.property, restore.value);
@@ -327,7 +322,7 @@ final class DeviceSetupManager {
     }
 
     static void reboot() throws IOException {
-        PrivilegedCommandRunner.run("/system/bin/svc power reboot");
+        ShellAccess.run("/system/bin/svc power reboot");
     }
 
     private static boolean isZteFamilyDevice() {
@@ -571,9 +566,9 @@ final class DeviceSetupManager {
 
     static final class Audit {
         final String runtimeError;
-        final ShizukuAccess.Snapshot shizuku;
+        final ShellAccess.Snapshot shellState;
         final SessionProfile sessionProfile;
-        final RuntimeAccess.Backend backend;
+        final boolean shellReady;
         final boolean compatibleDevice;
         final boolean verifiedDevice;
         final String manufacturer;
@@ -596,9 +591,9 @@ final class DeviceSetupManager {
 
         Audit(
                 final String runtimeError,
-                final ShizukuAccess.Snapshot shizuku,
+                final ShellAccess.Snapshot shellState,
                 final SessionProfile sessionProfile,
-                final RuntimeAccess.Backend backend,
+                final boolean shellReady,
                 final boolean compatibleDevice,
                 final boolean verifiedDevice,
                 final String manufacturer,
@@ -619,9 +614,9 @@ final class DeviceSetupManager {
                 final boolean acknowledged,
                 final boolean hasManagedChanges) {
             this.runtimeError = runtimeError;
-            this.shizuku = shizuku;
+            this.shellState = shellState;
             this.sessionProfile = sessionProfile;
-            this.backend = backend;
+            this.shellReady = shellReady;
             this.compatibleDevice = compatibleDevice;
             this.verifiedDevice = verifiedDevice;
             this.manufacturer = manufacturer;
@@ -645,7 +640,7 @@ final class DeviceSetupManager {
 
         boolean canEnterMagicDesk() {
             return compatibleDevice
-                    && backend == RuntimeAccess.Backend.SHIZUKU
+                    && shellReady
                     && !rebootRequired
                     && configurationReady;
         }

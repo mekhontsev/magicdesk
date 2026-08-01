@@ -274,7 +274,7 @@
     <string name="setup_status_shizuku_not_installed">Install and start the official Shizuku manager to continue.</string>
     <string name="setup_status_shizuku_stopped">Shizuku is installed, but its server is not running.</string>
     <string name="setup_status_shizuku_permission">Allow MagicDesk in Shizuku. This grants Android shell privileges, not root, when the Shizuku server was started through ADB or wireless debugging.</string>
-    <string name="setup_status_shizuku_failed">Shizuku backend failed: %1$s</string>
+    <string name="setup_status_shizuku_failed">Shizuku access failed: %1$s</string>
     <string name="setup_status_shizuku_ready">Device is ready for MagicDesk (Shizuku service UID %1$d).</string>
     <string name="setup_status_external_unavailable">No active external desktop display was found; opening on the current display.</string>
     <string name="setup_status_overlay_required">Allow MagicDesk to display over other apps for its taskbar, menus, and desktop controls. You can continue without it, but those surfaces will be limited.</string>

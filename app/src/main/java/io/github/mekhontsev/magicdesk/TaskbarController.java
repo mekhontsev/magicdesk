@@ -187,8 +187,7 @@ final class TaskbarController {
         mKeyboardLayout.setOnClickListener(view ->
                 ConsoleModeSwitcher.toggleHardwareKeyboardLayout());
         mKeyboardLayout.setEnabled(
-                RuntimeAccess.has(
-                        RuntimeAccess.Capability.KEYBOARD_LAYOUT_CONTROL));
+                ShellAccess.isReady());
         taskbar.addView(mKeyboardLayout, new LinearLayout.LayoutParams(
                 desktopDp(48, 38),
                 LinearLayout.LayoutParams.MATCH_PARENT));
@@ -201,8 +200,7 @@ final class TaskbarController {
                 R.string.tooltip_phone_screen);
         mPhoneScreenButton.setOnClickListener(view ->
                 mActivity.togglePhoneScreen());
-        mPhoneScreenButton.setEnabled(RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL));
+        mPhoneScreenButton.setEnabled(ShellAccess.isReady());
         addButton(taskbar, mPhoneScreenButton);
         if (mActivity.isCompactDesktopPreview()) {
             mPhoneScreenButton.setVisibility(View.GONE);
@@ -378,7 +376,7 @@ final class TaskbarController {
             return;
         }
         final boolean taskControl =
-                RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL);
+                ShellAccess.isReady();
         final int color = taskControl && console && bridge
                 ? DesktopUiFactory.COLOR_CYAN
                 : (taskControl
@@ -386,7 +384,7 @@ final class TaskbarController {
                         : DesktopUiFactory.COLOR_MUTED);
         final String description = mActivity.getString(
                 R.string.system_status_description,
-                RuntimeAccess.backendName(),
+                ShellAccess.statusLabel(),
                 mActivity.getString(console
                         ? R.string.state_ready
                         : R.string.state_unavailable),
