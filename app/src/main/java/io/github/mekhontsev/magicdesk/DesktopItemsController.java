@@ -273,7 +273,7 @@ final class DesktopItemsController {
     private View createAppIcon(final AppItem app) {
         final LinearLayout item = new LinearLayout(mActivity);
         item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
+        item.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         item.setPadding(dp(8), dp(6), dp(8), dp(6));
         if (mActivity.isWorkspaceApp(app.packageName)) {
             item.setBackground(mUi.rounded(
@@ -320,14 +320,7 @@ final class DesktopItemsController {
         item.addView(icon, new LinearLayout.LayoutParams(
                 desktopDp(44, 34), desktopDp(44, 34)));
 
-        final TextView label = new TextView(mActivity);
-        label.setText(app.label);
-        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        label.setTextSize(
-                mActivity.isCompactDesktopPreview() ? 10 : 12);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView label = createItemLabel(app.label);
         final LinearLayout.LayoutParams labelParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -351,30 +344,34 @@ final class DesktopItemsController {
     private View createFileIcon(final DesktopFile file) {
         final LinearLayout item = new LinearLayout(mActivity);
         item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
+        item.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         item.setPadding(dp(8), dp(6), dp(8), dp(6));
         item.setClickable(true);
         item.setFocusable(true);
         item.setOnClickListener(view -> openFile(file));
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageResource(file.directory
-                ? android.R.drawable.ic_menu_agenda
-                : fileIcon(file.mimeType));
-        icon.setColorFilter(file.directory
-                ? DesktopUiFactory.COLOR_AMBER
-                : DesktopUiFactory.COLOR_CYAN);
+        icon.setScaleType(file.thumbnail == null
+                ? ImageView.ScaleType.CENTER_INSIDE
+                : ImageView.ScaleType.CENTER_CROP);
+        if (file.thumbnail != null) {
+            icon.setImageBitmap(file.thumbnail);
+            icon.setBackground(mUi.rounded(
+                    0x66111827,
+                    dp(6),
+                    0x99E5E7EB));
+            icon.setClipToOutline(true);
+            icon.setPadding(dp(1), dp(1), dp(1), dp(1));
+        } else {
+            icon.setImageResource(file.directory
+                    ? R.drawable.ic_desktop_folder
+                    : fileIcon(file.mimeType));
+        }
+        icon.setContentDescription(file.name);
         item.addView(icon, new LinearLayout.LayoutParams(
                 desktopDp(44, 34), desktopDp(44, 34)));
 
-        final TextView label = new TextView(mActivity);
-        label.setText(file.name);
-        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        label.setTextSize(
-                mActivity.isCompactDesktopPreview() ? 10 : 12);
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView label = createItemLabel(file.name);
         final LinearLayout.LayoutParams labelParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -386,14 +383,42 @@ final class DesktopItemsController {
 
     private int fileIcon(final String mimeType) {
         if (mimeType != null && mimeType.startsWith("image/")) {
-            return android.R.drawable.ic_menu_gallery;
+            return R.drawable.ic_desktop_file_image;
         }
         if (mimeType != null
                 && (mimeType.startsWith("audio/")
                         || mimeType.startsWith("video/"))) {
-            return android.R.drawable.ic_media_play;
+            return R.drawable.ic_desktop_file_media;
         }
-        return android.R.drawable.ic_menu_save;
+        if ("application/pdf".equals(mimeType)) {
+            return R.drawable.ic_desktop_file_pdf;
+        }
+        if (mimeType != null
+                && (mimeType.startsWith("text/")
+                        || mimeType.contains("json")
+                        || mimeType.contains("xml"))) {
+            return R.drawable.ic_desktop_file_text;
+        }
+        if (mimeType != null
+                && (mimeType.contains("zip")
+                        || mimeType.contains("archive")
+                        || mimeType.contains("compressed"))) {
+            return R.drawable.ic_desktop_file_archive;
+        }
+        return R.drawable.ic_desktop_file_document;
+    }
+
+    private TextView createItemLabel(final CharSequence text) {
+        final TextView label = new TextView(mActivity);
+        label.setText(text);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(
+                mActivity.isCompactDesktopPreview() ? 10 : 12);
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(2);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setShadowLayer(dp(2), 0, dp(1), 0xE6000000);
+        return label;
     }
 
     private GridLayout.LayoutParams createItemParams() {

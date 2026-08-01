@@ -2,8 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.ContentResolver;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.util.Size;
+
+import java.io.IOException;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,14 +52,20 @@ final class DesktopFileRepository {
                 if (documentId == null || name == null) {
                     continue;
                 }
-                files.add(new DesktopFile(
+                final Uri documentUri =
                         DocumentsContract.buildDocumentUriUsingTree(
-                                treeUri, documentId),
+                                treeUri, documentId);
+                final boolean directory =
+                        DocumentsContract.Document.MIME_TYPE_DIR.equals(
+                                mimeType);
+                files.add(new DesktopFile(
+                        documentUri,
                         name,
                         mimeType,
                         modified,
-                        DocumentsContract.Document.MIME_TYPE_DIR.equals(
-                                mimeType)));
+                        directory,
+                        directory ? null
+                                : loadImageThumbnail(documentUri, mimeType)));
             }
         }
         Collections.sort(files, new Comparator<DesktopFile>() {
@@ -75,5 +85,19 @@ final class DesktopFileRepository {
             return new ArrayList<>(files.subList(0, mMaximumFiles));
         }
         return files;
+    }
+
+    private Bitmap loadImageThumbnail(
+            final Uri documentUri,
+            final String mimeType) {
+        if (mimeType == null || !mimeType.startsWith("image/")) {
+            return null;
+        }
+        try {
+            return mContentResolver.loadThumbnail(
+                    documentUri, new Size(192, 192), null);
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
     }
 }
