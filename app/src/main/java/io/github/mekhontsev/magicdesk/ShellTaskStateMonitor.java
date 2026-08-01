@@ -164,13 +164,17 @@ final class ShellTaskStateMonitor implements Closeable {
         if (tasks == null) {
             return;
         }
+        final Set<Integer> liveTaskIds = new HashSet<>();
         final Map<Integer, Integer> visibleTypesByTask = new HashMap<>();
         for (final Object task : tasks) {
+            final Integer taskId = Integer.valueOf(
+                    HiddenTaskApi.getIntField(task, "taskId"));
+            liveTaskIds.add(taskId);
             if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
                 continue;
             }
             visibleTypesByTask.put(
-                    Integer.valueOf(HiddenTaskApi.getIntField(task, "taskId")),
+                    taskId,
                     Integer.valueOf(mRequestedVisibleTypes.getInt(task)));
         }
 
@@ -191,7 +195,7 @@ final class ShellTaskStateMonitor implements Closeable {
                             previous == null));
                 }
             }
-            mLastVisibleTypes.keySet().retainAll(visibleTypesByTask.keySet());
+            mLastVisibleTypes.keySet().retainAll(liveTaskIds);
         }
         for (final ImmersiveEvent event : events) {
             mListener.onImmersiveRequest(

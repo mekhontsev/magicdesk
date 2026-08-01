@@ -51,6 +51,14 @@ final class AppTaskController {
             launchFullscreen(app);
             return;
         }
+        final TaskRepository.TaskEntry existingTask =
+                mActivity.findFirstTask(app.packageName);
+        if (existingTask != null
+                && existingTask.displayId == mActivity.getCurrentDisplayId()
+                && existingTask.isFreeform()) {
+            focusTask(app, existingTask);
+            return;
+        }
         Log.i(TAG, "launch floating package=" + app.packageName
                 + " display=" + mActivity.getCurrentDisplayId());
         mActivity.setTaskbarVisible(true);
