@@ -257,6 +257,13 @@ final class StartMenuController {
         showSection(MENU_TOOLS, false);
     }
 
+    boolean isToolsVisible() {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        return overlays != null
+                && overlays.isVisible(mPanel)
+                && mMode == MENU_TOOLS;
+    }
+
     void toggleHardware() {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (overlays != null

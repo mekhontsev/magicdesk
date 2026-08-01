@@ -46,6 +46,7 @@ public abstract class DesktopShellActivity extends Activity
     static final String EXTRA_ACTION = "magicdesk_action";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
+    private static final String STATE_TOOLS_VISIBLE = "tools_visible";
     private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
@@ -166,6 +167,19 @@ public abstract class DesktopShellActivity extends Activity
         updateConsoleControls();
         handleLaunchAction(getIntent());
         ensurePreferredConsoleDensity();
+        if (savedInstanceState != null
+                && savedInstanceState.getBoolean(STATE_TOOLS_VISIBLE)) {
+            mDesktopRoot.post(this::toggleToolsMenu);
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(final Bundle outState) {
+        outState.putBoolean(
+                STATE_TOOLS_VISIBLE,
+                mStartMenuController != null
+                        && mStartMenuController.isToolsVisible());
+        super.onSaveInstanceState(outState);
     }
 
     void releaseDesktopOverlays() {
