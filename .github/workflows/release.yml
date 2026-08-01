@@ -48,7 +48,7 @@ jobs:
             > "$RUNNER_TEMP/magicdesk-signing/release.jks"
           chmod 600 "$RUNNER_TEMP/magicdesk-signing/release.jks"
 
-      - name: Build signed release APKs
+      - name: Build signed release APK
         env:
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_FILE: ${{ runner.temp }}/magicdesk-signing/release.jks
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_PASSWORD: ${{ secrets.MAGICDESK_RELEASE_STORE_PASSWORD }}
@@ -58,25 +58,18 @@ jobs:
           ./gradlew --no-daemon \
             :app:testDebugUnitTest \
             :app:lintRelease \
-            :kernel-fixes:lintRelease \
-            :app:assembleRelease \
-            :kernel-fixes:assembleRelease
+            :app:assembleRelease
 
-      - name: Verify signatures and APK boundaries
+      - name: Verify signature and APK boundaries
         shell: bash
         run: |
           build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
           core_apk=app/build/outputs/apk/release/app-release.apk
-          fixes_apk=kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk
           "$build_tools/apksigner" verify --verbose "$core_apk"
-          "$build_tools/apksigner" verify --verbose "$fixes_apk"
           core_cert=$("$build_tools/apksigner" verify --print-certs "$core_apk" \
             | awk -F ': ' '/certificate SHA-256 digest:/ {print $NF; exit}')
-          fixes_cert=$("$build_tools/apksigner" verify --print-certs "$fixes_apk" \
-            | awk -F ': ' '/certificate SHA-256 digest:/ {print $NF; exit}')
           test -n "$core_cert"
-          test "$core_cert" = "$fixes_cert"
-          ./scripts/verify-apks.sh "$core_apk" "$fixes_apk"
+          ./scripts/verify-apks.sh "$core_apk"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             app_version=$("$build_tools/aapt2" dump badging "$core_apk" \
               | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
@@ -95,8 +88,6 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk \
             "dist/MagicDesk-${version}.apk"
-          cp kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk \
-            "dist/MagicDesk-Kernel-Fixes-${version}.apk"
           (
             cd dist
             sha256sum ./*.apk > SHA256SUMS

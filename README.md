@@ -239,20 +239,6 @@ runtime and display contract is in
 behavior is recorded in the
 [Nubia vendor interface audit](docs/nubia-vendor-audit.md).
 
-## Optional Kernel Fixes
-
-`MagicDesk Kernel Fixes` is an independent, optional APK in this repository.
-It has its own launcher icon and root boundary. The main MagicDesk application
-does not discover, start, or communicate with it.
-
-The current add-on contains a guarded REDMAGIC 11 Pro DisplayPort recovery
-module for VITURE 3D EDID transitions. The user must open the add-on directly
-and confirm activation after each reboot. It is not required for the desktop.
-
-The module is never compiled by normal Android CI. Its source, validated
-binary, checksums, guarded rebuild procedure, and recovery boundary are
-documented in [VITURE XR resolution fix](docs/xr-resolution-fix.md).
-
 ## Diagnostics And Issues
 
 Open **Tools > Diagnostics** to generate a copyable compatibility report. It
@@ -274,10 +260,10 @@ newer. If Gradle cannot locate the SDK, create an untracked
 sdk.dir=/absolute/path/to/android-sdk
 ```
 
-Build both debug APKs:
+Build the debug APK:
 
 ```sh
-./gradlew :app:assembleDebug :kernel-fixes:assembleDebug
+./gradlew :app:assembleDebug
 ```
 
 On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
@@ -287,10 +273,9 @@ Linux, set `ANDROID_NDK_HOME`. The native input helpers are compiled from
 
 ## Releases And Signing
 
-GitHub Actions lints and builds both modules on every change. A `v*` tag runs
-the signed release workflow, verifies APK contents and certificates, publishes
-SHA-256 checksums, and creates a GitHub Release. The kernel-fixes APK remains
-optional and independent.
+GitHub Actions lints and builds MagicDesk on every change. A `v*` tag runs the
+signed release workflow, verifies the APK contents and certificate, publishes
+its SHA-256 checksum, and creates a GitHub Release.
 
 Official release APKs use this certificate SHA-256 fingerprint:
 
@@ -309,13 +294,11 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Deferred validation backlog](docs/testing-backlog.md)
-- [VITURE XR resolution fix](docs/xr-resolution-fix.md)
 
 ## Project
 
 - Version: 1.1
 - Main package: `io.github.mekhontsev.magicdesk`
-- Optional add-on package: `io.github.mekhontsev.magicdesk.kernel`
 - Minimum SDK: 36
 - Target SDK: 36
 - License: [MIT](LICENSE)
