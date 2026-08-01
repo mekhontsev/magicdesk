@@ -361,13 +361,9 @@ static int process_key_event(
     }
 
     if (event->value == 2) {
-        if (source->consumed[code]) {
-            return 0;
-        }
-        if (flush_pending_modifiers(state) < 0) {
-            return -1;
-        }
-        return write_event(active_uinput_fd(state), event);
+        // The virtual device owns autorepeat through EV_REP. Forwarding the
+        // physical repeat as well would produce duplicate key events.
+        return 0;
     }
 
     if (event->value != 0) {
@@ -491,6 +487,7 @@ static int create_virtual_keyboard(
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
+            || ioctl(uinput_fd, UI_SET_EVBIT, EV_REP) < 0
             || ioctl(uinput_fd, UI_SET_PHYS,
                     location) < 0) {
         return -1;
