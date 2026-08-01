@@ -206,12 +206,18 @@ final class TaskRepository {
                 callback);
     }
 
-    static void setFullscreen(final TaskEntry task, final ActionCallback callback) {
+    static void setFullscreen(final TaskEntry task,
+            final boolean preserveClient,
+            final ActionCallback callback) {
         if (!isUsableTask(task)) {
             complete(callback, false, "invalid task");
             return;
         }
-        runAction(createFullscreenTransitionCommand(task.displayId, task.taskId),
+        runAction(preserveClient
+                        ? createClientPreservingFullscreenTransitionCommand(
+                                task.displayId, task.taskId)
+                        : createFullscreenTransitionCommand(
+                                task.displayId, task.taskId),
                 callback);
     }
 

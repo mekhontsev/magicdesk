@@ -90,7 +90,9 @@ final class AppTaskController {
                         ExistingTaskController.reuseIfExists(
                                 app.packageName,
                                 mActivity.getCurrentDisplayId(),
-                                false);
+                                false,
+                                FullscreenTransitionPolicy.shouldPreserveClient(
+                                        mActivity, app.packageName));
                 if (reuseResult.found) {
                     DesktopTaskController.finishFullscreenTransition(
                             displayId, true);
@@ -220,25 +222,29 @@ final class AppTaskController {
                 beginFullscreenTransition(task.taskId);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_fullscreen, app.label));
-        TaskRepository.setFullscreen(task, result -> {
-            DesktopTaskController.finishFullscreenTransition(
-                    displayId, result.success);
-            mActivity.runOnUiThread(() -> {
-                if (result.success) {
-                    mActivity.setTaskbarVisible(false);
-                }
-                mActivity.setStatus(mActivity.getString(
-                        result.success
-                                ? R.string.status_switch_done
-                                : R.string.status_switch_failed,
-                        result.success
-                                ? app.label
-                                : (result.message.length() == 0
+        TaskRepository.setFullscreen(
+                task,
+                FullscreenTransitionPolicy.shouldPreserveClient(
+                        mActivity, task),
+                result -> {
+                    DesktopTaskController.finishFullscreenTransition(
+                            displayId, result.success);
+                    mActivity.runOnUiThread(() -> {
+                        if (result.success) {
+                            mActivity.setTaskbarVisible(false);
+                        }
+                        mActivity.setStatus(mActivity.getString(
+                                result.success
+                                        ? R.string.status_switch_done
+                                        : R.string.status_switch_failed,
+                                result.success
                                         ? app.label
-                                        : result.message)));
-                mActivity.refreshTaskSnapshot();
-            });
-        });
+                                        : (result.message.length() == 0
+                                                ? app.label
+                                                : result.message)));
+                        mActivity.refreshTaskSnapshot();
+                    });
+                });
     }
 
     int getOtherDisplayId(final TaskRepository.TaskEntry task) {

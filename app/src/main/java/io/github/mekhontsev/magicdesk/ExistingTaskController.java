@@ -25,29 +25,24 @@ final class ExistingTaskController {
     }
 
     static ReuseResult reuseIfExists(final String packageName, final int targetDisplayId,
-            final boolean targetFreeform) throws IOException {
-        return reuseIfExists(packageName, targetDisplayId, targetFreeform, null);
-    }
-
-    static ReuseResult reuseIfExists(final String packageName, final int targetDisplayId,
-            final boolean targetFreeform, final int[] preservedTopFirstTaskIds)
-            throws IOException {
+            final boolean targetFreeform,
+            final boolean preserveFullscreenClient) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, targetFreeform,
-                preservedTopFirstTaskIds, false, false);
+                null, false, false, preserveFullscreenClient);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, true, waitForTask);
+                preservedTopFirstTaskIds, true, waitForTask, false);
     }
 
     static ReuseResult reuseFreeformIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, false, waitForTask);
+                preservedTopFirstTaskIds, false, waitForTask, false);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -63,7 +58,8 @@ final class ExistingTaskController {
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
-            final boolean waitForTask) throws IOException {
+            final boolean waitForTask,
+            final boolean preserveFullscreenClient) throws IOException {
         final TaskInfo task = waitForTask
                 ? waitForBestTask(packageName, targetDisplayId, targetFreeform)
                 : findBestTask(packageName, targetDisplayId, targetFreeform);
@@ -87,6 +83,9 @@ final class ExistingTaskController {
                 nativeDesktop && ConsoleModeSwitcher.isTouchpadVisible();
         final boolean taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
         final boolean taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
+        if (targetFreeform) {
+            DesktopTaskController.noteManualFreeformTransition(task.taskId);
+        }
         if (task.displayId != targetDisplayId) {
             final String command = CMD + " activity display move-stack " + task.rootTaskId
                     + " " + targetDisplayId;
@@ -107,7 +106,7 @@ final class ExistingTaskController {
             waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
         } else if (!targetFreeform && taskIsFreeform) {
             Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
-            setFullscreen(task, targetDisplayId);
+            setFullscreen(task, targetDisplayId, preserveFullscreenClient);
         } else {
             setCaptionInsetExcluded(task.taskId, targetDisplayId, !targetFreeform);
         }
@@ -194,10 +193,14 @@ final class ExistingTaskController {
                 displayId, taskId, bounds));
     }
 
-    private static void setFullscreen(final TaskInfo task, final int displayId)
+    private static void setFullscreen(final TaskInfo task, final int displayId,
+            final boolean preserveClient)
             throws IOException {
-        runCommand(TaskRepository.createFullscreenTransitionCommand(
-                displayId, task.taskId));
+        runCommand(preserveClient
+                ? TaskRepository.createClientPreservingFullscreenTransitionCommand(
+                        displayId, task.taskId)
+                : TaskRepository.createFullscreenTransitionCommand(
+                        displayId, task.taskId));
     }
 
     private static void setCaptionInsetExcluded(final int taskId, final int displayId,

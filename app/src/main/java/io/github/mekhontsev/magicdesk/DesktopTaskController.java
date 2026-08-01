@@ -87,6 +87,7 @@ final class DesktopTaskController {
                     }
                 });
         mWindowTransitions = new DesktopWindowTransitionController(
+                mApplicationContext,
                 mHandler,
                 mNativeWindowBounds,
                 new DesktopWindowTransitionController.RuntimeState() {
@@ -130,9 +131,10 @@ final class DesktopTaskController {
                     public void onImmersiveRequest(
                             final int generation,
                             final int taskId,
-                            final boolean requesting) {
+                            final boolean requesting,
+                            final boolean initialSample) {
                         mWindowTransitions.handleImmersiveRequest(
-                                taskId, requesting);
+                                taskId, requesting, initialSample);
                     }
 
                     @Override
@@ -291,6 +293,13 @@ final class DesktopTaskController {
         }
         controller.mHandler.post(() -> controller.handleActiveTaskShortcutInternal(shortcut));
         return true;
+    }
+
+    static void noteManualFreeformTransition(final int taskId) {
+        final DesktopTaskController controller = getActiveController();
+        if (controller != null && controller.mRunning) {
+            controller.mWindowTransitions.noteManualFreeformTransition(taskId);
+        }
     }
 
     static boolean dismissTransientActivity() {

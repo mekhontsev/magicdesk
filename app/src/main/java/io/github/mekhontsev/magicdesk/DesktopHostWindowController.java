@@ -62,7 +62,7 @@ final class DesktopHostWindowController {
                                         + ": " + snapshot.error);
                         return;
                     }
-                    TaskRepository.setFullscreen(task, result ->
+                    TaskRepository.setFullscreen(task, false, result ->
                             mActivity.runOnUiThread(() -> {
                                 if (!isCurrent(generation)) {
                                     return;

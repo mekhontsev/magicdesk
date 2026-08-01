@@ -20,7 +20,8 @@ final class DesktopTaskWatcher {
         boolean isActive(int generation);
         void onReady(int generation);
         void onChanged(int generation);
-        void onImmersiveRequest(int generation, int taskId, boolean requesting);
+        void onImmersiveRequest(int generation, int taskId,
+                boolean requesting, boolean initialSample);
         void onTaskGone(int generation, int taskId);
         void onNativeMaximizeEvent(int generation, String event, int taskId);
         void onDisconnected(int generation);
@@ -183,13 +184,15 @@ final class DesktopTaskWatcher {
             return;
         }
         final String[] fields = line.trim().split("\\s+");
-        if (fields.length == 4 && "immersive-request".equals(fields[0])) {
+        if (fields.length == 5 && "immersive-request".equals(fields[0])) {
             try {
                 final int taskId = Integer.parseInt(fields[1]);
                 final boolean requesting = Integer.parseInt(fields[2]) != 0;
+                final boolean initialSample = Integer.parseInt(fields[4]) != 0;
                 postIfActive(generation, () ->
                         mListener.onImmersiveRequest(
-                                generation, taskId, requesting));
+                                generation, taskId, requesting,
+                                initialSample));
                 return;
             } catch (NumberFormatException e) {
                 Log.w(TAG, "invalid immersive request: " + line, e);

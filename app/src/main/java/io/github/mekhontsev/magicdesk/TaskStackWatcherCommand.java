@@ -305,7 +305,7 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                         HiddenTaskApi.getIntField(task, "taskId");
                 final int visibleTypes = mRequestedVisibleTypes.getInt(task);
                 signalImmersiveRequest(taskId,
-                        isRequestingImmersive(visibleTypes), visibleTypes);
+                        isRequestingImmersive(visibleTypes), visibleTypes, true);
             }
         }
 
@@ -407,11 +407,12 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                 }
                 if (!mHasLastVisibleTypes
                         || mLastVisibleTypes != visibleTypes.intValue()) {
+                    final boolean initialSample = !mHasLastVisibleTypes;
                     mLastVisibleTypes = visibleTypes.intValue();
                     mHasLastVisibleTypes = true;
                     signalImmersiveRequest(taskId,
                             isRequestingImmersive(visibleTypes.intValue()),
-                            visibleTypes.intValue());
+                            visibleTypes.intValue(), initialSample);
                 }
             }
         }
@@ -482,9 +483,11 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         }
 
         private static void signalImmersiveRequest(final int taskId,
-                final boolean requestingImmersive, final int requestedVisibleTypes) {
+                final boolean requestingImmersive, final int requestedVisibleTypes,
+                final boolean initialSample) {
             System.out.println("immersive-request " + taskId + " "
-                    + (requestingImmersive ? 1 : 0) + " " + requestedVisibleTypes);
+                    + (requestingImmersive ? 1 : 0) + " " + requestedVisibleTypes
+                    + " " + (initialSample ? 1 : 0));
             System.out.flush();
         }
     }

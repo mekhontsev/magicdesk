@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.util.Log;
@@ -10,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 final class DesktopWindowTransitionController {
     interface RuntimeState {
@@ -29,6 +31,7 @@ final class DesktopWindowTransitionController {
             "io.github.mekhontsev.magicdesk";
 
     private final Handler mHandler;
+    private final Context mContext;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final RuntimeState mRuntimeState;
     private final Map<Integer, Rect> mRestoreBounds = new HashMap<>();
@@ -38,12 +41,15 @@ final class DesktopWindowTransitionController {
     private final Set<Integer> mAppRequestedFullscreenTasks =
             new HashSet<>();
     private final Set<Integer> mFullscreenTransitionTasks = new HashSet<>();
-    private final Set<Integer> mManualImmersiveOverrides = new HashSet<>();
+    private final Set<Integer> mManualImmersiveOverrides =
+            ConcurrentHashMap.newKeySet();
 
     DesktopWindowTransitionController(
+            final Context context,
             final Handler handler,
             final NativeWindowBoundsController nativeWindowBounds,
             final RuntimeState runtimeState) {
+        mContext = context.getApplicationContext();
         mHandler = handler;
         mNativeWindowBounds = nativeWindowBounds;
         mRuntimeState = runtimeState;
@@ -109,14 +115,29 @@ final class DesktopWindowTransitionController {
 
     void handleImmersiveRequest(
             final int taskId,
-            final boolean requestingImmersive) {
+            final boolean requestingImmersive,
+            final boolean initialSample) {
         final Integer key = Integer.valueOf(taskId);
+        if (initialSample
+                && !mAppRequestedFullscreenTasks.contains(key)) {
+            mImmersiveRequests.remove(key);
+            if (!requestingImmersive) {
+                mManualImmersiveOverrides.remove(key);
+            }
+            return;
+        }
         mImmersiveRequests.put(
                 key, Boolean.valueOf(requestingImmersive));
         if (!requestingImmersive) {
             mManualImmersiveOverrides.remove(key);
         }
         mRuntimeState.scheduleRefresh();
+    }
+
+    void noteManualFreeformTransition(final int taskId) {
+        if (taskId >= 0) {
+            mManualImmersiveOverrides.add(Integer.valueOf(taskId));
+        }
     }
 
     void forgetTaskState(final int taskId) {
@@ -302,7 +323,11 @@ final class DesktopWindowTransitionController {
         if (appRequested) {
             TaskRepository.setAppRequestedFullscreen(task, callback);
         } else {
-            TaskRepository.setFullscreen(task, callback);
+            TaskRepository.setFullscreen(
+                    task,
+                    FullscreenTransitionPolicy.shouldPreserveClient(
+                            mContext, task),
+                    callback);
         }
     }
 
