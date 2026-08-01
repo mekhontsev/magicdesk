@@ -176,6 +176,6 @@ not supported runtime modes:
 
 ## Next Release
 
-- [ ] Choose the next version and increment `versionCode` and `versionName`.
+- [x] Set the next release to `1.1` (`versionCode` 110) in both APK modules.
 - [ ] Install and test the exact signed CI artifact before publishing.
 - [ ] Push only after explicit maintainer approval.

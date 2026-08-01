@@ -16,7 +16,7 @@ REDMAGIC firmware.
 > REDMAGIC hardware. Its Shizuku integration and undocumented vendor interfaces
 > make independent source review especially important.
 
-> **Project status:** MagicDesk 1.0 is under active development. The current
+> **Project status:** MagicDesk 1.1 is under active development. The current
 > firmware verification is limited to the REDMAGIC 11 Pro profile listed below.
 
 ![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
@@ -121,15 +121,31 @@ feature works on different firmware.
 See [Compatibility and issue reports](docs/compatibility.md) before reporting a
 device-specific failure.
 
+### Install and start Shizuku
+
+1. Install Shizuku from the
+   [official GitHub Releases](https://github.com/RikkaApps/Shizuku/releases).
+2. Enable **Developer options** and **Wireless debugging** in Android settings.
+3. In Shizuku, select pairing through Wireless debugging. In Android's
+   **Wireless debugging** screen, choose **Pair device with pairing code**,
+   enter that code through the Shizuku notification, then press **Start** in
+   Shizuku.
+4. Confirm that Shizuku reports a running server before opening MagicDesk.
+   Shizuku must be started again after every reboot.
+
+Use the [official Shizuku setup guide](https://shizuku.rikka.app/guide/setup/)
+for device-specific pairing details. MagicDesk requires the ADB/Wireless
+debugging server running as shell UID 2000; do not use Shizuku's root or Sui
+startup mode.
+
 ## Getting Started
 
-1. Install the official Shizuku application and start its server through
-   wireless debugging or ADB. Do not start Shizuku through a root/Sui backend:
-   MagicDesk requires shell UID 2000.
+1. Complete **Install and start Shizuku** above and confirm that its server is
+   running. Starting it from a computer through ADB is also supported.
 2. Install MagicDesk from a tagged GitHub Release or build it from source.
 3. Launch MagicDesk on the phone and grant its Shizuku request.
-4. Review the four desktop-windowing values proposed by Device Setup and press
-   **Configure**. MagicDesk stores the previous values for later restoration.
+4. Review the Device Setup status and press **Configure**. MagicDesk stores the
+   previous desktop-windowing values for later restoration.
 5. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 6. Launch MagicDesk manually after reboot. It has no boot receiver and starts
@@ -205,9 +221,9 @@ The trust boundaries are deliberately narrow:
 - Shizuku is never downloaded, installed, or started by MagicDesk. The user
   controls the official manager and grants MagicDesk separately.
 - A root/Sui Shizuku service is rejected; only shell UID 2000 is accepted.
-- MagicDesk changes only the four desktop settings shown by Device Setup and
-  stores their previous values for restoration. The REDMAGIC property writer
-  accepts only two hardcoded boolean desktop properties.
+- MagicDesk changes only the four desktop settings documented under Device
+  Setup and stores their previous values for restoration. The REDMAGIC
+  property writer accepts only two hardcoded boolean desktop properties.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every
@@ -297,7 +313,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 
 ## Project
 
-- Version: 1.0
+- Version: 1.1
 - Main package: `io.github.mekhontsev.magicdesk`
 - Optional add-on package: `io.github.mekhontsev.magicdesk.kernel`
 - Minimum SDK: 36
