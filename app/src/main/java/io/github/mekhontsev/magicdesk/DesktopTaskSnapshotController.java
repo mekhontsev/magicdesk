@@ -60,9 +60,7 @@ final class DesktopTaskSnapshotController {
         mWorkspace.syncSnapshot(snapshot);
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
-        if (activeTask != null) {
-            mActivity.setDesktopWindowFocusable(desktopActive);
-        }
+        mActivity.setDesktopWindowFocusable(activeTask == null || desktopActive);
     }
 
     void refresh() {
