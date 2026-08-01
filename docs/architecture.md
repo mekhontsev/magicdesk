@@ -389,6 +389,18 @@ written through the firmware's `redmagic.app.manager` Binder from the ordinary
 APK UID. `NubiaDesktopPropertyManager` exposes a closed enum, permits only
 boolean/absent values, verifies every write, and stores original values.
 
+Normal first-run UI exposes only the next required user action: start Shizuku,
+grant MagicDesk through Shizuku, prepare the device, restart, or start
+MagicDesk. Display selection, individual setting values, firmware identity,
+Diagnostics, and restoration remain in the manually opened **Device setup**
+screen.
+
+At the final start step, MagicDesk uses its already-authorized shell service to
+set `SYSTEM_ALERT_WINDOW` for the fixed MagicDesk package and verifies the
+result through `Settings.canDrawOverlays()`. No package name or operation comes
+from user input. Android's public permission screen is offered only when this
+bounded operation fails, and the failure is recorded as `OVERLAY-002`.
+
 The boot ID marks configuration that still requires reboot. MagicDesk never
 reboots automatically and has no boot receiver. A successful audit after boot
 enters the control panel without flashing setup UI.
