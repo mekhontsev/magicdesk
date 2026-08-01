@@ -17,7 +17,7 @@ final class FloatingWindowController {
     }
 
     static Rect getDisplayBounds(final int displayId) throws IOException {
-        final String output = runRootCommand(CMD + " display get-displays");
+        final String output = runCommand(CMD + " display get-displays");
         final String[] lines = output.split("\\r?\\n");
         for (final String line : lines) {
             final Matcher matcher = DISPLAY_SIZE_PATTERN.matcher(line);
@@ -47,7 +47,7 @@ final class FloatingWindowController {
         return new Rect(left, top, left + width, top + height);
     }
 
-    private static String runRootCommand(final String command) throws IOException {
+    private static String runCommand(final String command) throws IOException {
         return PrivilegedCommandRunner.run(command);
     }
 }

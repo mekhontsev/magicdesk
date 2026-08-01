@@ -20,17 +20,12 @@ final class NativeDesktopController {
     }
 
     static boolean shouldUse() {
-        final boolean rootCommands = RuntimeAccess.allowsRootCommands();
-        final boolean shizukuCommands = RuntimeAccess.allowsShizukuCommands();
-        final boolean available = (rootCommands || shizukuCommands) && isAvailable();
-        return shouldUse(rootCommands, shizukuCommands, available);
+        return RuntimeAccess.allowsShizukuCommands() && isAvailable();
     }
 
-    static boolean shouldUse(
-            final boolean rootCommands,
-            final boolean shizukuCommands,
+    static boolean shouldUse(final boolean shizukuCommands,
             final boolean available) {
-        return (rootCommands || shizukuCommands) && available;
+        return shizukuCommands && available;
     }
 
     static synchronized boolean isAvailable() {
@@ -38,7 +33,7 @@ final class NativeDesktopController {
             return true;
         }
         try {
-            final String output = runRootCommand(HELP);
+            final String output = runCommand(HELP);
             sAvailable = Boolean.valueOf(
                     output.contains(DESKTOPMODE_HELP_ENTRY)
                             && output.contains(MOVE_TASK_HELP_ENTRY));
@@ -60,7 +55,7 @@ final class NativeDesktopController {
             throw new IOException("invalid task id");
         }
         requireAvailable();
-        final String output = runRootCommand(MOVE_TASK_TO_DESK + taskId).trim();
+        final String output = runCommand(MOVE_TASK_TO_DESK + taskId).trim();
         if (output.startsWith("Error:")
                 || output.startsWith("Invalid command:")
                 || output.startsWith("Not supported.")) {
@@ -69,7 +64,7 @@ final class NativeDesktopController {
         Log.i(TAG, "requested native desktop mode task=" + taskId);
     }
 
-    private static String runRootCommand(final String command) throws IOException {
+    private static String runCommand(final String command) throws IOException {
         return PrivilegedCommandRunner.run(command);
     }
 

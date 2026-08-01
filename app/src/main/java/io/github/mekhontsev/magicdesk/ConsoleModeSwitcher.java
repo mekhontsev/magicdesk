@@ -13,15 +13,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ConsoleModeSwitcher {
     private static final String TAG = "MagicDeskConsoleSwitcher";
-    private static final String CONSOLE_CONTROL_COMMAND =
-            "io.github.mekhontsev.magicdesk.ConsoleControlCommand";
     private static final String CONSOLE_TASK_RETURN_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleTaskReturnCommand";
     private static final String DEVICE_LOCK_COMMAND =
             "io.github.mekhontsev.magicdesk.DeviceLockCommand";
     private static final String SCREENSHOT_DIRECTORY =
             "/storage/emulated/0/Pictures/Screenshots";
-    private static final ConsoleRootShell ROOT_SHELL = new ConsoleRootShell();
     private static final AtomicBoolean DESKTOP_START_IN_PROGRESS = new AtomicBoolean();
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
@@ -52,72 +49,25 @@ final class ConsoleModeSwitcher {
             public void run() {
                 boolean success = false;
                 try {
-                    if (RuntimeAccess.allowsShizukuCommands()
-                            && !RuntimeAccess.allowsRootCommands()) {
-                        success = screenOff
-                                ? ShizukuPhoneDisplayGuard.enable()
-                                : ShizukuPhoneDisplayGuard.disable();
-                        Log.i(TAG, "Shizuku phone display off="
-                                + screenOff + " success=" + success);
-                        if (!success) {
-                            CompatibilityDiagnostics.record(
-                                    "NUBIA-SCREEN-002",
-                                    "Could not change the phone screen state",
-                                    "backend=" + RuntimeAccess.backendName()
-                                            + " screenOff=" + screenOff);
-                        }
-                        return;
-                    }
-                    boolean proxySuccess = true;
-                    if (RuntimeAccess.has(
-                            RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD)) {
-                        proxySuccess = NubiaTouchpadController
-                                .setMirrorInputProxyEnabledInternal(
-                                        !screenOff);
-                    }
-                    if (screenOff && !proxySuccess) {
-                        Log.w(TAG, "phone screen will remain on because the Nubia input "
-                                + "proxy could not be disabled");
-                        CompatibilityDiagnostics.record(
-                                "NUBIA-SCREEN-001",
-                                "Could not disable the Nubia input proxy",
-                                "The phone screen cannot be dimmed safely");
-                        return;
-                    }
-                    final String command = AppProcessCommand.run(
-                            CONSOLE_CONTROL_COMMAND,
-                            "phone-screen " + screenOff);
-                    final String output = runConsoleCommand(command).trim();
-                    success = proxySuccess
-                            && output.contains("phone-screen=" + screenOff);
-                    Log.i(TAG, "phone screen off=" + screenOff + " output=" + output);
+                    success = screenOff
+                            ? ShizukuPhoneDisplayGuard.enable()
+                            : ShizukuPhoneDisplayGuard.disable();
+                    Log.i(TAG, "Shizuku phone display off="
+                            + screenOff + " success=" + success);
                     if (!success) {
                         CompatibilityDiagnostics.record(
                                 "NUBIA-SCREEN-002",
                                 "Could not change the phone screen state",
                                 "backend=" + RuntimeAccess.backendName()
-                                        + " screenOff=" + screenOff
-                                        + " output=" + output);
+                                        + " screenOff=" + screenOff);
                     }
                 } finally {
-                    closeRootShell();
                     if (callback != null) {
                         callback.onComplete(success);
                     }
                 }
             }
         });
-    }
-
-    static void setMirrorInputProxyEnabled(final boolean enabled) {
-        setMirrorInputProxyEnabled(enabled, null);
-    }
-
-    static void setMirrorInputProxyEnabled(
-            final boolean enabled,
-            final ResultCallback callback) {
-        NubiaTouchpadController.setMirrorInputProxyEnabled(
-                enabled, callback);
     }
 
     static void showMagicDesk() {
@@ -133,16 +83,9 @@ final class ConsoleModeSwitcher {
             @Override
             public void run() {
                 try {
-                    if (RuntimeAccess.allowsShizukuCommands()
-                            && !RuntimeAccess.allowsRootCommands()) {
-                        ConsoleSessionController.showWithShizuku(
-                                knownConsoleDisplayId);
-                    } else {
-                        ConsoleSessionController.showWithRoot();
-                    }
+                    ConsoleSessionController.show(knownConsoleDisplayId);
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);
-                    closeRootShell();
                 }
             }
         });
@@ -173,12 +116,8 @@ final class ConsoleModeSwitcher {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                try {
-                    ConsoleSessionController
-                            .setExternalTaskCaptionsEnabled(enabled);
-                } finally {
-                    closeRootShell();
-                }
+                ConsoleSessionController
+                        .setExternalTaskCaptionsEnabled(enabled);
             }
         });
     }
@@ -214,7 +153,6 @@ final class ConsoleModeSwitcher {
                     }
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);
-                    closeRootShell();
                     if (callback != null) {
                         callback.onComplete(success);
                     }
@@ -245,7 +183,6 @@ final class ConsoleModeSwitcher {
                 } catch (IOException error) {
                     Log.w(TAG, "Console task return failed", error);
                 } finally {
-                    closeRootShell();
                     if (callback != null) {
                         callback.onComplete(success);
                     }
@@ -293,16 +230,12 @@ final class ConsoleModeSwitcher {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                try {
-                    final String output = runConsoleCommand(
-                            AppProcessCommand.run(
-                                    DEVICE_LOCK_COMMAND)).trim();
-                    if (!output.contains("device-locked")) {
-                        Log.w(TAG, "device lock shortcut failed output="
-                                + output.replace('\n', ' '));
-                    }
-                } finally {
-                    closeRootShell();
+                final String output = runConsoleCommand(
+                        AppProcessCommand.run(
+                                DEVICE_LOCK_COMMAND)).trim();
+                if (!output.contains("device-locked")) {
+                    Log.w(TAG, "device lock shortcut failed output="
+                            + output.replace('\n', ' '));
                 }
             }
         });
@@ -335,11 +268,7 @@ final class ConsoleModeSwitcher {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                try {
-                    captureScreenshotInternal();
-                } finally {
-                    closeRootShell();
-                }
+                captureScreenshotInternal();
             }
         });
     }
@@ -404,18 +333,7 @@ final class ConsoleModeSwitcher {
         }
     }
 
-    static void closeRootShell() {
-        ROOT_SHELL.close();
-    }
-
-    static String runRootCommand(final String command) {
-        return ROOT_SHELL.run(command);
-    }
-
     static String runConsoleCommand(final String command) {
-        if (RuntimeAccess.allowsRootCommands()) {
-            return runRootCommand(command);
-        }
         if (!RuntimeAccess.allowsShizukuCommands()) {
             return "";
         }

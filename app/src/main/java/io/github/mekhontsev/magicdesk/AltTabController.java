@@ -58,7 +58,7 @@ final class AltTabController {
                         return;
                     }
                     mLoadInProgress = false;
-                    if (!snapshot.rootAvailable) {
+                    if (!snapshot.available) {
                         reset();
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_switch_failed,

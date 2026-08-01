@@ -19,11 +19,7 @@ final class RedmagicHardwareController {
         SYSTEM,
         OFF,
         AUTO,
-        LEVEL_1,
-        LEVEL_2,
-        LEVEL_3,
-        LEVEL_4,
-        LEVEL_5
+        EXTREME
     }
 
     enum PumpMode {
@@ -44,15 +40,6 @@ final class RedmagicHardwareController {
 
     private static final String TAG = "MagicDeskHardware";
     private static final String PREFS = "magicdesk_redmagic_hardware";
-    private static final String LEGACY_OWNER_ACTIVE = "owner_active";
-    private static final String OWNER_FAN_ACTIVE = "owner_fan_active";
-    private static final String OWNER_PUMP_ACTIVE = "owner_pump_active";
-    private static final String BASELINE_FAN_ENABLE = "baseline_fan_enable";
-    private static final String BASELINE_FAN_LEVEL = "baseline_fan_level";
-    private static final String BASELINE_PUMP_ENABLE = "baseline_pump_enable";
-    private static final String BASELINE_PUMP_FREQUENCY =
-            "baseline_pump_frequency";
-    private static final String BASELINE_PUMP_SPEED = "baseline_pump_speed";
     private static final String OWNER_VENDOR_FAN_ACTIVE =
             "owner_vendor_fan_active";
     private static final String OWNER_VENDOR_PUMP_ACTIVE =
@@ -68,18 +55,6 @@ final class RedmagicHardwareController {
     private static final String ABSENT_SETTING = "__magicdesk_absent__";
     private static final long POLL_SECONDS = 4;
 
-    private static final String FAN_ENABLE =
-            "/sys/kernel/fan/fan_enable";
-    private static final String FAN_LEVEL =
-            "/sys/kernel/fan/fan_speed_level";
-    private static final String FAN_RPM =
-            "/sys/kernel/fan/fan_speed_count";
-    private static final String PUMP_ENABLE =
-            "/proc/driver/micropump/enable";
-    private static final String PUMP_FREQUENCY =
-            "/proc/driver/micropump/freq";
-    private static final String PUMP_SPEED =
-            "/proc/driver/micropump/speed";
     private static final String VENDOR_FAN_MANUAL = "fan_state_of_manual";
     private static final String VENDOR_FAN_MODE = "fan_state_of_mode";
     private static final String VENDOR_FAN_EFFECTIVE = "game_fan_off_on";
@@ -91,7 +66,6 @@ final class RedmagicHardwareController {
             "liquid_cooling_off_on";
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final ConsoleRootShell ROOT_SHELL = new ConsoleRootShell();
     private static final Object CONTROL_LOCK = new Object();
     private static final Set<Listener> LISTENERS =
             new CopyOnWriteArraySet<>();
@@ -103,7 +77,6 @@ final class RedmagicHardwareController {
     private static volatile FanMode sFanMode = FanMode.SYSTEM;
     private static volatile PumpMode sPumpMode = PumpMode.SYSTEM;
     private static volatile boolean sStopping;
-    private static int sAppliedAutoLevel = -1;
 
     private RedmagicHardwareController() {
     }
@@ -149,8 +122,6 @@ final class RedmagicHardwareController {
         }
         sFanMode = FanMode.SYSTEM;
         sPumpMode = PumpMode.SYSTEM;
-        sAppliedAutoLevel = -1;
-        ROOT_SHELL.close();
         sSnapshot = RedmagicHardwareSnapshot.UNAVAILABLE;
         notifyListeners();
         sContext = null;
@@ -188,11 +159,9 @@ final class RedmagicHardwareController {
             return;
         }
         executor.execute(() -> {
-            final RedmagicHardwareSnapshot snapshot = usesVendorControl()
-                    ? sSnapshot : readSnapshot();
             final boolean success;
             synchronized (CONTROL_LOCK) {
-                success = !sStopping && applyFanMode(mode, snapshot);
+                success = !sStopping && applyFanMode(mode);
             }
             complete(callback, success);
         });
@@ -206,11 +175,9 @@ final class RedmagicHardwareController {
             return;
         }
         executor.execute(() -> {
-            final RedmagicHardwareSnapshot snapshot = usesVendorControl()
-                    ? sSnapshot : readSnapshot();
             final boolean success;
             synchronized (CONTROL_LOCK) {
-                success = !sStopping && applyPumpMode(mode, snapshot);
+                success = !sStopping && applyPumpMode(mode);
             }
             complete(callback, success);
         });
@@ -230,7 +197,6 @@ final class RedmagicHardwareController {
             if (success) {
                 sFanMode = FanMode.SYSTEM;
                 sPumpMode = PumpMode.SYSTEM;
-                sAppliedAutoLevel = -1;
                 pollInternal();
             }
             complete(callback, success);
@@ -239,7 +205,6 @@ final class RedmagicHardwareController {
 
     private static void recoverBaselineIfNeeded() {
         synchronized (CONTROL_LOCK) {
-            migrateLegacyOwnership();
             if (hasOwnedState()) {
                 Log.w(TAG,
                         "recovering hardware state left by an interrupted session");
@@ -251,94 +216,15 @@ final class RedmagicHardwareController {
     private static void pollInternal() {
         final RedmagicHardwareSnapshot snapshot = readSnapshot();
         sSnapshot = snapshot;
-        if (hasDirectControlCapability()
-                && sFanMode == FanMode.AUTO && snapshot.fanAvailable) {
-            final int currentLevel = sAppliedAutoLevel >= 0
-                    ? sAppliedAutoLevel
-                    : (snapshot.fanEnabled == 1 ? snapshot.fanLevel : 0);
-            final int targetLevel = RedmagicFanCurve.levelFor(
-                    snapshot.controlTemperatureMilliCelsius(), currentLevel);
-            synchronized (CONTROL_LOCK) {
-                if (!sStopping && RedmagicFanCurve.needsApply(
-                                targetLevel,
-                                sAppliedAutoLevel,
-                                snapshot.fanEnabled,
-                                snapshot.fanLevel)
-                        && applyFanLevel(targetLevel)) {
-                    sAppliedAutoLevel = targetLevel;
-                    sSnapshot = readSnapshot();
-                }
-            }
-        }
         notifyListeners();
     }
 
-    private static boolean applyFanMode(
-            final FanMode mode,
-            final RedmagicHardwareSnapshot snapshot) {
-        if (usesVendorControl()) {
-            return applyVendorFanMode(mode);
-        }
-        if (!snapshot.fanAvailable) {
-            return false;
-        }
-        final boolean success;
-        if (mode == FanMode.SYSTEM) {
-            success = restoreOwnedFanState();
-        } else if (!captureFanBaseline(snapshot)) {
-            success = false;
-        } else if (mode == FanMode.OFF) {
-            success = writeInteger(FAN_ENABLE, 0);
-        } else if (mode == FanMode.AUTO) {
-            final int level = RedmagicFanCurve.levelFor(
-                    snapshot.controlTemperatureMilliCelsius(),
-                    snapshot.fanEnabled == 1 ? snapshot.fanLevel : 0);
-            success = applyFanLevel(level);
-            if (success) {
-                sAppliedAutoLevel = level;
-            }
-        } else {
-            success = applyFanLevel(
-                    mode.ordinal() - FanMode.LEVEL_1.ordinal() + 1);
-        }
-        if (success) {
-            sFanMode = mode;
-            if (mode != FanMode.AUTO) {
-                sAppliedAutoLevel = -1;
-            }
-            pollInternal();
-        }
-        return success;
+    private static boolean applyFanMode(final FanMode mode) {
+        return applyVendorFanMode(mode);
     }
 
-    private static boolean applyPumpMode(
-            final PumpMode mode,
-            final RedmagicHardwareSnapshot snapshot) {
-        if (usesVendorControl()) {
-            return applyVendorPumpMode(mode);
-        }
-        if (!snapshot.pumpAvailable) {
-            return false;
-        }
-        final boolean success;
-        if (mode == PumpMode.SYSTEM) {
-            success = restoreOwnedPumpState();
-        } else if (!capturePumpBaseline(snapshot)) {
-            success = false;
-        } else if (mode == PumpMode.OFF) {
-            success = writeInteger(PUMP_ENABLE, 0);
-        } else {
-            final int speed = mode == PumpMode.SLOW
-                    ? 40 : (mode == PumpMode.MEDIUM ? 60 : 80);
-            success = writeInteger(PUMP_FREQUENCY, 4)
-                    && writeInteger(PUMP_SPEED, speed)
-                    && writeInteger(PUMP_ENABLE, 1);
-        }
-        if (success) {
-            sPumpMode = mode;
-            pollInternal();
-        }
-        return success;
+    private static boolean applyPumpMode(final PumpMode mode) {
+        return applyVendorPumpMode(mode);
     }
 
     private static boolean applyVendorFanMode(final FanMode mode) {
@@ -366,7 +252,6 @@ final class RedmagicHardwareController {
         }
         if (success) {
             sFanMode = mode;
-            sAppliedAutoLevel = -1;
             notifyListeners();
         }
         return success;
@@ -409,20 +294,7 @@ final class RedmagicHardwareController {
                 + "t=$(tr -d '\\r\\n' < \"$z/type\"); "
                 + "v=$(tr -d '\\r\\n' < \"$z/temp\"); "
                 + "printf 'thermal=%s|%s\\n' \"$t\" \"$v\"; done";
-        if (usesVendorControl()) {
-            monitoringCommand += vendorMonitoringCommand();
-        }
-        if (RuntimeAccess.allowsRootCommands()) {
-            final String command =
-                    readNodeCommand("fan_enable", FAN_ENABLE)
-                    + readNodeCommand("fan_level", FAN_LEVEL)
-                    + readNodeCommand("fan_rpm", FAN_RPM)
-                    + readNodeCommand("pump_enable", PUMP_ENABLE)
-                    + readNodeCommand("pump_frequency", PUMP_FREQUENCY)
-                    + readNodeCommand("pump_speed", PUMP_SPEED)
-                    + monitoringCommand;
-            return RedmagicHardwareSnapshot.parse(ROOT_SHELL.run(command));
-        }
+        monitoringCommand += vendorMonitoringCommand();
         try {
             return RedmagicHardwareSnapshot.parse(
                     PrivilegedCommandRunner.run(monitoringCommand));
@@ -437,22 +309,11 @@ final class RedmagicHardwareController {
         }
     }
 
-    private static String readNodeCommand(
-            final String key, final String path) {
-        return "if [ -r " + path + " ]; then "
-                + "v=$(tr -d '\\r\\n' < " + path + "); "
-                + "printf 'node." + key + "=%s\\n' \"$v\"; fi; ";
-    }
-
     private static String vendorMonitoringCommand() {
         return "; fe=$(/system/bin/settings get global "
                 + VENDOR_FAN_EFFECTIVE + "); "
                 + "case \"$fe\" in 0|1) "
-                + "printf 'node.fan_enable=%s\\n' \"$fe\"; "
-                + "fm=$(/system/bin/settings get system "
-                + VENDOR_FAN_MODE + "); "
-                + "[ \"$fm\" = 0 ] && fl=5 || fl=2; "
-                + "printf 'node.fan_level=%s\\n' \"$fl\";; esac; "
+                + "printf 'node.fan_enable=%s\\n' \"$fe\";; esac; "
                 + "pe=$(/system/bin/settings get system "
                 + VENDOR_PUMP_EFFECTIVE + "); "
                 + "case \"$pe\" in 0|1) "
@@ -460,35 +321,8 @@ final class RedmagicHardwareController {
                 + "pf=$(/system/bin/settings get system "
                 + VENDOR_PUMP_FLOW + "); "
                 + "case \"$pf\" in low) ps=60;; mid) ps=70;; *) ps=80;; esac; "
-                + "printf 'node.pump_frequency=4\\nnode.pump_speed=%s\\n' "
+                + "printf 'node.pump_speed=%s\\n' "
                 + "\"$ps\";; esac; ";
-    }
-
-    private static boolean captureFanBaseline(
-            final RedmagicHardwareSnapshot snapshot) {
-        final SharedPreferences preferences = preferences();
-        if (preferences.getBoolean(OWNER_FAN_ACTIVE, false)) {
-            return true;
-        }
-        return preferences.edit()
-                .putInt(BASELINE_FAN_ENABLE, snapshot.fanEnabled)
-                .putInt(BASELINE_FAN_LEVEL, snapshot.fanLevel)
-                .putBoolean(OWNER_FAN_ACTIVE, true)
-                .commit();
-    }
-
-    private static boolean capturePumpBaseline(
-            final RedmagicHardwareSnapshot snapshot) {
-        final SharedPreferences preferences = preferences();
-        if (preferences.getBoolean(OWNER_PUMP_ACTIVE, false)) {
-            return true;
-        }
-        return preferences.edit()
-                .putInt(BASELINE_PUMP_ENABLE, snapshot.pumpEnabled)
-                .putInt(BASELINE_PUMP_FREQUENCY, snapshot.pumpFrequency)
-                .putInt(BASELINE_PUMP_SPEED, snapshot.pumpSpeed)
-                .putBoolean(OWNER_PUMP_ACTIVE, true)
-                .commit();
     }
 
     private static boolean captureVendorFanBaseline() {
@@ -530,18 +364,13 @@ final class RedmagicHardwareController {
     }
 
     private static boolean restoreBaselineIfOwned() {
-        migrateLegacyOwnership();
-        final boolean fan = !hasDirectControlCapability()
-                || restoreOwnedFanState();
-        final boolean pump = !hasDirectControlCapability()
-                || restoreOwnedPumpState();
         final boolean vendorFan = !RuntimeAccess.has(
                 RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
                 || restoreVendorFanState();
         final boolean vendorPump = !RuntimeAccess.has(
                 RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
                 || restoreVendorPumpState();
-        return fan && pump && vendorFan && vendorPump;
+        return vendorFan && vendorPump;
     }
 
     private static boolean restoreVendorFanState() {
@@ -608,59 +437,8 @@ final class RedmagicHardwareController {
                 .commit();
     }
 
-    private static boolean restoreOwnedFanState() {
-        if (!isFanOwned()) {
-            return true;
-        }
-        if (!restoreFanBaseline()) {
-            CompatibilityDiagnostics.record(
-                    "REDMAGIC-HW-RESTORE-001",
-                    "Could not restore REDMAGIC fan state",
-                    "fan=false");
-            return false;
-        }
-        return preferences().edit()
-                .remove(OWNER_FAN_ACTIVE)
-                .remove(BASELINE_FAN_ENABLE)
-                .remove(BASELINE_FAN_LEVEL)
-                .remove(LEGACY_OWNER_ACTIVE)
-                .commit();
-    }
-
-    private static boolean restoreOwnedPumpState() {
-        if (!isPumpOwned()) {
-            return true;
-        }
-        if (!restorePumpBaseline()) {
-            CompatibilityDiagnostics.record(
-                    "REDMAGIC-HW-RESTORE-001",
-                    "Could not restore REDMAGIC pump state",
-                    "pump=false");
-            return false;
-        }
-        return preferences().edit()
-                .remove(OWNER_PUMP_ACTIVE)
-                .remove(BASELINE_PUMP_ENABLE)
-                .remove(BASELINE_PUMP_FREQUENCY)
-                .remove(BASELINE_PUMP_SPEED)
-                .remove(LEGACY_OWNER_ACTIVE)
-                .commit();
-    }
-
-    private static boolean isFanOwned() {
-        return preferences().getBoolean(OWNER_FAN_ACTIVE, false);
-    }
-
-    private static boolean isPumpOwned() {
-        return preferences().getBoolean(OWNER_PUMP_ACTIVE, false);
-    }
-
     private static boolean hasOwnedState() {
         final SharedPreferences preferences = preferences();
-        if (RuntimeAccess.allowsRootCommands()
-                && (isFanOwned() || isPumpOwned())) {
-            return true;
-        }
         return RuntimeAccess.has(
                 RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)
                 && (preferences.getBoolean(
@@ -669,21 +447,9 @@ final class RedmagicHardwareController {
                                 OWNER_VENDOR_PUMP_ACTIVE, false));
     }
 
-    private static boolean hasDirectControlCapability() {
-        return RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_CONTROL);
-    }
-
     private static boolean hasAnyControlCapability() {
-        return hasDirectControlCapability()
-                || RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
-    }
-
-    private static boolean usesVendorControl() {
-        return !hasDirectControlCapability()
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+        return RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
     }
 
     private static String readVendorSettings(
@@ -809,81 +575,6 @@ final class RedmagicHardwareController {
                 "Could not restore REDMAGIC vendor hardware state",
                 "component=" + component
                         + " backend=" + RuntimeAccess.backendName());
-    }
-
-    private static void migrateLegacyOwnership() {
-        final SharedPreferences preferences = preferences();
-        if (!preferences.getBoolean(LEGACY_OWNER_ACTIVE, false)) {
-            return;
-        }
-        final SharedPreferences.Editor editor = preferences.edit();
-        if (preferences.contains(BASELINE_FAN_ENABLE)) {
-            editor.putBoolean(OWNER_FAN_ACTIVE, true);
-        }
-        if (preferences.contains(BASELINE_PUMP_ENABLE)) {
-            editor.putBoolean(OWNER_PUMP_ACTIVE, true);
-        }
-        editor.remove(LEGACY_OWNER_ACTIVE).commit();
-    }
-
-    private static boolean restoreFanBaseline() {
-        final SharedPreferences preferences = preferences();
-        if (!preferences.contains(BASELINE_FAN_ENABLE)) {
-            return true;
-        }
-        final int enabled = preferences.getInt(BASELINE_FAN_ENABLE, 0);
-        final int level = preferences.getInt(BASELINE_FAN_LEVEL, 0);
-        return writeInteger(FAN_LEVEL, level)
-                && writeInteger(FAN_ENABLE, enabled);
-    }
-
-    private static boolean restorePumpBaseline() {
-        final SharedPreferences preferences = preferences();
-        if (!preferences.contains(BASELINE_PUMP_ENABLE)) {
-            return true;
-        }
-        final int enabled = preferences.getInt(BASELINE_PUMP_ENABLE, 0);
-        final int frequency = preferences.getInt(
-                BASELINE_PUMP_FREQUENCY, 4);
-        final int speed = preferences.getInt(BASELINE_PUMP_SPEED, 80);
-        return writeInteger(PUMP_FREQUENCY, frequency)
-                && writeInteger(PUMP_SPEED, speed)
-                && writeInteger(PUMP_ENABLE, enabled);
-    }
-
-    private static boolean applyFanLevel(final int level) {
-        if (level < 0 || level > 5) {
-            return false;
-        }
-        if (level == 0) {
-            return writeInteger(FAN_ENABLE, 0);
-        }
-        return writeInteger(FAN_LEVEL, level)
-                && writeInteger(FAN_ENABLE, 1);
-    }
-
-    private static boolean writeInteger(final String path, final int value) {
-        if (!isKnownWritablePath(path)) {
-            return false;
-        }
-        final String output = ROOT_SHELL.run(
-                "printf '%d' " + value + " > " + path
-                        + " && printf 'write=ok\\n'");
-        final boolean success = output.contains("write=ok");
-        if (!success) {
-            CompatibilityDiagnostics.record(
-                    "REDMAGIC-HW-WRITE-001",
-                    "A REDMAGIC hardware control write failed",
-                    "path=" + path + " value=" + value);
-        }
-        return success;
-    }
-
-    private static boolean isKnownWritablePath(final String path) {
-        return FAN_ENABLE.equals(path) || FAN_LEVEL.equals(path)
-                || PUMP_ENABLE.equals(path)
-                || PUMP_FREQUENCY.equals(path)
-                || PUMP_SPEED.equals(path);
     }
 
     private static SharedPreferences preferences() {

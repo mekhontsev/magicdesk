@@ -17,10 +17,7 @@ final class ConsoleDisplayController {
     private static final String WM = "/system/bin/wm";
     private static final String CONSOLE_DISPLAY_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
-    private static final long LANDSCAPE_APPLY_TIMEOUT_MS = 2_000L;
     private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
-    private static final Pattern DISPLAY_REAL_SIZE_PATTERN =
-            Pattern.compile("Display id (\\d+): .* real (\\d+) x (\\d+),");
     private static final Pattern EXTERNAL_PHYSICAL_DISPLAY_PATTERN =
             Pattern.compile("type EXTERNAL,.*?uniqueId \"local:([0-9]+)\"");
     private static final Pattern WM_SIZE_PATTERN =
@@ -119,49 +116,6 @@ final class ConsoleDisplayController {
         return false;
     }
 
-    static void ensureLandscape(final int displayId) {
-        final int[] size = getDisplaySize(displayId);
-        if (size == null) {
-            Log.w(TAG, "cannot read Console display size display=" + displayId);
-            return;
-        }
-        if (size[0] >= size[1]) {
-            Log.i(TAG, "Console display is landscape display=" + displayId
-                    + " size=" + size[0] + "x" + size[1]);
-            return;
-        }
-
-        final int targetWidth = size[1];
-        final int targetHeight = size[0];
-        Log.i(TAG, "force Console display landscape display=" + displayId
-                + " size=" + size[0] + "x" + size[1]
-                + " target=" + targetWidth + "x" + targetHeight);
-        runCommand(
-                WM + " size " + targetWidth + "x" + targetHeight
-                        + " -d " + displayId);
-
-        final long deadline =
-                SystemClock.uptimeMillis() + LANDSCAPE_APPLY_TIMEOUT_MS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            final int[] currentSize = getDisplaySize(displayId);
-            if (currentSize != null
-                    && currentSize[0] == targetWidth
-                    && currentSize[1] == targetHeight) {
-                Log.i(TAG, "Console display landscape applied display="
-                        + displayId);
-                return;
-            }
-            SystemClock.sleep(STATE_POLL_MS);
-        }
-        Log.w(TAG, "Console display landscape was not applied display="
-                + displayId + " target=" + targetWidth + "x" + targetHeight);
-        CompatibilityDiagnostics.record(
-                "NUBIA-DISPLAY-001",
-                "Console display stayed in the wrong orientation",
-                "display=" + displayId + " target="
-                        + targetWidth + "x" + targetHeight);
-    }
-
     static void applyStartupDensity(final int displayId, final int dpi) {
         final String command = dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI
                 ? WM + " density reset -d " + displayId
@@ -189,7 +143,7 @@ final class ConsoleDisplayController {
                 + displayId + " dpi=" + dpi);
     }
 
-    static void ensureLandscapeWithShizuku(final int displayId)
+    static void ensureLandscape(final int displayId)
             throws IOException {
         final String output = PrivilegedCommandRunner.run(
                 WM + " size -d " + displayId);
@@ -223,28 +177,6 @@ final class ConsoleDisplayController {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private static int[] getDisplaySize(final int displayId) {
-        final String output = runCommand(
-                DISPLAY + " get-displays");
-        for (final String line : output.split("\\r?\\n")) {
-            final Matcher matcher = DISPLAY_REAL_SIZE_PATTERN.matcher(line);
-            if (!matcher.find()) {
-                continue;
-            }
-            try {
-                if (Integer.parseInt(matcher.group(1)) == displayId) {
-                    return new int[] {
-                            Integer.parseInt(matcher.group(2)),
-                            Integer.parseInt(matcher.group(3))
-                    };
-                }
-            } catch (NumberFormatException ignored) {
-                // Continue past malformed vendor diagnostics.
-            }
-        }
-        return null;
-    }
-
     private static int getMirrorDisplayId() {
         final String output = runCommand(
                 SETTINGS + " get global app_mirror_displayid");
@@ -257,9 +189,6 @@ final class ConsoleDisplayController {
     }
 
     private static String runCommand(final String command) {
-        if (RuntimeAccess.allowsRootCommands()) {
-            return ConsoleModeSwitcher.runRootCommand(command);
-        }
         if (!RuntimeAccess.allowsShizukuCommands()) {
             return "";
         }

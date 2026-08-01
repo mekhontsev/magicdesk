@@ -6,7 +6,7 @@ import android.os.IBinder;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-/** Invokes Nubia's vendor display command from the root app_process context. */
+/** Invokes Nubia's vendor display command from a shell-UID app_process. */
 public final class ConsoleDisplayCommand {
     private static final int CMD_MIRROR = 0;
     private static final int CMD_EXPAND = 1;

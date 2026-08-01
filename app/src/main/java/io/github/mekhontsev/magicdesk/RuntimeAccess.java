@@ -2,15 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 
-import java.io.IOException;
 import java.util.EnumSet;
 
 final class RuntimeAccess {
     enum Backend {
-        BASIC,
-        SHIZUKU_SHELL,
-        SHIZUKU_ROOT,
-        ROOT
+        UNAVAILABLE,
+        SHIZUKU
     }
 
     enum Capability {
@@ -25,36 +22,31 @@ final class RuntimeAccess {
         DISPLAY_OVERRIDES,
         EXTERNAL_CAPTION_VISIBILITY,
         PHONE_SCREEN_CONTROL,
-        PHONE_SCREEN_WAKE_GUARD,
         DEVICE_LOCK,
         SCREENSHOT,
         SYSTEM_WALLPAPER_READ,
         CHARGE_SEPARATION,
         HARDWARE_MONITORING,
-        HARDWARE_VENDOR_CONTROL,
-        HARDWARE_CONTROL,
-        KERNEL_FIXES
+        HARDWARE_VENDOR_CONTROL
     }
 
     private static volatile SessionProfile sProfile =
-            new SessionProfile(
-                    SessionProfile.PrivilegeMode.AUTO,
-                    SessionProfile.DisplayTarget.AUTO);
-    private static volatile Backend sBackend = Backend.BASIC;
+            new SessionProfile(SessionProfile.DisplayTarget.AUTO);
+    private static volatile Backend sBackend = Backend.UNAVAILABLE;
 
     private RuntimeAccess() {
     }
 
     static void initialize(final Context context) {
         sProfile = SessionProfile.load(context);
-        sBackend = Backend.BASIC;
+        sBackend = Backend.UNAVAILABLE;
     }
 
     static void configure(
             final SessionProfile profile,
             final Backend backend) {
         sProfile = profile == null ? sProfile : profile;
-        sBackend = backend == null ? Backend.BASIC : backend;
+        sBackend = backend == null ? Backend.UNAVAILABLE : backend;
     }
 
     static SessionProfile profile() {
@@ -69,43 +61,22 @@ final class RuntimeAccess {
         return capabilitiesFor(sBackend).contains(capability);
     }
 
-    static boolean allowsRootCommands() {
-        return sBackend == Backend.ROOT;
-    }
-
     static boolean allowsShizukuCommands() {
-        return sBackend == Backend.SHIZUKU_SHELL
-                || sBackend == Backend.SHIZUKU_ROOT;
-    }
-
-    static void requireRootCommands(final String operation) throws IOException {
-        if (!allowsRootCommands()) {
-            throw new IOException(
-                    operation + " requires the Root runtime backend; active backend is "
-                            + backendName());
-        }
+        return sBackend == Backend.SHIZUKU;
     }
 
     static String backendName() {
         switch (sBackend) {
-            case ROOT:
-                return "Root";
-            case SHIZUKU_SHELL:
+            case SHIZUKU:
                 return "Shizuku (shell)";
-            case SHIZUKU_ROOT:
-                return "Shizuku (root)";
-            case BASIC:
+            case UNAVAILABLE:
             default:
-                return "Basic";
+                return "Unavailable";
         }
     }
 
     static EnumSet<Capability> capabilitiesFor(final Backend backend) {
-        if (backend == Backend.ROOT) {
-            return EnumSet.allOf(Capability.class);
-        }
-        if (backend == Backend.SHIZUKU_SHELL
-                || backend == Backend.SHIZUKU_ROOT) {
+        if (backend == Backend.SHIZUKU) {
             return EnumSet.of(
                     Capability.PUBLIC_APP_LAUNCH,
                     Capability.EXACT_TASKS,
@@ -125,6 +96,6 @@ final class RuntimeAccess {
                     Capability.HARDWARE_MONITORING,
                     Capability.HARDWARE_VENDOR_CONTROL);
         }
-        return EnumSet.of(Capability.PUBLIC_APP_LAUNCH);
+        return EnumSet.noneOf(Capability.class);
     }
 }

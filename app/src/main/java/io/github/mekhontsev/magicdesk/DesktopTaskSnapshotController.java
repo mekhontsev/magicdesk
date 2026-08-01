@@ -70,7 +70,7 @@ final class DesktopTaskSnapshotController {
                             || displayId != mActivity.getCurrentDisplayId()) {
                         return;
                     }
-                    if (snapshot.rootAvailable) {
+                    if (snapshot.available) {
                         sync(snapshot);
                     } else {
                         mSnapshot = snapshot;

@@ -47,7 +47,7 @@ The report includes:
 
 - MagicDesk version and Android build fingerprint;
 - manufacturer, model, API level, security patch, and supported ABIs;
-- selected runtime backend, root/Shizuku status, and required
+- Shizuku installation, permission, UserService UID, and required
   desktop-windowing values;
 - for an active Shizuku backend, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,

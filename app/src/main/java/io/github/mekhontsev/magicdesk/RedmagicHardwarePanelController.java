@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
@@ -16,8 +15,6 @@ final class RedmagicHardwarePanelController
         implements RedmagicHardwareController.Listener {
     private static final int MODE_BUTTON_HEIGHT_DP = 40;
     private static final int LEVEL_ROW_HEIGHT_DP = 40;
-    private static final int FAN_LEVEL_MIN = 1;
-    private static final int FAN_LEVEL_MAX = 5;
     private static final int PUMP_SPEED_MIN = 1;
     private static final int PUMP_SPEED_MAX = 3;
 
@@ -31,13 +28,9 @@ final class RedmagicHardwarePanelController
     private TextView mStatus;
     private TextView mFanStatus;
     private TextView mPumpStatus;
-    private TextView mFanLevelStatus;
     private TextView mPumpSpeedStatus;
-    private Button mFanManual;
     private Button mPumpManual;
-    private SeekBar mFanLevel;
     private SeekBar mPumpSpeed;
-    private LinearLayout mFanLevelRow;
     private boolean mUpdatingControls;
 
     RedmagicHardwarePanelController(
@@ -71,45 +64,9 @@ final class RedmagicHardwarePanelController
                 RedmagicHardwareController.FanMode.AUTO);
         addFanButton(fanModes, R.string.hardware_off,
                 RedmagicHardwareController.FanMode.OFF);
-        mFanManual = createModeButton(R.string.hardware_manual);
-        final boolean vendorControl = usesVendorControl();
-        if (vendorControl) {
-            mFanManual.setText(R.string.hardware_extreme);
-        }
-        mFanManual.setOnClickListener(view -> applyFanMode(
-                vendorControl
-                        ? RedmagicHardwareController.FanMode.LEVEL_5
-                        : fanModeForLevel(mFanLevel.getProgress())));
-        fanModes.addView(mFanManual, modeGridParams());
+        addFanButton(fanModes, R.string.hardware_extreme,
+                RedmagicHardwareController.FanMode.EXTREME);
         parent.addView(fanModes, matchWidth());
-
-        mFanLevel = levelSlider(FAN_LEVEL_MIN, FAN_LEVEL_MAX);
-        mFanLevelStatus = levelStatus();
-        mFanLevel.setOnSeekBarChangeListener(
-                new SeekBar.OnSeekBarChangeListener() {
-                    @Override
-                    public void onProgressChanged(
-                            final SeekBar seekBar,
-                            final int progress,
-                            final boolean fromUser) {
-                        updateFanLevelStatus(progress);
-                    }
-
-                    @Override
-                    public void onStartTrackingTouch(final SeekBar seekBar) {
-                    }
-
-                    @Override
-                    public void onStopTrackingTouch(final SeekBar seekBar) {
-                        if (!mUpdatingControls) {
-                            applyFanMode(fanModeForLevel(
-                                    seekBar.getProgress()));
-                        }
-                    }
-                });
-        mFanLevelRow = levelRow(mFanLevelStatus, mFanLevel);
-        mFanLevelRow.setVisibility(vendorControl ? View.GONE : View.VISIBLE);
-        parent.addView(mFanLevelRow, matchWidth());
 
         mPumpStatus = addLabel(parent, R.string.hardware_pump);
         final GridLayout pumpModes = modeGrid(3);
@@ -165,9 +122,7 @@ final class RedmagicHardwarePanelController
         final boolean monitoringAllowed = RuntimeAccess.has(
                 RuntimeAccess.Capability.HARDWARE_MONITORING);
         final boolean controlsAllowed = RuntimeAccess.has(
-                RuntimeAccess.Capability.HARDWARE_CONTROL)
-                || RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
+                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
         final boolean available = monitoringAllowed && snapshot.isAvailable();
         if (!available) {
             mStatus.setText(monitoringAllowed
@@ -200,10 +155,6 @@ final class RedmagicHardwarePanelController
         final RedmagicHardwareController.PumpMode pumpMode =
                 RedmagicHardwareController.pumpMode();
         mUpdatingControls = true;
-        if (mFanLevel != null) {
-            mFanLevel.setProgress(resolveFanLevel(snapshot, fanMode));
-            updateFanLevelStatus(mFanLevel.getProgress());
-        }
         if (mPumpSpeed != null) {
             mPumpSpeed.setProgress(resolvePumpSpeed(snapshot, pumpMode));
             updatePumpSpeedStatus(mPumpSpeed.getProgress());
@@ -212,16 +163,10 @@ final class RedmagicHardwarePanelController
 
         updateModeButtons(mFanButtons, fanMode,
                 controlsAllowed && snapshot.fanAvailable);
-        updateModeButton(mFanManual, isManual(fanMode),
-                controlsAllowed && snapshot.fanAvailable);
         updateModeButtons(mPumpButtons, pumpMode,
                 controlsAllowed && snapshot.pumpAvailable);
         updateModeButton(mPumpManual, isManual(pumpMode),
                 controlsAllowed && snapshot.pumpAvailable);
-        if (mFanLevel != null) {
-            mFanLevel.setEnabled(controlsAllowed && snapshot.fanAvailable);
-            mFanLevel.setAlpha(isManual(fanMode) ? 1f : 0.72f);
-        }
         if (mPumpSpeed != null) {
             mPumpSpeed.setEnabled(controlsAllowed && snapshot.pumpAvailable);
             mPumpSpeed.setAlpha(isManual(pumpMode) ? 1f : 0.72f);
@@ -373,31 +318,12 @@ final class RedmagicHardwarePanelController
         return label;
     }
 
-    private void updateFanLevelStatus(final int level) {
-        if (mFanLevelStatus != null) {
-            mFanLevelStatus.setText(mActivity.getString(
-                    R.string.hardware_fan_level,
-                    Integer.valueOf(level)));
-        }
-    }
-
     private void updatePumpSpeedStatus(final int speed) {
         if (mPumpSpeedStatus != null) {
             mPumpSpeedStatus.setText(mActivity.getString(
                     R.string.hardware_pump_speed,
                     mActivity.getString(pumpSpeedLabel(speed))));
         }
-    }
-
-    private int resolveFanLevel(
-            final RedmagicHardwareSnapshot snapshot,
-            final RedmagicHardwareController.FanMode mode) {
-        if (isManual(mode)) {
-            return mode.ordinal()
-                    - RedmagicHardwareController.FanMode.LEVEL_1.ordinal()
-                    + 1;
-        }
-        return clamp(snapshot.fanLevel, FAN_LEVEL_MIN, FAN_LEVEL_MAX, 3);
     }
 
     private int resolvePumpSpeed(
@@ -413,15 +339,6 @@ final class RedmagicHardwarePanelController
             return 2;
         }
         return speed < 50 ? 1 : (speed < 70 ? 2 : 3);
-    }
-
-    private static RedmagicHardwareController.FanMode fanModeForLevel(
-            final int level) {
-        final int clamped = Math.max(
-                FAN_LEVEL_MIN, Math.min(FAN_LEVEL_MAX, level));
-        return RedmagicHardwareController.FanMode.values()[
-                RedmagicHardwareController.FanMode.LEVEL_1.ordinal()
-                        + clamped - 1];
     }
 
     private static RedmagicHardwareController.PumpMode pumpModeForSpeed(
@@ -441,19 +358,6 @@ final class RedmagicHardwarePanelController
         return speed == 2
                 ? R.string.hardware_speed_medium
                 : R.string.hardware_speed_fast;
-    }
-
-    private static boolean isManual(
-            final RedmagicHardwareController.FanMode mode) {
-        return mode != null
-                && mode.ordinal()
-                        >= RedmagicHardwareController.FanMode.LEVEL_1.ordinal();
-    }
-
-    private static boolean usesVendorControl() {
-        return !RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL)
-                && RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL);
     }
 
     private static boolean isManual(
@@ -492,12 +396,6 @@ final class RedmagicHardwarePanelController
 
     private void setFanControlsEnabled(final boolean enabled) {
         setEnabled(mFanButtons, enabled);
-        if (mFanManual != null) {
-            mFanManual.setEnabled(enabled);
-        }
-        if (mFanLevel != null) {
-            mFanLevel.setEnabled(enabled);
-        }
     }
 
     private void setPumpControlsEnabled(final boolean enabled) {
@@ -525,17 +423,7 @@ final class RedmagicHardwarePanelController
                 Locale.ROOT, "%.1f", milliCelsius / 1000f);
     }
 
-    private static String value(final int value) {
-        return value == RedmagicHardwareSnapshot.UNKNOWN
-                ? "--" : Integer.toString(value);
-    }
-
     private String fanStatus(final RedmagicHardwareSnapshot snapshot) {
-        if (snapshot.fanRpm != RedmagicHardwareSnapshot.UNKNOWN) {
-            return mActivity.getString(
-                    R.string.hardware_fan_status,
-                    value(snapshot.fanRpm));
-        }
         if (snapshot.fanAvailable) {
             return mActivity.getString(
                     R.string.hardware_fan_policy_status,
@@ -555,17 +443,6 @@ final class RedmagicHardwarePanelController
                         R.string.hardware_pump_running,
                         Integer.valueOf(snapshot.pumpSpeed))
                 : mActivity.getString(R.string.state_off);
-    }
-
-    private static int clamp(
-            final int value,
-            final int minimum,
-            final int maximum,
-            final int fallback) {
-        if (value < minimum || value > maximum) {
-            return fallback;
-        }
-        return value;
     }
 
     private LinearLayout.LayoutParams matchWidth() {

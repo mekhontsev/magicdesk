@@ -8,14 +8,11 @@ import org.junit.Test;
 
 public final class RedmagicHardwareSnapshotTest {
     @Test
-    public void parsesControlNodesAndRealThermalSensors() {
+    public void parsesVendorPolicyAndRealThermalSensors() {
         final RedmagicHardwareSnapshot snapshot =
                 RedmagicHardwareSnapshot.parse(
                         "node.fan_enable=1\n"
-                        + "node.fan_level=3\n"
-                        + "node.fan_rpm=7200\n"
                         + "node.pump_enable=0\n"
-                        + "node.pump_frequency=4\n"
                         + "node.pump_speed=80\n"
                         + "thermal=cpullc-0-0|41000\n"
                         + "thermal=cpu-0-3-0|43000\n"
@@ -25,8 +22,6 @@ public final class RedmagicHardwareSnapshotTest {
 
         assertTrue(snapshot.fanAvailable);
         assertEquals(1, snapshot.fanEnabled);
-        assertEquals(3, snapshot.fanLevel);
-        assertEquals(7200, snapshot.fanRpm);
         assertTrue(snapshot.pumpAvailable);
         assertEquals(43_000, snapshot.cpuMilliCelsius);
         assertEquals(39_000, snapshot.gpuMilliCelsius);
@@ -53,7 +48,7 @@ public final class RedmagicHardwareSnapshotTest {
     }
 
     @Test
-    public void acceptsThermalMonitoringWithoutRootControlNodes() {
+    public void acceptsThermalMonitoringWithoutVendorPolicyState() {
         final RedmagicHardwareSnapshot snapshot =
                 RedmagicHardwareSnapshot.parse(
                         "thermal=skin-msm-therm|33000\n"

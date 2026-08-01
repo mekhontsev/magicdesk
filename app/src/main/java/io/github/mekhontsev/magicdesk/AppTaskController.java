@@ -40,13 +40,13 @@ final class AppTaskController {
                 && app.canFloat
                 && AppItem.FULLSCREEN_REASON_NONE.equals(
                         app.fullscreenReason)) {
-            launchFloating(app, false);
+            launchFloating(app);
         } else {
             launchFullscreen(app);
         }
     }
 
-    void launchFloating(final AppItem app, final boolean rootColdLaunch) {
+    void launchFloating(final AppItem app) {
         if (!canControlWindowing()) {
             launchFullscreen(app);
             return;
@@ -62,8 +62,7 @@ final class AppTaskController {
             final Intent intent = FreeformLauncherActivity.createIntent(
                     mActivity,
                     app.packageName,
-                    getTaskIds(visibleTasks),
-                    rootColdLaunch);
+                    getTaskIds(visibleTasks));
             final ActivityOptions options = ActivityOptions.makeBasic();
             DesktopShellActivity.invokeIntOption(
                     options,
@@ -176,7 +175,7 @@ final class AppTaskController {
                                     != mActivity.getCurrentDisplayId()) {
                         return;
                     }
-                    if (!snapshot.rootAvailable) {
+                    if (!snapshot.available) {
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_switch_failed,
                                 snapshot.error.length() == 0
@@ -404,7 +403,7 @@ final class AppTaskController {
 
     private List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.rootAvailable) {
+        if (snapshot == null || !snapshot.available) {
             return Collections.emptyList();
         }
         final List<TaskRepository.TaskEntry> visibleTasks =

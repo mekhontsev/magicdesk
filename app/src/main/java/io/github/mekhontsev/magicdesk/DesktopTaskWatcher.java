@@ -4,12 +4,10 @@ import android.os.Handler;
 import android.util.Log;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,9 +36,7 @@ final class DesktopTaskWatcher {
             new HashMap<>();
 
     private long mNextFocusSequence;
-    private Process mProcess;
     private ShizukuAccess.StreamHandle mShizukuStream;
-    private BufferedWriter mWriter;
 
     DesktopTaskWatcher(final Handler handler, final Listener listener) {
         mHandler = handler;
@@ -53,30 +49,12 @@ final class DesktopTaskWatcher {
 
     synchronized void stop() {
         failPendingFocusCallbacks("task watcher stopped");
-        if (mWriter != null) {
-            try {
-                mWriter.close();
-            } catch (IOException ignored) {
-                // Process destruction is sufficient if the pipe is closed.
-            }
-        } else if (mProcess != null) {
-            try {
-                mProcess.getOutputStream().close();
-            } catch (IOException ignored) {
-                // Process destruction is sufficient if the pipe is closed.
-            }
-        }
         closeQuietly(mShizukuStream);
-        if (mProcess != null) {
-            mProcess.destroy();
-        }
-        mProcess = null;
         mShizukuStream = null;
-        mWriter = null;
     }
 
     synchronized boolean sendCommand(final String command) {
-        if (mWriter == null && mShizukuStream == null) {
+        if (mShizukuStream == null) {
             return false;
         }
         try {
@@ -84,12 +62,8 @@ final class DesktopTaskWatcher {
             return true;
         } catch (IOException e) {
             Log.w(TAG, "failed to send task watcher command: " + command, e);
-            mWriter = null;
             closeQuietly(mShizukuStream);
             mShizukuStream = null;
-            if (mProcess != null) {
-                mProcess.destroy();
-            }
             return false;
         }
     }
@@ -98,7 +72,7 @@ final class DesktopTaskWatcher {
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
-        if (mWriter == null && mShizukuStream == null) {
+        if (mShizukuStream == null) {
             completeFocusCallback(callback, false, "task watcher unavailable");
             return;
         }
@@ -120,12 +94,8 @@ final class DesktopTaskWatcher {
             mFocusCallbacks.remove(Long.valueOf(sequence));
             completeFocusCallback(callback, false, "task watcher write failed");
             Log.w(TAG, "failed to send task stack focus", e);
-            mWriter = null;
             closeQuietly(mShizukuStream);
             mShizukuStream = null;
-            if (mProcess != null) {
-                mProcess.destroy();
-            }
         }
     }
 
@@ -144,36 +114,16 @@ final class DesktopTaskWatcher {
     private void run(final int generation) {
         final String command = AppProcessCommand.exec(
                 "io.github.mekhontsev.magicdesk.TaskStackWatcherCommand");
-        Process process = null;
         ShizukuAccess.StreamHandle shizukuStream = null;
         try {
-            final boolean useShizuku =
-                    RuntimeAccess.allowsShizukuCommands()
-                            && !RuntimeAccess.allowsRootCommands();
-            final InputStream input;
-            if (useShizuku) {
-                shizukuStream = ShizukuAccess.openStream(command);
-                input = shizukuStream.inputStream();
-            } else {
-                process = PrivilegedCommandRunner.start(command);
-                input = process.getInputStream();
-            }
+            shizukuStream = ShizukuAccess.openStream(command);
+            final InputStream input = shizukuStream.inputStream();
             synchronized (this) {
                 if (!mListener.isActive(generation)) {
                     closeQuietly(shizukuStream);
-                    if (process != null) {
-                        process.getOutputStream().close();
-                        process.destroy();
-                    }
                     return;
                 }
-                mProcess = process;
                 mShizukuStream = shizukuStream;
-                if (process != null) {
-                    mWriter = new BufferedWriter(
-                            new OutputStreamWriter(
-                                    process.getOutputStream()));
-                }
             }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(input))) {
@@ -182,30 +132,15 @@ final class DesktopTaskWatcher {
                     handleLine(line, generation);
                 }
             }
-            if (process != null) {
-                final int exitCode = process.waitFor();
-                if (mListener.isActive(generation)) {
-                    Log.w(TAG, "task watcher exited code=" + exitCode);
-                }
-            }
         } catch (IOException e) {
             if (mListener.isActive(generation)) {
                 Log.w(TAG, "task watcher failed", e);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             synchronized (this) {
-                if (mProcess == process) {
-                    mProcess = null;
-                    mWriter = null;
-                }
                 if (mShizukuStream == shizukuStream) {
                     mShizukuStream = null;
                 }
-            }
-            if (process != null) {
-                process.destroy();
             }
             closeQuietly(shizukuStream);
             if (mListener.isActive(generation)) {
@@ -220,12 +155,6 @@ final class DesktopTaskWatcher {
     }
 
     private void writeCommand(final String command) throws IOException {
-        if (mWriter != null) {
-            mWriter.write(command);
-            mWriter.newLine();
-            mWriter.flush();
-            return;
-        }
         if (mShizukuStream != null) {
             mShizukuStream.writeLine(command);
             return;

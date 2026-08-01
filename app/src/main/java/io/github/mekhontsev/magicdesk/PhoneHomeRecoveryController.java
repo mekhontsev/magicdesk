@@ -109,7 +109,7 @@ final class PhoneHomeRecoveryController {
             final TaskRepository.Snapshot snapshot,
             final boolean includeMigratedMagicDesk,
             final ResultCallback callback) {
-        if (!snapshot.rootAvailable) {
+        if (!snapshot.available) {
             complete(callback, false);
             return;
         }

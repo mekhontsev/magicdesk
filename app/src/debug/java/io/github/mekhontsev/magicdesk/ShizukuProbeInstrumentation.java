@@ -71,10 +71,14 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
     private static String probePhoneScreen(final Context context)
             throws IOException, InterruptedException {
         final int serviceUid = ShizukuAccess.connectAndGetUid();
-        final RuntimeAccess.Backend backend = serviceUid == 0
-                ? RuntimeAccess.Backend.SHIZUKU_ROOT
-                : RuntimeAccess.Backend.SHIZUKU_SHELL;
-        RuntimeAccess.configure(SessionProfile.load(context), backend);
+        if (serviceUid != RuntimeBackendPolicy.SHELL_UID) {
+            throw new IOException(
+                    "Shizuku must run as shell UID 2000; found UID "
+                            + serviceUid);
+        }
+        RuntimeAccess.configure(
+                SessionProfile.load(context),
+                RuntimeAccess.Backend.SHIZUKU);
 
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();

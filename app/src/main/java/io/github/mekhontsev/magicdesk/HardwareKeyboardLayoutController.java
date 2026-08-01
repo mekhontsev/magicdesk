@@ -1,24 +1,19 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.provider.Settings;
-import android.util.Base64;
 import android.util.Log;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class HardwareKeyboardLayoutController {
     private static final String TAG = "MagicDeskConsoleSwitcher";
-    private static final String SETTINGS = "/system/bin/settings";
     static final String LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
     static final String LAYOUT_LABEL_STATE =
             "magicdesk_hardware_keyboard_layout_label";
     static final String LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
-    private static final String LAYOUT_COMMAND =
-            "io.github.mekhontsev.magicdesk.HardwareKeyboardLayoutCommand";
     private static final AtomicBoolean REFRESH_IN_PROGRESS =
             new AtomicBoolean();
     private static final Object LAYOUT_SINK_LOCK = new Object();
@@ -138,22 +133,12 @@ final class HardwareKeyboardLayoutController {
     private static void apply(final String mode) {
         final String output;
         try {
-            if (RuntimeAccess.allowsShizukuCommands()
-                    && !RuntimeAccess.allowsRootCommands()) {
-                final String current = Settings.Global.getString(
-                        MagicDeskApplication.applicationContext()
-                                .getContentResolver(),
-                        LAYOUT_STATE);
-                output = ShizukuAccess.updateHardwareKeyboardLayout(
-                        mode, current).trim();
-            } else {
-                final String command = "CURRENT=$(" + SETTINGS + " get global "
-                        + LAYOUT_STATE + "); "
-                        + AppProcessCommand.run(
-                                LAYOUT_COMMAND,
-                                mode + " \"$CURRENT\"");
-                output = PrivilegedCommandRunner.run(command).trim();
-            }
+            final String current = Settings.Global.getString(
+                    MagicDeskApplication.applicationContext()
+                            .getContentResolver(),
+                    LAYOUT_STATE);
+            output = ShizukuAccess.updateHardwareKeyboardLayout(
+                    mode, current).trim();
         } catch (IOException e) {
             Log.w(TAG, "hardware keyboard layout command failed", e);
             return;
@@ -181,33 +166,6 @@ final class HardwareKeyboardLayoutController {
             return;
         }
 
-        if (!RuntimeAccess.allowsShizukuCommands()
-                || RuntimeAccess.allowsRootCommands()) {
-            final String name;
-            try {
-                name = new String(
-                        Base64.decode(name64, Base64.DEFAULT),
-                        StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException e) {
-                Log.w(TAG,
-                        "invalid hardware keyboard layout name output="
-                                + output,
-                        e);
-                return;
-            }
-            try {
-                PrivilegedCommandRunner.run(
-                        SETTINGS + " put global " + LAYOUT_LABEL_STATE
-                                + " " + shellQuote(code) + "; "
-                                + SETTINGS + " put global " + LAYOUT_NAME_STATE
-                                + " " + shellQuote(name) + "; "
-                                + SETTINGS + " put global " + LAYOUT_STATE
-                                + " " + shellQuote(descriptor));
-            } catch (IOException e) {
-                Log.w(TAG, "cannot persist hardware keyboard layout state", e);
-                return;
-            }
-        }
         selectVirtualLayout(index);
         Log.i(TAG,
                 "hardware keyboard "
@@ -245,7 +203,4 @@ final class HardwareKeyboardLayoutController {
         return null;
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
-    }
 }

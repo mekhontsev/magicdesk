@@ -164,7 +164,6 @@ public abstract class DesktopShellActivity extends Activity
                 && !RuntimeAccess.has(
                         RuntimeAccess.Capability.KEYBOARD_LAYOUT_SHORTCUT)) {
             KeyboardShortcutWatcher.stop();
-            ConsoleModeSwitcher.closeRootShell();
         }
         renderApps();
         updateConsoleControls();
@@ -555,7 +554,7 @@ public abstract class DesktopShellActivity extends Activity
                 mLastApps, resolved.activityInfo.packageName);
         hideAllPanels();
         if (app != null) {
-            launchFloating(app, true);
+            launchFloating(app);
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
@@ -965,13 +964,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void launchFloating(final AppItem app) {
-        mAppTasks.launchFloating(app, false);
-    }
-
-    private void launchFloating(
-            final AppItem app,
-            final boolean rootColdLaunch) {
-        mAppTasks.launchFloating(app, rootColdLaunch);
+        mAppTasks.launchFloating(app);
     }
 
     void launchFullscreen(final AppItem app) {
@@ -981,20 +974,6 @@ public abstract class DesktopShellActivity extends Activity
     void setTaskbarVisible(final boolean visible) {
         mTaskbarController.setVisible(
                 visible && !mLocalTaskbarSuppressed);
-    }
-
-    Button createKernelFixesAction() {
-        final Button action = createActionButton(
-                R.string.action_kernel_fixes, COLOR_AMBER);
-        action.setOnClickListener(view -> {
-            hideAllPanels();
-            if (!KernelFixesIntegration.launch(this)) {
-                setErrorStatus(
-                        "KERNEL-FIXES-001",
-                        getString(R.string.status_kernel_fixes_unavailable));
-            }
-        });
-        return action;
     }
 
     void exitMagicDesk() {

@@ -34,12 +34,12 @@ registers two temporary kernel probes:
 This preserves a valid manual mode choice. There is no userspace polling,
 artificial hotplug, timing delay, boot image patch, or Magisk module.
 
-The main MagicDesk APK does not contain a kernel module. The optional,
-separately installed **MagicDesk Kernel Fixes** APK packages the tested module
-as
+The main MagicDesk APK does not contain a kernel module or any code that
+discovers or launches the add-on. The optional, separately installed
+**MagicDesk Kernel Fixes** APK packages the tested module as
 [`kernel-fixes/src/main/res/raw/dp_mode_reset.ko`](../kernel-fixes/src/main/res/raw/dp_mode_reset.ko).
-MagicDesk exposes **Tools > Kernel fixes** only when the add-on is installed
-with the same signing certificate. The add-on's **Activate** button:
+The user opens its independent launcher icon and presses **Activate**. The
+add-on then:
 
 1. Requires an explicit user confirmation.
 2. Extracts that resource into the add-on's private no-backup directory.
@@ -49,8 +49,9 @@ with the same signing certificate. The add-on's **Activate** button:
    removes the temporary copy.
 6. Treats a repeated press as an idempotent `already active` operation.
 
-The module lives only in kernel memory. It must be activated once after every
-reboot, before switching the glasses into 3D. A reboot unloads it automatically.
+The module lives only in kernel memory. It must be activated manually once
+after every reboot, before switching the glasses into 3D. A reboot unloads it
+automatically. MagicDesk itself never requests root for this operation.
 
 ## Validated target
 

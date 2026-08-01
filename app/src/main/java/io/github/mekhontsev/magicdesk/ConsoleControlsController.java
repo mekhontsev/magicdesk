@@ -179,13 +179,6 @@ final class ConsoleControlsController {
                 mActivity.captureDesktopScreenshot());
         addActionButton(actionGrid, screenshot);
 
-        if (RuntimeAccess.has(RuntimeAccess.Capability.KERNEL_FIXES)
-                && KernelFixesIntegration.isAvailable(mActivity)) {
-            addActionButton(
-                    actionGrid,
-                    mActivity.createKernelFixesAction());
-        }
-
         final Button exit = mUi.actionButton(
                 R.string.action_exit,
                 DesktopUiFactory.COLOR_RED);

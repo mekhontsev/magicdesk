@@ -8,10 +8,10 @@ import org.junit.Test;
 public final class DeviceSetupWindowingPolicyTest {
     @Test
     public void userWindowingOptionsRequireBothSettings() {
-        assertTrue(DeviceSetupManager.hasUserWindowingOptions(true, true));
-        assertFalse(DeviceSetupManager.hasUserWindowingOptions(true, false));
-        assertFalse(DeviceSetupManager.hasUserWindowingOptions(false, true));
-        assertFalse(DeviceSetupManager.hasUserWindowingOptions(false, false));
+        assertTrue(DeviceSetupManager.hasRequiredWindowingSettings(true, true));
+        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(true, false));
+        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(false, true));
+        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(false, false));
     }
 
     @Test

@@ -56,68 +56,43 @@ final class DeviceSetupManager {
         final SharedPreferences preferences = preferences(context);
 
         Map<String, String> values = readUnprivilegedValues(context);
-        boolean rootAvailable = false;
-        String rootError = "";
+        String runtimeError = "";
         boolean shizukuReady = false;
         int shizukuUid = -1;
-        ShizukuAccess.Snapshot shizuku = new ShizukuAccess.Snapshot(
-                false, false, false, -1, -1, "not requested");
-        final SessionProfile.PrivilegeMode requestedMode =
-                sessionProfile == null
-                        ? SessionProfile.PrivilegeMode.AUTO
-                        : sessionProfile.privilegeMode;
-        final boolean shouldProbeRoot =
-                RuntimeBackendPolicy.shouldProbeRoot(requestedMode);
-        if (shouldProbeRoot) {
+        ShizukuAccess.Snapshot shizuku = ShizukuAccess.inspect();
+        runtimeError = shizuku.error;
+        if (shizuku.running && shizuku.permissionGranted) {
             try {
-                values = parseValues(
-                        PrivilegedCommandRunner.runRootSetup(buildAuditCommand()));
-                rootAvailable = "0".equals(values.get("UID"));
-                if (!rootAvailable) {
-                    rootError = "su did not return uid 0";
+                final int serviceUid = ShizukuAccess.connectAndGetUid();
+                shizukuUid = serviceUid;
+                if (serviceUid != RuntimeBackendPolicy.SHELL_UID) {
+                    throw new IOException(
+                            "Shizuku must run as shell UID 2000; found UID "
+                                    + serviceUid);
                 }
-            } catch (IOException e) {
-                rootError = usefulMessage(e);
+                values = parseValues(ShizukuAccess.run(buildAuditCommand()));
+                shizukuReady = true;
+                shizuku = new ShizukuAccess.Snapshot(
+                        shizuku.installed,
+                        true,
+                        true,
+                        serviceUid,
+                        shizuku.version,
+                        "");
+                runtimeError = "";
+            } catch (IOException error) {
+                runtimeError = usefulMessage(error);
+                shizuku = new ShizukuAccess.Snapshot(
+                        shizuku.installed,
+                        true,
+                        true,
+                        shizukuUid,
+                        shizuku.version,
+                        runtimeError);
             }
-        } else if (RuntimeBackendPolicy.shouldProbeShizuku(requestedMode)) {
-            shizuku = ShizukuAccess.inspect();
-            rootError = shizuku.error;
-            if (shizuku.running && shizuku.permissionGranted) {
-                try {
-                    final int serviceUid = ShizukuAccess.connectAndGetUid();
-                    shizukuReady = true;
-                    shizukuUid = serviceUid;
-                    shizuku = new ShizukuAccess.Snapshot(
-                            shizuku.installed,
-                            true,
-                            true,
-                            serviceUid,
-                            shizuku.version,
-                            "");
-                    rootError = "";
-                } catch (IOException error) {
-                    rootError = usefulMessage(error);
-                    shizuku = new ShizukuAccess.Snapshot(
-                            shizuku.installed,
-                            true,
-                            true,
-                            shizuku.uid,
-                            shizuku.version,
-                            rootError);
-                }
-            }
-        } else {
-            rootError = "Root intentionally disabled by Basic mode";
-        }
-        if (requestedMode != SessionProfile.PrivilegeMode.SHIZUKU) {
-            ShizukuPhoneDisplayGuard.requestRestore();
-            ShizukuAccess.disconnect();
         }
         final RuntimeAccess.Backend backend = RuntimeBackendPolicy.select(
-                requestedMode,
-                rootAvailable,
-                shizukuReady,
-                shizukuUid);
+                shizukuReady, shizukuUid);
         final String bootId = value(values, "BOOT_ID");
         boolean rebootRequired = false;
         final String pendingBootId = preferences.getString(KEY_PENDING_BOOT_ID, "");
@@ -158,23 +133,15 @@ final class DeviceSetupManager {
                     "Unverified ZTE/nubia firmware",
                     Build.FINGERPRINT);
         }
-        if (shouldProbeRoot && !rootAvailable) {
-            CompatibilityDiagnostics.record(
-                    "ROOT-001",
-                    "Root access is unavailable",
-                    rootError);
-        } else if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU
-                && backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                && backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+        if (backend != RuntimeAccess.Backend.SHIZUKU) {
             CompatibilityDiagnostics.record(
                     "SHIZUKU-001",
                     "Shizuku runtime is unavailable",
-                    rootError);
+                    runtimeError);
         }
 
         return new Audit(
-                rootAvailable,
-                rootError,
+                runtimeError,
                 shizuku,
                 sessionProfile,
                 backend,
@@ -199,78 +166,11 @@ final class DeviceSetupManager {
                 hasManagedChanges(preferences));
     }
 
-    static Audit configure(final Context context) throws IOException {
-        return configure(context, SessionProfile.load(context));
-    }
-
     static Audit configure(
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
-        requireRootAndCompatibility(before);
-
-        final SharedPreferences preferences = preferences(context);
-        final SharedPreferences.Editor originals = preferences.edit();
-        final List<String> commands = new ArrayList<>();
-
-        addGlobalSettingChange(
-                preferences,
-                originals,
-                commands,
-                ITEM_FREEFORM,
-                FREEFORM_SETTING,
-                before.freeformValue,
-                before.freeformEnabled);
-        addGlobalSettingChange(
-                preferences,
-                originals,
-                commands,
-                ITEM_RESIZABLE,
-                RESIZABLE_SETTING,
-                before.resizableValue,
-                before.resizableEnabled);
-        addPropertyChange(
-                preferences,
-                originals,
-                commands,
-                ITEM_RESTRICTIONS,
-                RESTRICTIONS_PROPERTY,
-                before.restrictionsValue,
-                before.restrictionsDisabled);
-        addPropertyChange(
-                preferences,
-                originals,
-                commands,
-                ITEM_ROUNDED_CORNERS,
-                ROUNDED_CORNERS_PROPERTY,
-                before.roundedCornersValue,
-                before.roundedCornersDisabled);
-
-        originals.putInt(KEY_APPROVED_VERSION, SETUP_VERSION);
-        if (!commands.isEmpty()) {
-            originals.putString(KEY_PENDING_BOOT_ID,
-                    before.bootId.isEmpty() ? "unknown-current-boot" : before.bootId);
-        }
-        if (!originals.commit()) {
-            throw new IOException("could not save setup state");
-        }
-
-        if (!commands.isEmpty()) {
-            PrivilegedCommandRunner.runRootSetup(joinCommands(commands));
-        }
-        final Audit after = audit(context, sessionProfile);
-        if (!after.configurationReady) {
-            throw new IOException("one or more settings did not apply");
-        }
-        return after;
-    }
-
-    static Audit configureShizuku(
-            final Context context,
-            final SessionProfile sessionProfile) throws IOException {
-        final Audit before = audit(context, sessionProfile);
-        if (before.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                && before.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+        if (before.backend != RuntimeAccess.Backend.SHIZUKU) {
             throw new IOException(
                     "a running Shizuku shell backend is required");
         }
@@ -345,52 +245,11 @@ final class DeviceSetupManager {
         return audit(context, sessionProfile);
     }
 
-    static Audit restoreManagedChanges(final Context context) throws IOException {
-        final Audit before = audit(context);
-        if (!before.rootAvailable) {
-            throw new IOException(before.rootError.isEmpty()
-                    ? "root access is required" : before.rootError);
-        }
-
-        final SharedPreferences preferences = preferences(context);
-        final List<String> commands = new ArrayList<>();
-        addGlobalSettingRestore(
-                preferences, commands, ITEM_FREEFORM, FREEFORM_SETTING);
-        addGlobalSettingRestore(
-                preferences, commands, ITEM_RESIZABLE, RESIZABLE_SETTING);
-        addPropertyRestore(
-                preferences, commands, ITEM_RESTRICTIONS, RESTRICTIONS_PROPERTY);
-        addPropertyRestore(
-                preferences, commands, ITEM_ROUNDED_CORNERS, ROUNDED_CORNERS_PROPERTY);
-
-        if (!commands.isEmpty()) {
-            PrivilegedCommandRunner.runRootSetup(joinCommands(commands));
-        }
-
-        final SharedPreferences.Editor editor = preferences.edit()
-                .remove(KEY_APPROVED_VERSION);
-        clearManagedItem(editor, ITEM_FREEFORM);
-        clearManagedItem(editor, ITEM_RESIZABLE);
-        clearManagedItem(editor, ITEM_RESTRICTIONS);
-        clearManagedItem(editor, ITEM_ROUNDED_CORNERS);
-        if (!commands.isEmpty()) {
-            editor.putString(KEY_PENDING_BOOT_ID,
-                    before.bootId.isEmpty() ? "unknown-current-boot" : before.bootId);
-        } else {
-            editor.remove(KEY_PENDING_BOOT_ID);
-        }
-        if (!editor.commit()) {
-            throw new IOException("could not save restored setup state");
-        }
-        return audit(context);
-    }
-
-    static Audit restoreShizukuManagedChanges(
+    static Audit restoreManagedChanges(
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
-        if (before.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                && before.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+        if (before.backend != RuntimeAccess.Backend.SHIZUKU) {
             throw new IOException(
                     "a running Shizuku shell backend is required");
         }
@@ -468,27 +327,7 @@ final class DeviceSetupManager {
     }
 
     static void reboot() throws IOException {
-        if (RuntimeAccess.allowsRootCommands()) {
-            PrivilegedCommandRunner.runRootSetup("/system/bin/reboot");
-            return;
-        }
-        if (RuntimeAccess.allowsShizukuCommands()) {
-            PrivilegedCommandRunner.run("/system/bin/svc power reboot");
-            return;
-        }
-        throw new IOException("reboot requires Root or Shizuku");
-    }
-
-    private static void requireRootAndCompatibility(final Audit audit) throws IOException {
-        if (!audit.rootAvailable) {
-            throw new IOException(audit.rootError.isEmpty()
-                    ? "root access is required" : audit.rootError);
-        }
-        if (!audit.compatibleDevice) {
-            throw new IOException("requires a ZTE/nubia device with Android 16 or newer; "
-                    + "found " + audit.manufacturer + " " + audit.model
-                    + " on API " + Build.VERSION.SDK_INT);
-        }
+        PrivilegedCommandRunner.run("/system/bin/svc power reboot");
     }
 
     private static boolean isZteFamilyDevice() {
@@ -522,21 +361,6 @@ final class DeviceSetupManager {
         commands.add("/system/bin/settings put global " + setting + " 1");
     }
 
-    private static void addPropertyChange(
-            final SharedPreferences preferences,
-            final SharedPreferences.Editor editor,
-            final List<String> commands,
-            final String item,
-            final String property,
-            final String currentValue,
-            final boolean alreadyConfigured) {
-        if (alreadyConfigured) {
-            return;
-        }
-        rememberOriginal(preferences, editor, item, currentValue);
-        commands.add("/system/bin/setprop " + property + " false");
-    }
-
     private static void rememberOriginal(
             final SharedPreferences preferences,
             final SharedPreferences.Editor editor,
@@ -566,20 +390,6 @@ final class DeviceSetupManager {
             commands.add("/system/bin/settings put global " + setting + " "
                     + shellQuote(original));
         }
-    }
-
-    private static void addPropertyRestore(
-            final SharedPreferences preferences,
-            final List<String> commands,
-            final String item,
-            final String property) {
-        if (!preferences.getBoolean(OWNED_PREFIX + item, false)) {
-            return;
-        }
-        final String original = preferences.getString(
-                ORIGINAL_PREFIX + item, VALUE_ABSENT);
-        commands.add("/system/bin/setprop " + property + " "
-                + (VALUE_ABSENT.equals(original) ? "''" : shellQuote(original)));
     }
 
     private static void addNubiaPropertyChange(
@@ -760,8 +570,7 @@ final class DeviceSetupManager {
     }
 
     static final class Audit {
-        final boolean rootAvailable;
-        final String rootError;
+        final String runtimeError;
         final ShizukuAccess.Snapshot shizuku;
         final SessionProfile sessionProfile;
         final RuntimeAccess.Backend backend;
@@ -786,8 +595,7 @@ final class DeviceSetupManager {
         final boolean hasManagedChanges;
 
         Audit(
-                final boolean rootAvailable,
-                final String rootError,
+                final String runtimeError,
                 final ShizukuAccess.Snapshot shizuku,
                 final SessionProfile sessionProfile,
                 final RuntimeAccess.Backend backend,
@@ -810,8 +618,7 @@ final class DeviceSetupManager {
                 final boolean rebootRequired,
                 final boolean acknowledged,
                 final boolean hasManagedChanges) {
-            this.rootAvailable = rootAvailable;
-            this.rootError = rootError;
+            this.runtimeError = runtimeError;
             this.shizuku = shizuku;
             this.sessionProfile = sessionProfile;
             this.backend = backend;
@@ -837,40 +644,15 @@ final class DeviceSetupManager {
         }
 
         boolean canEnterMagicDesk() {
-            final SessionProfile.PrivilegeMode requestedMode =
-                    sessionProfile == null
-                            ? SessionProfile.PrivilegeMode.AUTO
-                            : sessionProfile.privilegeMode;
-            if (requestedMode == SessionProfile.PrivilegeMode.ROOT
-                    && backend != RuntimeAccess.Backend.ROOT) {
-                return false;
-            }
-            if (requestedMode == SessionProfile.PrivilegeMode.SHIZUKU
-                    && backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                    && backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
-                return false;
-            }
-            final boolean provisioningOptional =
-                    backend == RuntimeAccess.Backend.BASIC
-                            || backend == RuntimeAccess.Backend.SHIZUKU_SHELL
-                            || backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
             return compatibleDevice
+                    && backend == RuntimeAccess.Backend.SHIZUKU
                     && !rebootRequired
-                    && (configurationReady || provisioningOptional);
+                    && configurationReady;
         }
 
-        boolean isDegradedRuntime() {
-            return backend != RuntimeAccess.Backend.ROOT && !configurationReady;
-        }
-
-        boolean hasUserWindowingOptions() {
-            return DeviceSetupManager.hasUserWindowingOptions(
-                    freeformEnabled,
-                    resizableEnabled);
-        }
     }
 
-    static boolean hasUserWindowingOptions(
+    static boolean hasRequiredWindowingSettings(
             final boolean freeformEnabled,
             final boolean resizableEnabled) {
         return freeformEnabled && resizableEnabled;
@@ -881,7 +663,7 @@ final class DeviceSetupManager {
             final boolean resizableEnabled,
             final boolean restrictionsDisabled,
             final boolean roundedCornersDisabled) {
-        return hasUserWindowingOptions(freeformEnabled, resizableEnabled)
+        return hasRequiredWindowingSettings(freeformEnabled, resizableEnabled)
                 && restrictionsDisabled
                 && roundedCornersDisabled;
     }

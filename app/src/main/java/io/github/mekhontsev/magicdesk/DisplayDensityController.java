@@ -36,7 +36,7 @@ final class DisplayDensityController {
                 R.string.status_dpi_applying,
                 Integer.valueOf(dpi),
                 Integer.valueOf(displayId)));
-        runRootAction(
+        runDisplayAction(
                 WM + " density " + dpi + " -d " + displayId,
                 mActivity.getString(
                         R.string.status_dpi_applied,
@@ -64,7 +64,7 @@ final class DisplayDensityController {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_dpi_resetting,
                 Integer.valueOf(displayId)));
-        runRootAction(
+        runDisplayAction(
                 WM + " density reset -d " + displayId,
                 mActivity.getString(
                         R.string.status_dpi_reset,
@@ -119,7 +119,7 @@ final class DisplayDensityController {
                                 Integer.valueOf(configuredDpi > 0
                                         ? configuredDpi
                                         : currentDpi))));
-                runRootCommand(
+                runCommand(
                         WM + " density " + targetDpi
                                 + " -d " + displayId);
                 mActivity.runOnUiThread(() ->
@@ -153,12 +153,12 @@ final class DisplayDensityController {
                                 .getDisplayMetrics().densityDpi));
     }
 
-    private void runRootAction(
+    private void runDisplayAction(
             final String command,
             final String successStatus) {
         new Thread(() -> {
             try {
-                runRootCommand(command);
+                runCommand(command);
                 mActivity.runOnUiThread(() -> {
                     mActivity.renderApps();
                     mActivity.setStatus(successStatus);
@@ -166,20 +166,20 @@ final class DisplayDensityController {
             } catch (IOException e) {
                 mActivity.runOnUiThread(() ->
                         mActivity.setErrorStatus(
-                                "ROOT-ACTION-001",
+                                "DISPLAY-DPI-002",
                                 mActivity.getString(
-                                        R.string.status_root_failed,
+                                        R.string.status_dpi_desktop_failed,
                                         e.getMessage()),
                                 "",
                                 e));
             }
-        }, "MagicDeskRootAction").start();
+        }, "MagicDeskDisplayAction").start();
     }
 
     private static int getConfiguredDisplayDensity(final int displayId)
             throws IOException {
         final String output =
-                runRootCommand(WM + " density -d " + displayId);
+                runCommand(WM + " density -d " + displayId);
         int physicalDensity = -1;
         for (final String line : output.split("\\r?\\n")) {
             final String trimmed = line.trim();
@@ -205,7 +205,7 @@ final class DisplayDensityController {
     }
 
     private static int getMirrorDisplayId() throws IOException {
-        final String output = runRootCommand(
+        final String output = runCommand(
                 SETTINGS + " get global app_mirror_displayid");
         final String trimmed = output == null ? "" : output.trim();
         try {
@@ -215,7 +215,7 @@ final class DisplayDensityController {
         }
     }
 
-    private static String runRootCommand(final String command)
+    private static String runCommand(final String command)
             throws IOException {
         return PrivilegedCommandRunner.run(command);
     }

@@ -22,13 +22,6 @@ core_contents=$(unzip -Z1 "$core_apk")
 kernel_fixes_contents=$(unzip -Z1 "$kernel_fixes_apk")
 
 printf '%s\n' "$core_contents" \
-    | grep -qx 'lib/arm64-v8a/libmagicdesk_mouse_remap.so' \
-    || {
-        printf 'Core APK is missing libmagicdesk_mouse_remap.so\n' >&2
-        exit 1
-    }
-
-printf '%s\n' "$core_contents" \
     | grep -qx 'lib/arm64-v8a/libmagicdesk_uinput_bridge.so' \
     || {
         printf 'Core APK is missing libmagicdesk_uinput_bridge.so\n' >&2
@@ -41,6 +34,12 @@ printf '%s\n' "$core_contents" \
         printf 'Core APK is missing libmagicdesk_keyboard_bridge.so\n' >&2
         exit 1
     }
+
+if printf '%s\n' "$core_contents" \
+        | grep -q 'libmagicdesk_mouse_remap\.so$'; then
+    printf 'Core APK contains the retired mouse remap helper\n' >&2
+    exit 1
+fi
 
 if printf '%s\n' "$core_contents" | grep -q '\.ko$'; then
     printf 'Core APK must not contain a kernel module\n' >&2
@@ -62,7 +61,7 @@ if [ "$packaged_hash" != "$reviewed_hash" ]; then
 fi
 
 if printf '%s\n' "$kernel_fixes_contents" \
-        | grep -Eq 'libmagicdesk_(mouse_remap|uinput_bridge|keyboard_bridge)\.so$'; then
+        | grep -Eq 'libmagicdesk_(uinput_bridge|keyboard_bridge)\.so$'; then
     printf 'Kernel fixes APK must not contain an input helper\n' >&2
     exit 1
 fi

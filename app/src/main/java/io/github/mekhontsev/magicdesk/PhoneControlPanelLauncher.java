@@ -28,9 +28,7 @@ final class PhoneControlPanelLauncher {
         final Display display = source.getDisplay();
         final boolean crossDisplay = display != null
                 && display.getDisplayId() != Display.DEFAULT_DISPLAY;
-        if (crossDisplay
-                && (RuntimeAccess.allowsRootCommands()
-                || RuntimeAccess.allowsShizukuCommands())) {
+        if (crossDisplay && RuntimeAccess.allowsShizukuCommands()) {
             final String command = createLaunchCommand(
                     source.getPackageName(),
                     ControlActivity.class.getName());

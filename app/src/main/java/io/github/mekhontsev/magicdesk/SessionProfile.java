@@ -7,21 +7,11 @@ import android.content.SharedPreferences;
 import java.util.Locale;
 
 final class SessionProfile {
-    static final String EXTRA_PRIVILEGE_MODE =
-            "io.github.mekhontsev.magicdesk.extra.PRIVILEGE_MODE";
     static final String EXTRA_DISPLAY_TARGET =
             "io.github.mekhontsev.magicdesk.extra.DISPLAY_TARGET";
 
     private static final String PREFS = "magicdesk_session";
-    private static final String KEY_PRIVILEGE_MODE = "privilege_mode";
     private static final String KEY_DISPLAY_TARGET = "display_target";
-
-    enum PrivilegeMode {
-        AUTO,
-        BASIC,
-        SHIZUKU,
-        ROOT
-    }
 
     enum DisplayTarget {
         AUTO,
@@ -30,24 +20,15 @@ final class SessionProfile {
         EXTERNAL
     }
 
-    final PrivilegeMode privilegeMode;
     final DisplayTarget displayTarget;
 
     interface PreferenceStore {
         String getString(String key);
 
-        void putStrings(
-                String firstKey,
-                String firstValue,
-                String secondKey,
-                String secondValue);
+        void putString(String key, String value);
     }
 
-    SessionProfile(
-            final PrivilegeMode privilegeMode,
-            final DisplayTarget displayTarget) {
-        this.privilegeMode = privilegeMode == null
-                ? PrivilegeMode.AUTO : privilegeMode;
+    SessionProfile(final DisplayTarget displayTarget) {
         this.displayTarget = displayTarget == null
                 ? DisplayTarget.AUTO : displayTarget;
     }
@@ -57,12 +38,7 @@ final class SessionProfile {
     }
 
     static SessionProfile load(final PreferenceStore preferences) {
-        return new SessionProfile(
-                parseEnum(
-                        PrivilegeMode.class,
-                        preferences.getString(KEY_PRIVILEGE_MODE),
-                        PrivilegeMode.AUTO),
-                parseEnum(
+        return new SessionProfile(parseEnum(
                         DisplayTarget.class,
                         preferences.getString(KEY_DISPLAY_TARGET),
                         DisplayTarget.AUTO));
@@ -76,23 +52,16 @@ final class SessionProfile {
         }
         return withLaunchOverrides(
                 saved,
-                intent.getStringExtra(EXTRA_PRIVILEGE_MODE),
                 intent.getStringExtra(EXTRA_DISPLAY_TARGET));
     }
 
     static SessionProfile withLaunchOverrides(
             final SessionProfile saved,
-            final String privilegeMode,
             final String displayTarget) {
         final SessionProfile fallback = saved == null
-                ? new SessionProfile(PrivilegeMode.AUTO, DisplayTarget.AUTO)
+                ? new SessionProfile(DisplayTarget.AUTO)
                 : saved;
-        return new SessionProfile(
-                parseEnum(
-                        PrivilegeMode.class,
-                        privilegeMode,
-                        fallback.privilegeMode),
-                parseEnum(
+        return new SessionProfile(parseEnum(
                         DisplayTarget.class,
                         displayTarget,
                         fallback.displayTarget));
@@ -103,31 +72,18 @@ final class SessionProfile {
     }
 
     void save(final PreferenceStore preferences) {
-        preferences.putStrings(
-                KEY_PRIVILEGE_MODE,
-                wireName(privilegeMode),
-                KEY_DISPLAY_TARGET,
-                wireName(displayTarget));
+        preferences.putString(KEY_DISPLAY_TARGET, wireName(displayTarget));
     }
 
     void writeToIntent(final Intent intent) {
         if (intent == null) {
             return;
         }
-        intent.putExtra(EXTRA_PRIVILEGE_MODE, wireName(privilegeMode));
         intent.putExtra(EXTRA_DISPLAY_TARGET, wireName(displayTarget));
     }
 
-    SessionProfile withPrivilegeMode(final PrivilegeMode mode) {
-        return new SessionProfile(mode, displayTarget);
-    }
-
     SessionProfile withDisplayTarget(final DisplayTarget target) {
-        return new SessionProfile(privilegeMode, target);
-    }
-
-    String privilegeWireName() {
-        return wireName(privilegeMode);
+        return new SessionProfile(target);
     }
 
     String displayWireName() {
@@ -152,14 +108,9 @@ final class SessionProfile {
         }
 
         @Override
-        public void putStrings(
-                final String firstKey,
-                final String firstValue,
-                final String secondKey,
-                final String secondValue) {
+        public void putString(final String key, final String value) {
             mPreferences.edit()
-                    .putString(firstKey, firstValue)
-                    .putString(secondKey, secondValue)
+                    .putString(key, value)
                     .apply();
         }
     }

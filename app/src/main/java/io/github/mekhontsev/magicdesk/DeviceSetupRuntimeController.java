@@ -52,7 +52,6 @@ final class DeviceSetupRuntimeController {
     private static void stopServices(final Context context) {
         KeyboardShortcutWatcher.stop();
         ShizukuPhoneDisplayGuard.requestRestore();
-        ConsoleModeSwitcher.closeRootShell();
         if (context != null) {
             MagicDeskRuntimeService.stop(context.getApplicationContext());
         }

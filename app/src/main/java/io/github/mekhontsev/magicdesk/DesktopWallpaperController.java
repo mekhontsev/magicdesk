@@ -9,17 +9,14 @@ import android.graphics.BitmapFactory;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
-import android.os.Process;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.widget.ImageView;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -31,7 +28,6 @@ final class DesktopWallpaperController {
     }
 
     private static final String TAG = "MagicDeskWallpaper";
-    private static final int PER_USER_RANGE = 100_000;
     private static final int BUFFER_SIZE = 32 * 1024;
 
     private final Context mContext;
@@ -177,34 +173,7 @@ final class DesktopWallpaperController {
     }
 
     private void copySystemWallpaper(final File destination) throws IOException {
-        if (RuntimeAccess.allowsShizukuCommands()
-                && !RuntimeAccess.allowsRootCommands()) {
-            copyShizukuWallpaper(destination);
-            return;
-        }
-        final int userId = Process.myUid() / PER_USER_RANGE;
-        final String wallpaperPath = "/data/system/users/" + userId + "/wallpaper";
-        java.lang.Process process = null;
-        try {
-            process = PrivilegedCommandRunner.start(
-                    "/system/bin/cat " + wallpaperPath);
-            try (InputStream input = process.getInputStream();
-                    FileOutputStream output = new FileOutputStream(destination, false)) {
-                copy(input, output);
-            }
-            final int exitCode = process.waitFor();
-            if (exitCode != 0 || destination.length() == 0) {
-                throw new IOException("root wallpaper read failed"
-                        + readProcessError(process));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("wallpaper load interrupted", e);
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-        }
+        copyShizukuWallpaper(destination);
     }
 
     private static void copyShizukuWallpaper(final File destination)
@@ -240,18 +209,4 @@ final class DesktopWallpaperController {
         return sampleSize;
     }
 
-    private static String readProcessError(final java.lang.Process process)
-            throws IOException {
-        final ByteArrayOutputStream error = new ByteArrayOutputStream();
-        try (InputStream input = process.getErrorStream()) {
-            final byte[] buffer = new byte[1024];
-            int count;
-            while ((count = input.read(buffer)) >= 0 && error.size() < 4096) {
-                error.write(buffer, 0, count);
-            }
-        }
-        final String message = new String(
-                error.toByteArray(), StandardCharsets.UTF_8).trim();
-        return message.isEmpty() ? "" : ": " + message;
-    }
 }

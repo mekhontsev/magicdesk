@@ -7,17 +7,14 @@ final class RedmagicHardwareSnapshot {
 
     static final RedmagicHardwareSnapshot UNAVAILABLE =
             new RedmagicHardwareSnapshot(
-                    false, UNKNOWN, UNKNOWN, UNKNOWN,
-                    false, UNKNOWN, UNKNOWN, UNKNOWN,
+                    false, UNKNOWN,
+                    false, UNKNOWN, UNKNOWN,
                     UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN);
 
     final boolean fanAvailable;
     final int fanEnabled;
-    final int fanLevel;
-    final int fanRpm;
     final boolean pumpAvailable;
     final int pumpEnabled;
-    final int pumpFrequency;
     final int pumpSpeed;
     final int cpuMilliCelsius;
     final int gpuMilliCelsius;
@@ -27,11 +24,8 @@ final class RedmagicHardwareSnapshot {
     RedmagicHardwareSnapshot(
             final boolean fanAvailable,
             final int fanEnabled,
-            final int fanLevel,
-            final int fanRpm,
             final boolean pumpAvailable,
             final int pumpEnabled,
-            final int pumpFrequency,
             final int pumpSpeed,
             final int cpuMilliCelsius,
             final int gpuMilliCelsius,
@@ -39,11 +33,8 @@ final class RedmagicHardwareSnapshot {
             final int batteryMilliCelsius) {
         this.fanAvailable = fanAvailable;
         this.fanEnabled = fanEnabled;
-        this.fanLevel = fanLevel;
-        this.fanRpm = fanRpm;
         this.pumpAvailable = pumpAvailable;
         this.pumpEnabled = pumpEnabled;
-        this.pumpFrequency = pumpFrequency;
         this.pumpSpeed = pumpSpeed;
         this.cpuMilliCelsius = cpuMilliCelsius;
         this.gpuMilliCelsius = gpuMilliCelsius;
@@ -53,10 +44,7 @@ final class RedmagicHardwareSnapshot {
 
     static RedmagicHardwareSnapshot parse(final String output) {
         int fanEnabled = UNKNOWN;
-        int fanLevel = UNKNOWN;
-        int fanRpm = UNKNOWN;
         int pumpEnabled = UNKNOWN;
-        int pumpFrequency = UNKNOWN;
         int pumpSpeed = UNKNOWN;
         int cpu = UNKNOWN;
         int gpu = UNKNOWN;
@@ -99,14 +87,8 @@ final class RedmagicHardwareSnapshot {
                 final int value = parseInteger(line.substring(separator + 1));
                 if ("node.fan_enable".equals(key)) {
                     fanEnabled = value;
-                } else if ("node.fan_level".equals(key)) {
-                    fanLevel = value;
-                } else if ("node.fan_rpm".equals(key)) {
-                    fanRpm = value;
                 } else if ("node.pump_enable".equals(key)) {
                     pumpEnabled = value;
-                } else if ("node.pump_frequency".equals(key)) {
-                    pumpFrequency = value;
                 } else if ("node.pump_speed".equals(key)) {
                     pumpSpeed = value;
                 }
@@ -114,11 +96,10 @@ final class RedmagicHardwareSnapshot {
         }
 
         return new RedmagicHardwareSnapshot(
-                fanEnabled != UNKNOWN && fanLevel != UNKNOWN,
-                fanEnabled, fanLevel, fanRpm,
-                pumpEnabled != UNKNOWN && pumpFrequency != UNKNOWN
-                        && pumpSpeed != UNKNOWN,
-                pumpEnabled, pumpFrequency, pumpSpeed,
+                fanEnabled != UNKNOWN,
+                fanEnabled,
+                pumpEnabled != UNKNOWN && pumpSpeed != UNKNOWN,
+                pumpEnabled, pumpSpeed,
                 cpu, gpu, skin, battery);
     }
 
@@ -128,10 +109,6 @@ final class RedmagicHardwareSnapshot {
                 || gpuMilliCelsius != UNKNOWN
                 || skinMilliCelsius != UNKNOWN
                 || batteryMilliCelsius != UNKNOWN;
-    }
-
-    int controlTemperatureMilliCelsius() {
-        return maxKnown(cpuMilliCelsius, gpuMilliCelsius);
     }
 
     private static boolean isThreshold(final String type) {

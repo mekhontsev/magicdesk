@@ -245,11 +245,6 @@ final class DesktopTaskController {
             final TaskRepository.TaskEntry topTask,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskController controller = getActiveController();
-        if (RuntimeAccess.allowsRootCommands()
-                && topTask != null && topTask.isFreeform() && !topTask.visible) {
-            TaskRepository.restoreTask(topTask, callback);
-            return;
-        }
         if (controller == null || !controller.mRunning
                 || !controller.mTaskWatcherReady) {
             TaskRepository.bringStackToFront(
@@ -526,7 +521,7 @@ final class DesktopTaskController {
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {
-        if (!snapshot.rootAvailable) {
+        if (!snapshot.available) {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }

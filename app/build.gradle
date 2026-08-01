@@ -22,7 +22,6 @@ android {
         jniLibs {
             useLegacyPackaging = true
             keepDebugSymbols += [
-                    '**/libmagicdesk_mouse_remap.so',
                     '**/libmagicdesk_uinput_bridge.so',
                     '**/libmagicdesk_keyboard_bridge.so'
             ]
@@ -38,9 +37,6 @@ android {
 
 def termuxPrefix = System.getenv('PREFIX') ?: '/data/data/com.termux/files/usr'
 def termuxCompiler = file("${termuxPrefix}/bin/clang")
-def mouseRemapSource = rootProject.file('native/magicdesk_mouse_remap.c')
-def mouseRemapOutput = file(
-        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_mouse_remap.so")
 def uinputBridgeSource = rootProject.file('native/magicdesk_uinput_bridge.c')
 def uinputBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_uinput_bridge.so")
@@ -48,6 +44,8 @@ def keyboardBridgeSource =
         rootProject.file('native/magicdesk_keyboard_bridge.c')
 def keyboardBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_keyboard_bridge.so")
+def legacyMouseRemapOutput = file(
+        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_mouse_remap.so")
 
 def resolveNativeCompilerCommand = {
     if (termuxCompiler.isFile()
@@ -58,7 +56,7 @@ def resolveNativeCompilerCommand = {
             ?: System.getenv('ANDROID_NDK_ROOT')
     if (ndkHome == null || ndkHome.isBlank()) {
         throw new GradleException(
-                'ANDROID_NDK_HOME is required to build the mouse remap helper')
+                'ANDROID_NDK_HOME is required to build the input helpers')
     }
     def ndkCompiler = file("${ndkHome}/toolchains/llvm/prebuilt/linux-x86_64"
             + '/bin/aarch64-linux-android35-clang')
@@ -66,22 +64,6 @@ def resolveNativeCompilerCommand = {
         throw new GradleException("Android NDK compiler not found: ${ndkCompiler}")
     }
     return [ndkCompiler.absolutePath]
-}
-
-tasks.register('buildMagicDeskMouseRemap', Exec) {
-    inputs.file(mouseRemapSource)
-    outputs.file(mouseRemapOutput)
-    doFirst {
-        mouseRemapOutput.parentFile.mkdirs()
-        def compilerCommand = resolveNativeCompilerCommand()
-        compilerCommand.addAll([
-                '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
-                '-fPIE', '-pie', '-Wl,-z,noexecstack',
-                '-o', mouseRemapOutput.absolutePath,
-                mouseRemapSource.absolutePath
-        ])
-        commandLine compilerCommand
-    }
 }
 
 tasks.register('buildMagicDeskUinputBridge', Exec) {
@@ -116,8 +98,12 @@ tasks.register('buildMagicDeskKeyboardBridge', Exec) {
     }
 }
 
+tasks.register('purgeLegacyNativeHelpers', Delete) {
+    delete legacyMouseRemapOutput
+}
+
 tasks.named('preBuild').configure {
-    dependsOn tasks.named('buildMagicDeskMouseRemap')
+    dependsOn tasks.named('purgeLegacyNativeHelpers')
     dependsOn tasks.named('buildMagicDeskUinputBridge')
     dependsOn tasks.named('buildMagicDeskKeyboardBridge')
 }

@@ -31,19 +31,7 @@ final class ConsoleModeState {
     }
 
     static boolean isPhoneScreenOff(final Context context) {
-        if (RuntimeAccess.allowsShizukuCommands()
-                && !RuntimeAccess.allowsRootCommands()) {
-            return sShizukuPhoneScreenOff;
-        }
-        try {
-            return Settings.Global.getInt(
-                    context.getContentResolver(),
-                    PHONE_SCREEN_OFF_SETTING,
-                    0) == 1;
-        } catch (RuntimeException error) {
-            Log.w(TAG, "Cannot read phone screen state", error);
-            return false;
-        }
+        return sShizukuPhoneScreenOff;
     }
 
     static boolean setShizukuPhoneScreenOff(final boolean screenOff) {

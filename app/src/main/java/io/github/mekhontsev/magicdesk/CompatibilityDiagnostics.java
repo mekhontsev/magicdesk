@@ -163,8 +163,6 @@ final class CompatibilityDiagnostics {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         report.append("## Runtime profile\n")
-                .append("Requested privilege mode: ")
-                .append(profile.privilegeWireName()).append('\n')
                 .append("Active backend: ").append(RuntimeAccess.backendName()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
                 .append("System provisioning: ")
@@ -178,27 +176,15 @@ final class CompatibilityDiagnostics {
                 "Firmware profile verified by maintainers",
                 audit.verifiedDevice ? "REDMAGIC 11 Pro / NX809J / 20260204.221845"
                         : "Unverified model or firmware; capability probing is required");
-        final boolean rootRequested =
-                profile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
-                        || profile.privilegeMode == SessionProfile.PrivilegeMode.ROOT;
-        appendCheck(report, "ROOT-001", !rootRequested || audit.rootAvailable,
-                "Root shell", rootRequested
-                        ? (audit.rootAvailable ? "uid=0" : audit.rootError)
-                        : "not requested by the selected runtime mode");
-        final boolean shizukuRequested =
-                profile.privilegeMode == SessionProfile.PrivilegeMode.SHIZUKU;
         final boolean shizukuReady =
-                audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
-                        || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
+                audit.backend == RuntimeAccess.Backend.SHIZUKU;
         appendCheck(report, "SHIZUKU-001",
-                !shizukuRequested || shizukuReady,
+                shizukuReady,
                 "Shizuku command service",
-                !shizukuRequested
-                        ? "not requested by the selected runtime mode"
-                        : shizukuReady
-                                ? "API " + audit.shizuku.version
-                                        + ", service uid=" + audit.shizuku.uid
-                                : audit.shizuku.error);
+                shizukuReady
+                        ? "API " + audit.shizuku.version
+                                + ", service uid=" + audit.shizuku.uid
+                        : audit.runtimeError);
         appendCheck(report, "WM-FREEFORM-001", audit.freeformEnabled,
                 "Freeform support setting",
                 expectedValue("1", audit.freeformValue));
@@ -236,8 +222,7 @@ final class CompatibilityDiagnostics {
         final boolean nativeDesktopRequired =
                 taskControl && audit.configurationReady;
         final boolean privilegedTransactions =
-                RuntimeAccess.allowsRootCommands()
-                        || RuntimeAccess.allowsShizukuCommands();
+                RuntimeAccess.allowsShizukuCommands();
         final boolean nativeDesktopAvailable =
                 nativeDesktopRequired && NativeDesktopController.isAvailable();
         appendCheck(report, "NATIVE-DESKTOP-001",
@@ -330,8 +315,6 @@ final class CompatibilityDiagnostics {
                 .append(", hardwareVendorControl=")
                 .append(RuntimeAccess.has(
                         RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL))
-                .append(", hardwareControl=")
-                .append(RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL))
                 .append('\n');
         report.append("REDMAGIC charge separation: package=")
                 .append(ChargeSeparationController.isSupported(context))
@@ -346,8 +329,6 @@ final class CompatibilityDiagnostics {
         report.append("REDMAGIC hardware: fan=")
                 .append(hardware.fanAvailable)
                 .append(" enabled=").append(hardware.fanEnabled)
-                .append(" level=").append(hardware.fanLevel)
-                .append(" rpm=").append(hardware.fanRpm)
                 .append(", pump=").append(hardware.pumpAvailable)
                 .append(" enabled=").append(hardware.pumpEnabled)
                 .append(" speed=").append(hardware.pumpSpeed)
@@ -394,8 +375,7 @@ final class CompatibilityDiagnostics {
     private static void appendShizukuProbe(
             final StringBuilder report,
             final DeviceSetupManager.Audit audit) {
-        if (audit.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                && audit.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
+        if (audit.backend != RuntimeAccess.Backend.SHIZUKU) {
             return;
         }
         report.append("## Shizuku capability probe\n");

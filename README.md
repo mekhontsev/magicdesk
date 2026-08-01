@@ -13,28 +13,25 @@ REDMAGIC firmware.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
 > through iterative AI-assisted development and hands-on testing on real
-> REDMAGIC hardware. Root access and undocumented vendor interfaces make
-> independent review especially important.
+> REDMAGIC hardware. Its Shizuku integration and undocumented vendor interfaces
+> make independent source review especially important.
 
 > **Project status:** MagicDesk 1.0 is under active development. The current
-> firmware verification is limited to the REDMAGIC 11 Pro profile listed
-> below.
+> firmware verification is limited to the REDMAGIC 11 Pro profile listed below.
 
 ![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
 
 ## Why MagicDesk
 
 REDMAGIC phones can drive an external display, but their stock interface does
-not provide the complete desktop workflow available in Samsung DeX.
-MagicDesk supplies that missing shell while continuing to use native Android
-tasks and REDMAGIC's existing projection stack.
+not provide the complete desktop workflow available in Samsung DeX. MagicDesk
+supplies that missing shell while continuing to use native Android tasks and
+REDMAGIC's existing projection stack.
 
 The result is a familiar desktop model:
 
-- Android applications run in overlapping, resizable system windows.
-- Root mode uses native WMShell captions for move, resize, snap, maximize,
-  minimize, and close. Shizuku uses direct Android task transactions and the
-  MagicDesk taskbar controls when WMShell desktop mode is unavailable.
+- Android applications run in overlapping, resizable system windows with
+  native WMShell decorations.
 - A persistent taskbar tracks real Android tasks and pinned applications.
 - Start, desktop shortcuts, a desktop folder, task switching, and Show Desktop
   provide normal mouse-driven navigation.
@@ -46,7 +43,7 @@ The result is a familiar desktop model:
 
 MagicDesk does not emulate Android applications, host them inside custom views,
 or replace Android's task organizer. Applications remain ordinary Android
-tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
+tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 
 ## Highlights
 
@@ -56,16 +53,15 @@ tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
 - Keep multiple overlapping windows visible and switch exact tasks from the
   taskbar or with `Alt+Tab`.
 - Send an existing task between the phone and active external desktop from its
-  context menu.
+  context menu without restarting the application.
 - Snap windows left or right, maximize them above the taskbar, or enter true
   fullscreen.
 - Pin applications to the taskbar or place shortcuts on the desktop.
 - Show files from a user-selected folder without copying or deleting them.
-- Preserve one selected application and the last visible freeform window layout
-  across Show Desktop operations.
-- Store DPI, pins, shortcuts, folder access, and desktop settings separately for
-  each external monitor.
-- Use the phone's current static wallpaper, center-cropped for the external
+- Preserve the last visible freeform window layout across Show Desktop.
+- Store DPI, pins, shortcuts, folder access, and desktop settings separately
+  for each external monitor.
+- Use the phone's current static wallpaper, center-cropped for the active
   display.
 
 ### Desktop controls
@@ -75,38 +71,40 @@ tasks managed by Android's ActivityTaskManager and WindowOrganizer services.
 - Right-click context menus in MagicDesk and ordinary applications.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.
-- Calendar panel, battery and charging state, active keyboard-layout indicator,
+- Calendar panel, battery state, active keyboard-layout indicator,
   phone-screen control, and screenshot capture.
-- Media-volume, connected audio-output, and REDMAGIC Touch Panel controls in
-  the desktop Tools panel.
-- Stock REDMAGIC bypass-charging control in Root or Shizuku mode, with the
-  vendor service retaining its normal safety and disconnect handling.
-- Capability-probed REDMAGIC cooling monitoring and control. Shizuku uses the
-  stock intelligent/extreme fan and liquid-pump policy; Root additionally
-  provides direct five-level fan control and an optional temperature-driven
-  curve.
+- Media-volume, connected audio-output, and REDMAGIC Touch Panel controls.
+- Stock REDMAGIC bypass-charging, cooling-fan, liquid-pump, and temperature
+  controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through
   `Win+D`.
-- REDMAGIC Touch Panel launch from MagicDesk's persistent phone notification.
 
 ### Physical input
 
 - Native key repeat and physical keyboard layouts on the external display.
 - `Ctrl+Space` cycles through layouts exposed to Android by the active input
-  method as enabled keyboard subtypes, in system order. Input methods that keep
-  their language list entirely internal and expose only one active subtype
-  cannot provide system-wide physical-keyboard layout switching.
-- In Root or Shizuku mode on the external desktop, `Alt+Tab` bypasses
-  REDMAGIC's broken system Recents path while ordinary `Tab`, `Shift+Tab`, and
-  `Ctrl+Tab` remain normal application input.
-- Right click reaches Chrome, Firefox, MagicDesk, and other applications instead
-  of being converted to Android Back by REDMAGIC firmware.
-- Mouse hot-plug and multiple external keyboard or touchpad devices are handled
-  without restarting MagicDesk.
+  method as enabled keyboard subtypes, in system order. An IME that exposes
+  only one subtype cannot provide system-wide physical-keyboard switching.
+- `Alt+Tab` bypasses REDMAGIC's broken system Recents path while ordinary
+  `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal application input.
+- Right click reaches Chrome, Firefox, MagicDesk, and other applications
+  instead of being converted to Android Back by REDMAGIC firmware.
+- Mouse hot-plug and multiple external keyboard or touchpad devices are
+  handled without restarting MagicDesk.
 
-## Compatibility
+## Requirements
 
-MagicDesk is intentionally REDMAGIC/ZTE-specific.
+MagicDesk is intentionally REDMAGIC/ZTE-specific and requires:
+
+- a ZTE, nubia, or REDMAGIC device running Android 16 / API 36 or newer;
+- USB-C DisplayPort output and REDMAGIC external-display support;
+- the official Shizuku application, with its server started through wireless
+  debugging or ADB as Android shell UID 2000;
+- a one-time Device Setup and reboot to enable Android desktop windowing.
+
+MagicDesk does not request or use root. It does not run in a reduced fallback
+mode when Shizuku is stopped, permission is denied, or its service is not UID
+2000. This strict boundary keeps runtime behavior predictable and reviewable.
 
 **Currently verified:**
 
@@ -115,74 +113,60 @@ MagicDesk is intentionally REDMAGIC/ZTE-specific.
 - Firmware fingerprint:
   `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
 
-**Baseline accepted by Device Setup:**
-
-- A device identifying as ZTE, nubia, or REDMAGIC
-- Android 16 / API 36 or newer
-- USB-C DisplayPort output and REDMAGIC external-display support
-
-Root is required for the complete REDMAGIC desktop experience. Basic mode can
-run without root with reduced task, input, and display control.
-
 Other models and OTA versions are treated as unverified. They can continue
-after an explicit warning so that compatibility reports can identify missing or
-changed vendor hooks. Passing the baseline check does not guarantee that every
-feature works on a different firmware.
+after an explicit warning so compatibility reports can identify missing or
+changed vendor hooks. Passing the baseline check does not guarantee every
+feature works on different firmware.
 
 See [Compatibility and issue reports](docs/compatibility.md) before reporting a
 device-specific failure.
 
 ## Getting Started
 
-1. Install the MagicDesk APK from a tagged GitHub Release when available, or
-   build it from source.
-2. Launch MagicDesk on the phone.
-3. Select **Auto**, **Basic**, **Shizuku**, or **Root** runtime privileges and
-   choose the Primary, Current, External, or Auto display target.
-4. In Root mode, grant root when Device Setup requests it. In Shizuku mode,
-   install and start the official Shizuku manager, then grant MagicDesk access.
-5. Review the settings Device Setup proposes and confirm the changes. Shizuku
-   enables the public windowing settings and uses a narrowly allowlisted
-   REDMAGIC service for the two required desktop properties. Basic opens the
-   corresponding Android Developer options.
-6. Reboot when requested. Android and WMShell cache part of the desktop
+1. Install the official Shizuku application and start its server through
+   wireless debugging or ADB. Do not start Shizuku through a root/Sui backend:
+   MagicDesk requires shell UID 2000.
+2. Install MagicDesk from a tagged GitHub Release or build it from source.
+3. Launch MagicDesk on the phone and grant its Shizuku request.
+4. Review the four desktop-windowing values proposed by Device Setup and press
+   **Configure**. MagicDesk stores the previous values for later restoration.
+5. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
-7. A normal launch on the phone opens the compact MagicDesk control panel.
-   Select **Open desktop here** to use the full desktop on a tablet or directly
-   on the phone.
-
-MagicDesk starts with an external-display DPI of `192`. A different value can
-be selected under **Start > Tools** and is remembered per monitor.
+6. Launch MagicDesk manually after reboot. It has no boot receiver and starts
+   no service until the user opens it.
 
 Notification access is optional. Grant it from Android settings to enable the
 MagicDesk notification center and notification popups.
 
-Use **Tools > Restore previous values** before uninstalling when the Android
-desktop settings changed by MagicDesk should be restored. Android does not
-notify an application before it is uninstalled.
+Use **Device Setup > Restore previous values** before uninstalling when the
+Android desktop settings changed by MagicDesk should be restored. Android does
+not notify an application before it is uninstalled.
 
-## Typical Workflow
+### Typical workflow
 
 1. Connect the phone to an external display.
 2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 3. Launch MagicDesk on the phone.
-4. Grant the selected Root or Shizuku access when requested.
-5. Select **Start external desktop** in the phone control panel, or press
-   `Win+D` on the physical keyboard.
-6. To leave the external desktop, select **Switch to screen mirroring** in the
-   phone control panel or desktop Tools. Select **Exit MagicDesk** instead to
-   stop MagicDesk and its background services completely.
+4. Select **Start external desktop**, or press `Win+D`.
+5. To leave, select **Switch to screen mirroring**. Select **Exit MagicDesk**
+   instead to stop MagicDesk and its background services completely.
 
-### Phone Notification
+The initial external-display DPI is selected from the display resolution; for
+1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
+under **Start > Tools** and is remembered per monitor. **System** removes the
+MagicDesk density override.
 
-MagicDesk keeps a persistent notification on the phone. It is particularly
-useful when no physical keyboard or mouse is connected:
+### Phone notification
 
-- Tap the MagicDesk notification itself to perform the same context-sensitive
-  action as `Win+D`: start the external desktop, show the desktop, or restore
-  the previous window layout.
-- Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone
-  and control the external display from the touchscreen.
+MagicDesk keeps a persistent notification while it is running. It is useful
+when no physical keyboard or mouse is connected:
+
+- Tap the notification itself to perform the same context-sensitive action as
+  `Win+D`: start the external desktop, show it, or restore the previous layout.
+- Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone.
+
+The full desktop can also run on display 0 through **Open desktop here**, which
+supports tablets and allows development without an external monitor.
 
 ## Keyboard Shortcuts
 
@@ -194,143 +178,75 @@ useful when no physical keyboard or mouse is connected:
 | `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
 | `Alt+Tab` / `Alt+Shift+Tab` | Switch forward or backward through real Android tasks |
 | `Alt+F4` | Close the active task |
-| `Win+Backspace` | Send Android Back to the external display |
+| `Win+Backspace` | Send Android Back to the active display |
 | `Win+L` | Lock the phone |
 | `Win+N` | Toggle the notification center |
-| `Win+Print Screen` | Save the external display under `Pictures/Screenshots` |
+| `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
-| `Escape` | Act as normal Escape in the active app; also dismiss MagicDesk panels and cross-application transient UI |
+| `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |
 
-The unmodified Win key is deliberately unused. Root and Shizuku both provide
-global desktop shortcuts in Console Mode, including `Win+L`. The taskbar
-language indicator cycles the same configured layouts as `Ctrl+Space`.
-**Screenshot** captures the external
-display without leaving the Tools panel in the image.
-
-## Phone And External Display Controls
-
-The phone control panel provides the daily session actions without loading the
-desktop application catalog:
-
-- Open the full desktop on the phone or tablet display
-- Start the external desktop or switch to screen mirroring
-- Open REDMAGIC Touch Panel
-- Wake or dim the phone display
-- Device Setup, Diagnostics, and clean MagicDesk exit
-
-The desktop taskbar Tools panel additionally provides:
-
-- Start the external desktop or switch to screen mirroring
-- Open REDMAGIC Touch Panel
-- Open the phone control panel
-- Wake or dim the phone display
-- External-display DPI selection
-- External-display screenshot
-- Media volume, mute, output monitoring, and sound settings
-- REDMAGIC bypass charging when supported by the stock firmware
-- REDMAGIC CPU/GPU/skin/battery temperatures and stock cooling profiles in
-  Shizuku mode, plus direct fan RPM and granular profiles in Root mode
-- Device Setup and Diagnostics
-- Optional Kernel Fixes entry
-- Clean MagicDesk exit
-
-**Exit MagicDesk** stops its foreground service and input watcher, restores
-the physical mouse mapping and phone-side services it temporarily changed, and
-returns the phone to its normal launcher state. If MagicDesk changed the fan
-or pump, it independently restores each affected subsystem to the values
-captured before its first write. The same restoration runs when the runtime
-stops; after an interrupted process, any remaining baseline is recovered at
-the next manual MagicDesk start.
+The unmodified Win key is deliberately unused. The taskbar language indicator
+cycles the same configured layouts as `Ctrl+Space`.
 
 ## Privileges And Trust
 
-Root remains necessary for the complete feature set because Android does not
-expose low-level physical input control and all REDMAGIC hardware hooks to an
-ordinary third-party application. Basic mode never invokes `su` and keeps the
-desktop shell, public application launching, desktop content, notifications,
-and calendar with explicit limitations. Strict Shizuku mode uses the official
-Shizuku UserService API. A server started through ADB or wireless debugging
-runs MagicDesk commands as Android shell UID 2000 and enables REDMAGIC Console
-Mode startup, Touch Panel launch, exact task observation, freeform/fullscreen
-window operations, display density, screenshots, phone-screen dimming, bypass
-charging, phone locking, system-wallpaper access, thermal monitoring, and
-physical-keyboard layout control from both `Ctrl+Space` and the taskbar.
-After the one-time Device Setup and reboot, Shizuku uses native WMShell
-captions. MagicDesk temporarily reveals those caption layers during a Console
-session and restores REDMAGIC's current wired-privacy preference afterward.
-Shizuku also corrects REDMAGIC's physical-right-button-to-Back conversion
-through a lifecycle-bound virtual mouse bridge and provides global desktop
-shortcuts through an equivalent virtual-keyboard bridge. Phone-screen dimming
-uses a heartbeat-owned physical display override instead of Nubia's
-`nubia_screen_off_tp` state, preventing the vendor text-input panel from
-claiming that it must wake the phone. Loss of MagicDesk, Shizuku, or the guard
-stream restores DisplayManager's normal power state. While the override is
-active, the same heartbeat refreshes REDMAGIC's transient `service working`
-state for MagicDesk; this prevents the firmware from freezing the desktop HOME
-process while display 0 is off. The vendor service expires that state when the
-heartbeat disappears, so no persistent freezer exemption is left behind.
-Cooling changes use the stock `NBFan` policy service; direct five-level fan
-control and kernel fixes remain available only in Root mode.
+MagicDesk uses the official `dev.rikka.shizuku` UserService API. A server
+started through ADB or wireless debugging runs its bounded commands as Android
+shell UID 2000. This enables Console Mode, native task control, display density,
+screenshots, phone-screen dimming, locking, wallpaper access, vendor cooling
+and bypass charging, and physical input routing.
 
 The trust boundaries are deliberately narrow:
 
 - The complete source and CI workflow are reviewable under the MIT license.
-- The main APK declares no Internet permission.
-- Shizuku is never installed or started by MagicDesk. The user installs the
-  official manager, starts its server, and grants MagicDesk separately.
-- MagicDesk changes only the documented desktop settings accepted in Device
-  Setup and stores their previous values for restoration. The REDMAGIC
-  property writer accepts only the two reviewed desktop keys and boolean
-  values; it is not exposed as a generic system-property interface.
+- The main APK declares no Internet permission and contains no root command
+  path, `su` invocation, kernel module, or kernel-module loader.
+- Shizuku is never downloaded, installed, or started by MagicDesk. The user
+  controls the official manager and grants MagicDesk separately.
+- A root/Sui Shizuku service is rejected; only shell UID 2000 is accepted.
+- MagicDesk changes only the four desktop settings shown by Device Setup and
+  stores their previous values for restoration. The REDMAGIC property writer
+  accepts only two hardcoded boolean desktop properties.
 - The system `ShellTaskOrganizer` remains the only task organizer.
-- Native input helpers `libmagicdesk_mouse_remap.so`,
-  `libmagicdesk_uinput_bridge.so`, and `libmagicdesk_keyboard_bridge.so` are
-  rebuilt from their C sources in every CI build; no prebuilt helper is checked
-  in.
-- The main APK contains no kernel module or kernel-module loader.
+- `libmagicdesk_uinput_bridge.so` and
+  `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every
+  build; no prebuilt input helper is checked in.
+- Lifecycle-bound streams make input and display guards fail open: losing the
+  APK or Shizuku releases grabbed devices and restores display power.
 - Device and firmware mismatches are reported through structured Diagnostics
   codes instead of silently assuming compatibility.
 
-The detailed root commands, vendor interfaces, lifecycle, and cleanup behavior
-are documented in [Architecture](docs/architecture.md). The current runtime
-and display boundaries are documented in
-[Privilege and display modes](docs/privilege-modes.md). Verified lower-level
-firmware behavior and candidate privilege reductions are recorded separately
-in the [Nubia vendor interface audit](docs/nubia-vendor-audit.md).
+Implementation details are in [Architecture](docs/architecture.md), the
+runtime and display contract is in
+[Shizuku and display modes](docs/privilege-modes.md), and verified firmware
+behavior is recorded in the
+[Nubia vendor interface audit](docs/nubia-vendor-audit.md).
 
 ## Optional Kernel Fixes
 
-`MagicDesk Kernel Fixes` is a separately installed and separately identifiable
-APK. MagicDesk shows its Tools entry only when the add-on has the expected
-package and the same signing certificate as the main application.
+`MagicDesk Kernel Fixes` is an independent, optional APK in this repository.
+It has its own launcher icon and root boundary. The main MagicDesk application
+does not discover, start, or communicate with it.
 
-The current add-on contains a reviewed REDMAGIC 11 Pro DisplayPort recovery
-module for VITURE 3D EDID transitions. It validates the exact kernel, stock DP
-driver, and packaged module before asking for confirmation and invoking
-`insmod`. It is not required for the MagicDesk desktop.
+The current add-on contains a guarded REDMAGIC 11 Pro DisplayPort recovery
+module for VITURE 3D EDID transitions. The user must open the add-on directly
+and confirm activation after each reboot. It is not required for the desktop.
 
-The module is never compiled by normal Android CI. Its source, validated binary,
-checksums, guarded rebuild procedure, and recovery boundary are documented in
-[VITURE XR resolution fix](docs/xr-resolution-fix.md).
+The module is never compiled by normal Android CI. Its source, validated
+binary, checksums, guarded rebuild procedure, and recovery boundary are
+documented in [VITURE XR resolution fix](docs/xr-resolution-fix.md).
 
 ## Diagnostics And Issues
 
 Open **Tools > Diagnostics** to generate a copyable compatibility report. It
-contains:
+contains device and firmware identity, display/input information, desktop
+settings, capability probes, recent structured MagicDesk errors, and
+MagicDesk-only logcat entries. It excludes user files, accounts, notification
+contents, and the installed-application list.
 
-- device, firmware, Android, and MagicDesk versions
-- display and external-input information
-- desktop settings and capability probes
-- recent structured MagicDesk errors
-- MagicDesk-only logcat entries
-
-The report intentionally excludes user files, accounts, notification contents,
-and the installed-application list. Fatal crashes are retained for the next
-report.
-
-Include this report, reproduction steps, and whether the problem survives a
-reboot when filing an issue.
+Include the report, exact reproduction steps, and whether the problem survives
+a reboot when filing an issue.
 
 ## Build
 
@@ -349,16 +265,16 @@ Build both debug APKs:
 ```
 
 On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
-Linux, set `ANDROID_NDK_HOME`. The native input helpers are always compiled
-from `native/magicdesk_mouse_remap.c` and
-`native/magicdesk_uinput_bridge.c`.
+Linux, set `ANDROID_NDK_HOME`. The native input helpers are compiled from
+`native/magicdesk_uinput_bridge.c` and
+`native/magicdesk_keyboard_bridge.c`.
 
 ## Releases And Signing
 
 GitHub Actions lints and builds both modules on every change. A `v*` tag runs
-the signed release workflow, verifies APK contents and matching certificates,
-publishes SHA-256 checksums, and creates a GitHub Release. The kernel-fixes APK
-remains optional.
+the signed release workflow, verifies APK contents and certificates, publishes
+SHA-256 checksums, and creates a GitHub Release. The kernel-fixes APK remains
+optional and independent.
 
 Official release APKs use this certificate SHA-256 fingerprint:
 
@@ -373,6 +289,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 ## Technical Documentation
 
 - [Architecture](docs/architecture.md)
+- [Shizuku and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Deferred validation backlog](docs/testing-backlog.md)

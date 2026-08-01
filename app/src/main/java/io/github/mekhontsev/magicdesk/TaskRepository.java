@@ -57,7 +57,7 @@ final class TaskRepository {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                final CommandResult command = runRootCommand(CMD + " activity stack list");
+                final CommandResult command = runCommand(CMD + " activity stack list");
                 final List<TaskEntry> tasks = command.success
                         ? parseTasks(command.output, displayId)
                         : Collections.<TaskEntry>emptyList();
@@ -100,18 +100,9 @@ final class TaskRepository {
             return;
         }
 
-        if (RuntimeAccess.allowsShizukuCommands()) {
-            runAction(
-                    TaskFocusCommands.createShellCommand(orderedTaskIds),
-                    callback);
-            return;
-        }
-
-        final StringBuilder arguments = new StringBuilder("focus-stack");
-        for (final Integer taskId : orderedTaskIds) {
-            arguments.append(' ').append(taskId.intValue());
-        }
-        runAction(createTaskControlCommand(arguments.toString()), callback);
+        runAction(
+                TaskFocusCommands.createShellCommand(orderedTaskIds),
+                callback);
     }
 
     static void restoreFreeformStack(final int displayId,
@@ -124,7 +115,7 @@ final class TaskRepository {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                final CommandResult stackResult = runRootCommand(CMD + " activity stack list");
+                final CommandResult stackResult = runCommand(CMD + " activity stack list");
                 if (!stackResult.success) {
                     complete(callback, false, stackResult.output.trim());
                     return;
@@ -141,7 +132,7 @@ final class TaskRepository {
                     }
                     if (!savedTask.bounds.equals(currentTask.bounds)) {
                         final Rect bounds = savedTask.bounds;
-                        final CommandResult resizeResult = runRootCommand(
+                        final CommandResult resizeResult = runCommand(
                                 AM + " task resize " + currentTask.taskId
                                         + " " + bounds.left + " " + bounds.top
                                         + " " + bounds.right + " " + bounds.bottom);
@@ -166,7 +157,7 @@ final class TaskRepository {
                 for (int index = restoredTopFirst.size() - 1; index >= 0; index--) {
                     arguments.append(' ').append(restoredTopFirst.get(index).taskId);
                 }
-                final CommandResult restoreResult = runRootCommand(
+                final CommandResult restoreResult = runCommand(
                         createTaskWindowingCommand(arguments.toString()));
                 final boolean success = restoreResult.success && failure.length() == 0;
                 complete(callback, success, success
@@ -292,7 +283,7 @@ final class TaskRepository {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                final CommandResult result = runRootCommand(command);
+                final CommandResult result = runCommand(command);
                 if (callback != null) {
                     callback.onComplete(new ActionResult(
                             result.success, result.output.trim()));
@@ -434,7 +425,7 @@ final class TaskRepository {
         return tasks;
     }
 
-    private static CommandResult runRootCommand(final String command) {
+    private static CommandResult runCommand(final String command) {
         try {
             return new CommandResult(
                     true, PrivilegedCommandRunner.run(command));
@@ -449,20 +440,20 @@ final class TaskRepository {
     static final class Snapshot {
         final List<TaskEntry> tasks;
         final List<TaskEntry> phoneTasks;
-        final boolean rootAvailable;
+        final boolean available;
         final String error;
 
-        Snapshot(final List<TaskEntry> tasks, final boolean rootAvailable,
+        Snapshot(final List<TaskEntry> tasks, final boolean available,
                 final String error) {
-            this(tasks, Collections.<TaskEntry>emptyList(), rootAvailable, error);
+            this(tasks, Collections.<TaskEntry>emptyList(), available, error);
         }
 
         Snapshot(final List<TaskEntry> tasks, final List<TaskEntry> phoneTasks,
-                final boolean rootAvailable, final String error) {
+                final boolean available, final String error) {
             this.tasks = Collections.unmodifiableList(new ArrayList<>(tasks));
             this.phoneTasks = Collections.unmodifiableList(new ArrayList<>(phoneTasks));
-            this.rootAvailable = rootAvailable;
-            this.error = rootAvailable ? "" : error;
+            this.available = available;
+            this.error = available ? "" : error;
         }
     }
 

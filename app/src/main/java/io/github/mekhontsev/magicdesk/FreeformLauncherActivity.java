@@ -26,8 +26,6 @@ public final class FreeformLauncherActivity extends Activity {
             "io.github.mekhontsev.magicdesk.extra.PACKAGE_NAME";
     public static final String EXTRA_PRESERVED_TASK_IDS =
             "io.github.mekhontsev.magicdesk.extra.PRESERVED_TASK_IDS";
-    private static final String EXTRA_ROOT_COLD_LAUNCH =
-            "io.github.mekhontsev.magicdesk.extra.ROOT_COLD_LAUNCH";
 
     private static final String TAG = "MagicDeskFreeform";
     private static final ExecutorService LAUNCH_EXECUTOR = Executors.newSingleThreadExecutor(
@@ -43,16 +41,10 @@ public final class FreeformLauncherActivity extends Activity {
 
     static Intent createIntent(final Activity activity, final String packageName,
             final int[] preservedTaskIds) {
-        return createIntent(activity, packageName, preservedTaskIds, false);
-    }
-
-    static Intent createIntent(final Activity activity, final String packageName,
-            final int[] preservedTaskIds, final boolean rootColdLaunch) {
         return new Intent(activity, FreeformLauncherActivity.class)
                 .setAction(ACTION_LAUNCH)
                 .putExtra(EXTRA_PACKAGE_NAME, packageName)
-                .putExtra(EXTRA_PRESERVED_TASK_IDS, preservedTaskIds)
-                .putExtra(EXTRA_ROOT_COLD_LAUNCH, rootColdLaunch);
+                .putExtra(EXTRA_PRESERVED_TASK_IDS, preservedTaskIds);
     }
 
     @Override
@@ -72,8 +64,6 @@ public final class FreeformLauncherActivity extends Activity {
                 ? null : intent.getStringExtra(EXTRA_PACKAGE_NAME);
         final int[] preservedTaskIds = intent == null
                 ? null : intent.getIntArrayExtra(EXTRA_PRESERVED_TASK_IDS);
-        final boolean rootColdLaunch = intent != null
-                && intent.getBooleanExtra(EXTRA_ROOT_COLD_LAUNCH, false);
         if (!PackageNameValidator.isSafe(packageName)) {
             toastAndFinish("Bad package name");
             return;
@@ -90,23 +80,9 @@ public final class FreeformLauncherActivity extends Activity {
         final Context appContext = getApplicationContext();
 
         try {
-            if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
-                launchBasicFreeform(launchIntent, displayId);
-                finish();
-                overridePendingTransition(0, 0);
-                return;
-            }
             final boolean existingTask =
                     ExistingTaskController.taskExists(packageName, displayId);
             if (!existingTask) {
-                if (rootColdLaunch && RuntimeAccess.allowsRootCommands()) {
-                    finish();
-                    overridePendingTransition(0, 0);
-                    LAUNCH_EXECUTOR.execute(() -> launchAsRootAndConvert(
-                            appContext, launchIntent, packageName, displayId,
-                            preservedTaskIds));
-                    return;
-                }
                 final ActivityOptions options = ActivityOptions.makeBasic();
                 invokeIntOption(options, "setLaunchDisplayId", displayId);
                 Log.i(TAG, "launch package=" + packageName + " display=" + displayId);
@@ -120,16 +96,6 @@ public final class FreeformLauncherActivity extends Activity {
             Log.w(TAG, "cannot prepare native desktop launch package=" + packageName, e);
             toastAndFinish("Window launch failed: " + usefulMessage(e));
         }
-    }
-
-    private void launchBasicFreeform(
-            final Intent launchIntent, final int displayId) {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId);
-        options.setLaunchBounds(defaultLaunchBounds());
-        Log.i(TAG, "basic freeform launch display=" + displayId
-                + " component=" + launchIntent.getComponent());
-        startActivity(launchIntent, options.toBundle());
     }
 
     private Rect defaultLaunchBounds() {
@@ -151,20 +117,6 @@ public final class FreeformLauncherActivity extends Activity {
                 top,
                 left + boundedWidth,
                 top + boundedHeight);
-    }
-
-    private static void launchAsRootAndConvert(final Context context,
-            final Intent launchIntent, final String packageName, final int displayId,
-            final int[] preservedTaskIds) {
-        try {
-            ExistingTaskController.startActivityAsRoot(
-                    launchIntent.getComponent(), displayId);
-            convertToDesktopWindow(
-                    context, packageName, displayId, preservedTaskIds, true);
-        } catch (IOException | RuntimeException e) {
-            Log.w(TAG, "root cold launch failed package=" + packageName, e);
-            showToast(context, "Window launch failed: " + usefulMessage(e));
-        }
     }
 
     private static void convertToDesktopWindow(final Context context,

@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ComponentName;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
@@ -56,21 +55,6 @@ final class ExistingTaskController {
         return findBestTask(packageName, targetDisplayId, true) != null;
     }
 
-    static void startActivityAsRoot(final ComponentName component, final int displayId)
-            throws IOException {
-        if (component == null || displayId < 0) {
-            throw new IOException("invalid root activity launch");
-        }
-        final String output = runRootCommand("/system/bin/am start -W --display " + displayId
-                + " -n " + shellQuote(component.flattenToShortString())).trim();
-        if (output.startsWith("Error:")
-                || output.contains("Exception occurred while executing")) {
-            throw new IOException(output);
-        }
-        Log.i(TAG, "root activity started component="
-                + component.flattenToShortString() + " display=" + displayId);
-    }
-
     static void waitForNativeDesktopTask(final int taskId, final int displayId)
             throws IOException {
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
@@ -105,7 +89,7 @@ final class ExistingTaskController {
             final String command = CMD + " activity display move-stack " + task.rootTaskId
                     + " " + targetDisplayId;
             Log.i(TAG, "move display: " + command);
-            runRootCommand(command);
+            runCommand(command);
             waitForTaskDisplay(task.taskId, targetDisplayId);
         }
 
@@ -193,17 +177,7 @@ final class ExistingTaskController {
                 }
             }
             orderedTaskIds.add(Integer.valueOf(task.taskId));
-            if (RuntimeAccess.allowsShizukuCommands()) {
-                runRootCommand(
-                        TaskFocusCommands.createShellCommand(orderedTaskIds));
-                return;
-            }
-            final StringBuilder arguments = new StringBuilder("focus-stack");
-            for (final Integer taskId : orderedTaskIds) {
-                arguments.append(' ').append(taskId.intValue());
-            }
-            runRootCommand(createAppProcessCommand(TASK_CONTROL_COMMAND,
-                    arguments.toString()));
+            runCommand(TaskFocusCommands.createShellCommand(orderedTaskIds));
         } catch (IOException ignored) {
             Log.w(TAG, "bring task stack to front failed package=" + task.packageName
                     + " task=" + task.taskId, ignored);
@@ -214,19 +188,19 @@ final class ExistingTaskController {
     private static void setFreeform(final int taskId, final int displayId)
             throws IOException {
         final Rect bounds = FloatingWindowController.getDefaultWindowBounds(displayId);
-        runRootCommand(TaskRepository.createFreeformTransitionCommand(
+        runCommand(TaskRepository.createFreeformTransitionCommand(
                 displayId, taskId, bounds));
     }
 
     private static void setFullscreen(final TaskInfo task, final int displayId)
             throws IOException {
-        runRootCommand(TaskRepository.createFullscreenTransitionCommand(
+        runCommand(TaskRepository.createFullscreenTransitionCommand(
                 displayId, task.taskId));
     }
 
     private static void setCaptionInsetExcluded(final int taskId, final int displayId,
             final boolean excluded) throws IOException {
-        runRootCommand(TaskRepository.createCaptionInsetsCommand(
+        runCommand(TaskRepository.createCaptionInsetsCommand(
                 displayId, taskId, excluded));
     }
 
@@ -261,7 +235,7 @@ final class ExistingTaskController {
     }
 
     private static List<TaskInfo> findTasks(final String packageName) throws IOException {
-        final String output = runRootCommand(CMD + " activity stack list");
+        final String output = runCommand(CMD + " activity stack list");
         final List<TaskInfo> result = new ArrayList<>();
         for (final TaskStackParser.Entry task :
                 TaskStackParser.parse(output)) {
@@ -279,7 +253,7 @@ final class ExistingTaskController {
     }
 
     private static TaskInfo findTask(final int taskId) throws IOException {
-        final String output = runRootCommand(CMD + " activity stack list");
+        final String output = runCommand(CMD + " activity stack list");
         for (final TaskStackParser.Entry task :
                 TaskStackParser.parse(output)) {
             if (task.taskId == taskId) {
@@ -306,7 +280,7 @@ final class ExistingTaskController {
         return "'" + value.replace("'", "'\\''") + "'";
     }
 
-    private static String runRootCommand(final String command) throws IOException {
+    private static String runCommand(final String command) throws IOException {
         return PrivilegedCommandRunner.run(command);
     }
 

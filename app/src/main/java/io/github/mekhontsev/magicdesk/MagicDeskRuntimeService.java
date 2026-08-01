@@ -40,10 +40,8 @@ public final class MagicDeskRuntimeService extends Service
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
     private static final long DEVICE_CHANGE_DEBOUNCE_MILLIS = 600;
-    private static final long MIRROR_INPUT_RETRY_MILLIS = 1_000;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
-    private static final String PHONE_SCREEN_OFF_STATE = "nubia_screen_off_tp";
     private static final String SHIZUKU_KEYBOARD_NAME =
             "MagicDesk Shizuku Keyboard";
     private static final String SHIZUKU_MOUSE_NAME =
@@ -67,13 +65,11 @@ public final class MagicDeskRuntimeService extends Service
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
-    private Boolean mMirrorInputProxyEnabled;
     private boolean mDestroyed;
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
 
     private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
-    private final Runnable mMirrorInputRetryRunnable = this::syncMirrorInputProxyState;
     private final Runnable mPhoneHomeRecoveryRunnable =
             this::restorePrimaryPhoneHomeIfNeeded;
     private final Runnable mLocalDesktopCleanupRunnable =
@@ -176,7 +172,6 @@ public final class MagicDeskRuntimeService extends Service
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
         }
-        syncMirrorInputProxyState();
         updateKeyboardWatcher();
         updateShizukuMouseBridge();
         updateDesktopTasks();
@@ -208,7 +203,6 @@ public final class MagicDeskRuntimeService extends Service
                 ConsoleModeSwitcher.openTouchpad();
             }
         }
-        syncMirrorInputProxyState();
         updateKeyboardWatcher();
         updateShizukuMouseBridge();
         updateDesktopTasks();
@@ -256,7 +250,6 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (mHandler != null) {
             mHandler.removeCallbacks(mDeviceChangeRunnable);
-            mHandler.removeCallbacks(mMirrorInputRetryRunnable);
             mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
             mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         }
@@ -269,7 +262,6 @@ public final class MagicDeskRuntimeService extends Service
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
         ShizukuPhoneDisplayGuard.requestRestore();
-        ConsoleModeSwitcher.closeRootShell();
         super.onDestroy();
     }
 
@@ -448,70 +440,12 @@ public final class MagicDeskRuntimeService extends Service
             @Override
             public void onChange(final boolean selfChange) {
                 handleConsoleStateMaybeChanged();
-                syncMirrorInputProxyState();
             }
         };
         getContentResolver().registerContentObserver(
                 Settings.Global.getUriFor(CONSOLE_DISPLAY_STATE),
                 false,
                 mConsoleModeObserver);
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(PHONE_SCREEN_OFF_STATE),
-                false,
-                mConsoleModeObserver);
-    }
-
-    private void syncMirrorInputProxyState() {
-        if (mDestroyed) {
-            return;
-        }
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD)) {
-            mMirrorInputProxyEnabled = null;
-            mHandler.removeCallbacks(mMirrorInputRetryRunnable);
-            return;
-        }
-        final boolean enabled = !mConsoleModeActive || !isPhoneScreenOff();
-        if (mMirrorInputProxyEnabled != null
-                && mMirrorInputProxyEnabled.booleanValue() == enabled) {
-            return;
-        }
-        mMirrorInputProxyEnabled = Boolean.valueOf(enabled);
-        ConsoleModeSwitcher.setMirrorInputProxyEnabled(enabled,
-                new ConsoleModeSwitcher.ResultCallback() {
-                    @Override
-                    public void onComplete(final boolean success) {
-                        if (success || mDestroyed || mHandler == null) {
-                            return;
-                        }
-                        mHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (mDestroyed) {
-                                    return;
-                                }
-                                if (mMirrorInputProxyEnabled != null
-                                        && mMirrorInputProxyEnabled.booleanValue()
-                                        == enabled) {
-                                    mMirrorInputProxyEnabled = null;
-                                    mHandler.postDelayed(
-                                            mMirrorInputRetryRunnable,
-                                            MIRROR_INPUT_RETRY_MILLIS);
-                                }
-                            }
-                        });
-                    }
-                });
-    }
-
-    private boolean isPhoneScreenOff() {
-        try {
-            return Settings.Global.getInt(
-                    getContentResolver(), PHONE_SCREEN_OFF_STATE, 0) == 1;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "failed to read phone screen state", e);
-            return false;
-        }
     }
 
     private void handleConsoleStateMaybeChanged() {
@@ -646,7 +580,6 @@ public final class MagicDeskRuntimeService extends Service
         return mConsoleModeActive
                 && mHasExternalMouse
                 && RuntimeAccess.allowsShizukuCommands()
-                && !RuntimeAccess.allowsRootCommands()
                 && RuntimeAccess.has(
                         RuntimeAccess.Capability.RIGHT_CLICK_REMAP);
     }
@@ -699,8 +632,7 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         if (!RuntimeAccess.has(RuntimeAccess.Capability.TASK_CONTROL)) {
-            Log.w(TAG, "pending phone freeform cleanup requires"
-                    + " Root or Shizuku task control");
+            Log.w(TAG, "pending phone freeform cleanup requires Shizuku task control");
             return;
         }
         mLocalDesktopCleanupInFlight = true;

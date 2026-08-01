@@ -1,8 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ActivityManager;
-import android.content.Context;
 import android.util.Log;
 
 import java.io.IOException;
@@ -30,9 +28,8 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        if (RuntimeAccess.has(RuntimeAccess.Capability.HARDWARE_CONTROL)
-                || RuntimeAccess.has(
-                        RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)) {
+        if (RuntimeAccess.has(
+                RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL)) {
             RedmagicHardwareController.restoreChangedState(
                     success -> {
                         if (!success) {
@@ -51,16 +48,6 @@ final class MagicDeskSessionController {
     }
 
     private void continueExit() {
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.CONSOLE_CONTROL)) {
-            cleanupPhoneTasksBeforeExit(this::finishUnprivilegedExit);
-            return;
-        }
-        if (!RuntimeAccess.has(
-                RuntimeAccess.Capability.PHONE_SCREEN_CONTROL)) {
-            continueConsoleExit();
-            return;
-        }
         ConsoleModeSwitcher.setPhoneScreenOff(
                 false,
                 success -> {
@@ -95,40 +82,22 @@ final class MagicDeskSessionController {
                                                     null);
                                             return;
                                         }
-                                        finishPrivilegedExit();
+                                        finishExit();
                                     }));
                 });
     }
 
-    private void finishUnprivilegedExit() {
-        mActivity.runOnUiThread(() -> {
-            DeviceSetupManager.revokeRuntimeAuthorization(mActivity);
-            MagicDeskRuntimeService.stop(mActivity);
-            mHost.releaseSessionUi();
-            mExitInProgress = false;
-            final ActivityManager manager = (ActivityManager)
-                    mActivity.getSystemService(Context.ACTIVITY_SERVICE);
-            if (manager != null) {
-                for (final ActivityManager.AppTask task : manager.getAppTasks()) {
-                    task.finishAndRemoveTask();
-                }
-            } else {
-                mActivity.finishAndRemoveTask();
-            }
-        });
-    }
-
-    private void finishPrivilegedExit() {
+    private void finishExit() {
         KeyboardShortcutWatcher.stop();
         MagicDeskRuntimeService.stop(mActivity);
-        runRootCommandBestEffort(
+        runCommandBestEffort(
                 AM + " stop-service -n " + KEYBOARD_WATCHER_SERVICE);
         try {
-            runRootCommand(
+            runCommand(
                     AM + " start --display 0"
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.HOME");
-            runRootCommand(
+            runCommand(
                     AM + " force-stop --user 0 "
                             + mActivity.getPackageName());
         } catch (IOException e) {
@@ -136,7 +105,7 @@ final class MagicDeskSessionController {
             abort(
                     "EXIT-004",
                     mActivity.getString(
-                            R.string.status_root_failed,
+                            R.string.status_exit_failed,
                             e.getMessage()),
                     e);
         }
@@ -173,19 +142,19 @@ final class MagicDeskSessionController {
         });
     }
 
-    private static String runRootCommand(final String command)
+    private static String runCommand(final String command)
             throws IOException {
         return PrivilegedCommandRunner.run(command);
     }
 
-    private static void runRootCommandBestEffort(
+    private static void runCommandBestEffort(
             final String command) {
         try {
-            runRootCommand(command);
+            runCommand(command);
         } catch (IOException e) {
             Log.w(
                     TAG,
-                    "best-effort root command failed: " + command,
+                    "best-effort privileged command failed: " + command,
                     e);
         }
     }

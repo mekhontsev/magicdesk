@@ -1,11 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
-import java.io.IOException;
 import java.util.EnumSet;
 
 import org.junit.After;
@@ -15,21 +12,20 @@ public final class RuntimeAccessTest {
     @After
     public void resetRuntimeAccess() {
         RuntimeAccess.configure(
-                new SessionProfile(
-                        SessionProfile.PrivilegeMode.AUTO,
-                        SessionProfile.DisplayTarget.AUTO),
-                RuntimeAccess.Backend.BASIC);
+                new SessionProfile(SessionProfile.DisplayTarget.AUTO),
+                RuntimeAccess.Backend.UNAVAILABLE);
     }
 
     @Test
-    public void basicCanOnlyLaunchPublicApplications() {
+    public void unavailableBackendHasNoCapabilities() {
         assertEquals(
-                EnumSet.of(RuntimeAccess.Capability.PUBLIC_APP_LAUNCH),
-                RuntimeAccess.capabilitiesFor(RuntimeAccess.Backend.BASIC));
+                EnumSet.noneOf(RuntimeAccess.Capability.class),
+                RuntimeAccess.capabilitiesFor(
+                        RuntimeAccess.Backend.UNAVAILABLE));
     }
 
     @Test
-    public void shellAndRootShizukuUseTheSameBoundedCapabilities() {
+    public void shizukuHasTheBoundedRuntimeCapabilities() {
         final EnumSet<RuntimeAccess.Capability> expected = EnumSet.of(
                 RuntimeAccess.Capability.PUBLIC_APP_LAUNCH,
                 RuntimeAccess.Capability.EXACT_TASKS,
@@ -52,11 +48,7 @@ public final class RuntimeAccessTest {
         assertEquals(
                 expected,
                 RuntimeAccess.capabilitiesFor(
-                        RuntimeAccess.Backend.SHIZUKU_SHELL));
-        assertEquals(
-                expected,
-                RuntimeAccess.capabilitiesFor(
-                        RuntimeAccess.Backend.SHIZUKU_ROOT));
+                        RuntimeAccess.Backend.SHIZUKU));
         assertTrue(expected.contains(
                 RuntimeAccess.Capability.GLOBAL_INPUT));
         assertTrue(expected.contains(
@@ -71,40 +63,6 @@ public final class RuntimeAccessTest {
                 RuntimeAccess.Capability.HARDWARE_MONITORING));
         assertTrue(expected.contains(
                 RuntimeAccess.Capability.HARDWARE_VENDOR_CONTROL));
-        assertFalse(expected.contains(
-                RuntimeAccess.Capability.PHONE_SCREEN_WAKE_GUARD));
-        assertFalse(expected.contains(
-                RuntimeAccess.Capability.HARDWARE_CONTROL));
-        assertFalse(expected.contains(
-                RuntimeAccess.Capability.KERNEL_FIXES));
-    }
-
-    @Test
-    public void rootHasEveryCapability() {
-        assertEquals(
-                EnumSet.allOf(RuntimeAccess.Capability.class),
-                RuntimeAccess.capabilitiesFor(RuntimeAccess.Backend.ROOT));
-    }
-
-    @Test
-    public void onlyRootBackendPassesRootCommandGate() throws Exception {
-        for (final RuntimeAccess.Backend backend
-                : RuntimeAccess.Backend.values()) {
-            RuntimeAccess.configure(null, backend);
-            if (backend == RuntimeAccess.Backend.ROOT) {
-                RuntimeAccess.requireRootCommands("test");
-                assertTrue(RuntimeAccess.allowsRootCommands());
-            } else {
-                assertFalse(RuntimeAccess.allowsRootCommands());
-                try {
-                    RuntimeAccess.requireRootCommands("test");
-                    fail("root command gate accepted " + backend);
-                } catch (IOException expected) {
-                    assertTrue(expected.getMessage().contains(
-                            RuntimeAccess.backendName()));
-                }
-            }
-        }
     }
 
     @Test
@@ -112,9 +70,7 @@ public final class RuntimeAccessTest {
         for (final RuntimeAccess.Backend backend
                 : RuntimeAccess.Backend.values()) {
             RuntimeAccess.configure(null, backend);
-            final boolean expected =
-                    backend == RuntimeAccess.Backend.SHIZUKU_SHELL
-                            || backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
+            final boolean expected = backend == RuntimeAccess.Backend.SHIZUKU;
             assertEquals(expected, RuntimeAccess.allowsShizukuCommands());
         }
     }

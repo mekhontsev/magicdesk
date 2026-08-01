@@ -212,7 +212,7 @@ final class DesktopRuntimeBridge {
             final int displayId,
             final TaskRepository.Snapshot snapshot) {
         final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null || snapshot == null || !snapshot.rootAvailable
+        if (activity == null || snapshot == null || !snapshot.available
                 || activity.getCurrentDisplayId() != displayId) {
             return;
         }

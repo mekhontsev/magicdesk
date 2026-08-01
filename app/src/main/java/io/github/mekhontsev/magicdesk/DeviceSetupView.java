@@ -16,10 +16,9 @@ final class DeviceSetupView {
     private final DesktopUiFactory mUi;
 
     private TextView mSummary;
-    private TextView mRuntimeModeValue;
     private TextView mDisplayTargetValue;
     private TextView mDeviceValue;
-    private TextView mRootValue;
+    private TextView mShizukuValue;
     private TextView mOverlayValue;
     private TextView mFreeformValue;
     private TextView mResizableValue;
@@ -91,18 +90,13 @@ final class DeviceSetupView {
         final LinearLayout rows = new LinearLayout(mActivity);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
-        mRuntimeModeValue =
-                addStatusRow(rows, R.string.setup_item_runtime_mode);
-        makeProfileValueInteractive(
-                mRuntimeModeValue,
-                mActivity::showPrivilegeModeChooser);
         mDisplayTargetValue =
                 addStatusRow(rows, R.string.setup_item_display_target);
         makeProfileValueInteractive(
                 mDisplayTargetValue,
                 mActivity::showDisplayTargetChooser);
         mDeviceValue = addStatusRow(rows, R.string.setup_item_device);
-        mRootValue = addStatusRow(rows, R.string.setup_item_root);
+        mShizukuValue = addStatusRow(rows, R.string.setup_item_shizuku);
         mOverlayValue = addStatusRow(rows, R.string.setup_item_overlays);
         mFreeformValue = addStatusRow(rows, R.string.setup_item_freeform);
         mResizableValue = addStatusRow(rows, R.string.setup_item_resizable);
@@ -199,10 +193,6 @@ final class DeviceSetupView {
         return mSummary;
     }
 
-    TextView runtimeModeValue() {
-        return mRuntimeModeValue;
-    }
-
     TextView displayTargetValue() {
         return mDisplayTargetValue;
     }
@@ -211,8 +201,8 @@ final class DeviceSetupView {
         return mDeviceValue;
     }
 
-    TextView rootValue() {
-        return mRootValue;
+    TextView shizukuValue() {
+        return mShizukuValue;
     }
 
     TextView overlayValue() {

@@ -53,7 +53,7 @@ final class DesktopHostWindowController {
                     }
                     final TaskRepository.TaskEntry task =
                             DesktopShellActivity.findTask(snapshot, taskId);
-                    if (!snapshot.rootAvailable || task == null) {
+                    if (!snapshot.available || task == null) {
                         finishIfCurrent(generation);
                         retryOrRecord(
                                 generation,

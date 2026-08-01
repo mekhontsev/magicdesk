@@ -14,20 +14,22 @@ a recovery path.
 - Fingerprint:
   `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
 
-The tests ran from MagicDesk's real application UID in the
-`u:r:untrusted_app:s0` SELinux domain. Root was used only by the test harness
-to install the debug APK and start instrumentation. Unless noted otherwise,
-the vendor calls themselves ran without Root or Shizuku.
+The ordinary-UID tests ran from MagicDesk's real application UID in the
+`u:r:untrusted_app:s0` SELinux domain. Root was used only by the research
+harness to install debug builds, start instrumentation, and inspect firmware.
+Unless noted otherwise, the vendor calls themselves ran without elevated
+runtime access. The production application now accepts only Shizuku shell UID
+2000; ordinary-UID results below explain why that boundary exists.
 
 ## Confirmed Interfaces
 
-| Interface | Basic app access | Finding | Production decision |
+| Interface | Ordinary app access | Finding | Production decision |
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Shizuku setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
-| `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Candidate for Basic Console activation after external-display validation. |
+| `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Production routes the complete Console transition through Shizuku so display, task, and input ownership share one lifecycle. |
 | `SurfaceControl.setSFOption(1102, ...)` | Write verified | The app UID can change wired privacy/caption visibility. No corresponding getter was found. | Shizuku uses lifecycle ownership and restores Nubia's `Settings.Global.cast_privacy_model` value. |
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons. | Prefer the stock entry point where its lifecycle is understood. |
-| `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Possible Basic task hints and diagnostics, not a source of truth. |
+| `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Retained as research and possible diagnostics, not a task source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply REDMAGIC lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
@@ -58,9 +60,9 @@ MagicDesk uses this to remove the clean-Shizuku setup gap:
 
 The production setter accepts enum-like operations rather than caller-provided
 keys or values, rejects unexpected property values, records originals before
-mutation, and verifies every write and restore. Basic mode could use the same
-property path while asking the user to enable the two public Developer options
-manually; that flow is not implemented yet.
+mutation, and verifies every write and restore. Earlier ordinary-UID experiments
+showed that this property path alone is insufficient: exact task, input, and
+display ownership still requires shell access.
 
 The unrestricted vendor setter is a firmware security weakness. MagicDesk
 must not turn it into a general-purpose command, exported component, intent
@@ -77,7 +79,7 @@ Binder to MiFavor Quickstep in the initialization bundle delivered to
 calls `enforceCallingPermission(android.permission.MANAGE_ACTIVITY_TASKS)`,
 including task conversion, showing desktop apps, and launch transitions.
 
-A controlled Basic-mode cold-launch probe ran from MagicDesk UID 10615 after
+A controlled ordinary-app cold-launch probe ran from MagicDesk UID 10615 after
 Golly had been force-stopped. It requested a new task, explicit bounds, and
 `windowingMode=freeform`. ActivityTaskManager accepted the launch without a
 `SecurityException`, but normalized the new task to fullscreen and retained
@@ -90,8 +92,8 @@ identifier ending in `_WindowReply` selects that policy, but support is
 filtered through `/system/etc/zte_windowReply_control.xml`. Its force-support
 list explains why selected applications such as Chrome, Gmail, and Telegram
 can use Nubia floating windows while an arbitrary resizable application may
-not. MagicDesk does not use `WindowReply` as a Basic fallback because it is a
-vendor allowlist mechanism, not a general desktop contract.
+not. MagicDesk does not use `WindowReply` as a fallback because it is a vendor
+allowlist mechanism, not a general desktop contract.
 
 ## Console And Caption Control
 
@@ -130,14 +132,14 @@ validating their complete surrounding transition.
 
 The firmware's wired privacy path uses SurfaceFlinger option `1102`. Value `1`
 hides external layers whose names include `Task=`, including native WMShell
-captions; value `0` reveals them. A Basic app-process invocation of
+captions; value `0` reveals them. An ordinary app-process invocation of
 `SurfaceControl.setSFOption(1102, 1)` succeeded. No SurfaceFlinger getter was
 found, but Nubia's `WiredSettingsActivity` mirrors every user change to
 `Settings.Global.cast_privacy_model`; an absent value corresponds to the
-firmware's default `true`. Root can read NubiaProjectionScreen's private XML.
-Shizuku records ownership, temporarily writes `0`, and restores the current
-global value on mirror transition, normal teardown, or interrupted-session
-recovery.
+firmware's default `true`. Firmware inspection confirmed a private preference,
+but the production app does not read another package's data. Shizuku records
+ownership, temporarily writes `0`, and restores the current global value on
+mirror transition, normal teardown, or interrupted-session recovery.
 
 ## Task-State Hints
 
@@ -152,7 +154,8 @@ and immediately delivered event `2000` with:
 - UID and PID
 - windowing mode
 
-This is useful for a future Basic-mode task catalog. It is not authoritative:
+This was useful for evaluating a lower-privilege task catalog. It is not
+authoritative:
 after the external display was disconnected, the initial callback still
 contained old tasks for removed display ids 14 and 15. Any consumer must:
 
@@ -192,9 +195,9 @@ main/manual setting to `0`, then restore the saved mode/flow and original
 main/manual value. Every command uses only the hardcoded keys above, validates
 the read-back, and retains its ownership marker if restoration fails.
 
-This path preserves Nubia's own thermal and safety policy and is the Shizuku
-backend for cooling controls. Root mode keeps the direct node backend for
-five-level fan control and MagicDesk's temperature-driven curve.
+This path preserves Nubia's own thermal and safety policy and is the only
+MagicDesk cooling-control backend. The discarded direct-node prototype is not
+present in the main application.
 
 ## Phone Input-Panel Wake
 
@@ -209,10 +212,9 @@ input-panel path.
 Closing the panel after launch is too late because the activity has already
 woken the phone. Registering a panel token changes input routing but does not
 suppress the launch. Android 16 also rejects UID 2000 changing the enabled
-state of `MirrorInputService`. MagicDesk therefore keeps the targeted component
-guard in Root mode only. Suspending or repeatedly force-stopping the entire
-`cn.nubia.keymapcenter` package would also remove the user-requested Touch Panel
-and is not used as a Shizuku fallback.
+state of `MirrorInputService`. Suspending or repeatedly force-stopping the
+entire `cn.nubia.keymapcenter` package would remove the user-requested Touch
+Panel and is not used.
 
 The firmware also exposes `cmd display power-off 0` and
 `cmd display power-reset 0` to shell UID 2000. Unlike
@@ -246,10 +248,10 @@ Two apparent event sources are not sufficient by themselves. Nubia's
 `setHbmMsg`; it is not a callback for physical display power. Likewise,
 `DisplayManagerService.requestDisplayPower()` drives the primary display
 device without replacing its logical power state, so a public
-`DisplayListener` is not an authoritative ownership signal. The Shizuku path
-therefore still needs an external-display test covering real text focus,
-physical wake, process death, Console exit, and cable removal before it can
-replace the current stock screen controller.
+`DisplayListener` is not an authoritative ownership signal. The final Shizuku
+guard was validated with real text focus, physical wake, process death,
+UserService death, Console exit, and cable removal. Its heartbeat stream, not a
+poll-only listener, owns restoration.
 
 ## Physical Input Findings
 

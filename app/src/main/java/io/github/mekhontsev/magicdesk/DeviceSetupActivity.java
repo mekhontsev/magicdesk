@@ -113,36 +113,6 @@ public final class DeviceSetupActivity extends Activity {
         mContentCreated = true;
     }
 
-    void showPrivilegeModeChooser(final View ignored) {
-        final SessionProfile.PrivilegeMode[] modes = {
-                SessionProfile.PrivilegeMode.AUTO,
-                SessionProfile.PrivilegeMode.BASIC,
-                SessionProfile.PrivilegeMode.SHIZUKU,
-                SessionProfile.PrivilegeMode.ROOT
-        };
-        final String[] labels = {
-                getString(R.string.setup_mode_auto),
-                getString(R.string.setup_mode_basic),
-                getString(R.string.setup_mode_shizuku),
-                getString(R.string.setup_mode_root)
-        };
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.setup_choose_runtime_mode)
-                .setSingleChoiceItems(
-                        labels,
-                        indexOf(modes, mSessionProfile.privilegeMode),
-                        (dialog, which) -> {
-                            mSessionProfile =
-                                    mSessionProfile.withPrivilegeMode(modes[which]);
-                            mSessionProfile.save(this);
-                            DeviceSetupManager.revokeRuntimeAuthorization(this);
-                            dialog.dismiss();
-                            runAudit();
-                        })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
     void showDisplayTargetChooser(final View ignored) {
         final SessionProfile.DisplayTarget[] targets = {
                 SessionProfile.DisplayTarget.AUTO,
@@ -222,18 +192,12 @@ public final class DeviceSetupActivity extends Activity {
                         : getString(R.string.setup_value_unsupported,
                                 audit.manufacturer, audit.model),
                 audit.compatibleDevice);
-        final boolean rootRelevant =
-                mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
-                        || mSessionProfile.privilegeMode
-                                == SessionProfile.PrivilegeMode.ROOT;
         setStatusValue(
-                mSetupView.rootValue(),
-                rootRelevant
-                        ? getString(audit.rootAvailable
-                                ? R.string.setup_value_available
-                                : R.string.setup_value_unavailable)
-                        : getString(R.string.setup_value_not_used),
-                !rootRelevant || audit.rootAvailable);
+                mSetupView.shizukuValue(),
+                getString(audit.backend == RuntimeAccess.Backend.SHIZUKU
+                        ? R.string.setup_value_available
+                        : R.string.setup_value_unavailable),
+                audit.backend == RuntimeAccess.Backend.SHIZUKU);
         final boolean overlaysGranted = Settings.canDrawOverlays(this);
         setStatusValue(
                 mSetupView.overlayValue(),
@@ -267,68 +231,44 @@ public final class DeviceSetupActivity extends Activity {
         mSetupView.primaryAction().setVisibility(View.VISIBLE);
         mSetupView.secondaryAction().setVisibility(View.VISIBLE);
         final boolean shizukuBackend =
-                audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
-                        || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT;
-        final boolean canRestore =
-                (audit.rootAvailable && audit.hasManagedChanges)
-                        || (shizukuBackend
-                        && audit.hasManagedChanges);
+                audit.backend == RuntimeAccess.Backend.SHIZUKU;
+        final boolean canRestore = shizukuBackend && audit.hasManagedChanges;
         mSetupView.restoreAction().setVisibility(
                 canRestore ? View.VISIBLE : View.GONE);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
-        if (mSessionProfile.privilegeMode
-                == SessionProfile.PrivilegeMode.SHIZUKU) {
-            if (!audit.shizuku.running) {
-                mSetupView.summary().setText(audit.shizuku.installed
-                        ? R.string.setup_status_shizuku_stopped
-                        : R.string.setup_status_shizuku_not_installed);
-                mSetupView.summary().setTextColor(COLOR_AMBER);
-                mSetupView.primaryAction().setText(audit.shizuku.installed
-                        ? R.string.setup_action_open_shizuku
-                        : R.string.setup_action_get_shizuku);
-                mSetupView.primaryAction().setOnClickListener(
-                        view -> ShizukuAccess.openManagerOrWebsite(this));
-                setCloseAction();
-                return;
-            }
-            if (!audit.shizuku.permissionGranted) {
-                mSetupView.summary().setText(R.string.setup_status_shizuku_permission);
-                mSetupView.summary().setTextColor(COLOR_AMBER);
-                mSetupView.primaryAction().setText(R.string.setup_action_allow_shizuku);
-                mSetupView.primaryAction().setOnClickListener(
-                        view -> requestShizukuPermission());
-                setCloseAction();
-                return;
-            }
-            if (audit.backend != RuntimeAccess.Backend.SHIZUKU_SHELL
-                    && audit.backend != RuntimeAccess.Backend.SHIZUKU_ROOT) {
-                mSetupView.summary().setText(getString(
-                        R.string.setup_status_shizuku_failed,
-                        audit.shizuku.error));
-                mSetupView.summary().setTextColor(COLOR_RED);
-                mSetupView.primaryAction().setText(R.string.setup_action_recheck);
-                mSetupView.primaryAction().setOnClickListener(view -> runAudit());
-                setCloseAction();
-                return;
-            }
-        }
-        if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.ROOT
-                && !audit.rootAvailable) {
-            mSetupView.summary().setText(R.string.setup_status_root_mode_unavailable);
-            mSetupView.summary().setTextColor(COLOR_RED);
-            mSetupView.primaryAction().setText(R.string.setup_action_retry_root);
-            mSetupView.primaryAction().setOnClickListener(view -> runAudit());
+        if (!audit.shizuku.running) {
+            mSetupView.summary().setText(audit.shizuku.installed
+                    ? R.string.setup_status_shizuku_stopped
+                    : R.string.setup_status_shizuku_not_installed);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(audit.shizuku.installed
+                    ? R.string.setup_action_open_shizuku
+                    : R.string.setup_action_get_shizuku);
+            mSetupView.primaryAction().setOnClickListener(
+                    view -> ShizukuAccess.openManagerOrWebsite(this));
             setCloseAction();
             return;
         }
-        if (mSessionProfile.privilegeMode == SessionProfile.PrivilegeMode.AUTO
-                && !audit.rootAvailable) {
-            mSetupView.summary().setText(audit.rootError.isEmpty()
-                    ? getString(R.string.setup_status_root_required)
-                    : getString(R.string.setup_status_root_failed, audit.rootError));
+        if (!audit.shizuku.permissionGranted) {
+            mSetupView.summary().setText(R.string.setup_status_shizuku_permission);
             mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(R.string.setup_action_allow_shizuku);
+            mSetupView.primaryAction().setOnClickListener(
+                    view -> requestShizukuPermission());
+            setCloseAction();
+            return;
+        }
+        if (!shizukuBackend) {
+            mSetupView.summary().setText(getString(
+                    R.string.setup_status_shizuku_failed,
+                    audit.runtimeError));
+            mSetupView.summary().setTextColor(COLOR_RED);
+            mSetupView.primaryAction().setText(R.string.setup_action_recheck);
+            mSetupView.primaryAction().setOnClickListener(view -> runAudit());
+            setCloseAction();
+            return;
         }
         if (!audit.compatibleDevice) {
             mSetupView.summary().setText(R.string.setup_status_unsupported);
@@ -349,15 +289,6 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.secondaryAction().setOnClickListener(view -> finishSetupScreen());
             return;
         }
-        if (!audit.configurationReady
-                && audit.backend == RuntimeAccess.Backend.ROOT) {
-            mSetupView.summary().setText(R.string.setup_status_configuration_required);
-            mSetupView.summary().setTextColor(COLOR_AMBER);
-            mSetupView.primaryAction().setText(R.string.setup_action_configure);
-            mSetupView.primaryAction().setOnClickListener(view -> configureDevice());
-            setCloseAction();
-            return;
-        }
         if (!audit.configurationReady && shizukuBackend) {
             mSetupView.summary().setText(
                     R.string.setup_status_configuration_required);
@@ -365,7 +296,7 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.primaryAction().setText(
                     R.string.setup_action_configure);
             mSetupView.primaryAction().setOnClickListener(
-                    view -> configureShizuku());
+                    view -> configureDevice());
             setCloseAction();
             return;
         }
@@ -380,66 +311,15 @@ public final class DeviceSetupActivity extends Activity {
             return;
         }
 
-        if (audit.backend == RuntimeAccess.Backend.BASIC) {
-            if (!audit.hasUserWindowingOptions()) {
-                mSetupView.summary().setText(
-                        R.string.setup_status_basic_developer_options);
-                mSetupView.summary().setTextColor(COLOR_AMBER);
-                mSetupView.primaryAction().setText(
-                        R.string.setup_action_open_developer_options);
-                mSetupView.primaryAction().setOnClickListener(
-                        view -> openDeveloperOptions());
-                mSetupView.secondaryAction().setText(mManual
-                        ? R.string.setup_action_done : R.string.setup_action_continue);
-                mSetupView.secondaryAction().setOnClickListener(
-                        view -> continueFromSetup());
-                return;
-            }
-            mSetupView.summary().setText(R.string.setup_status_basic_ready);
-            mSetupView.summary().setTextColor(COLOR_CYAN);
-            mSetupView.primaryAction().setText(mManual
-                    ? R.string.setup_action_done : R.string.setup_action_continue);
-            mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
-            mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
-            mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
-            return;
-        }
-        if (audit.backend == RuntimeAccess.Backend.SHIZUKU_SHELL
-                || audit.backend == RuntimeAccess.Backend.SHIZUKU_ROOT) {
-            mSetupView.summary().setText(audit.isDegradedRuntime()
-                    ? getString(
-                            R.string.setup_status_shizuku_degraded,
-                            audit.shizuku.uid)
-                    : getString(
-                            R.string.setup_status_shizuku_ready,
-                            audit.shizuku.uid));
-            mSetupView.summary().setTextColor(
-                    audit.isDegradedRuntime() ? COLOR_AMBER : COLOR_CYAN);
-            mSetupView.primaryAction().setText(mManual
-                    ? R.string.setup_action_done : R.string.setup_action_continue);
-            mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
-            mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
-            mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
-            return;
-        }
-
-        mSetupView.summary().setText(audit.verifiedDevice
-                ? R.string.setup_status_ready : R.string.setup_status_unverified);
-        mSetupView.summary().setTextColor(audit.verifiedDevice ? COLOR_CYAN : COLOR_AMBER);
+        mSetupView.summary().setText(getString(
+                R.string.setup_status_shizuku_ready,
+                audit.shizuku.uid));
+        mSetupView.summary().setTextColor(COLOR_CYAN);
         mSetupView.primaryAction().setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);
         mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
         mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
         mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
-    }
-
-    private void openDeveloperOptions() {
-        try {
-            startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS));
-        } catch (RuntimeException error) {
-            Log.w(TAG, "Developer options are unavailable", error);
-            startActivity(new Intent(Settings.ACTION_SETTINGS));
-        }
     }
 
     private void setCloseAction() {
@@ -449,29 +329,10 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void renderProfileSelection() {
-        if (mSetupView.runtimeModeValue() != null) {
-            mSetupView.runtimeModeValue().setText(privilegeModeLabel(
-                    mSessionProfile.privilegeMode));
-            mSetupView.runtimeModeValue().setTextColor(COLOR_CYAN);
-        }
         if (mSetupView.displayTargetValue() != null) {
             mSetupView.displayTargetValue().setText(displayTargetLabel(
                     mSessionProfile.displayTarget));
             mSetupView.displayTargetValue().setTextColor(COLOR_CYAN);
-        }
-    }
-
-    private int privilegeModeLabel(final SessionProfile.PrivilegeMode mode) {
-        switch (mode) {
-            case BASIC:
-                return R.string.setup_mode_basic;
-            case SHIZUKU:
-                return R.string.setup_mode_shizuku;
-            case ROOT:
-                return R.string.setup_mode_root;
-            case AUTO:
-            default:
-                return R.string.setup_mode_auto;
         }
     }
 
@@ -493,13 +354,6 @@ public final class DeviceSetupActivity extends Activity {
         runOperation(
                 R.string.setup_status_applying,
                 () -> DeviceSetupManager.configure(
-                        getApplicationContext(), mSessionProfile));
-    }
-
-    private void configureShizuku() {
-        runOperation(
-                R.string.setup_status_applying,
-                () -> DeviceSetupManager.configureShizuku(
                         getApplicationContext(), mSessionProfile));
     }
 
@@ -548,10 +402,7 @@ public final class DeviceSetupActivity extends Activity {
 
     private void handleShizukuStateChanged() {
         runOnUiThread(() -> {
-            if (!isActivityUnavailable()
-                    && mSessionProfile != null
-                    && mSessionProfile.privilegeMode
-                            == SessionProfile.PrivilegeMode.SHIZUKU) {
+            if (!isActivityUnavailable() && mSessionProfile != null) {
                 runAudit();
             }
         });
@@ -565,14 +416,9 @@ public final class DeviceSetupActivity extends Activity {
                 .setPositiveButton(R.string.setup_action_restore,
                         (dialog, which) -> runOperation(
                                 R.string.setup_status_restoring,
-                                () -> RuntimeAccess.allowsShizukuCommands()
-                                        && !RuntimeAccess.allowsRootCommands()
-                                        ? DeviceSetupManager
-                                                .restoreShizukuManagedChanges(
-                                                        getApplicationContext(),
-                                                        mSessionProfile)
-                                        : DeviceSetupManager.restoreManagedChanges(
-                                                getApplicationContext())))
+                                () -> DeviceSetupManager.restoreManagedChanges(
+                                        getApplicationContext(),
+                                        mSessionProfile)))
                 .show();
     }
 
