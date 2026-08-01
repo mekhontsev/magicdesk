@@ -20,6 +20,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Runnable mCallbackFailure;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellTaskStateMonitor mStateMonitor;
+    private final ShellTransientTaskBoundsController mTransientBounds;
 
     private volatile boolean mClosed;
     private boolean mRegistered;
@@ -34,6 +35,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
+        mTransientBounds = new ShellTransientTaskBoundsController(mService);
         mStateMonitor = new ShellTaskStateMonitor(
                 mService,
                 new ShellTaskStateMonitor.Listener() {
@@ -78,6 +80,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
+        mTransientBounds.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
     }
 
@@ -137,6 +140,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
+            mTransientBounds.forget(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange();
         }
@@ -174,6 +178,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mTransientBounds.close();
         mStateMonitor.close();
         if (!mRegistered) {
             return;
@@ -192,6 +197,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private void signalChange() {
         if (!mClosed) {
+            mTransientBounds.onTasksChanged();
             callCallback(mCallback::onTasksChanged);
         }
     }

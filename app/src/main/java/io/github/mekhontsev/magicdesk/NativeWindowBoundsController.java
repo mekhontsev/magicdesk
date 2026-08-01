@@ -220,18 +220,7 @@ final class NativeWindowBoundsController {
                 continue;
             }
 
-            final Rect stableBounds = mLastWindowBounds.get(taskId);
             if (task.hasCrossPackageTopActivity()) {
-                if (stableBounds != null && !stableBounds.isEmpty()
-                        && !task.bounds.equals(stableBounds)) {
-                    Log.d(TAG,
-                            "preserve task bounds across transient activity task="
-                                    + task.taskId
-                                    + " current=" + task.bounds
-                                    + " stable=" + stableBounds
-                                    + " top=" + task.topActivityName);
-                    requestBounds(task, stableBounds, true);
-                }
                 continue;
             }
 
