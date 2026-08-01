@@ -15,11 +15,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class ConsoleInputRoutingOwnership {
-    static final String VIRTUAL_KEYBOARD_LOCATION =
-            "magicdesk-shizuku-keyboard";
-    private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
-            VIRTUAL_KEYBOARD_LOCATION + "-";
-
     private static final File OWNERSHIP_FILE = new File(
             "/data/local/tmp/magicdesk-input-routing-ports");
     private static final Pattern RUNTIME_ASSOCIATION = Pattern.compile(
@@ -112,49 +107,6 @@ final class ConsoleInputRoutingOwnership {
             }
         }
         return ports;
-    }
-
-    static Set<String> findLegacyOwnedPorts(final String inputDump)
-            throws IOException {
-        final Set<String> runtimeAssociations =
-                findRuntimeAssociations(inputDump);
-        final Set<String> ownedPorts = new LinkedHashSet<>();
-        boolean markerFound = false;
-        for (final String port : runtimeAssociations) {
-            if (isMagicDeskKeyboardPort(port)) {
-                markerFound = true;
-                break;
-            }
-        }
-        if (!markerFound) {
-            return ownedPorts;
-        }
-        for (final ConsoleKeyboardDevice keyboard
-                : ConsoleInputDeviceDiscovery.findRoutableKeyboards(
-                        inputDump)) {
-            if (runtimeAssociations.contains(keyboard.location)) {
-                ownedPorts.add(keyboard.location);
-            }
-        }
-        for (final ConsoleMouseDevice mouse
-                : ConsoleInputDeviceDiscovery.findMice(inputDump)) {
-            if (runtimeAssociations.contains(mouse.location)) {
-                ownedPorts.add(mouse.location);
-            }
-        }
-        for (final String port : runtimeAssociations) {
-            if (isMagicDeskKeyboardPort(port)) {
-                ownedPorts.add(port);
-            }
-        }
-        return ownedPorts;
-    }
-
-    private static boolean isMagicDeskKeyboardPort(
-            final String port) {
-        return VIRTUAL_KEYBOARD_LOCATION.equals(port)
-                || port.startsWith(
-                        VIRTUAL_KEYBOARD_LOCATION_PREFIX);
     }
 
     private static boolean isValidPort(final String port) {

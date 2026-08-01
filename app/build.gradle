@@ -20,6 +20,7 @@ android {
 
     packagingOptions {
         jniLibs {
+            // Shell launches the extracted helpers from nativeLibraryDir.
             useLegacyPackaging = true
             keepDebugSymbols += [
                     '**/libmagicdesk_uinput_bridge.so',
@@ -44,9 +45,6 @@ def keyboardBridgeSource =
         rootProject.file('native/magicdesk_keyboard_bridge.c')
 def keyboardBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_keyboard_bridge.so")
-def legacyMouseRemapOutput = file(
-        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_mouse_remap.so")
-
 def resolveNativeCompilerCommand = {
     if (termuxCompiler.isFile()
             && termuxPrefix.startsWith('/data/data/com.termux/')) {
@@ -98,12 +96,7 @@ tasks.register('buildMagicDeskKeyboardBridge', Exec) {
     }
 }
 
-tasks.register('purgeLegacyNativeHelpers', Delete) {
-    delete legacyMouseRemapOutput
-}
-
 tasks.named('preBuild').configure {
-    dependsOn tasks.named('purgeLegacyNativeHelpers')
     dependsOn tasks.named('buildMagicDeskUinputBridge')
     dependsOn tasks.named('buildMagicDeskKeyboardBridge')
 }

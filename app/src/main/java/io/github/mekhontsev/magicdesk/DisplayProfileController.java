@@ -10,9 +10,7 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
-import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Set;
 
 final class DisplayProfileController {
     private static final String TAG = "MagicDeskDisplayProfile";
@@ -83,18 +81,13 @@ final class DisplayProfileController {
         final String displayKey = resolveProfileKey();
         final String monitorKey = WorkspaceProfileStore.resolveMonitorAlias(
                 mActivity, displayKey);
-        final Set<String> defaults = new LinkedHashSet<>(
-                DesktopPreferences.favoritePackages());
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = monitorKey;
         final Display profileDisplay = getProfileDisplay();
         mProfile = WorkspaceProfileStore.load(
                 mActivity,
                 monitorKey,
-                initialDpi(profileDisplay),
-                DesktopPreferences.legacyPinnedPackages(mActivity),
-                defaults);
-        migrateImplicitInternalDpi(profileDisplay, mProfile);
+                initialDpi(profileDisplay));
         mActivity.onWorkspaceProfileReset();
         return mProfile;
     }
@@ -327,9 +320,7 @@ final class DisplayProfileController {
                 WorkspaceProfileStore.load(
                         mActivity,
                         monitorKey,
-                        previous.dpi,
-                        previous.taskbarPackages,
-                        previous.desktopPackages);
+                        previous.dpi);
         if (!existed) {
             resolved.dpiExplicit = previous.dpiExplicit;
             resolved.folderUri = previous.folderUri;
@@ -362,16 +353,4 @@ final class DisplayProfileController {
                 DisplayMetrics.DENSITY_DEVICE_STABLE);
     }
 
-    private void migrateImplicitInternalDpi(
-            final Display display,
-            final WorkspaceProfileStore.Profile profile) {
-        if (display == null
-                || display.getDisplayId() != Display.DEFAULT_DISPLAY
-                || profile.dpiExplicit
-                || profile.dpi == DesktopPreferences.SYSTEM_DESKTOP_DPI) {
-            return;
-        }
-        profile.dpi = DesktopPreferences.SYSTEM_DESKTOP_DPI;
-        WorkspaceProfileStore.save(mActivity, profile);
-    }
 }

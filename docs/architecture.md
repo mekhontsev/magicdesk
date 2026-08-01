@@ -217,8 +217,9 @@ The marker survives process failure and is reconciled on the next manual start.
 
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store
-DPI, taskbar pins, desktop shortcuts, desktop-folder URI, and confirmed window
-bounds/Z-order.
+DPI, desktop-folder URI, and confirmed window bounds/Z-order. Taskbar pins,
+desktop shortcuts, and the recent-app history are global so the same workspace
+entry points follow the user between the phone, a tablet, and every monitor.
 
 ## External Desktop Activation
 

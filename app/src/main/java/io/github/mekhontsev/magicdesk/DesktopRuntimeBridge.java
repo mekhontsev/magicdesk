@@ -34,7 +34,7 @@ final class DesktopRuntimeBridge {
                         && previous.getCurrentDisplayId()
                                 == Display.DEFAULT_DISPLAY;
         if (previous != null && previous != activity) {
-            // Nubia may migrate the phone task before the dedicated Console HOME starts.
+            // Nubia may move the phone task before the dedicated Console HOME starts.
             Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
                     + " with task=" + activity.getTaskId());
             previous.releaseDesktopOverlays();

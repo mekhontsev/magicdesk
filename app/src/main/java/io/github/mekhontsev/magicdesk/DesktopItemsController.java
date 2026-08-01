@@ -148,7 +148,7 @@ final class DesktopItemsController {
         final int capacity = getItemCapacity();
         int rendered = 0;
         for (final String packageName :
-                mActivity.getWorkspaceProfile().desktopPackages) {
+                mActivity.getDesktopShortcutPackages()) {
             final AppItem app =
                     LauncherAppRepository.find(apps, packageName);
             if (app == null) {
@@ -475,7 +475,7 @@ final class DesktopItemsController {
             final String sourcePackage,
             final String targetPackage) {
         final List<String> packages =
-                mActivity.getWorkspaceProfile().desktopPackages;
+                mActivity.getDesktopShortcutPackages();
         final int sourceIndex = packages.indexOf(sourcePackage);
         final int targetIndex = packages.indexOf(targetPackage);
         if (sourceIndex < 0
@@ -490,7 +490,7 @@ final class DesktopItemsController {
             final String sourcePackage,
             final int requestedIndex) {
         final List<String> packages =
-                mActivity.getWorkspaceProfile().desktopPackages;
+                mActivity.getDesktopShortcutPackages();
         final int sourceIndex = packages.indexOf(sourcePackage);
         if (sourceIndex < 0) {
             return;
@@ -499,7 +499,7 @@ final class DesktopItemsController {
         final int targetIndex =
                 Math.max(0, Math.min(requestedIndex, packages.size()));
         packages.add(targetIndex, sourcePackage);
-        mActivity.saveWorkspaceProfile();
+        mActivity.saveDesktopShortcutPackages(packages);
         render(mActivity.getLauncherApps());
     }
 

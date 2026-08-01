@@ -22,13 +22,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 final class StartMenuController {
-    static final int MENU_APPS = 0;
-    static final int MENU_HARDWARE = 1;
-    static final int MENU_TOOLS = 2;
-    static final int MENU_PINNED = 3;
+    static final int MENU_RECENT = 0;
+    static final int MENU_APPS = 1;
+    static final int MENU_HARDWARE = 2;
+    static final int MENU_TOOLS = 3;
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
@@ -39,7 +38,7 @@ final class StartMenuController {
     private EditText mSearch;
     private boolean mFocusable = true;
     private boolean mForceFullscreen;
-    private int mMode = MENU_APPS;
+    private int mMode = MENU_RECENT;
     private int mPage;
     private int mSearchSelection;
     private String mSearchQuery = "";
@@ -159,15 +158,15 @@ final class StartMenuController {
         final LinearLayout tabs = new LinearLayout(mActivity);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.addView(createTab(R.string.section_apps, MENU_APPS),
+        tabs.addView(createTab(R.string.section_recent, MENU_RECENT),
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        final LinearLayout.LayoutParams pinnedTabParams =
+        final LinearLayout.LayoutParams appsTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        pinnedTabParams.setMargins(dp(5), 0, dp(5), 0);
-        tabs.addView(createTab(R.string.section_pinned, MENU_PINNED),
-                pinnedTabParams);
+        appsTabParams.setMargins(dp(5), 0, dp(5), 0);
+        tabs.addView(createTab(R.string.section_apps, MENU_APPS),
+                appsTabParams);
         final LinearLayout.LayoutParams toolsTabParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
@@ -328,6 +327,18 @@ final class StartMenuController {
         }
 
         final List<AppItem> menuApps = getMenuApps();
+        if (menuApps.isEmpty()) {
+            final TextView empty = new TextView(mActivity);
+            empty.setText(mMode == MENU_RECENT
+                    ? R.string.recent_apps_empty
+                    : R.string.status_no_apps);
+            empty.setTextColor(DesktopUiFactory.COLOR_MUTED);
+            empty.setTextSize(14);
+            empty.setGravity(Gravity.CENTER);
+            mBody.addView(empty, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            return;
+        }
         final int pageSize = getPageSize();
         final int pageCount = Math.max(
                 1, (menuApps.size() + pageSize - 1) / pageSize);
@@ -518,13 +529,19 @@ final class StartMenuController {
 
     private List<AppItem> getMenuApps() {
         final List<AppItem> result = new ArrayList<>();
-        final Set<String> pinnedPackages = mActivity.getPinnedPackages();
-        for (final AppItem app : mActivity.getLauncherApps()) {
-            if (mMode == MENU_APPS) {
-                result.add(app);
-            } else if (mMode == MENU_PINNED
-                    && pinnedPackages.contains(app.packageName)) {
-                result.add(app);
+        final List<AppItem> launcherApps = mActivity.getLauncherApps();
+        if (mMode == MENU_APPS) {
+            result.addAll(launcherApps);
+            return result;
+        }
+        if (mMode == MENU_RECENT) {
+            for (final String packageName :
+                    DesktopPreferences.recentPackages(mActivity)) {
+                final AppItem app = LauncherAppRepository.find(
+                        launcherApps, packageName);
+                if (app != null) {
+                    result.add(app);
+                }
             }
         }
         return result;

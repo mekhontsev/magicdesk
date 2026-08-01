@@ -52,6 +52,11 @@ final class DesktopTaskSnapshotController {
                         && mActivity.getPackageName().equals(
                                 activeTask.packageName);
         mSnapshot = snapshot;
+        if (activeTask != null
+                && isTaskbarTask(activeTask)) {
+            DesktopPreferences.recordRecentPackage(
+                    mActivity, activeTask.packageName);
+        }
         mWorkspace.syncSnapshot(snapshot);
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);

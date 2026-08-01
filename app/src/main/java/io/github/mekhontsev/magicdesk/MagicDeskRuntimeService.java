@@ -520,16 +520,16 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         mPhoneHomeRecoveryInFlight = true;
-        final boolean includeMigratedMagicDesk =
-                PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+        final boolean includeStrandedDesktop =
+                PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
                         mConsoleModeActive,
                         mConsoleExitRecoveryPending);
         PhoneHomeRecoveryController.restoreIfNeeded(
-                includeMigratedMagicDesk,
+                includeStrandedDesktop,
                 settled -> mHandler.post(() -> {
                     mPhoneHomeRecoveryInFlight = false;
                     if (!mDestroyed && settled
-                            && includeMigratedMagicDesk) {
+                            && includeStrandedDesktop) {
                         mConsoleExitRecoveryPending = false;
                     }
                     if (!mDestroyed && mPhoneHomeRecoveryAgain) {

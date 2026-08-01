@@ -35,12 +35,6 @@ printf '%s\n' "$core_contents" \
         exit 1
     }
 
-if printf '%s\n' "$core_contents" \
-        | grep -q 'libmagicdesk_mouse_remap\.so$'; then
-    printf 'Core APK contains the retired mouse remap helper\n' >&2
-    exit 1
-fi
-
 if printf '%s\n' "$core_contents" | grep -q '\.ko$'; then
     printf 'Core APK must not contain a kernel module\n' >&2
     exit 1

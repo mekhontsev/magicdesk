@@ -11,24 +11,16 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
 
 final class WorkspaceProfileStore {
     private static final String TAG = "MagicDeskProfiles";
     private static final String PREFS = "magicdesk_workspace_profiles";
-    private static final int VERSION = 2;
 
     private WorkspaceProfileStore() {
     }
 
     static Profile load(final Context context, final String monitorKey,
-            final int defaultDpi,
-            final Collection<String> defaultTaskbarPackages,
-            final Collection<String> defaultDesktopPackages) {
+            final int defaultDpi) {
         final String stored = preferences(context).getString(storageKey(monitorKey), null);
         if (stored != null) {
             try {
@@ -44,8 +36,6 @@ final class WorkspaceProfileStore {
         final Profile profile = new Profile(monitorKey);
         profile.dpi = defaultDpi;
         profile.dpiExplicit = false;
-        addDistinct(profile.taskbarPackages, defaultTaskbarPackages);
-        addDistinct(profile.desktopPackages, defaultDesktopPackages);
         save(context, profile);
         return profile;
     }
@@ -123,12 +113,9 @@ final class WorkspaceProfileStore {
 
     private static JSONObject toJson(final Profile profile) throws JSONException {
         final JSONObject json = new JSONObject();
-        json.put("version", VERSION);
         json.put("monitor", profile.monitorKey);
         json.put("dpi", profile.dpi);
         json.put("dpiExplicit", profile.dpiExplicit);
-        json.put("taskbar", toJsonArray(profile.taskbarPackages));
-        json.put("desktop", toJsonArray(profile.desktopPackages));
         if (profile.folderUri != null && profile.folderUri.length() > 0) {
             json.put("folderUri", profile.folderUri);
         }
@@ -150,8 +137,6 @@ final class WorkspaceProfileStore {
         final Profile profile = new Profile(json.getString("monitor"));
         profile.dpi = json.optInt("dpi", 192);
         profile.dpiExplicit = json.optBoolean("dpiExplicit", false);
-        addDistinct(profile.taskbarPackages, fromJsonArray(json.optJSONArray("taskbar")));
-        addDistinct(profile.desktopPackages, fromJsonArray(json.optJSONArray("desktop")));
         profile.folderUri = emptyToNull(json.optString("folderUri", null));
         profile.workspacePackage = emptyToNull(
                 json.optString("workspacePackage", null));
@@ -166,44 +151,6 @@ final class WorkspaceProfileStore {
         return profile;
     }
 
-    private static JSONArray toJsonArray(final Collection<String> values) {
-        final JSONArray array = new JSONArray();
-        if (values != null) {
-            for (final String value : values) {
-                if (value != null && value.length() > 0) {
-                    array.put(value);
-                }
-            }
-        }
-        return array;
-    }
-
-    private static List<String> fromJsonArray(final JSONArray array) {
-        final List<String> values = new ArrayList<>();
-        if (array == null) {
-            return values;
-        }
-        for (int index = 0; index < array.length(); index++) {
-            final String value = emptyToNull(array.optString(index, null));
-            if (value != null && !values.contains(value)) {
-                values.add(value);
-            }
-        }
-        return values;
-    }
-
-    private static void addDistinct(final Collection<String> destination,
-            final Collection<String> source) {
-        if (source == null) {
-            return;
-        }
-        for (final String value : source) {
-            if (value != null && value.length() > 0 && !destination.contains(value)) {
-                destination.add(value);
-            }
-        }
-    }
-
     private static String emptyToNull(final String value) {
         return value == null || value.length() == 0 ? null : value;
     }
@@ -212,8 +159,6 @@ final class WorkspaceProfileStore {
         final String monitorKey;
         int dpi;
         boolean dpiExplicit;
-        final Set<String> taskbarPackages = new LinkedHashSet<>();
-        final List<String> desktopPackages = new ArrayList<>();
         String folderUri;
         String workspacePackage;
         Rect workspaceBounds = new Rect();

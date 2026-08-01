@@ -138,12 +138,6 @@ final class AppContextMenuController {
                 true,
                 view -> mActivity.showStartSection(
                         StartMenuController.MENU_TOOLS, false));
-        addAction(
-                R.string.action_manage_taskbar,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> mActivity.showStartSection(
-                        StartMenuController.MENU_PINNED));
         positionAndShow(x, y);
     }
 

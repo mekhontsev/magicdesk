@@ -17,9 +17,6 @@ public final class PhoneHomeRecoveryControllerTest {
     private static final String PRIMARY_HOME =
             "com.zte.mifavor.launcher/"
                     + "com.android.launcher3.uioverrides.QuickstepLauncher";
-    private static final String MAGICDESK_MAIN =
-            "io.github.mekhontsev.magicdesk/"
-                    + "io.github.mekhontsev.magicdesk.MainActivity";
     private static final String MAGICDESK_DESKTOP =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.DesktopActivity";
@@ -33,14 +30,14 @@ public final class PhoneHomeRecoveryControllerTest {
 
     @Test
     public void activeConsoleRecoveryOnlyRepairsSecondaryHome() {
-        assertFalse(PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+        assertFalse(PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
                 true,
                 true));
     }
 
     @Test
-    public void consoleExitRecoveryAlsoRepairsMigratedMagicDesk() {
-        assertTrue(PhoneHomeRecoveryController.shouldIncludeMigratedMagicDesk(
+    public void consoleExitRecoveryAlsoRepairsStrandedDesktop() {
+        assertTrue(PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
                 false,
                 true));
     }
@@ -70,23 +67,7 @@ public final class PhoneHomeRecoveryControllerTest {
     }
 
     @Test
-    public void detectsMagicDeskMigratedToPhone() {
-        final TaskRepository.TaskEntry task =
-                task("io.github.mekhontsev.magicdesk/"
-                                + "io.github.mekhontsev.magicdesk.DeviceSetupActivity",
-                        true,
-                        false,
-                        MAGICDESK_MAIN);
-        assertTrue(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
-                Collections.singletonList(task),
-                true));
-        assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
-                Collections.singletonList(task),
-                false));
-    }
-
-    @Test
-    public void detectsDesktopActivityMigratedAfterDisplayRemoval() {
+    public void detectsDesktopActivityStrandedAfterDisplayRemoval() {
         final TaskRepository.TaskEntry task =
                 task(MAGICDESK_DESKTOP, true, false, MAGICDESK_DESKTOP);
         assertTrue(PhoneHomeRecoveryController.needsPrimaryHomeRestore(

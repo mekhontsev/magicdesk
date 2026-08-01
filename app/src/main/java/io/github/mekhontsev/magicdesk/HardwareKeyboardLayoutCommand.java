@@ -20,12 +20,10 @@ import java.util.Set;
 public final class HardwareKeyboardLayoutCommand {
     private static final String INPUT_METHOD_SERVICE = "input_method";
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
-    private static final String LEGACY_ENGLISH_SUFFIX = "/keyboard_layout_english_us";
-    private static final String LEGACY_RUSSIAN_SUFFIX = "/keyboard_layout_russian";
-    private static final String LEGACY_MAGICDESK_VIRTUAL_KEYBOARD =
+    private static final String MAGICDESK_VIRTUAL_KEYBOARD_NAME =
             "MagicDesk Shizuku Keyboard";
     private static final String MAGICDESK_VIRTUAL_KEYBOARD_PREFIX =
-            LEGACY_MAGICDESK_VIRTUAL_KEYBOARD + " ";
+            MAGICDESK_VIRTUAL_KEYBOARD_NAME + " ";
 
     private HardwareKeyboardLayoutCommand() {
     }
@@ -339,8 +337,7 @@ public final class HardwareKeyboardLayoutCommand {
             return false;
         }
         final String name = device.getName();
-        return (LEGACY_MAGICDESK_VIRTUAL_KEYBOARD.equals(name)
-                || name.startsWith(MAGICDESK_VIRTUAL_KEYBOARD_PREFIX))
+        return name.startsWith(MAGICDESK_VIRTUAL_KEYBOARD_PREFIX)
                 && (device.getSources() & InputDevice.SOURCE_KEYBOARD)
                         == InputDevice.SOURCE_KEYBOARD;
     }
@@ -487,12 +484,7 @@ public final class HardwareKeyboardLayoutCommand {
         }
         for (int index = 0; index < layouts.size(); index++) {
             final String descriptor = layouts.get(index).descriptor;
-            // Pre-descriptor builds persisted these two symbolic values globally.
-            if (descriptor.equals(current)
-                    || ("english".equals(current)
-                            && descriptor.endsWith(LEGACY_ENGLISH_SUFFIX))
-                    || ("russian".equals(current)
-                            && descriptor.endsWith(LEGACY_RUSSIAN_SUFFIX))) {
+            if (descriptor.equals(current)) {
                 return index;
             }
         }

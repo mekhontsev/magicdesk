@@ -20,7 +20,7 @@ public final class DisplayDensityPolicyTest {
     }
 
     @Test
-    public void invalidResolutionFallsBackToLegacyExternalDensity() {
+    public void invalidResolutionFallsBackToDefaultExternalDensity() {
         assertEquals(192,
                 DisplayDensityPolicy.recommendedExternalDpi(0, 0, 520));
     }

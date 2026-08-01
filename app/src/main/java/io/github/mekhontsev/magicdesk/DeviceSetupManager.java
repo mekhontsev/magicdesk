@@ -16,9 +16,8 @@ import java.util.Map;
 
 final class DeviceSetupManager {
     private static final String PREFS = "magicdesk_device_setup";
-    private static final int SETUP_VERSION = 2;
 
-    private static final String KEY_APPROVED_VERSION = "approved_version";
+    private static final String KEY_SETUP_APPROVED = "setup_approved";
     private static final String KEY_PENDING_BOOT_ID = "pending_boot_id";
 
     private static final String FREEFORM_SETTING = "enable_freeform_support";
@@ -116,7 +115,7 @@ final class DeviceSetupManager {
                 restrictionsDisabled,
                 roundedCornersDisabled);
         final boolean acknowledged =
-                preferences.getInt(KEY_APPROVED_VERSION, 0) >= SETUP_VERSION;
+                preferences.getBoolean(KEY_SETUP_APPROVED, false);
 
         if (!compatibleDevice) {
             CompatibilityDiagnostics.record(
@@ -235,7 +234,7 @@ final class DeviceSetupManager {
                     "Shizuku setup could not fully provision desktop windowing");
         }
         if (!preferences.edit()
-                .putInt(KEY_APPROVED_VERSION, SETUP_VERSION)
+                .putBoolean(KEY_SETUP_APPROVED, true)
                 .commit()) {
             throw new IOException("could not confirm Shizuku setup state");
         }
@@ -275,7 +274,7 @@ final class DeviceSetupManager {
         }
 
         final SharedPreferences.Editor editor = preferences.edit()
-                .remove(KEY_APPROVED_VERSION);
+                .remove(KEY_SETUP_APPROVED);
         clearManagedItem(editor, ITEM_FREEFORM);
         clearManagedItem(editor, ITEM_RESIZABLE);
         clearManagedItem(editor, ITEM_RESTRICTIONS);
@@ -297,12 +296,13 @@ final class DeviceSetupManager {
 
     static void acknowledgeReadyConfiguration(final Context context) {
         preferences(context).edit()
-                .putInt(KEY_APPROVED_VERSION, SETUP_VERSION)
+                .putBoolean(KEY_SETUP_APPROVED, true)
                 .apply();
     }
 
     static boolean isSetupAcknowledged(final Context context) {
-        return preferences(context).getInt(KEY_APPROVED_VERSION, 0) >= SETUP_VERSION;
+        return preferences(context).getBoolean(
+                KEY_SETUP_APPROVED, false);
     }
 
     static void activateRuntime(final Context context, final Audit audit) {

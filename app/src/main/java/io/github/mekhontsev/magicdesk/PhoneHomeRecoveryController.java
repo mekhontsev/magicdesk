@@ -19,10 +19,6 @@ final class PhoneHomeRecoveryController {
     private static final String PRIMARY_PHONE_HOME =
             "com.zte.mifavor.launcher/"
                     + "com.android.launcher3.uioverrides.QuickstepLauncher";
-    // Kept so an in-place APK update can recover a task created by MagicDesk 1.0.
-    private static final String LEGACY_MAGICDESK_ACTIVITY =
-            "io.github.mekhontsev.magicdesk/"
-                    + "io.github.mekhontsev.magicdesk.MainActivity";
     private static final String MAGICDESK_DESKTOP_ACTIVITY =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.DesktopActivity";
@@ -57,7 +53,7 @@ final class PhoneHomeRecoveryController {
     }
 
     static void restoreIfNeeded(
-            final boolean includeMigratedMagicDesk,
+            final boolean includeStrandedDesktop,
             final ResultCallback callback) {
         if (!ShellAccess.isReady()) {
             complete(callback, true);
@@ -65,7 +61,7 @@ final class PhoneHomeRecoveryController {
         }
         TaskRepository.load(Display.DEFAULT_DISPLAY, snapshot ->
                 restoreSnapshot(
-                        snapshot, includeMigratedMagicDesk, callback));
+                        snapshot, includeStrandedDesktop, callback));
     }
 
     static String primaryHomeCommand() {
@@ -77,7 +73,7 @@ final class PhoneHomeRecoveryController {
                 + " -n " + PRIMARY_PHONE_HOME;
     }
 
-    static boolean shouldIncludeMigratedMagicDesk(
+    static boolean shouldRestoreStrandedDesktop(
             final boolean consoleModeActive,
             final boolean consoleExitRecoveryPending) {
         return !consoleModeActive && consoleExitRecoveryPending;
@@ -85,7 +81,7 @@ final class PhoneHomeRecoveryController {
 
     static boolean needsPrimaryHomeRestore(
             final List<TaskRepository.TaskEntry> tasks,
-            final boolean includeMigratedMagicDesk) {
+            final boolean includeStrandedDesktop) {
         if (tasks == null) {
             return false;
         }
@@ -96,13 +92,11 @@ final class PhoneHomeRecoveryController {
             }
             final boolean secondaryHome = task.home
                     && SECONDARY_PHONE_HOME.equals(task.topActivityName);
-            final boolean migratedMagicDesk =
-                    includeMigratedMagicDesk
-                            && (LEGACY_MAGICDESK_ACTIVITY.equals(
-                                    task.topActivityName)
-                                    || MAGICDESK_DESKTOP_ACTIVITY.equals(
-                                            task.topActivityName));
-            if (secondaryHome || migratedMagicDesk) {
+            final boolean strandedDesktop =
+                    includeStrandedDesktop
+                            && MAGICDESK_DESKTOP_ACTIVITY.equals(
+                                    task.topActivityName);
+            if (secondaryHome || strandedDesktop) {
                 return true;
             }
         }
@@ -111,16 +105,16 @@ final class PhoneHomeRecoveryController {
 
     private static void restoreSnapshot(
             final TaskRepository.Snapshot snapshot,
-            final boolean includeMigratedMagicDesk,
+            final boolean includeStrandedDesktop,
             final ResultCallback callback) {
         if (!snapshot.available) {
             complete(callback, false);
             return;
         }
         if (!needsPrimaryHomeRestore(
-                snapshot.tasks, includeMigratedMagicDesk)) {
+                snapshot.tasks, includeStrandedDesktop)) {
             complete(callback,
-                    !includeMigratedMagicDesk
+                    !includeStrandedDesktop
                             || hasVisiblePhoneTask(snapshot.tasks));
             return;
         }

@@ -6,7 +6,7 @@
     <string name="control_section_desktop">Desktop session</string>
     <string name="control_section_system">System</string>
     <string name="section_fullscreen">Fullscreen</string>
-    <string name="section_pinned">Pinned</string>
+    <string name="section_recent">Recent</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>
     <string name="action_close">Close</string>
@@ -22,7 +22,6 @@
     <string name="action_unpin">Unpin from taskbar</string>
     <string name="action_close_window">Close window</string>
     <string name="action_force_stop">Force stop app</string>
-    <string name="action_manage_taskbar">Manage taskbar</string>
     <string name="action_show_desktop">Show desktop</string>
     <string name="action_open_tasks">Open tasks</string>
     <string name="action_notifications">Notifications</string>
@@ -121,6 +120,7 @@
     <string name="dpi_range">%1$d - %2$d dpi</string>
     <string name="status_ready">Apps: %1$d | Display: %2$d</string>
     <string name="status_no_apps">No launcher apps found</string>
+    <string name="recent_apps_empty">Recently used apps appear here</string>
     <string name="status_launching_window">Opening window: %1$s</string>
     <string name="status_launching_fullscreen">Opening full screen: %1$s</string>
     <string name="status_launch_failed">Launch failed: %1$s</string>

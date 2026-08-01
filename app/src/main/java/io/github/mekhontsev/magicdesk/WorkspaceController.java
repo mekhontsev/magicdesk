@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -30,8 +29,7 @@ final class WorkspaceController {
     }
 
     Set<String> getPinnedPackages() {
-        return new LinkedHashSet<>(
-                mActivity.getWorkspaceProfile().taskbarPackages);
+        return DesktopPreferences.taskbarPackages(mActivity);
     }
 
     void togglePinned(final AppItem app) {
@@ -44,12 +42,7 @@ final class WorkspaceController {
             pinned.add(app.packageName);
             nowPinned = true;
         }
-        final WorkspaceProfileStore.Profile profile =
-                mActivity.getWorkspaceProfile();
-        profile.taskbarPackages.clear();
-        profile.taskbarPackages.addAll(pinned);
-        mActivity.saveWorkspaceProfile();
-        DesktopPreferences.saveLegacyPinnedPackages(mActivity, pinned);
+        DesktopPreferences.saveTaskbarPackages(mActivity, pinned);
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.renderStartMenuContent();
         mActivity.setStatus(mActivity.getString(
@@ -60,13 +53,11 @@ final class WorkspaceController {
     }
 
     boolean isDesktopShortcut(final String packageName) {
-        return mActivity.getWorkspaceProfile()
-                .desktopPackages.contains(packageName);
+        return getDesktopShortcutPackages().contains(packageName);
     }
 
     void toggleDesktopShortcut(final AppItem app) {
-        final List<String> shortcuts =
-                mActivity.getWorkspaceProfile().desktopPackages;
+        final List<String> shortcuts = getDesktopShortcutPackages();
         final boolean added;
         if (shortcuts.remove(app.packageName)) {
             added = false;
@@ -74,13 +65,21 @@ final class WorkspaceController {
             shortcuts.add(app.packageName);
             added = true;
         }
-        mActivity.saveWorkspaceProfile();
+        saveDesktopShortcutPackages(shortcuts);
         mActivity.renderDesktopIcons(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
                 added
                         ? R.string.status_desktop_shortcut_added
                         : R.string.status_desktop_shortcut_removed,
                 app.label));
+    }
+
+    List<String> getDesktopShortcutPackages() {
+        return DesktopPreferences.desktopShortcutPackages(mActivity);
+    }
+
+    void saveDesktopShortcutPackages(final List<String> packages) {
+        DesktopPreferences.saveDesktopShortcutPackages(mActivity, packages);
     }
 
     void setWorkspaceApp(

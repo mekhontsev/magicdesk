@@ -66,13 +66,8 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
 
     static int cleanupStaleAssociations() throws Exception {
         final String inputDump = readInputDump();
-        Set<String> ownedPorts =
+        final Set<String> ownedPorts =
                 ConsoleInputRoutingOwnership.read();
-        if (ownedPorts.isEmpty()) {
-            ownedPorts =
-                    ConsoleInputRoutingOwnership.findLegacyOwnedPorts(
-                            inputDump);
-        }
         if (ownedPorts.isEmpty()) {
             return 0;
         }
@@ -372,19 +367,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             final Set<String> inputPorts)
             throws ReflectiveOperationException {
         for (final String inputPort : inputPorts) {
-            if (ConsoleInputRoutingOwnership.VIRTUAL_KEYBOARD_LOCATION
-                    .equals(inputPort)) {
-                continue;
-            }
             removePortAssociation.invoke(inputManager, inputPort);
-        }
-        if (inputPorts.contains(
-                ConsoleInputRoutingOwnership
-                        .VIRTUAL_KEYBOARD_LOCATION)) {
-            removePortAssociation.invoke(
-                    inputManager,
-                    ConsoleInputRoutingOwnership
-                            .VIRTUAL_KEYBOARD_LOCATION);
         }
     }
 

@@ -717,6 +717,14 @@ public abstract class DesktopShellActivity extends Activity
         return mWorkspaceController.isDesktopShortcut(packageName);
     }
 
+    List<String> getDesktopShortcutPackages() {
+        return mWorkspaceController.getDesktopShortcutPackages();
+    }
+
+    void saveDesktopShortcutPackages(final List<String> packages) {
+        mWorkspaceController.saveDesktopShortcutPackages(packages);
+    }
+
     void toggleDesktopShortcut(final AppItem app) {
         mWorkspaceController.toggleDesktopShortcut(app);
     }
@@ -913,9 +921,6 @@ public abstract class DesktopShellActivity extends Activity
         profile.dpi = dpi;
         profile.dpiExplicit = true;
         saveWorkspaceProfile();
-        if (dpi > DesktopPreferences.SYSTEM_DESKTOP_DPI) {
-            DesktopPreferences.saveLegacyDesktopDpi(this, dpi);
-        }
     }
 
     WorkspaceProfileStore.Profile getWorkspaceProfile() {
