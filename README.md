@@ -143,7 +143,8 @@ startup mode.
 1. Complete **Install and start Shizuku** above and confirm that its server is
    running. Starting it from a computer through ADB is also supported.
 2. Install MagicDesk from a tagged GitHub Release or build it from source.
-3. Launch MagicDesk on the phone and grant its Shizuku request.
+3. Launch MagicDesk on the phone and grant its Shizuku and **Display over other
+   apps** requests.
 4. Review the Device Setup status and press **Configure**. MagicDesk stores the
    previous desktop-windowing values for later restoration.
 5. Reboot when requested. Android and WMShell cache part of the desktop

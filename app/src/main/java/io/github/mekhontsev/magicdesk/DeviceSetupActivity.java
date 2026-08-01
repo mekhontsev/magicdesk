@@ -277,9 +277,7 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_grant_overlay);
             mSetupView.primaryAction().setOnClickListener(view -> openOverlayPermission());
-            mSetupView.secondaryAction().setText(
-                    R.string.setup_action_continue_without_overlay);
-            mSetupView.secondaryAction().setOnClickListener(view -> continueFromSetup());
+            mSetupView.secondaryAction().setVisibility(View.GONE);
             return;
         }
 
