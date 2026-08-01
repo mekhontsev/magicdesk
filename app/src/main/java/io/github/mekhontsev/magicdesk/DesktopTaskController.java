@@ -41,7 +41,6 @@ final class DesktopTaskController {
     private Context mWindowContext;
     private int mDisplayId = -1;
     private int mGeneration;
-    private int mImmersiveWatchTaskId = -1;
     private volatile int mFocusingTaskId = -1;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
@@ -200,7 +199,6 @@ final class DesktopTaskController {
         mTaskWatcher.stop();
         mWindowContext = null;
         mDisplayId = -1;
-        mImmersiveWatchTaskId = -1;
         mFocusingTaskId = -1;
         mTaskWatcherReady = false;
         mNativeWindowBounds.reset();
@@ -497,33 +495,12 @@ final class DesktopTaskController {
                 + " " + workAreaBounds.bottom);
     }
 
-    private void updateImmersiveWatch(
-            final List<TaskRepository.TaskEntry> tasks) {
-        int taskId = -1;
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null
-                    && task.displayId == mDisplayId
-                    && task.visible
-                    && !task.home
-                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
-                taskId = task.taskId;
-                break;
-            }
-        }
-        if (taskId == mImmersiveWatchTaskId) {
-            return;
-        }
-        mImmersiveWatchTaskId = taskId;
-        sendImmersiveWatchCommand();
-    }
-
     private void sendImmersiveWatchCommand() {
         if (!mTaskWatcherReady) {
             return;
         }
-        if (mImmersiveWatchTaskId >= 0) {
-            sendWatcherCommand("watch-task " + mDisplayId
-                    + " " + mImmersiveWatchTaskId);
+        if (mDisplayId >= 0) {
+            sendWatcherCommand("watch-immersive " + mDisplayId);
         } else {
             sendWatcherCommand("pause-immersive");
         }
@@ -539,7 +516,6 @@ final class DesktopTaskController {
                 mWindowTransitions.fullscreenTransitionTasks(),
                 mWindowTransitions.fullscreenRestoreBounds());
         DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
-        updateImmersiveWatch(snapshot.tasks);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         final Set<Integer> visibleAppTaskIds = new HashSet<>();
         boolean hasVisibleAppTask = false;

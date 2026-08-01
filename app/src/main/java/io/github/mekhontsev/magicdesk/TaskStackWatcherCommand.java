@@ -12,8 +12,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -121,11 +123,11 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             mTaskStateMonitor.pauseImmersive();
             return;
         }
-        if (arguments.length == 3 && "watch-task".equals(arguments[0])) {
+        if (arguments.length == 2
+                && "watch-immersive".equals(arguments[0])) {
             try {
-                mTaskStateMonitor.watchTask(
-                        parseNonNegative(arguments[1], "display id"),
-                        parseNonNegative(arguments[2], "task id"));
+                mTaskStateMonitor.watchImmersiveDisplay(
+                        parseNonNegative(arguments[1], "display id"));
             } catch (RuntimeException e) {
                 System.err.println("invalid immersive watch command: " + line);
             }
@@ -232,13 +234,12 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         private final Object mService;
         private final Field mRequestedVisibleTypes;
         private final Object mLock = new Object();
+        private final Map<Integer, Integer> mLastVisibleTypes =
+                new HashMap<>();
         private final Set<Integer> mFullscreenTasks = new HashSet<>();
         private final Set<Integer> mMaximizedTasks = new HashSet<>();
 
         private int mImmersiveDisplayId = -1;
-        private int mTaskId = -1;
-        private int mLastVisibleTypes;
-        private boolean mHasLastVisibleTypes;
         private int mBoundsDisplayId = -1;
         private Rect mDisplayBounds = new Rect();
         private Rect mWorkAreaBounds = new Rect();
@@ -253,14 +254,13 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             monitor.start();
         }
 
-        void watchTask(final int displayId, final int taskId) {
+        void watchImmersiveDisplay(final int displayId) {
             synchronized (mLock) {
-                if (mImmersiveDisplayId == displayId && mTaskId == taskId) {
+                if (mImmersiveDisplayId == displayId) {
                     return;
                 }
                 mImmersiveDisplayId = displayId;
-                mTaskId = taskId;
-                mHasLastVisibleTypes = false;
+                mLastVisibleTypes.clear();
                 mLock.notifyAll();
             }
         }
@@ -268,8 +268,7 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
         void pauseImmersive() {
             synchronized (mLock) {
                 mImmersiveDisplayId = -1;
-                mTaskId = -1;
-                mHasLastVisibleTypes = false;
+                mLastVisibleTypes.clear();
                 mLock.notifyAll();
             }
         }
@@ -313,12 +312,11 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
             boolean failureReported = false;
             while (true) {
                 final int immersiveDisplayId;
-                final int taskId;
                 final int boundsDisplayId;
                 final Rect displayBounds;
                 final Rect workAreaBounds;
                 synchronized (mLock) {
-                    while ((mImmersiveDisplayId < 0 || mTaskId < 0)
+                    while (mImmersiveDisplayId < 0
                             && (mBoundsDisplayId < 0 || mDisplayBounds.isEmpty())) {
                         try {
                             mLock.wait();
@@ -328,7 +326,6 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                         }
                     }
                     immersiveDisplayId = mImmersiveDisplayId;
-                    taskId = mTaskId;
                     boundsDisplayId = mBoundsDisplayId;
                     displayBounds = new Rect(mDisplayBounds);
                     workAreaBounds = new Rect(mWorkAreaBounds);
@@ -340,12 +337,12 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                         publishNativeMaximizeTransitions(
                                 boundsDisplayId, displayBounds, workAreaBounds, boundsTasks);
                     }
-                    if (immersiveDisplayId >= 0 && taskId >= 0) {
+                    if (immersiveDisplayId >= 0) {
                         final List<?> immersiveTasks =
                                 immersiveDisplayId == boundsDisplayId
                                         ? boundsTasks : loadTasks(immersiveDisplayId);
-                        publishImmersiveChange(immersiveDisplayId, taskId,
-                                loadVisibleTypes(immersiveTasks, taskId));
+                        publishImmersiveChanges(
+                                immersiveDisplayId, immersiveTasks);
                     }
                     failureReported = false;
                 } catch (ReflectiveOperationException | RuntimeException e) {
@@ -360,7 +357,6 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                 }
                 synchronized (mLock) {
                     if (immersiveDisplayId == mImmersiveDisplayId
-                            && taskId == mTaskId
                             && boundsDisplayId == mBoundsDisplayId
                             && displayBounds.equals(mDisplayBounds)
                             && workAreaBounds.equals(mWorkAreaBounds)) {
@@ -381,39 +377,42 @@ public final class TaskStackWatcherCommand extends TaskStackListener {
                     mService, displayId, MAX_TASKS_TO_SCAN);
         }
 
-        private Integer loadVisibleTypes(final List<?> tasks, final int taskId)
-                throws ReflectiveOperationException {
+        private void publishImmersiveChanges(
+                final int displayId,
+                final List<?> tasks) throws ReflectiveOperationException {
             if (tasks == null) {
-                return null;
-            }
-            for (final Object task : tasks) {
-                final int candidateTaskId =
-                        HiddenTaskApi.getIntField(task, "taskId");
-                if (candidateTaskId == taskId) {
-                    return Integer.valueOf(mRequestedVisibleTypes.getInt(task));
-                }
-            }
-            return null;
-        }
-
-        private void publishImmersiveChange(final int displayId, final int taskId,
-                final Integer visibleTypes) {
-            if (visibleTypes == null) {
                 return;
             }
+            final Map<Integer, Integer> visibleTypesByTask = new HashMap<>();
+            for (final Object task : tasks) {
+                if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
+                    continue;
+                }
+                visibleTypesByTask.put(
+                        Integer.valueOf(HiddenTaskApi.getIntField(task, "taskId")),
+                        Integer.valueOf(mRequestedVisibleTypes.getInt(task)));
+            }
             synchronized (mLock) {
-                if (displayId != mImmersiveDisplayId || taskId != mTaskId) {
+                if (displayId != mImmersiveDisplayId) {
                     return;
                 }
-                if (!mHasLastVisibleTypes
-                        || mLastVisibleTypes != visibleTypes.intValue()) {
-                    final boolean initialSample = !mHasLastVisibleTypes;
-                    mLastVisibleTypes = visibleTypes.intValue();
-                    mHasLastVisibleTypes = true;
-                    signalImmersiveRequest(taskId,
-                            isRequestingImmersive(visibleTypes.intValue()),
-                            visibleTypes.intValue(), initialSample);
+                for (final Map.Entry<Integer, Integer> entry
+                        : visibleTypesByTask.entrySet()) {
+                    final Integer previous = mLastVisibleTypes.put(
+                            entry.getKey(), entry.getValue());
+                    if (previous == null
+                            || previous.intValue()
+                                    != entry.getValue().intValue()) {
+                        signalImmersiveRequest(
+                                entry.getKey().intValue(),
+                                isRequestingImmersive(
+                                        entry.getValue().intValue()),
+                                entry.getValue().intValue(),
+                                previous == null);
+                    }
                 }
+                mLastVisibleTypes.keySet().retainAll(
+                        visibleTypesByTask.keySet());
             }
         }
 
