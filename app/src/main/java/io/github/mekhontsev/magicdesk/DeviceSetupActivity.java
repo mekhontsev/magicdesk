@@ -53,9 +53,9 @@ public final class DeviceSetupActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        mSetupView = new DeviceSetupView(this);
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         mManual = getIntent().getBooleanExtra(EXTRA_MANUAL, false);
+        mSetupView = new DeviceSetupView(this);
         if (mManual) {
             ensureSetupContent();
         }
@@ -77,6 +77,9 @@ public final class DeviceSetupActivity extends Activity {
         if (mManual) {
             ensureSetupContent();
         }
+        if (mContentCreated) {
+            mSetupView.setDetailed(mManual);
+        }
         runAudit();
     }
 
@@ -94,6 +97,7 @@ public final class DeviceSetupActivity extends Activity {
         }
         setContentView(mSetupView.create());
         mContentCreated = true;
+        mSetupView.setDetailed(mManual);
     }
 
     void showDisplayTargetChooser(final View ignored) {
@@ -150,7 +154,7 @@ public final class DeviceSetupActivity extends Activity {
                 mAudit = audit;
                 if (!mManual && audit.canEnterMagicDesk() && audit.acknowledged) {
                     mBusy = false;
-                    launchMagicDesk();
+                    startMagicDesk();
                     return;
                 }
                 if (!audit.canEnterMagicDesk()) {
@@ -164,6 +168,7 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void renderAudit(final DeviceSetupManager.Audit audit) {
+        mSetupView.setDetailed(mManual);
         renderProfileSelection();
         setStatusValue(mSetupView.deviceValue(),
                 audit.compatibleDevice
@@ -185,8 +190,8 @@ public final class DeviceSetupActivity extends Activity {
         setStatusValue(
                 mSetupView.overlayValue(),
                 getString(overlaysGranted
-                        ? R.string.setup_value_available
-                        : R.string.setup_value_unavailable),
+                        ? R.string.setup_value_allowed
+                        : R.string.setup_value_permission_required),
                 overlaysGranted);
         setStatusValue(mSetupView.restrictionsValue(),
                 getString(audit.restrictionsDisabled
@@ -204,10 +209,8 @@ public final class DeviceSetupActivity extends Activity {
                 R.string.setup_build_value, audit.androidRelease, audit.fingerprint));
 
         mSetupView.primaryAction().setVisibility(View.VISIBLE);
-        mSetupView.secondaryAction().setVisibility(View.VISIBLE);
         final boolean canRestore = audit.shellReady && audit.hasManagedChanges;
-        mSetupView.restoreAction().setVisibility(
-                canRestore ? View.VISIBLE : View.GONE);
+        mSetupView.setSecondaryActionsVisible(mManual, mManual && canRestore);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
@@ -273,28 +276,22 @@ public final class DeviceSetupActivity extends Activity {
             setCloseAction();
             return;
         }
-        if (!overlaysGranted) {
+        if (mAwaitingOverlayPermission && overlaysGranted) {
             mAwaitingOverlayPermission = false;
-            mSetupView.summary().setText(R.string.setup_status_overlay_required);
-            mSetupView.summary().setTextColor(COLOR_AMBER);
-            mSetupView.primaryAction().setText(R.string.setup_action_continue);
-            mSetupView.primaryAction().setOnClickListener(view -> openOverlayPermission());
-            mSetupView.secondaryAction().setVisibility(View.GONE);
+            startMagicDesk();
             return;
         }
-        if (mAwaitingOverlayPermission) {
-            mAwaitingOverlayPermission = false;
-            continueFromSetup();
-            return;
-        }
+        mAwaitingOverlayPermission = false;
 
-        mSetupView.summary().setText(getString(
-                R.string.setup_status_shizuku_ready,
-                audit.shellState.uid));
+        mSetupView.summary().setText(mManual
+                ? getString(
+                        R.string.setup_status_shizuku_ready,
+                        audit.shellState.uid)
+                : getString(R.string.setup_status_ready));
         mSetupView.summary().setTextColor(COLOR_CYAN);
         mSetupView.primaryAction().setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);
-        mSetupView.primaryAction().setOnClickListener(view -> continueFromSetup());
+        mSetupView.primaryAction().setOnClickListener(view -> startMagicDesk());
         mSetupView.secondaryAction().setText(R.string.setup_action_recheck);
         mSetupView.secondaryAction().setOnClickListener(view -> runAudit());
     }
@@ -334,6 +331,43 @@ public final class DeviceSetupActivity extends Activity {
                         getApplicationContext(), mSessionProfile));
     }
 
+    private void startMagicDesk() {
+        if (mBusy) {
+            return;
+        }
+        if (Settings.canDrawOverlays(this)) {
+            continueFromSetup();
+            return;
+        }
+        setBusy(true, R.string.setup_status_starting);
+        new Thread(() -> {
+            try {
+                DeviceSetupManager.ensureOverlayPermission(
+                        getApplicationContext());
+                runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
+                    setBusy(false, 0);
+                    continueFromSetup();
+                });
+            } catch (IOException error) {
+                Log.w(TAG, "automatic overlay provisioning failed", error);
+                runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
+                    ensureSetupContent();
+                    setBusy(false, 0);
+                    if (mAudit != null) {
+                        renderAudit(mAudit);
+                    }
+                    showOverlayPermissionError(error);
+                });
+            }
+        }, "MagicDeskOverlaySetup").start();
+    }
+
     private void continueFromSetup() {
         DeviceSetupManager.acknowledgeReadyConfiguration(this);
         if (mManual) {
@@ -362,6 +396,29 @@ public final class DeviceSetupActivity extends Activity {
             Log.w(TAG, "could not open overlay permission settings", error);
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
         }
+    }
+
+    private void showOverlayPermissionError(final IOException error) {
+        final String message = error.getMessage() == null
+                ? error.getClass().getSimpleName() : error.getMessage();
+        final String errorCode = "OVERLAY-002";
+        CompatibilityDiagnostics.record(
+                errorCode,
+                "Desktop overlay permission provisioning failed",
+                message,
+                error);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.setup_overlay_error_title)
+                .setMessage(getString(
+                        R.string.setup_overlay_error_message,
+                        message,
+                        errorCode))
+                .setNeutralButton(R.string.action_diagnostics,
+                        (dialog, which) -> startActivity(
+                                DiagnosticsActivity.createIntent(this)))
+                .setPositiveButton(R.string.setup_action_open_settings,
+                        (dialog, which) -> openOverlayPermission())
+                .show();
     }
 
     private void requestShizukuPermission() {

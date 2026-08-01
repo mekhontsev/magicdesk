@@ -15,7 +15,11 @@ final class DeviceSetupView {
     private final DeviceSetupActivity mActivity;
     private final DesktopUiFactory mUi;
 
+    private TextView mTitle;
+    private TextView mSubtitle;
     private TextView mSummary;
+    private LinearLayout mDetails;
+    private LinearLayout mSecondaryRow;
     private TextView mDisplayTargetValue;
     private TextView mDeviceValue;
     private TextView mShizukuValue;
@@ -49,23 +53,23 @@ final class DeviceSetupView {
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);
 
-        final TextView title = new TextView(mActivity);
-        title.setText(R.string.setup_title);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title);
+        mTitle = new TextView(mActivity);
+        mTitle.setText(R.string.setup_title);
+        mTitle.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        mTitle.setTextSize(24);
+        mTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(mTitle);
 
-        final TextView subtitle = new TextView(mActivity);
-        subtitle.setText(R.string.setup_subtitle);
-        subtitle.setTextColor(DesktopUiFactory.COLOR_MUTED);
-        subtitle.setTextSize(14);
+        mSubtitle = new TextView(mActivity);
+        mSubtitle.setText(R.string.setup_subtitle);
+        mSubtitle.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mSubtitle.setTextSize(14);
         final LinearLayout.LayoutParams subtitleParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         subtitleParams.setMargins(0, dp(4), 0, 0);
-        header.addView(subtitle, subtitleParams);
+        header.addView(mSubtitle, subtitleParams);
         page.addView(header);
 
         mSummary = new TextView(mActivity);
@@ -85,29 +89,29 @@ final class DeviceSetupView {
         summaryParams.setMargins(0, dp(18), 0, dp(10));
         page.addView(mSummary, summaryParams);
 
-        final LinearLayout rows = new LinearLayout(mActivity);
-        rows.setOrientation(LinearLayout.VERTICAL);
-        rows.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
+        mDetails = new LinearLayout(mActivity);
+        mDetails.setOrientation(LinearLayout.VERTICAL);
+        mDetails.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
         mDisplayTargetValue =
-                addStatusRow(rows, R.string.setup_item_display_target);
+                addStatusRow(mDetails, R.string.setup_item_display_target);
         makeProfileValueInteractive(
                 mDisplayTargetValue,
                 mActivity::showDisplayTargetChooser);
-        mDeviceValue = addStatusRow(rows, R.string.setup_item_device);
-        mShizukuValue = addStatusRow(rows, R.string.setup_item_shizuku);
-        mOverlayValue = addStatusRow(rows, R.string.setup_item_overlays);
+        mDeviceValue = addStatusRow(mDetails, R.string.setup_item_device);
+        mShizukuValue = addStatusRow(mDetails, R.string.setup_item_shizuku);
+        mOverlayValue = addStatusRow(mDetails, R.string.setup_item_overlays);
         mRestrictionsValue = addStatusRow(
-                rows, R.string.setup_item_desktop_eligibility);
+                mDetails, R.string.setup_item_desktop_eligibility);
         mCornersValue =
-                addStatusRow(rows, R.string.setup_item_window_corners);
-        mRebootValue = addStatusRow(rows, R.string.setup_item_reboot);
+                addStatusRow(mDetails, R.string.setup_item_window_corners);
+        mRebootValue = addStatusRow(mDetails, R.string.setup_item_reboot);
 
         final TextView buildLabel = new TextView(mActivity);
         buildLabel.setText(R.string.setup_build_label);
         buildLabel.setTextColor(DesktopUiFactory.COLOR_MUTED);
         buildLabel.setTextSize(12);
         buildLabel.setPadding(dp(12), dp(12), dp(12), 0);
-        rows.addView(buildLabel);
+        mDetails.addView(buildLabel);
 
         mBuildValue = new TextView(mActivity);
         mBuildValue.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -115,9 +119,9 @@ final class DeviceSetupView {
         mBuildValue.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         mBuildValue.setSingleLine(true);
         mBuildValue.setPadding(dp(12), dp(4), dp(12), dp(12));
-        rows.addView(mBuildValue);
+        mDetails.addView(mBuildValue);
 
-        page.addView(rows, new LinearLayout.LayoutParams(
+        page.addView(mDetails, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -142,24 +146,24 @@ final class DeviceSetupView {
         diagnosticsParams.setMargins(0, dp(8), 0, 0);
         actions.addView(mDiagnosticsAction, diagnosticsParams);
 
-        final LinearLayout secondaryRow = new LinearLayout(mActivity);
-        secondaryRow.setOrientation(LinearLayout.HORIZONTAL);
+        mSecondaryRow = new LinearLayout(mActivity);
+        mSecondaryRow.setOrientation(LinearLayout.HORIZONTAL);
         mSecondaryAction = createActionButton(
                 DesktopUiFactory.COLOR_MUTED);
-        secondaryRow.addView(mSecondaryAction,
+        mSecondaryRow.addView(mSecondaryAction,
                 new LinearLayout.LayoutParams(0, dp(48), 1));
         mRestoreAction = createActionButton(
                 DesktopUiFactory.COLOR_AMBER);
         final LinearLayout.LayoutParams restoreParams =
                 new LinearLayout.LayoutParams(0, dp(48), 1);
         restoreParams.setMargins(dp(8), 0, 0, 0);
-        secondaryRow.addView(mRestoreAction, restoreParams);
+        mSecondaryRow.addView(mRestoreAction, restoreParams);
         final LinearLayout.LayoutParams secondaryParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         secondaryParams.setMargins(0, dp(8), 0, 0);
-        actions.addView(secondaryRow, secondaryParams);
+        actions.addView(mSecondaryRow, secondaryParams);
         page.addView(actions);
 
         mPrimaryAction.setText(R.string.setup_action_recheck);
@@ -183,6 +187,25 @@ final class DeviceSetupView {
                         Gravity.CENTER_HORIZONTAL);
         root.addView(scroll, scrollParams);
         return root;
+    }
+
+    void setDetailed(final boolean detailed) {
+        mTitle.setText(detailed
+                ? R.string.setup_title : R.string.setup_title_onboarding);
+        mSubtitle.setVisibility(detailed ? View.VISIBLE : View.GONE);
+        mDetails.setVisibility(detailed ? View.VISIBLE : View.GONE);
+        mDiagnosticsAction.setVisibility(detailed ? View.VISIBLE : View.GONE);
+    }
+
+    void setSecondaryActionsVisible(
+            final boolean secondaryVisible,
+            final boolean restoreVisible) {
+        mSecondaryRow.setVisibility(
+                secondaryVisible ? View.VISIBLE : View.GONE);
+        mSecondaryAction.setVisibility(
+                secondaryVisible ? View.VISIBLE : View.GONE);
+        mRestoreAction.setVisibility(
+                restoreVisible ? View.VISIBLE : View.GONE);
     }
 
     TextView summary() {

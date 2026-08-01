@@ -125,7 +125,9 @@ device-specific failure.
 
 1. Install Shizuku from the
    [official GitHub Releases](https://github.com/RikkaApps/Shizuku/releases).
-2. Enable **Developer options** and **Wireless debugging** in Android settings.
+2. Enable **Developer options** using Android's standard method: open
+   **Settings > About phone** and tap **Build number** seven times. Then enable
+   **Wireless debugging** under **Developer options**.
 3. In Shizuku, select pairing through Wireless debugging. In Android's
    **Wireless debugging** screen, choose **Pair device with pairing code**,
    enter that code through the Shizuku notification, then press **Start** in
@@ -143,10 +145,10 @@ startup mode.
 1. Complete **Install and start Shizuku** above and confirm that its server is
    running. Starting it from a computer through ADB is also supported.
 2. Install MagicDesk from a tagged GitHub Release or build it from source.
-3. Launch MagicDesk on the phone and grant its Shizuku and **Display over other
-   apps** requests.
-4. Review the Device Setup status and press **Configure**. MagicDesk stores the
-   previous desktop-windowing values for later restoration.
+3. Launch MagicDesk on the phone and allow it through Shizuku.
+4. Press **Prepare device**. MagicDesk applies its app-specific permission and
+   desktop-windowing configuration through Shizuku, while storing previous
+   system values for later restoration.
 5. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 6. Launch MagicDesk manually after reboot. It has no boot receiver and starts
