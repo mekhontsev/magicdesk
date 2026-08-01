@@ -73,6 +73,10 @@ final class ShellAccess {
                 sBinding = false;
                 LOCK.notifyAll();
             }
+            // The Shizuku server may already be ready while its UserService is
+            // still starting. Notify setup/runtime listeners once the command
+            // Binder arrives so a transient startup audit is not left on screen.
+            publish(inspectNow());
         }
 
         @Override
