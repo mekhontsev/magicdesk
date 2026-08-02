@@ -178,5 +178,5 @@ not supported runtime modes:
 ## Release 1.2
 
 - [x] Set the MagicDesk release to `1.2` (`versionCode` 120).
-- [ ] Inspect the exact signed CI artifact before publishing.
+- [x] Inspect the exact signed CI artifact before publishing.
 - [x] Push only after explicit maintainer approval.
