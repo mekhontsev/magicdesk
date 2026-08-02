@@ -106,9 +106,7 @@ final class DesktopWindowTransitionController {
                 return;
             }
             final Integer taskId = Integer.valueOf(task.taskId);
-            if (Boolean.TRUE.equals(mImmersiveRequests.get(taskId))) {
-                mManualImmersiveOverrides.add(taskId);
-            }
+            mManualImmersiveOverrides.add(taskId);
             restoreFullscreenTask(task);
         }));
     }
@@ -118,17 +116,16 @@ final class DesktopWindowTransitionController {
             final boolean requestingImmersive,
             final boolean initialSample) {
         final Integer key = Integer.valueOf(taskId);
-        if (initialSample
-                && !mAppRequestedFullscreenTasks.contains(key)) {
-            mImmersiveRequests.remove(key);
-            if (!requestingImmersive) {
-                mManualImmersiveOverrides.remove(key);
+        final Boolean previous = mImmersiveRequests.put(
+                key, Boolean.valueOf(requestingImmersive));
+        if (initialSample) {
+            if (mAppRequestedFullscreenTasks.contains(key)) {
+                mRuntimeState.scheduleRefresh();
             }
             return;
         }
-        mImmersiveRequests.put(
-                key, Boolean.valueOf(requestingImmersive));
-        if (!requestingImmersive) {
+        if (isNewImmersiveRequest(
+                previous, requestingImmersive, initialSample)) {
             mManualImmersiveOverrides.remove(key);
         }
         mRuntimeState.scheduleRefresh();
@@ -138,6 +135,15 @@ final class DesktopWindowTransitionController {
         if (taskId >= 0) {
             mManualImmersiveOverrides.add(Integer.valueOf(taskId));
         }
+    }
+
+    static boolean isNewImmersiveRequest(
+            final Boolean previous,
+            final boolean requestingImmersive,
+            final boolean initialSample) {
+        return !initialSample
+                && requestingImmersive
+                && Boolean.FALSE.equals(previous);
     }
 
     void forgetTaskState(final int taskId) {
@@ -222,9 +228,7 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
-        if (Boolean.TRUE.equals(mImmersiveRequests.get(taskId))) {
-            mManualImmersiveOverrides.add(taskId);
-        }
+        mManualImmersiveOverrides.add(taskId);
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
         TaskRepository.setFreeform(

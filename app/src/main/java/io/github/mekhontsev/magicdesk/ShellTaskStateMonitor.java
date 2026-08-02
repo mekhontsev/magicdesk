@@ -1,6 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityManager;
+import android.content.Context;
+import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
+import android.util.Log;
 import android.view.WindowInsets;
 
 import java.io.Closeable;
@@ -13,6 +17,8 @@ import java.util.Map;
 import java.util.Set;
 
 final class ShellTaskStateMonitor implements Closeable {
+    private static final String TAG = "MagicDeskTasks";
+
     interface Listener {
         void onTasksSampled(int displayId, List<?> tasks);
         void onImmersiveRequest(
@@ -27,10 +33,13 @@ final class ShellTaskStateMonitor implements Closeable {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
+    private final ActivityManager mActivityManager;
+    private final Field mTopActivityInfo;
     private final Field mRequestedVisibleTypes;
     private final Listener mListener;
     private final Object mLock = new Object();
     private final Map<Integer, Integer> mLastVisibleTypes = new HashMap<>();
+    private final Map<Integer, Integer> mLastProcessIds = new HashMap<>();
     private final Set<Integer> mFullscreenTasks = new HashSet<>();
     private final Set<Integer> mMaximizedTasks = new HashSet<>();
     private final Thread mThread;
@@ -42,12 +51,21 @@ final class ShellTaskStateMonitor implements Closeable {
     private Rect mWorkAreaBounds = new Rect();
 
     ShellTaskStateMonitor(
+            final Context context,
             final Object service,
             final Listener listener) throws ReflectiveOperationException {
+        if (context == null) {
+            throw new IllegalArgumentException("missing task observer context");
+        }
         mService = service;
+        mActivityManager = context.getSystemService(ActivityManager.class);
+        if (mActivityManager == null) {
+            throw new IllegalStateException("activity manager unavailable");
+        }
         mListener = listener;
-        mRequestedVisibleTypes = Class.forName("android.app.TaskInfo")
-                .getField("requestedVisibleTypes");
+        final Class<?> taskInfo = Class.forName("android.app.TaskInfo");
+        mTopActivityInfo = taskInfo.getField("topActivityInfo");
+        mRequestedVisibleTypes = taskInfo.getField("requestedVisibleTypes");
         mThread = new Thread(this::run, "MagicDeskTaskStateMonitor");
         mThread.setDaemon(true);
     }
@@ -81,6 +99,7 @@ final class ShellTaskStateMonitor implements Closeable {
             mDisplayBounds = new Rect(displayBounds);
             mWorkAreaBounds = new Rect(workAreaBounds);
             mLastVisibleTypes.clear();
+            mLastProcessIds.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
             mSampleGeneration++;
@@ -106,6 +125,7 @@ final class ShellTaskStateMonitor implements Closeable {
             mClosed = true;
             mDisplayId = -1;
             mLastVisibleTypes.clear();
+            mLastProcessIds.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
             mLock.notifyAll();
@@ -182,6 +202,9 @@ final class ShellTaskStateMonitor implements Closeable {
         }
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Map<Integer, Integer> visibleTypesByTask = new HashMap<>();
+        final Map<Integer, Integer> processIdsByTask = new HashMap<>();
+        final Map<ProcessIdentity, Integer> runningProcesses =
+                loadRunningProcesses();
         for (final Object task : tasks) {
             final Integer taskId = Integer.valueOf(
                     HiddenTaskApi.getIntField(task, "taskId"));
@@ -192,6 +215,10 @@ final class ShellTaskStateMonitor implements Closeable {
             visibleTypesByTask.put(
                     taskId,
                     Integer.valueOf(mRequestedVisibleTypes.getInt(task)));
+            final Integer processId = findProcessId(task, runningProcesses);
+            if (processId != null) {
+                processIdsByTask.put(taskId, processId);
+            }
         }
 
         final List<ImmersiveEvent> events = new ArrayList<>();
@@ -203,20 +230,74 @@ final class ShellTaskStateMonitor implements Closeable {
                     : visibleTypesByTask.entrySet()) {
                 final Integer previous = mLastVisibleTypes.put(
                         entry.getKey(), entry.getValue());
+                final Integer processId = processIdsByTask.get(entry.getKey());
+                final Integer previousProcessId = processId == null
+                        ? mLastProcessIds.get(entry.getKey())
+                        : mLastProcessIds.put(entry.getKey(), processId);
+                // requestedVisibleTypes belongs to the activity client. Its
+                // initial value after a process restart is not a new request.
+                final boolean initialSample = isInitialClientSample(
+                        previous, previousProcessId, processId);
                 if (previous == null
-                        || previous.intValue() != entry.getValue().intValue()) {
+                        || previous.intValue() != entry.getValue().intValue()
+                        || initialSample) {
+                    Log.i(TAG, "immersive state task=" + entry.getKey()
+                            + " pid=" + processId
+                            + " initial=" + initialSample
+                            + " requesting="
+                            + isRequestingImmersive(
+                                    entry.getValue().intValue()));
                     events.add(new ImmersiveEvent(
                             entry.getKey().intValue(),
                             isRequestingImmersive(entry.getValue().intValue()),
-                            previous == null));
+                            initialSample));
                 }
             }
             mLastVisibleTypes.keySet().retainAll(liveTaskIds);
+            mLastProcessIds.keySet().retainAll(liveTaskIds);
         }
         for (final ImmersiveEvent event : events) {
             mListener.onImmersiveRequest(
                     event.taskId, event.requesting, event.initialSample);
         }
+    }
+
+    private Map<ProcessIdentity, Integer> loadRunningProcesses() {
+        final Map<ProcessIdentity, Integer> result = new HashMap<>();
+        final List<ActivityManager.RunningAppProcessInfo> processes =
+                mActivityManager.getRunningAppProcesses();
+        if (processes == null) {
+            return result;
+        }
+        for (final ActivityManager.RunningAppProcessInfo process : processes) {
+            if (process == null || process.pid <= 0 || process.processName == null) {
+                continue;
+            }
+            final ProcessIdentity identity =
+                    new ProcessIdentity(process.uid, process.processName);
+            final Integer previousPid = result.get(identity);
+            if (previousPid == null || process.pid > previousPid.intValue()) {
+                result.put(identity, Integer.valueOf(process.pid));
+            }
+        }
+        return result;
+    }
+
+    private Integer findProcessId(
+            final Object task,
+            final Map<ProcessIdentity, Integer> runningProcesses)
+            throws IllegalAccessException {
+        final Object value = mTopActivityInfo.get(task);
+        if (!(value instanceof ActivityInfo)) {
+            return null;
+        }
+        final ActivityInfo activity = (ActivityInfo) value;
+        if (activity.applicationInfo == null || activity.processName == null) {
+            return null;
+        }
+        return runningProcesses.get(new ProcessIdentity(
+                activity.applicationInfo.uid,
+                activity.processName));
     }
 
     private void publishNativeMaximizeTransitions(
@@ -288,6 +369,16 @@ final class ShellTaskStateMonitor implements Closeable {
         return (requestedVisibleTypes & WindowInsets.Type.statusBars()) == 0;
     }
 
+    static boolean isInitialClientSample(
+            final Integer previousVisibleTypes,
+            final Integer previousProcessId,
+            final Integer processId) {
+        return previousVisibleTypes == null
+                || (previousProcessId != null
+                        && processId != null
+                        && previousProcessId.intValue() != processId.intValue());
+    }
+
     private static String usefulMessage(final Throwable error) {
         Throwable cause = error;
         while (cause.getCause() != null && cause.getCause() != cause) {
@@ -310,6 +401,34 @@ final class ShellTaskStateMonitor implements Closeable {
             this.taskId = taskId;
             this.requesting = requesting;
             this.initialSample = initialSample;
+        }
+    }
+
+    private static final class ProcessIdentity {
+        final int uid;
+        final String processName;
+
+        ProcessIdentity(final int uid, final String processName) {
+            this.uid = uid;
+            this.processName = processName;
+        }
+
+        @Override
+        public boolean equals(final Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof ProcessIdentity)) {
+                return false;
+            }
+            final ProcessIdentity identity = (ProcessIdentity) other;
+            return uid == identity.uid
+                    && processName.equals(identity.processName);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * uid + processName.hashCode();
         }
     }
 }

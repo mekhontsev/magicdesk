@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.TaskStackListener;
 import android.content.ComponentName;
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.RemoteException;
 import android.util.Log;
@@ -26,6 +27,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mRegistered;
 
     ShellTaskObserver(
+            final Context context,
             final ITaskObserverCallback callback,
             final Runnable callbackFailure)
             throws ReflectiveOperationException {
@@ -37,6 +39,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mCallbackFailure = callbackFailure;
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         mStateMonitor = new ShellTaskStateMonitor(
+                context,
                 mService,
                 new ShellTaskStateMonitor.Listener() {
                     @Override

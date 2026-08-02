@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -11,8 +12,13 @@ final class ShellTaskObserverManager implements Closeable {
     private static final String TAG = "MagicDeskTasks";
 
     private final Object mLock = new Object();
+    private final Context mContext;
 
     private Session mSession;
+
+    ShellTaskObserverManager(final Context context) {
+        mContext = context;
+    }
 
     void start(final ITaskObserverCallback callback) {
         if (callback == null) {
@@ -138,7 +144,7 @@ final class ShellTaskObserverManager implements Closeable {
             ownerToken = callback.asBinder();
             ownerDeathRecipient = this::ownerDisconnected;
             observer = new ShellTaskObserver(
-                    callback, this::ownerDisconnected);
+                    mContext, callback, this::ownerDisconnected);
         }
 
         synchronized void start()

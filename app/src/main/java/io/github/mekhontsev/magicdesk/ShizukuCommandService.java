@@ -29,8 +29,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Context mContext;
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
-    private final ShellTaskObserverManager mTaskObserverManager =
-            new ShellTaskObserverManager();
+    private final ShellTaskObserverManager mTaskObserverManager;
     private final NubiaPointerPositionGuard mPointerPositionGuard;
 
     public ShizukuCommandService() {
@@ -39,6 +38,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     public ShizukuCommandService(final Context context) {
         mContext = context;
+        mTaskObserverManager = new ShellTaskObserverManager(context);
         mPointerPositionGuard = new NubiaPointerPositionGuard();
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
