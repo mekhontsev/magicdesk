@@ -21,6 +21,8 @@ REDMAGIC firmware.
 
 ![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
 
+![MagicDesk running Termux and Firefox in overlapping native windows with the Hardware panel open](docs/images/magicdesk-multitasking.png)
+
 ## Why MagicDesk
 
 REDMAGIC phones can drive an external display, but their stock interface does
