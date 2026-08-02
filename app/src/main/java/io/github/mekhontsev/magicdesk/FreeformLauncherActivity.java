@@ -43,6 +43,9 @@ public final class FreeformLauncherActivity extends Activity {
             final int[] preservedTaskIds) {
         return new Intent(activity, FreeformLauncherActivity.class)
                 .setAction(ACTION_LAUNCH)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                        | Intent.FLAG_ACTIVITY_NO_ANIMATION)
                 .putExtra(EXTRA_PACKAGE_NAME, packageName)
                 .putExtra(EXTRA_PRESERVED_TASK_IDS, preservedTaskIds);
     }
@@ -82,12 +85,17 @@ public final class FreeformLauncherActivity extends Activity {
         try {
             final boolean existingTask =
                     ExistingTaskController.taskExists(packageName, displayId);
+            if (!existingTask && NativeDesktopController.shouldUse()) {
+                prepareFreeformSourceAndLaunch(
+                        appContext,
+                        launchIntent,
+                        packageName,
+                        displayId,
+                        preservedTaskIds);
+                return;
+            }
             if (!existingTask) {
-                final ActivityOptions options = ActivityOptions.makeBasic();
-                invokeIntOption(options, "setLaunchDisplayId", displayId);
-                options.setLaunchBounds(defaultLaunchBounds());
-                Log.i(TAG, "launch package=" + packageName + " display=" + displayId);
-                startActivity(launchIntent, options.toBundle());
+                startTargetActivity(launchIntent, displayId);
             }
             finish();
             overridePendingTransition(0, 0);
@@ -97,6 +105,81 @@ public final class FreeformLauncherActivity extends Activity {
             Log.w(TAG, "cannot prepare native desktop launch package=" + packageName, e);
             toastAndFinish("Window launch failed: " + usefulMessage(e));
         }
+    }
+
+    private void prepareFreeformSourceAndLaunch(
+            final Context appContext,
+            final Intent launchIntent,
+            final String packageName,
+            final int displayId,
+            final int[] preservedTaskIds) {
+        final int sourceTaskId = getTaskId();
+        final Rect launchBounds = defaultLaunchBounds();
+        final Rect sourceBounds = tinyLaunchSourceBounds();
+        final boolean restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
+        if (restoreTouchpad) {
+            DesktopTaskController.expectTouchpadDisplacement();
+        }
+        Log.i(TAG, "prepare freeform source task=" + sourceTaskId
+                + " package=" + packageName + " display=" + displayId);
+        LAUNCH_EXECUTOR.execute(() -> {
+            try {
+                ExistingTaskController.prepareFreeformLaunchSource(
+                        sourceTaskId, displayId, sourceBounds);
+                MAIN_HANDLER.post(() -> {
+                    try {
+                        startTargetActivity(
+                                launchIntent, displayId, launchBounds);
+                        finish();
+                        overridePendingTransition(0, 0);
+                        LAUNCH_EXECUTOR.execute(() -> convertToDesktopWindow(
+                                appContext,
+                                packageName,
+                                displayId,
+                                preservedTaskIds,
+                                true));
+                    } catch (RuntimeException error) {
+                        toastAndFinish("Window launch failed: "
+                                + usefulMessage(error));
+                    } finally {
+                        if (restoreTouchpad) {
+                            DesktopTaskController.finishTouchpadPreservation();
+                            ConsoleModeSwitcher.restoreTouchpadIfMissing();
+                        }
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                if (restoreTouchpad) {
+                    DesktopTaskController.finishTouchpadPreservation();
+                    ConsoleModeSwitcher.restoreTouchpadIfMissing();
+                }
+                showToast(appContext, "Window launch failed: "
+                        + usefulMessage(error));
+                MAIN_HANDLER.post(() -> {
+                    finish();
+                    overridePendingTransition(0, 0);
+                });
+            }
+        });
+    }
+
+    private void startTargetActivity(
+            final Intent launchIntent,
+            final int displayId) {
+        startTargetActivity(launchIntent, displayId, defaultLaunchBounds());
+    }
+
+    private void startTargetActivity(
+            final Intent launchIntent,
+            final int displayId,
+            final Rect launchBounds) {
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        invokeIntOption(options, "setLaunchDisplayId", displayId);
+        options.setLaunchBounds(launchBounds);
+        Log.i(TAG, "launch package=" + launchIntent.getPackage()
+                + " display=" + displayId
+                + " sourceTask=" + getTaskId());
+        startActivity(launchIntent, options.toBundle());
     }
 
     private Rect defaultLaunchBounds() {
@@ -118,6 +201,17 @@ public final class FreeformLauncherActivity extends Activity {
                 top,
                 left + boundedWidth,
                 top + boundedHeight);
+    }
+
+    private Rect tinyLaunchSourceBounds() {
+        final Display display = getDisplay();
+        final Point size = new Point();
+        if (display != null) {
+            display.getRealSize(size);
+        }
+        final int right = Math.max(1, size.x);
+        final int bottom = Math.max(1, size.y);
+        return new Rect(right - 1, bottom - 1, right, bottom);
     }
 
     private static void convertToDesktopWindow(final Context context,

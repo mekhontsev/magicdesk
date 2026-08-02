@@ -55,6 +55,18 @@ final class ExistingTaskController {
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
     }
 
+    static void prepareFreeformLaunchSource(
+            final int taskId,
+            final int displayId,
+            final Rect bounds) throws IOException {
+        if (taskId < 0 || displayId < 0 || bounds == null || bounds.isEmpty()) {
+            throw new IOException("invalid freeform launch source");
+        }
+        runCommand(TaskRepository.createFreeformTransitionCommand(
+                displayId, taskId, bounds));
+        waitForTaskState(taskId, displayId, MODE_FREEFORM);
+    }
+
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,

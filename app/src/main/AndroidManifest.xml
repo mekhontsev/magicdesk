@@ -101,12 +101,14 @@
 
         <activity
             android:name=".FreeformLauncherActivity"
+            android:configChanges="density|orientation|screenLayout|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"
             android:exported="false"
             android:finishOnTaskLaunch="true"
             android:launchMode="singleTop"
             android:noHistory="true"
             android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.desktoplaunch"
             android:theme="@style/TransparentActivityTheme" />
 
         <service
