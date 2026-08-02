@@ -175,8 +175,8 @@ not supported runtime modes:
   fullscreen/restore through the shell task observer, and verifies the same
   task ID and Activity instance when CI device coverage becomes available.
 
-## Next Release
+## Release 1.2
 
-- [x] Set the next release to `1.1` (`versionCode` 110) in both APK modules.
-- [ ] Install and test the exact signed CI artifact before publishing.
-- [ ] Push only after explicit maintainer approval.
+- [x] Set the MagicDesk release to `1.2` (`versionCode` 120).
+- [ ] Inspect the exact signed CI artifact before publishing.
+- [x] Push only after explicit maintainer approval.

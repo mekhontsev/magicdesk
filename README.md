@@ -16,7 +16,7 @@ REDMAGIC firmware.
 > REDMAGIC hardware. Its Shizuku integration and undocumented vendor interfaces
 > make independent source review especially important.
 
-> **Project status:** MagicDesk 1.1 is under active development. The current
+> **Project status:** MagicDesk 1.2 is under active development. The current
 > firmware verification is limited to the REDMAGIC 11 Pro profile listed below.
 
 ![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
@@ -302,7 +302,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 
 ## Project
 
-- Version: 1.1
+- Version: 1.2
 - Main package: `io.github.mekhontsev.magicdesk`
 - Minimum SDK: 36
 - Target SDK: 36
