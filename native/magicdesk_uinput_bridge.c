@@ -89,19 +89,16 @@ static void emit_line(const char *line) {
     fflush(stdout);
 }
 
-static int create_virtual_mouse(
-        const int uinput_fd,
-        const struct source_device *sources) {
-    struct input_id source_id = {0};
-    if (ioctl(sources[0].fd, EVIOCGID, &source_id) < 0) {
-        return -1;
-    }
+static int create_virtual_mouse(const int uinput_fd) {
+    // Nubia maps right clicks from physical-bus mice to Android Back.
     struct uinput_setup setup = {
-        .id = source_id,
+        .id = {
+            .bustype = BUS_VIRTUAL,
+            .vendor = MAGICDESK_VENDOR_ID,
+            .product = MAGICDESK_MOUSE_PRODUCT_ID,
+            .version = 1,
+        },
     };
-    setup.id.vendor = MAGICDESK_VENDOR_ID;
-    setup.id.product = MAGICDESK_MOUSE_PRODUCT_ID;
-    setup.id.version = 1;
     snprintf(setup.name, UINPUT_MAX_NAME_SIZE, "MagicDesk Mouse");
 
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
@@ -661,7 +658,7 @@ int main(int argc, char **argv) {
         free(sources);
         return 1;
     }
-    if (create_virtual_mouse(uinput_fd, sources) < 0) {
+    if (create_virtual_mouse(uinput_fd) < 0) {
         fprintf(stderr,
                 "MAGICDESK_MOUSE_ERROR uinput=create error=%s\n",
                 strerror(errno));
