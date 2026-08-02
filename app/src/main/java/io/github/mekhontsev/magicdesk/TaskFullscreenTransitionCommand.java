@@ -34,7 +34,7 @@ public final class TaskFullscreenTransitionCommand {
         try {
             final int displayId = parseInt(args[0], "display id");
             final int taskId = parseInt(args[1], "task id");
-            applyFullscreen(displayId, taskId);
+            applyFullscreen(displayId, taskId, false);
             System.out.println("task-fullscreen=" + taskId + " display=" + displayId
                     + " client=recreated");
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -47,7 +47,8 @@ public final class TaskFullscreenTransitionCommand {
         }
     }
 
-    private static void applyFullscreen(final int displayId, final int taskId)
+    static void applyFullscreen(final int displayId, final int taskId,
+            final boolean forceTranslucent)
             throws ReflectiveOperationException {
         final Object service = HiddenTaskApi.getService();
         final Object task = HiddenTaskApi.requireTask(
@@ -79,6 +80,10 @@ public final class TaskFullscreenTransitionCommand {
                             Integer.valueOf(densityDpi + 1));
             transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
                     .invoke(fullscreenTransaction, taskToken, Boolean.TRUE);
+            transactionClass.getMethod(
+                    "setForceTranslucent", tokenClass, Boolean.TYPE)
+                    .invoke(fullscreenTransaction, taskToken,
+                            Boolean.valueOf(forceTranslucent));
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
                     transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
 

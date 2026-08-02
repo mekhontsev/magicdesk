@@ -396,8 +396,37 @@ final class DesktopTaskController {
                 }
                 return;
             }
-            mWindowTransitions.applyShortcut(task, shortcut);
+            final TaskRepository.TaskEntry minimizeFocusTask =
+                    shortcut == SHORTCUT_RESTORE
+                            ? findFocusAfterMinimize(snapshot.tasks, task.taskId)
+                            : null;
+            mWindowTransitions.applyShortcut(
+                    task, shortcut, minimizeFocusTask);
         }));
+    }
+
+    private static TaskRepository.TaskEntry findFocusAfterMinimize(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int minimizedTaskId) {
+        if (tasks == null) {
+            return null;
+        }
+        TaskRepository.TaskEntry desktopHost = null;
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (isDesktopHostTask(task)) {
+                desktopHost = task;
+                break;
+            }
+            if (task != null
+                    && task.taskId != minimizedTaskId
+                    && task.visible
+                    && task.isFreeform()
+                    && !task.home
+                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+                return task;
+            }
+        }
+        return desktopHost;
     }
 
     private static TaskRepository.TaskEntry findTopVisibleAppTask(
@@ -514,11 +543,17 @@ final class DesktopTaskController {
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         final Set<Integer> visibleAppTaskIds = new HashSet<>();
         boolean hasVisibleAppTask = false;
+        boolean aboveDesktopHost = true;
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (isVisibleFreeformTask(task)) {
+            if (isDesktopHostTask(task)) {
+                aboveDesktopHost = false;
+                continue;
+            }
+            if (aboveDesktopHost && isVisibleFreeformTask(task)) {
                 visibleTasks.add(task);
             }
-            if (task != null && task.displayId == mDisplayId && task.visible
+            if (aboveDesktopHost
+                    && task != null && task.displayId == mDisplayId && task.visible
                     && !task.home && !MAGICDESK_PACKAGE.equals(task.packageName)) {
                 hasVisibleAppTask = true;
                 visibleAppTaskIds.add(Integer.valueOf(task.taskId));
@@ -564,6 +599,15 @@ final class DesktopTaskController {
                 && !task.home
                 && !MAGICDESK_PACKAGE.equals(task.packageName)
                 && !task.bounds.isEmpty();
+    }
+
+    static boolean isDesktopHostTask(final TaskRepository.TaskEntry task) {
+        return task != null
+                && MAGICDESK_PACKAGE.equals(task.packageName)
+                && task.componentName != null
+                && (task.componentName.endsWith("/.DesktopActivity")
+                        || task.componentName.endsWith(
+                                "/" + MAGICDESK_PACKAGE + ".DesktopActivity"));
     }
 
     private void scheduleRefresh(final long delayMillis) {

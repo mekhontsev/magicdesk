@@ -12,7 +12,6 @@ public final class TaskControlCommand {
     private static final String PACKAGE_NAME = "io.github.mekhontsev.magicdesk";
     private static final String SHELL_PACKAGE_NAME = "com.android.shell";
     private static final int SHELL_UID = 2000;
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int ACTIVITY_TYPE_HOME = 2;
 
     private TaskControlCommand() {
@@ -20,25 +19,18 @@ public final class TaskControlCommand {
 
     public static void main(final String[] args) {
         final boolean focusStack = args.length >= 2 && "focus-stack".equals(args[0]);
-        final boolean prepareDesktop =
-                args.length == 2 && "prepare-desktop".equals(args[0]);
         final boolean queryVisibleApp =
                 args.length == 2 && "has-visible-app".equals(args[0]);
-        final boolean queryDesktopHome =
-                args.length == 2 && "has-desktop-home".equals(args[0]);
-        final boolean queryDesktopHomeId =
-                args.length == 2 && "desktop-home-task-id".equals(args[0]);
+        final boolean queryDesktopTaskId =
+                args.length == 2 && "desktop-task-id".equals(args[0]);
         final boolean singleTaskAction = args.length == 2
                 && ("focus".equals(args[0]) || "remove".equals(args[0]));
-        if (!focusStack && !prepareDesktop && !queryVisibleApp
-                && !queryDesktopHome && !queryDesktopHomeId
+        if (!focusStack && !queryVisibleApp && !queryDesktopTaskId
                 && !singleTaskAction) {
             System.err.println("usage: TaskControlCommand "
                     + "<focus|remove> <task-id> | focus-stack <task-id>... "
-                    + "| prepare-desktop <display-id>"
                     + "| has-visible-app <display-id>"
-                    + "| has-desktop-home <display-id>"
-                    + "| desktop-home-task-id <display-id>");
+                    + "| desktop-task-id <display-id>");
             System.exit(64);
             return;
         }
@@ -59,17 +51,12 @@ public final class TaskControlCommand {
 
         try {
             final Object service = HiddenTaskApi.getService();
-            if (queryDesktopHome) {
-                System.out.println("desktop-home-task="
-                        + hasDesktopHomeTask(service, taskIds[0]));
-            } else if (queryDesktopHomeId) {
-                System.out.println("desktop-home-task-id="
-                        + findDesktopHomeTaskId(service, taskIds[0]));
+            if (queryDesktopTaskId) {
+                System.out.println("desktop-task-id="
+                        + findDesktopTaskId(service, taskIds[0]));
             } else if (queryVisibleApp) {
                 System.out.println("visible-app-task="
                         + hasVisibleAppTask(service, taskIds[0]));
-            } else if (prepareDesktop) {
-                prepareDesktopTask(service, taskIds[0]);
             } else if (focusStack) {
                 for (int index = 0; index < taskIds.length; index++) {
                     try {
@@ -176,68 +163,31 @@ public final class TaskControlCommand {
         return false;
     }
 
-    private static boolean hasDesktopHomeTask(final Object service, final int displayId)
-            throws ReflectiveOperationException {
-        return findDesktopHomeTaskId(service, displayId) >= 0;
-    }
-
-    private static int findDesktopHomeTaskId(final Object service, final int displayId)
+    private static int findDesktopTaskId(final Object service, final int displayId)
             throws ReflectiveOperationException {
         for (final Object task :
                 HiddenTaskApi.getTasks(service, displayId)) {
-            if (!isMagicDeskTask(task)) {
+            if (!isDesktopTask(task)) {
                 continue;
             }
-            final int windowingMode =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode");
-            final int activityType =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType");
-            if (windowingMode == WINDOWING_MODE_FULLSCREEN
-                    && activityType == ACTIVITY_TYPE_HOME) {
-                return HiddenTaskApi.getIntField(task, "taskId");
-            }
+            return HiddenTaskApi.getIntField(task, "taskId");
         }
         return -1;
     }
 
-    private static void prepareDesktopTask(final Object service, final int displayId)
+    private static boolean isDesktopTask(final Object task)
             throws ReflectiveOperationException {
-        int readyTaskId = -1;
-        for (final Object task : HiddenTaskApi.getTasks(service, -1)) {
-            if (!isMagicDeskTask(task)) {
-                continue;
-            }
-            final int taskId =
-                    HiddenTaskApi.getIntField(task, "taskId");
-            final int taskDisplayId =
-                    HiddenTaskApi.getIntField(task, "displayId");
-            final int windowingMode =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode");
-            final int activityType =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType");
-            if (readyTaskId < 0
-                    && taskDisplayId == displayId
-                    && windowingMode == WINDOWING_MODE_FULLSCREEN
-                    && activityType == ACTIVITY_TYPE_HOME) {
-                readyTaskId = taskId;
-                continue;
-            }
-            removeTask(service, taskId);
-            System.out.println("desktop-task-removed=" + taskId
-                    + " display=" + taskDisplayId
-                    + " mode=" + windowingMode + " type=" + activityType);
-        }
+        return isDesktopComponent((ComponentName) HiddenTaskApi.getField(
+                        task, "topActivity"))
+                || isDesktopComponent((ComponentName) HiddenTaskApi.getField(
+                        task, "baseActivity"));
+    }
 
-        if (readyTaskId >= 0) {
-            moveTaskToFront(service, readyTaskId);
-            System.out.println("desktop-task-ready=" + readyTaskId);
-        } else {
-            System.out.println("desktop-task-ready=none");
-        }
+    private static boolean isDesktopComponent(final ComponentName component) {
+        return component != null
+                && PACKAGE_NAME.equals(component.getPackageName())
+                && (PACKAGE_NAME + ".DesktopActivity").equals(
+                        component.getClassName());
     }
 
     private static boolean isMagicDeskTask(final Object task)

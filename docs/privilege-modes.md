@@ -87,7 +87,7 @@ input.
 
 The same heartbeat marks MagicDesk's foreground service as active through
 REDMAGIC's transient `cfreezer` API. Without that signal the firmware can
-freeze the desktop HOME process while display 0 is off. Normal teardown clears
+freeze the desktop process while display 0 is off. Normal teardown clears
 the state, and the vendor service expires it after an abnormal stop.
 
 Physical power, MagicDesk's Wake action, switching to mirroring, display cable

@@ -51,8 +51,8 @@ retired prototypes are listed separately and are not current product modes.
 ## Completed: External Desktop And Windows
 
 - [x] Activate REDMAGIC desktop mode from Mirror Mode, including the Home-only
-  state that needs a transient seed. Apply geometry/DPI before desktop launch,
-  create one fullscreen HOME task, and remove the seed.
+    state that needs a transient seed. Apply geometry/DPI before desktop launch,
+  create one display-sized desktop host, and remove the seed.
 - [x] Resolve changing physical and virtual display IDs after disconnect,
   reconnect, and reboot. No numeric display ID is persisted.
 - [x] Verify EDID-specific profiles and recommended density, including
@@ -74,8 +74,9 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Keep the external taskbar above freeform tasks and hide it for unrelated
   true-fullscreen tasks. Restore it after unlock, chooser dismissal, and task
   focus changes.
-- [x] Normalize a MagicDesk host inherited as a freeform task into one
-  fullscreen desktop HOME task without visible repeated recreation.
+- [x] Normalize a MagicDesk host into one force-translucent fullscreen standard
+  task without a visible native caption. Verify that tasks minimized below it
+  remain resumed while the desktop stays visually opaque.
 
 ## Completed: Physical Input
 
@@ -105,7 +106,7 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Restore display 0 through physical power/unlock, explicit Wake, mirror
   transition, helper termination, package force-stop, UserService death, and
   physical cable removal.
-- [x] Protect the desktop HOME process through REDMAGIC `cfreezer`'s transient
+- [x] Protect the desktop process through REDMAGIC `cfreezer`'s transient
   service-working API while display 0 is off. Verify no persistent whitelist
   entry remains.
 - [x] Launch and reopen REDMAGIC Touch Panel from the phone notification and

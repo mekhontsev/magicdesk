@@ -71,13 +71,14 @@ final class DesktopWindowTransitionController {
 
     void applyShortcut(
             final TaskRepository.TaskEntry task,
-            final int shortcut) {
+            final int shortcut,
+            final TaskRepository.TaskEntry minimizeFocusTask) {
         switch (shortcut) {
             case SHORTCUT_FULLSCREEN:
                 makeFullscreen(task, false);
                 break;
             case SHORTCUT_RESTORE:
-                restoreOrMinimize(task);
+                restoreOrMinimize(task, minimizeFocusTask);
                 break;
             case SHORTCUT_SNAP_LEFT:
                 snap(task, true);
@@ -168,8 +169,9 @@ final class DesktopWindowTransitionController {
         reconcileImmersiveRequests(allTasks, visibleFreeformTasks);
     }
 
-    private void minimize(final TaskRepository.TaskEntry task) {
-        TaskRepository.minimizeTask(task, result -> {
+    private void minimize(final TaskRepository.TaskEntry task,
+            final TaskRepository.TaskEntry focusTask) {
+        TaskRepository.minimizeTask(task, focusTask, result -> {
             if (!result.success) {
                 Log.w(TAG, "native minimize failed task=" + task.taskId
                         + " message=" + result.message);
@@ -250,11 +252,12 @@ final class DesktopWindowTransitionController {
     }
 
     private void restoreOrMinimize(
-            final TaskRepository.TaskEntry task) {
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.TaskEntry minimizeFocusTask) {
         final Integer taskId = Integer.valueOf(task.taskId);
         final Rect savedBounds = mRestoreBounds.get(taskId);
         if (savedBounds == null) {
-            minimize(task);
+            minimize(task, minimizeFocusTask);
             return;
         }
         resize(task, new Rect(savedBounds), true);

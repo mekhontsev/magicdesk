@@ -21,9 +21,15 @@ public final class TaskWindowingCommand {
                         parseInt(args[5], "right"), parseInt(args[6], "bottom"));
                 return;
             }
-            if (args.length == 3 && "minimize".equals(args[0])) {
-                minimize(parseInt(args[1], "display id"),
+            if (args.length == 3 && "desktop-host".equals(args[0])) {
+                setDesktopHost(parseInt(args[1], "display id"),
                         parseInt(args[2], "task id"));
+                return;
+            }
+            if (args.length == 4 && "minimize".equals(args[0])) {
+                minimize(parseInt(args[1], "display id"),
+                        parseInt(args[2], "task id"),
+                        parseInt(args[3], "focus task id"));
                 return;
             }
             if (args.length == 3 && "restore".equals(args[0])) {
@@ -41,7 +47,8 @@ public final class TaskWindowingCommand {
             }
             System.err.println("usage: TaskWindowingCommand "
                     + "<freeform display task left top right bottom"
-                    + "|minimize display task|restore display task"
+                    + "|desktop-host display task"
+                    + "|minimize display task focus-task|restore display task"
                     + "|restore-stack display task...>");
             System.exit(64);
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -65,19 +72,38 @@ public final class TaskWindowingCommand {
         System.out.println("task-freeform=" + taskId);
     }
 
-    private static void minimize(final int displayId, final int taskId)
+    private static void setDesktopHost(final int displayId, final int taskId)
             throws ReflectiveOperationException {
+        TaskFullscreenTransitionCommand.applyFullscreen(
+                displayId, taskId, true);
+        System.out.println("desktop-host=" + taskId);
+    }
+
+    private static void minimize(final int displayId, final int taskId,
+            final int focusTaskId)
+            throws ReflectiveOperationException {
+        if (taskId == focusTaskId) {
+            throw new IllegalArgumentException("minimized and focused task match");
+        }
         final Object service = HiddenTaskApi.getService();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
+        final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, focusTaskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction = transactionClass.getConstructor().newInstance();
         transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.FALSE);
-        applyTransaction(service, transactionClass, transaction);
-        System.out.println("task-minimized=" + taskId);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(transaction, focusTaskToken, Boolean.TRUE, Boolean.TRUE);
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+        TaskControlCommand.setFocusedTask(service, focusTaskId);
+        System.out.println("task-minimized=" + taskId
+                + " focused=" + focusTaskId);
     }
 
     private static void restore(final int displayId, final int taskId)
@@ -119,21 +145,15 @@ public final class TaskWindowingCommand {
         transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                 .invoke(transaction, taskToken, bounds);
         transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.FALSE);
+        transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, transaction, tokenClass, taskToken, false);
         TaskFullscreenTransitionCommand.startTransition(
                 transactionClass, transaction);
-    }
-
-    private static void applyTransaction(final Object service,
-            final Class<?> transactionClass, final Object transaction)
-            throws ReflectiveOperationException {
-        final Object controller = service.getClass()
-                .getMethod("getWindowOrganizerController").invoke(service);
-        controller.getClass().getMethod("applyTransaction", transactionClass)
-                .invoke(controller, transaction);
     }
 
     private static int parseInt(final String value, final String label) {

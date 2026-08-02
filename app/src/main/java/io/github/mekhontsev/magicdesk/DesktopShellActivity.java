@@ -154,7 +154,7 @@ public abstract class DesktopShellActivity extends Activity
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
         FreeformLaunchAnchorActivity.prepare(this);
-        mDesktopRoot.post(mHostWindowController::ensureFullscreen);
+        mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
         mConsoleControls.start();
         mDisplayProfiles.start();
@@ -367,7 +367,7 @@ public abstract class DesktopShellActivity extends Activity
         mNotifications.refresh();
         ensurePreferredConsoleDensity();
         if (mHostWindowController != null) {
-            mHostWindowController.ensureFullscreen();
+            mHostWindowController.ensureConfigured();
         }
     }
 
@@ -417,6 +417,11 @@ public abstract class DesktopShellActivity extends Activity
         } else {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         }
+    }
+
+    boolean isDesktopHostReady() {
+        return mHostWindowController != null
+                && mHostWindowController.isReady();
     }
 
     @Override

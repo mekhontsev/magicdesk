@@ -176,13 +176,18 @@ final class TaskRepository {
         runAction(createTaskControlCommand("remove", task.taskId), callback);
     }
 
-    static void minimizeTask(final TaskEntry task, final ActionCallback callback) {
-        if (!isUsableTask(task) || !task.isFreeform()) {
+    static void minimizeTask(final TaskEntry task, final TaskEntry focusTask,
+            final ActionCallback callback) {
+        if (!isUsableTask(task) || !task.isFreeform()
+                || !isUsableTask(focusTask)
+                || task.displayId != focusTask.displayId
+                || task.taskId == focusTask.taskId) {
             complete(callback, false, "invalid task");
             return;
         }
         runAction(createTaskWindowingCommand(
-                "minimize " + task.displayId + " " + task.taskId), callback);
+                "minimize " + task.displayId + " " + task.taskId
+                        + " " + focusTask.taskId), callback);
     }
 
     static void restoreTask(final TaskEntry task, final ActionCallback callback) {
@@ -192,6 +197,17 @@ final class TaskRepository {
         }
         runAction(createTaskWindowingCommand(
                 "restore " + task.displayId + " " + task.taskId), callback);
+    }
+
+    static void configureDesktopHost(final TaskEntry task,
+            final ActionCallback callback) {
+        if (!isUsableTask(task)) {
+            complete(callback, false, "invalid desktop host");
+            return;
+        }
+        runAction(createTaskWindowingCommand(
+                "desktop-host " + task.displayId + " " + task.taskId),
+                callback);
     }
 
     static void normalizePhoneFreeformTasks(
@@ -496,6 +512,10 @@ final class TaskRepository {
 
         boolean isFreeform() {
             return "freeform".equals(windowingMode);
+        }
+
+        boolean isFullscreen() {
+            return "fullscreen".equals(windowingMode);
         }
 
         boolean hasCrossPackageTopActivity() {

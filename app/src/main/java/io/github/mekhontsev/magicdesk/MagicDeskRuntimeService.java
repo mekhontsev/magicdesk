@@ -258,11 +258,9 @@ public final class MagicDeskRuntimeService extends Service
                 getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
         if (displayId > 0) {
             options.setLaunchDisplayId(displayId);
-            DesktopShellActivity.invokeIntOption(
-                    options, "setLaunchActivityType", 2);
         }
         DesktopShellActivity.invokeIntOption(
-                options, "setLaunchWindowingMode", 1);
+                options, "setLaunchWindowingMode", 5);
         startActivity(
                 DesktopShellActivity.createShowStartIntent(this),
                 options.toBundle());

@@ -112,7 +112,7 @@ process, but no runtime integration.
   transient visual seed used only when
   Nubia ignores a Mirror-to-desktop command while Android Home is the sole
   foreground task. It never appears in Recents and is removed after the real
-  desktop HOME task is ready.
+  desktop host task is ready.
 - `MagicDeskRuntimeService` owns the persistent notification and process-level
   runtime. There is no boot receiver; the user starts MagicDesk manually.
 
@@ -211,9 +211,10 @@ are never persisted as constants.
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** keeps a local desktop in the same task, producing one
   Recents card and supporting tablets.
-- An external desktop is a fullscreen HOME activity on Nubia's virtual desktop
-  display. This keeps MagicDesk behind native application windows without
-  replacing the phone launcher.
+- An external desktop is a display-sized standard multi-window activity on
+  Nubia's virtual desktop display. Its position in the task stack separates
+  visible windows from resumed minimized windows without replacing the phone
+  launcher.
 - Phone control and external desktop are separate tasks and may coexist.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
@@ -254,7 +255,7 @@ On **Start external desktop** or `Win+D`, MagicDesk:
 2. creates the transient seed only for the known Home-only Mirror state;
 3. requests REDMAGIC desktop mode and waits for the real virtual display;
 4. corrects portrait geometry and applies the display profile DPI;
-5. creates or normalizes one fullscreen MagicDesk HOME task;
+5. creates or normalizes one display-sized MagicDesk multi-window host task;
 6. removes the seed and focuses the desktop;
 7. restores the last visible freeform window layout.
 
@@ -298,6 +299,23 @@ of trusting only Nubia's global state values.
 MagicDesk operates on exact task IDs. Windowed launches and restores use native
 WMShell desktop transitions when available. Snap and maximize reserve the
 MagicDesk taskbar; true fullscreen does not.
+
+The MagicDesk desktop itself is a visually opaque, display-sized standard
+Activity in fullscreen mode. Its task is marked force-translucent through the
+same `WindowContainerTransaction`, which changes WindowManager occlusion
+semantics without changing the rendered surface. Covered applications remain
+`RESUMED`. The fullscreen transition excludes the caption inset and refreshes
+the client so Nubia's stale caption surface does not occupy the top of the
+display. The host is not an Android HOME activity: HOME stops tasks placed
+behind it on this firmware. `DesktopHostWindowController` performs and verifies
+this normalization whenever a desktop task is created or moved.
+
+Task order around this host is the desktop visibility boundary. Freeform tasks
+above it are visible windows; tasks below it are minimized even though Android
+keeps them `RESUMED`. Minimizing reorders the active task below the host and
+then focuses the next visible task, or the host when no window remains. This
+preserves media and background work without a timer, lifecycle spoofing, or a
+custom window layer.
 
 Application-requested immersive mode is reported by the task watcher. MagicDesk
 hides its shell and lets the same Activity enter true fullscreen. Leaving

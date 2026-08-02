@@ -16,8 +16,8 @@ final class ConsoleSessionController {
             "io.github.mekhontsev.magicdesk/.DesktopActivity";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
-    private static final Pattern DESKTOP_HOME_TASK_ID_PATTERN =
-            Pattern.compile("desktop-home-task-id=(-?\\d+)");
+    private static final Pattern DESKTOP_TASK_ID_PATTERN =
+            Pattern.compile("desktop-task-id=(-?\\d+)");
 
     private ConsoleSessionController() {
     }
@@ -67,7 +67,7 @@ final class ConsoleSessionController {
                     visibleTaskSnapshot != null
                             && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId =
-                    findDesktopHomeTask(consoleDisplayId);
+                    findDesktopTask(consoleDisplayId);
             if (desktopTaskId >= 0) {
                 final String focusOutput = ShellAccess.run(
                         AM + " task focus " + desktopTaskId).trim();
@@ -83,8 +83,7 @@ final class ConsoleSessionController {
             }
             final String output = ShellAccess.run(
                     AM + " start -W --display " + consoleDisplayId
-                            + " --windowingMode 1"
-                            + " --activityType 2"
+                            + " --windowingMode 5"
                             + " -f 0x18000000"
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.LAUNCHER"
@@ -124,17 +123,17 @@ final class ConsoleSessionController {
         return NubiaCaptionVisibilityManager.setEnabled(enabled);
     }
 
-    private static int findDesktopHomeTask(final int displayId)
+    private static int findDesktopTask(final int displayId)
             throws IOException {
         final String output = ShellAccess.run(
                 AppProcessCommand.run(
                         TASK_CONTROL_COMMAND,
-                        "desktop-home-task-id " + displayId));
+                        "desktop-task-id " + displayId));
         final Matcher matcher =
-                DESKTOP_HOME_TASK_ID_PATTERN.matcher(output);
+                DESKTOP_TASK_ID_PATTERN.matcher(output);
         if (!matcher.find()) {
             throw new IOException(
-                    "could not query MagicDesk HOME task: " + output.trim());
+                    "could not query MagicDesk desktop task: " + output.trim());
         }
         return Integer.parseInt(matcher.group(1));
     }
@@ -182,7 +181,7 @@ final class ConsoleSessionController {
             if (!ConsoleDisplayController.displayExists(displayId)) {
                 return false;
             }
-            if (findDesktopHomeTask(displayId) >= 0) {
+            if (findDesktopTask(displayId) >= 0) {
                 return true;
             }
             SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);

@@ -52,6 +52,8 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Launch applications in Windowed or Fullscreen mode.
 - Keep multiple overlapping windows visible and switch exact tasks from the
   taskbar or with `Alt+Tab`.
+- Minimize windowed applications without pausing them, so media and background
+  work can continue behind the desktop.
 - Send an existing task between the phone and active external desktop from its
   context menu without restarting the application.
 - Snap windows left or right, maximize them above the taskbar, or enter true

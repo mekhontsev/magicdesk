@@ -1,14 +1,17 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.WindowMetrics;
 
 /**
- * Keeps MagicDesk's desktop host fullscreen when Android desktop mode tries to
- * inherit a freeform windowing mode from the task that launched it.
+ * Keeps MagicDesk's desktop host in a translucent fullscreen task.
  *
- * <p>The full transition deliberately recreates the client. Nubia otherwise
- * leaves the initial freeform caption inset on the fullscreen DecorView.</p>
+ * <p>The task remains visually opaque, but WindowManager's force-translucent
+ * state prevents it from pausing covered applications. The fullscreen
+ * transition excludes and refreshes Nubia's stale caption surface so it does
+ * not occupy the top of the display.</p>
  */
 final class DesktopHostWindowController {
     private static final String DIAGNOSTIC_CODE = "TASKS-001";
@@ -17,21 +20,18 @@ final class DesktopHostWindowController {
 
     private final DesktopShellActivity mActivity;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
-    private final Runnable mRetry = this::ensureFullscreen;
+    private final Runnable mRetry = this::ensureConfigured;
     private int mGeneration;
     private int mAttempts;
     private boolean mPending;
+    private boolean mReady;
 
     DesktopHostWindowController(final DesktopShellActivity activity) {
         mActivity = activity;
     }
 
-    void ensureFullscreen() {
+    void ensureConfigured() {
         if (mActivity.isActivityUnavailable()) {
-            return;
-        }
-        if (!mActivity.isInMultiWindowMode()) {
-            reset();
             return;
         }
         if (mPending || mAttempts >= MAX_ATTEMPTS
@@ -39,15 +39,16 @@ final class DesktopHostWindowController {
             return;
         }
 
+        mReady = false;
         mPending = true;
         mAttempts++;
         final int generation = ++mGeneration;
         final int displayId = mActivity.getCurrentDisplayId();
         final int taskId = mActivity.getTaskId();
+        final Rect hostBounds = readHostBounds();
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
-                    if (!isCurrent(generation)
-                            || !mActivity.isInMultiWindowMode()) {
+                    if (!isCurrent(generation)) {
                         finishIfCurrent(generation);
                         return;
                     }
@@ -62,7 +63,13 @@ final class DesktopHostWindowController {
                                         + ": " + snapshot.error);
                         return;
                     }
-                    TaskRepository.setFullscreen(task, false, result ->
+                    if (task.isFullscreen()
+                            && hostBounds.equals(task.bounds)) {
+                        mReady = true;
+                        resetAttempts();
+                        return;
+                    }
+                    TaskRepository.configureDesktopHost(task, result ->
                             mActivity.runOnUiThread(() -> {
                                 if (!isCurrent(generation)) {
                                     return;
@@ -71,29 +78,35 @@ final class DesktopHostWindowController {
                                 if (!result.success) {
                                     retryOrRecord(
                                             generation,
-                                            "Could not make desktop task " + taskId
-                                                    + " fullscreen on display "
+                                            "Could not configure desktop task " + taskId
+                                                    + " on display "
                                                     + displayId + ": "
                                                     + result.message);
                                     return;
                                 }
                                 mActivity.refreshTaskSnapshot();
+                                mMainHandler.removeCallbacks(mRetry);
+                                mMainHandler.postDelayed(
+                                        mRetry, RETRY_DELAY_MS);
                             }));
                 }));
     }
 
     void onMultiWindowModeChanged(final boolean inMultiWindowMode) {
-        if (!inMultiWindowMode) {
-            mGeneration++;
-            reset();
-            return;
-        }
-        ensureFullscreen();
+        mReady = false;
+        mGeneration++;
+        resetAttempts();
+        ensureConfigured();
+    }
+
+    boolean isReady() {
+        return mReady;
     }
 
     void release() {
         mGeneration++;
-        reset();
+        mReady = false;
+        resetAttempts();
     }
 
     private boolean isCurrent(final int generation) {
@@ -112,8 +125,7 @@ final class DesktopHostWindowController {
         if (!isCurrent(generation)) {
             return;
         }
-        if (mAttempts < MAX_ATTEMPTS
-                && mActivity.isInMultiWindowMode()) {
+        if (mAttempts < MAX_ATTEMPTS) {
             mMainHandler.removeCallbacks(mRetry);
             mMainHandler.postDelayed(mRetry, RETRY_DELAY_MS);
             return;
@@ -121,16 +133,25 @@ final class DesktopHostWindowController {
         recordFailure(detail);
     }
 
-    private void reset() {
+    private void resetAttempts() {
         mMainHandler.removeCallbacks(mRetry);
         mPending = false;
         mAttempts = 0;
     }
 
+    private Rect readHostBounds() {
+        final WindowMetrics metrics = mActivity.getWindowManager()
+                .getMaximumWindowMetrics();
+        final Rect bounds = metrics.getBounds();
+        return new Rect(0, 0,
+                Math.max(1, bounds.width()),
+                Math.max(1, bounds.height()));
+    }
+
     private void recordFailure(final String detail) {
         CompatibilityDiagnostics.record(
                 DIAGNOSTIC_CODE,
-                "MagicDesk could not make its desktop host fullscreen",
+                "MagicDesk could not configure its desktop host",
                 detail);
     }
 }

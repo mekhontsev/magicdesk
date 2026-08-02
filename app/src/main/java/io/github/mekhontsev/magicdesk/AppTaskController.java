@@ -219,8 +219,15 @@ final class AppTaskController {
             focusTask(app, task);
             return;
         }
+        final TaskRepository.Snapshot snapshot = mActivity.getTaskSnapshot();
+        final TaskRepository.TaskEntry nextTask =
+                findNextVisibleTask(task.taskId, snapshot);
+        final TaskRepository.TaskEntry desktopTask =
+                findDesktopHostTask(snapshot);
+        final TaskRepository.TaskEntry focusTask =
+                nextTask != null ? nextTask : desktopTask;
         TaskRepository.minimizeTask(
-                task,
+                task, focusTask,
                 result -> mActivity.runOnUiThread(() -> {
                     if (!result.success) {
                         mActivity.setStatus(mActivity.getString(
@@ -228,9 +235,47 @@ final class AppTaskController {
                                 result.message.length() == 0
                                         ? app.label
                                         : result.message));
+                        mActivity.refreshTaskSnapshot();
+                        return;
                     }
                     mActivity.refreshTaskSnapshot();
                 }));
+    }
+
+    private TaskRepository.TaskEntry findNextVisibleTask(
+            final int excludedTaskId,
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry candidate : snapshot.tasks) {
+            if (DesktopTaskController.isDesktopHostTask(candidate)) {
+                break;
+            }
+            if (candidate != null
+                    && candidate.taskId != excludedTaskId
+                    && candidate.visible
+                    && candidate.isFreeform()
+                    && !candidate.home
+                    && !mActivity.getPackageName().equals(
+                            candidate.packageName)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private TaskRepository.TaskEntry findDesktopHostTask(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (DesktopTaskController.isDesktopHostTask(task)) {
+                return task;
+            }
+        }
+        return null;
     }
 
     void openTaskFullscreen(
@@ -432,6 +477,9 @@ final class AppTaskController {
         final List<TaskRepository.TaskEntry> visibleTasks =
                 new ArrayList<>();
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (DesktopTaskController.isDesktopHostTask(task)) {
+                break;
+            }
             if (task.visible
                     && task.isFreeform()
                     && !task.home

@@ -179,7 +179,7 @@ final class DesktopRuntimeBridge {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
-                && !activity.isInMultiWindowMode();
+                && activity.isDesktopHostReady();
     }
 
     static boolean focusDesktopOnDisplay(final int displayId) {
