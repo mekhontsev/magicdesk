@@ -153,6 +153,7 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        FreeformLaunchAnchorActivity.prepare(this);
         mDesktopRoot.post(mHostWindowController::ensureFullscreen);
         mNotifications.start();
         mConsoleControls.start();

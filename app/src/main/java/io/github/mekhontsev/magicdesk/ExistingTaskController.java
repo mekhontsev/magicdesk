@@ -6,6 +6,7 @@ import android.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -65,6 +66,19 @@ final class ExistingTaskController {
         runCommand(TaskRepository.createFreeformTransitionCommand(
                 displayId, taskId, bounds));
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
+    }
+
+    static void focusFreeformLaunchSource(
+            final int taskId,
+            final int displayId) throws IOException {
+        final TaskInfo task = findTask(taskId);
+        if (task == null
+                || task.displayId != displayId
+                || !MODE_FREEFORM.equals(task.windowingMode)) {
+            throw new IOException("freeform launch source unavailable");
+        }
+        runCommand(TaskFocusCommands.createShellCommand(
+                Collections.singletonList(Integer.valueOf(taskId))));
     }
 
     private static ReuseResult reuseIfExists(final String packageName,

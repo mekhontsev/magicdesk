@@ -67,16 +67,10 @@ final class AppTaskController {
         final List<TaskRepository.TaskEntry> visibleTasks =
                 takeInteractionVisibleTasks();
         try {
-            final Intent intent = FreeformLauncherActivity.createIntent(
+            FreeformLaunchAnchorActivity.launch(
                     mActivity,
                     app.packageName,
                     getTaskIds(visibleTasks));
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            DesktopShellActivity.invokeIntOption(
-                    options,
-                    "setLaunchDisplayId",
-                    mActivity.getCurrentDisplayId());
-            mActivity.startActivity(intent, options.toBundle());
         } catch (RuntimeException e) {
             TaskRepository.bringStackToFront(
                     visibleTasks, null, null);
