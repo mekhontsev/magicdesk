@@ -23,6 +23,7 @@ final class DesktopPhoneUiReconciler {
     private final Set<Integer> mLastVisibleAppTaskIds = new HashSet<>();
 
     private Boolean mLastTouchpadVisible;
+    private volatile boolean mTouchpadPreservationArmed;
     private boolean mTouchpadRestorePending;
     private boolean mTouchpadRestoreAttemptInProgress;
 
@@ -36,8 +37,17 @@ final class DesktopPhoneUiReconciler {
     void reset() {
         mLastVisibleAppTaskIds.clear();
         mLastTouchpadVisible = null;
+        mTouchpadPreservationArmed = false;
         mTouchpadRestorePending = false;
         mTouchpadRestoreAttemptInProgress = false;
+    }
+
+    void expectTouchpadDisplacement() {
+        mTouchpadPreservationArmed = true;
+    }
+
+    void finishTouchpadPreservation() {
+        mTouchpadPreservationArmed = false;
     }
 
     void reconcile(
@@ -55,6 +65,13 @@ final class DesktopPhoneUiReconciler {
             } else if (task.componentName.endsWith(SECONDARY_HOME_ACTIVITY)) {
                 secondaryHomeVisible = true;
             }
+        }
+
+        if (mTouchpadPreservationArmed && !touchpadVisible) {
+            mTouchpadPreservationArmed = false;
+            mTouchpadRestorePending = true;
+            Log.i(TAG,
+                    "Nubia touchpad displaced by desktop window transition");
         }
 
         boolean externalTaskMinimized = false;

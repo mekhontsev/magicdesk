@@ -81,39 +81,47 @@ final class ExistingTaskController {
         }
         final boolean restoreTouchpad =
                 nativeDesktop && ConsoleModeSwitcher.isTouchpadVisible();
+        if (restoreTouchpad) {
+            DesktopTaskController.expectTouchpadDisplacement();
+        }
         final boolean taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
         final boolean taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
         if (targetFreeform) {
             DesktopTaskController.noteManualFreeformTransition(task.taskId);
         }
-        if (task.displayId != targetDisplayId) {
-            final String command = CMD + " activity display move-stack " + task.rootTaskId
-                    + " " + targetDisplayId;
-            Log.i(TAG, "move display: " + command);
-            runCommand(command);
-            waitForTaskDisplay(task.taskId, targetDisplayId);
-        }
-
-        if (nativeDesktop) {
-            if (!taskIsFreeform) {
-                NativeDesktopController.moveTaskToDesktop(task.taskId);
-                waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
+        try {
+            if (task.displayId != targetDisplayId) {
+                final String command = CMD + " activity display move-stack "
+                        + task.rootTaskId + " " + targetDisplayId;
+                Log.i(TAG, "move display: " + command);
+                runCommand(command);
+                waitForTaskDisplay(task.taskId, targetDisplayId);
             }
-            setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
-        } else if (targetFreeform && taskIsFullscreen) {
-            Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
-            setFreeform(task.taskId, targetDisplayId);
-            waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
-        } else if (!targetFreeform && taskIsFreeform) {
-            Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
-            setFullscreen(task, targetDisplayId, preserveFullscreenClient);
-        } else {
-            setCaptionInsetExcluded(task.taskId, targetDisplayId, !targetFreeform);
-        }
 
-        bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
-        if (restoreTouchpad) {
-            ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            if (nativeDesktop) {
+                if (!taskIsFreeform) {
+                    NativeDesktopController.moveTaskToDesktop(task.taskId);
+                    waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
+                }
+                setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
+            } else if (targetFreeform && taskIsFullscreen) {
+                Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
+                setFreeform(task.taskId, targetDisplayId);
+                waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
+            } else if (!targetFreeform && taskIsFreeform) {
+                Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
+                setFullscreen(task, targetDisplayId, preserveFullscreenClient);
+            } else {
+                setCaptionInsetExcluded(task.taskId, targetDisplayId,
+                        !targetFreeform);
+            }
+
+            bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
+        } finally {
+            if (restoreTouchpad) {
+                DesktopTaskController.finishTouchpadPreservation();
+                ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            }
         }
         return ReuseResult.reused(task.packageName);
     }

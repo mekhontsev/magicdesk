@@ -303,6 +303,20 @@ final class DesktopTaskController {
         }
     }
 
+    static void expectTouchpadDisplacement() {
+        final DesktopTaskController controller = getActiveController();
+        if (controller != null && controller.mRunning) {
+            controller.mPhoneUiReconciler.expectTouchpadDisplacement();
+        }
+    }
+
+    static void finishTouchpadPreservation() {
+        final DesktopTaskController controller = getActiveController();
+        if (controller != null && controller.mRunning) {
+            controller.mPhoneUiReconciler.finishTouchpadPreservation();
+        }
+    }
+
     static boolean dismissTransientActivity() {
         final DesktopTaskController controller = getActiveController();
         if (controller == null || !controller.mRunning) {

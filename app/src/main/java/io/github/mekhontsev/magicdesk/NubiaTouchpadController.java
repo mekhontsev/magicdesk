@@ -8,8 +8,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 final class NubiaTouchpadController {
     private static final String TAG = "MagicDeskConsoleSwitcher";
-    private static final String MIRROR_INPUT_ACTIVITY =
-            "cn.nubia.keymapcenter/.mirror.MirrorInputActivity";
+    private static final String MIRROR_INPUT_PACKAGE =
+            "cn.nubia.keymapcenter";
+    private static final String MIRROR_INPUT_CLASS =
+            "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
     private static final String CONSOLE_DISPLAY_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
     private static final String MOUSE_VIEWPORT_COMMAND =
@@ -47,7 +49,7 @@ final class NubiaTouchpadController {
 
     static boolean isVisible() {
         return ConsoleModeSwitcher.getActiveConsoleDisplayId() > 0
-                && isActivityPresent();
+                && isActivityVisible();
     }
 
     static void restoreIfMissing(
@@ -66,7 +68,7 @@ final class NubiaTouchpadController {
                 if (ConsoleModeSwitcher.getActiveConsoleDisplayId() <= 0) {
                     return;
                 }
-                if (isActivityPresent()) {
+                if (isActivityVisible()) {
                     Log.i(TAG,
                             "Nubia touchpad remained visible after desktop transition");
                     return;
@@ -139,7 +141,7 @@ final class NubiaTouchpadController {
         final long deadline =
                 SystemClock.uptimeMillis() + TRANSITION_TIMEOUT_MS;
         do {
-            if (isActivityPresent() == expectedPresent) {
+            if (isActivityVisible() == expectedPresent) {
                 return true;
             }
             SystemClock.sleep(POLL_MS);
@@ -147,12 +149,40 @@ final class NubiaTouchpadController {
         return false;
     }
 
-    private static boolean isActivityPresent() {
+    private static boolean isActivityVisible() {
         final String output = runConsoleCommand(
-                "/system/bin/dumpsys activity activities"
-                        + " | /system/bin/grep -F -m 1 "
-                        + shellQuote(MIRROR_INPUT_ACTIVITY));
-        return output.contains(MIRROR_INPUT_ACTIVITY);
+                "/system/bin/cmd activity stack list");
+        return isActivityVisible(output);
+    }
+
+    static boolean isActivityVisible(final String stackList) {
+        for (final TaskStackParser.Entry task :
+                TaskStackParser.parse(stackList)) {
+            if (task.visible
+                    && (isMirrorInputComponent(task.componentName)
+                            || isMirrorInputComponent(
+                                    task.topActivityName))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isMirrorInputComponent(final String component) {
+        if (component == null) {
+            return false;
+        }
+        final int separator = component.indexOf('/');
+        if (separator <= 0 || separator + 1 >= component.length()
+                || !MIRROR_INPUT_PACKAGE.equals(
+                        component.substring(0, separator))) {
+            return false;
+        }
+        final String className = component.substring(separator + 1);
+        return MIRROR_INPUT_CLASS.equals(className)
+                || (className.startsWith(".")
+                        && MIRROR_INPUT_CLASS.equals(
+                                MIRROR_INPUT_PACKAGE + className));
     }
 
     private static String runConsoleCommand(final String command) {
@@ -167,7 +197,4 @@ final class NubiaTouchpadController {
         }
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
-    }
 }
