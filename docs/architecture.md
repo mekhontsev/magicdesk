@@ -252,7 +252,9 @@ state by writing `app_mirror_status` or hardcode a virtual display ID.
 On **Start external desktop** or `Win+D`, MagicDesk:
 
 1. resolves the current physical or virtual display;
-2. creates the transient seed only for the known Home-only Mirror state;
+2. creates a landscape transient seed only for the known Home-only Mirror
+   state, avoiding Nubia's synchronous foreground-activity check during an
+   orientation relaunch;
 3. requests REDMAGIC desktop mode and waits for the real virtual display;
 4. corrects portrait geometry and applies the display profile DPI;
 5. creates or normalizes one display-sized MagicDesk multi-window host task;

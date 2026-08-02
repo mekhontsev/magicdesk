@@ -75,6 +75,7 @@
             android:launchMode="singleTop"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:resizeableActivity="true"
+            android:screenOrientation="landscape"
             android:taskAffinity="${applicationId}.consoleseed"
             android:theme="@style/ConsoleSeedTheme" />
 
