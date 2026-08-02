@@ -32,6 +32,33 @@ final class ExistingTaskController {
                 null, false, false, preserveFullscreenClient);
     }
 
+    static ReuseResult normalizeLaunchedFullscreen(
+            final String packageName,
+            final int targetDisplayId,
+            final boolean preserveFullscreenClient) throws IOException {
+        final TaskInfo task = waitForBestTask(
+                packageName, targetDisplayId, false);
+        if (task == null) {
+            throw new IOException(
+                    "launched task not found for " + packageName);
+        }
+
+        Log.i(TAG, "normalize launched fullscreen package=" + packageName
+                + " task=" + task.taskId
+                + " display=" + task.displayId
+                + " mode=" + task.windowingMode
+                + " targetDisplay=" + targetDisplayId);
+        if (task.displayId != targetDisplayId) {
+            final String command = CMD + " activity display move-stack "
+                    + task.rootTaskId + " " + targetDisplayId;
+            runCommand(command);
+            waitForTaskDisplay(task.taskId, targetDisplayId);
+        }
+        setFullscreen(task, targetDisplayId, preserveFullscreenClient);
+        bringTaskStackToFrontBestEffort(task, null);
+        return ReuseResult.reused(task.packageName);
+    }
+
     static ReuseResult reuseNativeDesktopIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask) throws IOException {

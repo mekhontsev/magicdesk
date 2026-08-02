@@ -127,6 +127,11 @@ final class AppTaskController {
             launchIntent.addFlags(getFullscreenLaunchFlags());
             FullscreenAppLauncher.launch(
                     launchIntent, mActivity.getCurrentDisplayId());
+            ExistingTaskController.normalizeLaunchedFullscreen(
+                    app.packageName,
+                    mActivity.getCurrentDisplayId(),
+                    FullscreenTransitionPolicy.shouldPreserveClient(
+                            mActivity, app.packageName));
             DesktopTaskController.finishFullscreenTransition(
                     displayId, true);
         } catch (IOException e) {
