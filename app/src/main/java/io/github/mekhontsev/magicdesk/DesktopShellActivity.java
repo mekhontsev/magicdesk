@@ -20,6 +20,7 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -619,13 +620,19 @@ public abstract class DesktopShellActivity extends Activity
 
     void confirmForceStop(final AppItem app) {
         hideAllPanels();
-        new AlertDialog.Builder(this)
+        final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.force_stop_title)
                 .setMessage(getString(R.string.force_stop_message, app.label))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.action_force_stop,
-                        (dialog, which) -> forceStopApp(app))
-                .show();
+                        (confirmedDialog, which) -> forceStopApp(app))
+                .create();
+        final Window window = dialog.getWindow();
+        if (window != null && Settings.canDrawOverlays(this)) {
+            window.setType(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        }
+        dialog.show();
     }
 
     TaskRepository.TaskEntry findFirstTask(final String packageName) {
