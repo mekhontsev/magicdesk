@@ -768,6 +768,12 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.focusTask(app, task);
     }
 
+    void toggleTaskbarTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        mAppTasks.toggleTaskbarTask(app, task);
+    }
+
     void advanceAltTab(final boolean reverse) {
         mAltTabController.advance(reverse);
     }

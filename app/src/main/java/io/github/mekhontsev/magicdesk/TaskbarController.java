@@ -17,6 +17,7 @@ import android.widget.LinearLayout;
 import android.widget.TextClock;
 import android.widget.TextView;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -33,6 +34,7 @@ final class TaskbarController {
     private ImageButton mPhoneScreenButton;
     private Intent mLastBatteryIntent;
     private boolean mChargeSeparationEnabled;
+    private final List<Integer> mTaskOrder = new ArrayList<>();
 
     TaskbarController(
             final DesktopShellActivity activity,
@@ -283,6 +285,8 @@ final class TaskbarController {
             pinnedPackages.add(workspacePackage);
         }
         final Set<Integer> renderedTaskIds = new HashSet<>();
+        final List<TaskRepository.TaskEntry> orderedTasks =
+                getOrderedTaskbarTasks();
 
         for (final String packageName :
                 mActivity.getOrderedPinnedPackages(apps, pinnedPackages)) {
@@ -291,7 +295,7 @@ final class TaskbarController {
                 continue;
             }
             final List<TaskRepository.TaskEntry> packageTasks =
-                    mActivity.findTasks(packageName);
+                    findTasks(orderedTasks, packageName);
             if (packageTasks.isEmpty()) {
                 addPin(app, null);
                 continue;
@@ -302,11 +306,9 @@ final class TaskbarController {
             }
         }
 
-        for (final TaskRepository.TaskEntry task :
-                mActivity.getTaskSnapshot().tasks) {
-            if (!mActivity.isTaskbarTask(task)
-                    || renderedTaskIds.contains(
-                            Integer.valueOf(task.taskId))) {
+        for (final TaskRepository.TaskEntry task : orderedTasks) {
+            if (renderedTaskIds.contains(
+                    Integer.valueOf(task.taskId))) {
                 continue;
             }
             final AppItem app = mActivity.findOrLoadApp(
@@ -315,6 +317,54 @@ final class TaskbarController {
                 addPin(app, task);
             }
         }
+    }
+
+    private List<TaskRepository.TaskEntry> getOrderedTaskbarTasks() {
+        final List<TaskRepository.TaskEntry> liveTasks = new ArrayList<>();
+        final Set<Integer> liveTaskIds = new HashSet<>();
+        for (final TaskRepository.TaskEntry task :
+                mActivity.getTaskSnapshot().tasks) {
+            if (!mActivity.isTaskbarTask(task)) {
+                continue;
+            }
+            liveTasks.add(task);
+            liveTaskIds.add(Integer.valueOf(task.taskId));
+        }
+
+        for (int index = mTaskOrder.size() - 1; index >= 0; index--) {
+            if (!liveTaskIds.contains(mTaskOrder.get(index))) {
+                mTaskOrder.remove(index);
+            }
+        }
+        for (final TaskRepository.TaskEntry task : liveTasks) {
+            final Integer taskId = Integer.valueOf(task.taskId);
+            if (!mTaskOrder.contains(taskId)) {
+                mTaskOrder.add(taskId);
+            }
+        }
+
+        final List<TaskRepository.TaskEntry> orderedTasks = new ArrayList<>();
+        for (final Integer taskId : mTaskOrder) {
+            for (final TaskRepository.TaskEntry task : liveTasks) {
+                if (task.taskId == taskId.intValue()) {
+                    orderedTasks.add(task);
+                    break;
+                }
+            }
+        }
+        return orderedTasks;
+    }
+
+    private static List<TaskRepository.TaskEntry> findTasks(
+            final List<TaskRepository.TaskEntry> tasks,
+            final String packageName) {
+        final List<TaskRepository.TaskEntry> result = new ArrayList<>();
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (packageName.equals(task.packageName)) {
+                result.add(task);
+            }
+        }
+        return result;
     }
 
     void updateKeyboardLayout() {
@@ -523,7 +573,7 @@ final class TaskbarController {
             if (task == null) {
                 mActivity.launchDefault(app);
             } else {
-                mActivity.focusTask(app, task);
+                mActivity.toggleTaskbarTask(app, task);
             }
         });
         mActivity.registerContextTarget(item, app, task);

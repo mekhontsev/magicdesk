@@ -212,6 +212,27 @@ final class AppTaskController {
                 }));
     }
 
+    void toggleTaskbarTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        if (!task.active || !task.isFreeform()) {
+            focusTask(app, task);
+            return;
+        }
+        TaskRepository.minimizeTask(
+                task,
+                result -> mActivity.runOnUiThread(() -> {
+                    if (!result.success) {
+                        mActivity.setStatus(mActivity.getString(
+                                R.string.status_switch_failed,
+                                result.message.length() == 0
+                                        ? app.label
+                                        : result.message));
+                    }
+                    mActivity.refreshTaskSnapshot();
+                }));
+    }
+
     void openTaskFullscreen(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
