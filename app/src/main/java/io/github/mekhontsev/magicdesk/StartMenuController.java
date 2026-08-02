@@ -10,7 +10,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -29,6 +28,10 @@ final class StartMenuController {
     static final int MENU_HARDWARE = 2;
     static final int MENU_TOOLS = 3;
 
+    private static final int LAUNCH_AUTO = 0;
+    private static final int LAUNCH_WINDOWED = 1;
+    private static final int LAUNCH_FULLSCREEN = 2;
+
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
 
@@ -36,8 +39,11 @@ final class StartMenuController {
     private LinearLayout mContent;
     private LinearLayout mBody;
     private EditText mSearch;
+    private Button mAutoLaunch;
+    private Button mWindowedLaunch;
+    private Button mFullscreenLaunch;
     private boolean mFocusable = true;
-    private boolean mForceFullscreen;
+    private int mLaunchMode = LAUNCH_AUTO;
     private int mMode = MENU_RECENT;
     private int mPage;
     private int mSearchSelection;
@@ -203,22 +209,7 @@ final class StartMenuController {
             return;
         }
 
-        final CheckBox fullscreen = new CheckBox(mActivity);
-        fullscreen.setText(R.string.section_fullscreen);
-        fullscreen.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        fullscreen.setTextSize(13);
-        fullscreen.setGravity(Gravity.CENTER_VERTICAL);
-        final boolean windowControl = ShellAccess.isReady();
-        fullscreen.setChecked(mForceFullscreen || !windowControl);
-        fullscreen.setEnabled(windowControl);
-        fullscreen.setOnCheckedChangeListener((button, checked) ->
-                mForceFullscreen = checked);
-        final LinearLayout.LayoutParams fullscreenParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        fullscreenParams.setMargins(0, dp(8), 0, 0);
-        mContent.addView(fullscreen, fullscreenParams);
+        addLaunchModeControl();
 
         if (mSearch != null) {
             final LinearLayout.LayoutParams searchParams =
@@ -658,11 +649,94 @@ final class StartMenuController {
     }
 
     private void launchForCurrentMode(final AppItem app) {
-        if (mForceFullscreen) {
+        if (mLaunchMode == LAUNCH_WINDOWED) {
+            mActivity.launchFloating(app);
+        } else if (mLaunchMode == LAUNCH_FULLSCREEN) {
             mActivity.launchFullscreen(app);
         } else {
             mActivity.launchDefault(app);
         }
+    }
+
+    private void addLaunchModeControl() {
+        final LinearLayout modes = new LinearLayout(mActivity);
+        modes.setOrientation(LinearLayout.HORIZONTAL);
+        modes.setPadding(dp(2), dp(2), dp(2), dp(2));
+        modes.setBackground(mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                dp(8),
+                DesktopUiFactory.COLOR_PANEL_ALT));
+
+        mAutoLaunch = createLaunchModeButton(
+                R.string.launch_mode_auto, LAUNCH_AUTO);
+        mWindowedLaunch = createLaunchModeButton(
+                R.string.launch_mode_windowed, LAUNCH_WINDOWED);
+        mFullscreenLaunch = createLaunchModeButton(
+                R.string.launch_mode_fullscreen, LAUNCH_FULLSCREEN);
+        modes.addView(mAutoLaunch, launchModeButtonParams(0));
+        modes.addView(mWindowedLaunch, launchModeButtonParams(dp(3)));
+        modes.addView(mFullscreenLaunch, launchModeButtonParams(dp(3)));
+
+        final LinearLayout.LayoutParams modesParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(38));
+        modesParams.setMargins(0, dp(8), 0, 0);
+        mContent.addView(modes, modesParams);
+        updateLaunchModeButtons();
+    }
+
+    private Button createLaunchModeButton(
+            final int textResId,
+            final int launchMode) {
+        final Button button = mUi.smallButton(
+                textResId, DesktopUiFactory.COLOR_PANEL_ALT);
+        button.setTextSize(12);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setOnClickListener(view -> {
+            mLaunchMode = launchMode;
+            updateLaunchModeButtons();
+        });
+        return button;
+    }
+
+    private LinearLayout.LayoutParams launchModeButtonParams(
+            final int leftMargin) {
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        1);
+        params.setMargins(leftMargin, 0, 0, 0);
+        return params;
+    }
+
+    private void updateLaunchModeButtons() {
+        updateLaunchModeButton(mAutoLaunch, LAUNCH_AUTO, true);
+        updateLaunchModeButton(
+                mWindowedLaunch,
+                LAUNCH_WINDOWED,
+                ShellAccess.isReady());
+        updateLaunchModeButton(mFullscreenLaunch, LAUNCH_FULLSCREEN, true);
+    }
+
+    private void updateLaunchModeButton(
+            final Button button,
+            final int launchMode,
+            final boolean enabled) {
+        if (button == null) {
+            return;
+        }
+        final boolean selected = mLaunchMode == launchMode;
+        button.setEnabled(enabled);
+        button.setAlpha(selected ? 1f : 0.72f);
+        button.setBackground(mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                dp(6),
+                selected
+                        ? DesktopUiFactory.COLOR_CYAN
+                        : DesktopUiFactory.COLOR_PANEL_ALT));
     }
 
     private int getColumnCount() {
