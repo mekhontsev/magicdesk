@@ -398,21 +398,21 @@ final class ShellAccess {
             if (sService != null) {
                 return sService;
             }
-            if (!sBinding) {
-                sBinding = true;
-                try {
-                    Shizuku.bindUserService(userServiceArgs(), CONNECTION);
-                } catch (RuntimeException error) {
-                    sBinding = false;
-                    throw new IOException(
-                            "could not bind Shizuku command service: "
-                                    + usefulMessage(error),
-                            error);
-                }
-            }
             final long deadline =
                     android.os.SystemClock.uptimeMillis() + BIND_TIMEOUT_MILLIS;
-            while (sService == null && sBinding) {
+            while (sService == null) {
+                if (!sBinding) {
+                    sBinding = true;
+                    try {
+                        Shizuku.bindUserService(userServiceArgs(), CONNECTION);
+                    } catch (RuntimeException error) {
+                        sBinding = false;
+                        throw new IOException(
+                                "could not bind Shizuku command service: "
+                                        + usefulMessage(error),
+                                error);
+                    }
+                }
                 final long remaining =
                         deadline - android.os.SystemClock.uptimeMillis();
                 if (remaining <= 0) {
@@ -427,9 +427,6 @@ final class ShellAccess {
                             "interrupted while binding Shizuku command service",
                             error);
                 }
-            }
-            if (sService == null) {
-                throw new IOException("Shizuku command service disconnected");
             }
             return sService;
         }

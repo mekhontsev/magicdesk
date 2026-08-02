@@ -1,8 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,9 +14,14 @@ import android.view.Display;
 public final class ControlActivity extends Activity
         implements PhoneControlPanelController.Actions,
         MagicDeskSessionHost {
+    private static final int REQUEST_NOTIFICATIONS = 1;
+
     private PhoneControlPanelController mPanel;
     private MagicDeskSessionController mSessionController;
     private ContentObserver mConsoleStateObserver;
+    private SessionProfile mSessionProfile;
+    private boolean mStartupAuditRunning;
+    private boolean mStartupPrepared;
     private String mStatus;
 
     static Intent createLaunchIntent(final android.content.Context context) {
@@ -27,19 +34,111 @@ public final class ControlActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (!DeviceSetupManager.isRuntimeAuthorized()) {
-            startActivity(DeviceSetupActivity.createLaunchIntent(this));
-            finish();
+        mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
+        if (DeviceSetupManager.isRuntimeAuthorized()) {
+            initializeControlPanel();
+            return;
+        }
+        runStartupAudit();
+    }
+
+    private void runStartupAudit() {
+        if (mStartupAuditRunning) {
+            return;
+        }
+        mStartupAuditRunning = true;
+        new Thread(() -> {
+            final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
+                    getApplicationContext(), mSessionProfile);
+            if (!audit.canEnterMagicDesk()) {
+                runOnUiThread(this::openDeviceSetupAfterFailedAudit);
+                return;
+            }
+            try {
+                DeviceSetupManager.ensureOverlayPermission(
+                        getApplicationContext());
+                runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
+                    mStartupAuditRunning = false;
+                    mStartupPrepared = true;
+                    continueStartup();
+                });
+            } catch (java.io.IOException error) {
+                CompatibilityDiagnostics.record(
+                        "OVERLAY-002",
+                        "Desktop overlay permission provisioning failed",
+                        error.getMessage() == null
+                                ? error.getClass().getSimpleName()
+                                : error.getMessage(),
+                        error);
+                runOnUiThread(this::openDeviceSetupAfterFailedAudit);
+            }
+        }, "MagicDeskStartupAudit").start();
+    }
+
+    private void openDeviceSetupAfterFailedAudit() {
+        if (isActivityUnavailable()) {
+            return;
+        }
+        mStartupAuditRunning = false;
+        DeviceSetupManager.revokeRuntimeAuthorization(this);
+        final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
+        mSessionProfile.writeToIntent(setupIntent);
+        startActivity(setupIntent);
+        finish();
+    }
+
+    private void continueStartup() {
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[] {Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_NOTIFICATIONS);
+            return;
+        }
+        finishStartup();
+    }
+
+    private void finishStartup() {
+        if (!mStartupPrepared || isActivityUnavailable()) {
+            return;
+        }
+        mStartupPrepared = false;
+        DeviceSetupManager.authorizeRuntime(this);
+        initializeControlPanel();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            final int requestCode,
+            final String[] permissions,
+            final int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_NOTIFICATIONS) {
+            finishStartup();
+        }
+    }
+
+    private void initializeControlPanel() {
+        if (mPanel != null) {
             return;
         }
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         mPanel = new PhoneControlPanelController(this, ui, this);
         mSessionController = new MagicDeskSessionController(this);
-        mStatus = getString(R.string.control_status_ready);
+        mStatus = getString(ConsoleModeState.isActive(this)
+                ? R.string.control_status_console_active
+                : R.string.control_status_ready);
         setContentView(mPanel.createView());
         registerConsoleStateObserver();
         MagicDeskRuntimeService.start(this);
         refresh();
+    }
+
+    private boolean isActivityUnavailable() {
+        return isFinishing() || isDestroyed();
     }
 
     @Override

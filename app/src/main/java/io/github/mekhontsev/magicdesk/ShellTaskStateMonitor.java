@@ -14,6 +14,7 @@ import java.util.Set;
 
 final class ShellTaskStateMonitor implements Closeable {
     interface Listener {
+        void onTasksSampled(int displayId, List<?> tasks);
         void onImmersiveRequest(
                 int taskId, boolean requesting, boolean initialSample);
         void onNativeMaximizeChanged(
@@ -35,6 +36,7 @@ final class ShellTaskStateMonitor implements Closeable {
     private final Thread mThread;
 
     private boolean mClosed;
+    private long mSampleGeneration;
     private int mDisplayId = -1;
     private Rect mDisplayBounds = new Rect();
     private Rect mWorkAreaBounds = new Rect();
@@ -81,7 +83,17 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastVisibleTypes.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
+            mSampleGeneration++;
             mLock.notifyAll();
+        }
+    }
+
+    void requestSample() {
+        synchronized (mLock) {
+            if (!mClosed) {
+                mSampleGeneration++;
+                mLock.notifyAll();
+            }
         }
     }
 
@@ -107,6 +119,7 @@ final class ShellTaskStateMonitor implements Closeable {
             final int displayId;
             final Rect displayBounds;
             final Rect workAreaBounds;
+            final long sampleGeneration;
             synchronized (mLock) {
                 while (!mClosed
                         && (mDisplayId < 0 || mDisplayBounds.isEmpty())) {
@@ -123,9 +136,11 @@ final class ShellTaskStateMonitor implements Closeable {
                 displayId = mDisplayId;
                 displayBounds = new Rect(mDisplayBounds);
                 workAreaBounds = new Rect(mWorkAreaBounds);
+                sampleGeneration = mSampleGeneration;
             }
             try {
                 final List<?> tasks = loadTasks(displayId);
+                mListener.onTasksSampled(displayId, tasks);
                 publishNativeMaximizeTransitions(
                         displayId, displayBounds, workAreaBounds, tasks);
                 publishImmersiveChanges(displayId, tasks);
@@ -140,7 +155,8 @@ final class ShellTaskStateMonitor implements Closeable {
                 if (!mClosed
                         && displayId == mDisplayId
                         && displayBounds.equals(mDisplayBounds)
-                        && workAreaBounds.equals(mWorkAreaBounds)) {
+                        && workAreaBounds.equals(mWorkAreaBounds)
+                        && sampleGeneration == mSampleGeneration) {
                     try {
                         mLock.wait(POLL_INTERVAL_MILLIS);
                     } catch (InterruptedException error) {

@@ -19,7 +19,6 @@ final class DeviceSetupManager {
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
 
-    private static final String KEY_SETUP_APPROVED = "setup_approved";
     private static final String KEY_PENDING_BOOT_ID = "pending_boot_id";
 
     private static final String FREEFORM_SETTING = "enable_freeform_support";
@@ -116,9 +115,6 @@ final class DeviceSetupManager {
                 resizableEnabled,
                 restrictionsDisabled,
                 roundedCornersDisabled);
-        final boolean acknowledged =
-                preferences.getBoolean(KEY_SETUP_APPROVED, false);
-
         if (!compatibleDevice) {
             CompatibilityDiagnostics.record(
                     "PLATFORM-001",
@@ -161,7 +157,6 @@ final class DeviceSetupManager {
                 roundedCornersDisabled,
                 configurationReady,
                 rebootRequired,
-                acknowledged,
                 hasManagedChanges(preferences));
     }
 
@@ -235,11 +230,6 @@ final class DeviceSetupManager {
             throw new IOException(
                     "Shizuku setup could not fully provision desktop windowing");
         }
-        if (!preferences.edit()
-                .putBoolean(KEY_SETUP_APPROVED, true)
-                .commit()) {
-            throw new IOException("could not confirm Shizuku setup state");
-        }
         return audit(context, sessionProfile);
     }
 
@@ -275,8 +265,7 @@ final class DeviceSetupManager {
             NubiaDesktopPropertyManager.write(restore.property, restore.value);
         }
 
-        final SharedPreferences.Editor editor = preferences.edit()
-                .remove(KEY_SETUP_APPROVED);
+        final SharedPreferences.Editor editor = preferences.edit();
         clearManagedItem(editor, ITEM_FREEFORM);
         clearManagedItem(editor, ITEM_RESIZABLE);
         clearManagedItem(editor, ITEM_RESTRICTIONS);
@@ -296,12 +285,6 @@ final class DeviceSetupManager {
         return audit(context, sessionProfile);
     }
 
-    static void acknowledgeReadyConfiguration(final Context context) {
-        preferences(context).edit()
-                .putBoolean(KEY_SETUP_APPROVED, true)
-                .apply();
-    }
-
     static void ensureOverlayPermission(final Context context) throws IOException {
         if (Settings.canDrawOverlays(context)) {
             return;
@@ -319,11 +302,6 @@ final class DeviceSetupManager {
     static String overlayPermissionCommand() {
         return "/system/bin/cmd appops set " + MAGICDESK_PACKAGE
                 + " SYSTEM_ALERT_WINDOW allow";
-    }
-
-    static boolean isSetupAcknowledged(final Context context) {
-        return preferences(context).getBoolean(
-                KEY_SETUP_APPROVED, false);
     }
 
     static void activateRuntime(final Context context, final Audit audit) {
@@ -607,7 +585,6 @@ final class DeviceSetupManager {
         final boolean roundedCornersDisabled;
         final boolean configurationReady;
         final boolean rebootRequired;
-        final boolean acknowledged;
         final boolean hasManagedChanges;
 
         Audit(
@@ -632,7 +609,6 @@ final class DeviceSetupManager {
                 final boolean roundedCornersDisabled,
                 final boolean configurationReady,
                 final boolean rebootRequired,
-                final boolean acknowledged,
                 final boolean hasManagedChanges) {
             this.runtimeError = runtimeError;
             this.shellState = shellState;
@@ -655,7 +631,6 @@ final class DeviceSetupManager {
             this.roundedCornersDisabled = roundedCornersDisabled;
             this.configurationReady = configurationReady;
             this.rebootRequired = rebootRequired;
-            this.acknowledged = acknowledged;
             this.hasManagedChanges = hasManagedChanges;
         }
 

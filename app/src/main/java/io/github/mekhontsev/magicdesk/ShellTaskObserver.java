@@ -40,6 +40,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 new ShellTaskStateMonitor.Listener() {
                     @Override
+                    public void onTasksSampled(
+                            final int displayId,
+                            final java.util.List<?> tasks) {
+                        mTransientBounds.observeTasks(displayId, tasks);
+                    }
+
+                    @Override
                     public void onImmersiveRequest(
                             final int taskId,
                             final boolean requesting,
@@ -80,7 +87,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        mTransientBounds.configure(displayId);
+        mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
     }
 
@@ -197,7 +204,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private void signalChange() {
         if (!mClosed) {
-            mTransientBounds.onTasksChanged();
+            mStateMonitor.requestSample();
             callCallback(mCallback::onTasksChanged);
         }
     }

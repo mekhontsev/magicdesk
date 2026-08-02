@@ -60,6 +60,7 @@ public final class DeviceSetupActivity extends Activity {
             ensureSetupContent();
         }
         ShellAccess.addStateListener(mShellStateListener);
+        runAudit();
     }
 
     @Override
@@ -152,7 +153,7 @@ public final class DeviceSetupActivity extends Activity {
                 }
                 DeviceSetupManager.activateRuntime(this, audit);
                 mAudit = audit;
-                if (!mManual && audit.canEnterMagicDesk() && audit.acknowledged) {
+                if (!mManual && audit.canEnterMagicDesk()) {
                     mBusy = false;
                     startMagicDesk();
                     return;
@@ -369,7 +370,6 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private void continueFromSetup() {
-        DeviceSetupManager.acknowledgeReadyConfiguration(this);
         if (mManual) {
             DeviceSetupManager.authorizeRuntime(this);
             final int currentDisplayId = currentDisplayId();
