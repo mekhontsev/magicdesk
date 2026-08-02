@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityOptions;
 import android.content.Intent;
 import android.util.Log;
 import android.view.Display;
@@ -126,17 +125,8 @@ final class AppTaskController {
                 return;
             }
             launchIntent.addFlags(getFullscreenLaunchFlags());
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            DesktopShellActivity.invokeIntOption(
-                    options,
-                    "setLaunchDisplayId",
-                    mActivity.getCurrentDisplayId());
-            DesktopShellActivity.invokeIntOption(
-                    options,
-                    "setLaunchWindowingMode",
-                    1);
-            mActivity.startActivity(
-                    launchIntent, options.toBundle());
+            FullscreenAppLauncher.launch(
+                    launchIntent, mActivity.getCurrentDisplayId());
             DesktopTaskController.finishFullscreenTransition(
                     displayId, true);
         } catch (IOException e) {
