@@ -233,6 +233,14 @@ final class ConsoleMouseBridge {
             ShellAccess.restorePointerPositionIfDisplaced();
             return;
         }
+        if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
+            final int displayId = ConsoleDisplayController
+                    .getActiveConsoleDisplayId();
+            if (displayId > 0) {
+                ShellAccess.injectSecondaryClick(displayId);
+            }
+            return;
+        }
         if (line.startsWith("MAGICDESK_MOUSE_ERROR")) {
             Log.w(TAG, line);
         } else if (!line.isEmpty()) {

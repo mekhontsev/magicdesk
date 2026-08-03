@@ -53,4 +53,6 @@ interface IShizukuCommandService {
     boolean capturePointerPosition() = 15;
 
     void restorePointerPositionIfDisplaced() = 16;
+
+    void injectSecondaryClick(int displayId) = 17;
 }

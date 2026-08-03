@@ -262,6 +262,17 @@ final class ShellAccess {
         }
     }
 
+    static void injectSecondaryClick(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return;
+        }
+        try {
+            requireService().injectSecondaryClick(displayId);
+        } catch (IOException | RemoteException | RuntimeException error) {
+            handleServiceFailure();
+        }
+    }
+
     static ParcelFileDescriptor openSystemWallpaper() throws IOException {
         try {
             final ParcelFileDescriptor descriptor =

@@ -418,6 +418,9 @@ static int process_key_event(
         if (state->key_down_count[code]++ > 0) {
             return 0;
         }
+        if (code == BTN_RIGHT) {
+            return 0;
+        }
         state->forwarded_down[code] = true;
         return write_event(state->uinput_fd, event);
     }
@@ -435,6 +438,9 @@ static int process_key_event(
     }
     if (state->key_down_count[code] > 0
             || !state->forwarded_down[code]) {
+        if (code == BTN_RIGHT && state->key_down_count[code] == 0) {
+            emit_line("MAGICDESK_MOUSE_SECONDARY_CLICK");
+        }
         return 0;
     }
     state->forwarded_down[code] = false;

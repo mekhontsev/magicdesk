@@ -221,6 +221,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void injectSecondaryClick(final int displayId) {
+        try {
+            SecondaryClickInjector.inject(displayId);
+        } catch (RuntimeException error) {
+            Log.e(TAG, "secondary click injection failed", error);
+        }
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
