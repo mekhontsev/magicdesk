@@ -10,8 +10,8 @@ android {
         applicationId = 'io.github.mekhontsev.magicdesk'
         minSdk = 36
         targetSdk = 36
-        versionCode = 120
-        versionName = '1.2'
+        versionCode = 121
+        versionName = '1.2.1'
     }
 
     buildFeatures {
