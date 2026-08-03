@@ -109,7 +109,7 @@ public final class HardwareKeyboardLayoutCommand {
                             inputManager,
                             inputManagerInterface,
                             virtualKeyboards.get(index).device,
-                            imeState.inputMethod,
+                            layouts.get(index).inputMethod,
                             layouts.get(index),
                             false);
                 }
@@ -121,7 +121,7 @@ public final class HardwareKeyboardLayoutCommand {
                         inputManager,
                         inputManagerInterface,
                         keyboard,
-                        imeState.inputMethod,
+                        selected.inputMethod,
                         selected,
                         true);
             }
@@ -166,6 +166,7 @@ public final class HardwareKeyboardLayoutCommand {
                 InputMethodSubtype.class);
 
         final List<LayoutInfo> layouts = new ArrayList<>();
+        final Set<String> seenDescriptors = new LinkedHashSet<>();
         for (final ImeSubtypeState mapping : imeState.layoutMappings) {
             final Object candidates = getLayoutList.invoke(
                     inputManager,
@@ -205,11 +206,15 @@ public final class HardwareKeyboardLayoutCommand {
             if (resolved == null) {
                 continue;
             }
+            if (!seenDescriptors.add(resolved.descriptor)) {
+                continue;
+            }
             layouts.add(new LayoutInfo(
                     resolved.descriptor,
                     resolved.label,
                     preferredLocale(
                             mapping.subtype, resolved.locales),
+                    mapping.inputMethod,
                     mapping.subtype));
         }
         return layouts;
@@ -393,30 +398,41 @@ public final class HardwareKeyboardLayoutCommand {
 
         final List<ImeSubtypeState> layoutMappings = new ArrayList<>();
         final Set<String> seenMappings = new LinkedHashSet<>();
-        final List<InputMethodSubtype> enabledSubtypes =
-                (List<InputMethodSubtype>) inputMethodManagerInterface.getMethod(
-                        "getEnabledInputMethodSubtypeList",
-                        String.class, boolean.class, int.class)
-                        .invoke(inputMethodManager,
-                                inputMethod.getId(), true, userId);
-        for (final InputMethodSubtype subtype : enabledSubtypes) {
-            final String mappingKey = inputMethod.getId()
-                    + ':' + (subtype == null ? 0 : subtype.hashCode());
-            if (subtype == null
-                    || !KEYBOARD_SUBTYPE_MODE.equals(subtype.getMode())
-                    || !seenMappings.add(mappingKey)) {
-                continue;
+        addSubtypeMapping(
+                layoutMappings, seenMappings, inputMethod, currentSubtype);
+        final List<InputMethodInfo> enabledInputMethods =
+                (List<InputMethodInfo>) inputMethodManagerInterface.getMethod(
+                        "getEnabledInputMethodListLegacy", int.class)
+                        .invoke(inputMethodManager, userId);
+        for (final InputMethodInfo enabledInputMethod : enabledInputMethods) {
+            final List<InputMethodSubtype> enabledSubtypes =
+                    (List<InputMethodSubtype>) inputMethodManagerInterface.getMethod(
+                            "getEnabledInputMethodSubtypeList",
+                            String.class, boolean.class, int.class)
+                            .invoke(inputMethodManager,
+                                    enabledInputMethod.getId(), true, userId);
+            for (final InputMethodSubtype subtype : enabledSubtypes) {
+                addSubtypeMapping(
+                        layoutMappings, seenMappings,
+                        enabledInputMethod, subtype);
             }
-            layoutMappings.add(
-                    new ImeSubtypeState(inputMethod, subtype));
-        }
-        final String currentMappingKey =
-                inputMethod.getId() + ':' + currentSubtype.hashCode();
-        if (seenMappings.add(currentMappingKey)) {
-            layoutMappings.add(
-                    new ImeSubtypeState(inputMethod, currentSubtype));
         }
         return new ImeState(inputMethod, currentSubtype, layoutMappings);
+    }
+
+    private static void addSubtypeMapping(
+            final List<ImeSubtypeState> mappings,
+            final Set<String> seenMappings,
+            final InputMethodInfo inputMethod,
+            final InputMethodSubtype subtype) {
+        if (inputMethod == null || subtype == null
+                || !KEYBOARD_SUBTYPE_MODE.equals(subtype.getMode())) {
+            return;
+        }
+        final String key = inputMethod.getId() + ':' + subtype.hashCode();
+        if (seenMappings.add(key)) {
+            mappings.add(new ImeSubtypeState(inputMethod, subtype));
+        }
     }
 
     private static void setKeyboardLayout(
@@ -627,16 +643,19 @@ public final class HardwareKeyboardLayoutCommand {
         final String descriptor;
         final String label;
         final Locale locale;
+        final InputMethodInfo inputMethod;
         final InputMethodSubtype subtype;
 
         LayoutInfo(
                 final String descriptor,
                 final String label,
                 final Locale locale,
+                final InputMethodInfo inputMethod,
                 final InputMethodSubtype subtype) {
             this.descriptor = descriptor;
             this.label = label == null || label.isEmpty() ? descriptor : label;
             this.locale = locale;
+            this.inputMethod = inputMethod;
             this.subtype = subtype;
         }
     }
