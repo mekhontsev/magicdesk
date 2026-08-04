@@ -83,7 +83,8 @@ public final class HardwareKeyboardLayoutCommand {
         final int subtypeIndex =
                 findSubtypeIndex(layouts, imeState.currentSubtype);
         final int persistedIndex =
-                findCurrentIndex(layouts, persistedCurrent);
+                KeyboardLayoutPolicy.findCurrentIndex(
+                        layouts, persistedCurrent);
         final int baseIndex = persistedIndex >= 0
                 ? persistedIndex : Math.max(0, subtypeIndex);
         final int selectedIndex = "next".equals(mode)
@@ -130,7 +131,7 @@ public final class HardwareKeyboardLayoutCommand {
 
         return new Result(
                 selected.descriptor,
-                compactCode(layouts, selectedIndex),
+                KeyboardLayoutPolicy.compactCode(layouts, selectedIndex),
                 selected.label,
                 selectedIndex,
                 deviceCount,
@@ -494,19 +495,6 @@ public final class HardwareKeyboardLayoutCommand {
         return -1;
     }
 
-    private static int findCurrentIndex(final List<LayoutInfo> layouts, final String current) {
-        if (current == null || current.isEmpty() || "null".equals(current)) {
-            return -1;
-        }
-        for (int index = 0; index < layouts.size(); index++) {
-            final String descriptor = layouts.get(index).descriptor;
-            if (descriptor.equals(current)) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
     private static Locale localeOf(final InputMethodSubtype subtype) {
         final String languageTag = subtype.getLanguageTag();
         if (languageTag != null && !languageTag.isEmpty()) {
@@ -532,58 +520,6 @@ public final class HardwareKeyboardLayoutCommand {
         final Locale subtypeLocale = localeOf(subtype);
         return subtypeLocale == null
                 ? firstLocale(layoutLocales) : subtypeLocale;
-    }
-
-    private static String compactCode(final List<LayoutInfo> layouts, final int selectedIndex) {
-        final LayoutInfo selected = layouts.get(selectedIndex);
-        final String language = languageCode(selected.locale);
-        int matchingLanguages = 0;
-        for (final LayoutInfo layout : layouts) {
-            if (language.equals(languageCode(layout.locale))) {
-                matchingLanguages++;
-            }
-        }
-        if (matchingLanguages <= 1) {
-            return language;
-        }
-
-        final String country = selected.locale == null
-                ? "" : selected.locale.getCountry().toUpperCase(Locale.ROOT);
-        final String regionalCode = country.isEmpty() ? language : language + "-" + country;
-        int matchingRegionalCodes = 0;
-        for (final LayoutInfo layout : layouts) {
-            final String layoutLanguage = languageCode(layout.locale);
-            final String layoutCountry = layout.locale == null
-                    ? "" : layout.locale.getCountry().toUpperCase(Locale.ROOT);
-            final String layoutRegionalCode = layoutCountry.isEmpty()
-                    ? layoutLanguage : layoutLanguage + "-" + layoutCountry;
-            if (regionalCode.equals(layoutRegionalCode)) {
-                matchingRegionalCodes++;
-            }
-        }
-        if (matchingRegionalCodes <= 1) {
-            return regionalCode;
-        }
-        int variantIndex = 0;
-        for (int index = 0; index <= selectedIndex; index++) {
-            final LayoutInfo layout = layouts.get(index);
-            final String layoutLanguage = languageCode(layout.locale);
-            final String layoutCountry = layout.locale == null
-                    ? "" : layout.locale.getCountry().toUpperCase(Locale.ROOT);
-            final String layoutRegionalCode = layoutCountry.isEmpty()
-                    ? layoutLanguage : layoutLanguage + "-" + layoutCountry;
-            if (regionalCode.equals(layoutRegionalCode)) {
-                variantIndex++;
-            }
-        }
-        return regionalCode + "-" + variantIndex;
-    }
-
-    private static String languageCode(final Locale locale) {
-        if (locale == null || locale.getLanguage().isEmpty()) {
-            return "??";
-        }
-        return locale.getLanguage().toUpperCase(Locale.ROOT);
     }
 
     static final class Result {
@@ -639,7 +575,8 @@ public final class HardwareKeyboardLayoutCommand {
         }
     }
 
-    private static final class LayoutInfo {
+    private static final class LayoutInfo
+            implements KeyboardLayoutPolicy.Layout {
         final String descriptor;
         final String label;
         final Locale locale;
@@ -657,6 +594,16 @@ public final class HardwareKeyboardLayoutCommand {
             this.locale = locale;
             this.inputMethod = inputMethod;
             this.subtype = subtype;
+        }
+
+        @Override
+        public String descriptor() {
+            return descriptor;
+        }
+
+        @Override
+        public Locale locale() {
+            return locale;
         }
     }
 

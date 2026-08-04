@@ -76,6 +76,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopItemsController mDesktopItemsController;
     private DesktopInputController mInputController;
     private DesktopHostWindowController mHostWindowController;
+    private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
     private boolean mLocalTaskbarSuppressed;
     private List<AppItem> mLastApps = Collections.emptyList();
@@ -150,6 +151,7 @@ public abstract class DesktopShellActivity extends Activity
                 this, mUi, mDesktopFileRepository);
         mInputController = new DesktopInputController(this);
         mHostWindowController = new DesktopHostWindowController(this);
+        mSystemActions = new DesktopSystemActionsController(this);
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
@@ -822,21 +824,11 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void toggleDesktopWorkspace() {
-        hideAllPanels();
-        ConsoleModeSwitcher.showMagicDesk();
+        mSystemActions.showDesktop();
     }
 
     void captureDesktopScreenshot() {
-        hideAllPanels();
-        final View decor = getWindow().getDecorView();
-        if (!decor.isAttachedToWindow()) {
-            ConsoleModeSwitcher.captureScreenshot();
-            return;
-        }
-        // removeViewImmediate() has detached the overlay. Two display frames let
-        // WindowManager commit that removal before the external display is captured.
-        decor.postOnAnimation(() ->
-                decor.postOnAnimation(ConsoleModeSwitcher::captureScreenshot));
+        mSystemActions.captureScreenshot();
     }
 
     void restoreLastVisibleWindows() {
@@ -877,17 +869,11 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void openDeviceSetup() {
-        hideAllPanels();
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(getCurrentDisplayId());
-        startActivity(
-                DeviceSetupActivity.createManualIntent(this),
-                options.toBundle());
+        mSystemActions.openDeviceSetup();
     }
 
     void openControlPanel() {
-        hideAllPanels();
-        PhoneControlPanelLauncher.open(this);
+        mSystemActions.openControlPanel();
     }
 
     void toggleShortcutHelp() {
@@ -1055,18 +1041,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void openDiagnostics() {
-        hideAllPanels();
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(getCurrentDisplayId());
-        try {
-            startActivity(DiagnosticsActivity.createIntent(this), options.toBundle());
-        } catch (RuntimeException e) {
-            setErrorStatus(
-                    "DIAGNOSTICS-001",
-                    "Cannot open compatibility diagnostics",
-                    "display=" + getCurrentDisplayId(),
-                    e);
-        }
+        mSystemActions.openDiagnostics();
     }
 
     int getCurrentDisplayId() {

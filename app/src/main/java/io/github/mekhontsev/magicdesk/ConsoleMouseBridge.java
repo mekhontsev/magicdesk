@@ -25,7 +25,7 @@ final class ConsoleMouseBridge {
     private boolean mPointerRestoreArmed;
     private int mGeneration;
     private Thread mSupervisorThread;
-    private ShellAccess.StreamHandle mStream;
+    private ShellStreamHandle mStream;
 
     ConsoleMouseBridge(final Context context) {
         mContext = context.getApplicationContext();
@@ -49,7 +49,7 @@ final class ConsoleMouseBridge {
     }
 
     void stop() {
-        final ShellAccess.StreamHandle stream;
+        final ShellStreamHandle stream;
         final Thread supervisor;
         synchronized (mLock) {
             if (!mRequested && mStream == null) {
@@ -83,7 +83,7 @@ final class ConsoleMouseBridge {
     }
 
     void refreshSources(final List<ConsoleMouseDevice> mice) {
-        final ShellAccess.StreamHandle stream;
+        final ShellStreamHandle stream;
         synchronized (mLock) {
             if (!mRequested) {
                 return;
@@ -105,7 +105,7 @@ final class ConsoleMouseBridge {
     }
 
     void restorePointerPositionIfDisplacedOnNextMotion() {
-        final ShellAccess.StreamHandle stream;
+        final ShellStreamHandle stream;
         synchronized (mLock) {
             if (!mRequested) {
                 return;
@@ -172,7 +172,7 @@ final class ConsoleMouseBridge {
             command.append(' ').append(shellQuote(mouse.path));
         }
 
-        final ShellAccess.StreamHandle stream =
+        final ShellStreamHandle stream =
                 ShellAccess.openOwnedStream(command.toString());
         synchronized (mLock) {
             if (!isActiveLocked(generation)) {
@@ -206,7 +206,7 @@ final class ConsoleMouseBridge {
 
     private void handleLine(
             final String line,
-            final ShellAccess.StreamHandle stream,
+            final ShellStreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
             final boolean restorePointer;
@@ -263,7 +263,7 @@ final class ConsoleMouseBridge {
     }
 
     private static void writeControl(
-            final ShellAccess.StreamHandle stream,
+            final ShellStreamHandle stream,
             final String command) {
         try {
             stream.writeLine(command);

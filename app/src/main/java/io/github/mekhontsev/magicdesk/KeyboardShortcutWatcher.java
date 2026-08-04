@@ -25,14 +25,11 @@ final class KeyboardShortcutWatcher {
     private static final long RESTART_DELAY_MS = 1000L;
 
     private static final Object LOCK = new Object();
+    private static final KeyboardShortcutStateMachine SHORTCUTS =
+            new KeyboardShortcutStateMachine();
     private static boolean sRunning;
-    private static boolean sCtrlDown;
-    private static boolean sAltDown;
-    private static boolean sAltTabActive;
-    private static boolean sShiftDown;
-    private static boolean sMetaDown;
-    private static ShellAccess.StreamHandle sInputStream;
-    private static ShellAccess.StreamHandle sRoutingStream;
+    private static ShellStreamHandle sInputStream;
+    private static ShellStreamHandle sRoutingStream;
     private static Thread sThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
@@ -62,15 +59,14 @@ final class KeyboardShortcutWatcher {
     }
 
     static void stop() {
-        final ShellAccess.StreamHandle inputStream;
-        final ShellAccess.StreamHandle routingStream;
+        final ShellStreamHandle inputStream;
+        final ShellStreamHandle routingStream;
         final Thread thread;
         final boolean cancelAltTab;
         synchronized (LOCK) {
             sRunning = false;
             sGeneration++;
-            cancelAltTab = sAltTabActive;
-            clearModifierStateLocked();
+            cancelAltTab = SHORTCUTS.reset();
             inputStream = sInputStream;
             routingStream = sRoutingStream;
             thread = sThread;
@@ -105,8 +101,8 @@ final class KeyboardShortcutWatcher {
 
     static void refreshConsoleInputSources(
             final List<ConsoleKeyboardDevice> keyboards) {
-        final ShellAccess.StreamHandle inputStream;
-        final ShellAccess.StreamHandle routingStream;
+        final ShellStreamHandle inputStream;
+        final ShellStreamHandle routingStream;
         synchronized (LOCK) {
             if (!sRunning || !sConsoleMode) {
                 return;
@@ -128,7 +124,7 @@ final class KeyboardShortcutWatcher {
 
     private static void runLoop(final boolean consoleMode, final long generation) {
         while (isRunning(generation)) {
-            ShellAccess.StreamHandle inputStream = null;
+            ShellStreamHandle inputStream = null;
             BufferedReader reader = null;
             try {
                 cleanupStaleInputRouting();
@@ -193,8 +189,8 @@ final class KeyboardShortcutWatcher {
 
     private static void runConsoleSession(final long generation)
             throws IOException {
-        ShellAccess.StreamHandle keyboardStream = null;
-        ShellAccess.StreamHandle routingStream = null;
+        ShellStreamHandle keyboardStream = null;
+        ShellStreamHandle routingStream = null;
         BufferedReader keyboardReader = null;
         BufferedReader routingReader = null;
         Thread routingMonitor = null;
@@ -245,7 +241,7 @@ final class KeyboardShortcutWatcher {
                                 + routingReady);
             }
 
-            final ShellAccess.StreamHandle activeKeyboardStream =
+            final ShellStreamHandle activeKeyboardStream =
                     keyboardStream;
             final BufferedReader activeRoutingReader = routingReader;
             final Thread sessionThread = Thread.currentThread();
@@ -394,7 +390,7 @@ final class KeyboardShortcutWatcher {
 
     private static void monitorRouting(
             final BufferedReader reader,
-            final ShellAccess.StreamHandle keyboardStream,
+            final ShellStreamHandle keyboardStream,
             final Thread sessionThread,
             final AtomicBoolean sessionClosing,
             final long generation) {
@@ -420,7 +416,7 @@ final class KeyboardShortcutWatcher {
 
     private static void handleKeyboardBridgeLine(
             final String line,
-            final ShellAccess.StreamHandle keyboardStream,
+            final ShellStreamHandle keyboardStream,
             final long generation) {
         if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")
                 || "MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
@@ -500,7 +496,7 @@ final class KeyboardShortcutWatcher {
     }
 
     private static void resumeKeyboard(
-            final ShellAccess.StreamHandle keyboardStream,
+            final ShellStreamHandle keyboardStream,
             final long generation) {
         if (!isRunning(generation)) {
             return;
@@ -516,264 +512,75 @@ final class KeyboardShortcutWatcher {
     private static void handleGeteventLine(
             final String line,
             final boolean fullShortcutMode) {
-        if (!fullShortcutMode
-                && line.startsWith("MAGICDESK_")) {
-            return;
-        }
-        if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")) {
-            final boolean reverse = line.endsWith("reverse");
-            synchronized (LOCK) {
-                sAltTabActive = true;
-            }
-            Log.i(TAG, reverse
-                    ? "Alt+Shift+Tab"
-                    : "Alt+Tab");
-            ConsoleModeSwitcher.advanceAltTab(reverse);
-            return;
-        }
-        if ("MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
-            finishAltTabIfActive();
-            return;
-        }
-        if (line.indexOf(" EV_KEY ") < 0) {
-            return;
-        }
+        dispatchShortcut(SHORTCUTS.accept(line, fullShortcutMode));
+    }
 
-        final String keyName = parseKeyName(line);
-        if (keyName == null) {
-            return;
-        }
-
-        final int action = parseKeyAction(line);
-        if (action < 0) {
-            return;
-        }
-        if (action == 2) {
-            return;
-        }
-
-        if (isMetaKey(keyName)) {
-            setMetaDown(action == 1);
-            return;
-        }
-        if (isCtrlKey(keyName)) {
-            setCtrlDown(action == 1);
-            return;
-        }
-        if (isAltKey(keyName)) {
-            synchronized (LOCK) {
-                sAltDown = action == 1;
-            }
-            if (action == 0) {
-                finishAltTabIfActive();
-            }
-            return;
-        }
-        if (isShiftKey(keyName)) {
-            setShiftDown(action == 1);
-            return;
-        }
-
-        if (action != 1) {
-            return;
-        }
-
-        if ("KEY_SPACE".equals(keyName) && isCtrlOnlyDown()) {
-            Log.i(TAG, "Ctrl+Space");
-            ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
-            return;
-        }
-
-        if ("KEY_ESC".equals(keyName) && isNoModifierDown()) {
-            DesktopTaskController.dismissTransientActivity();
-            return;
-        }
-
-        if ("KEY_D".equals(keyName) && isMetaOnlyDown()) {
-            Log.i(TAG, "Meta+D");
-            ConsoleModeSwitcher.showMagicDesk();
-            return;
-        }
-
-        if (!fullShortcutMode) {
-            return;
-        }
-
-        if ("KEY_F4".equals(keyName) && isAltOnlyDown()) {
-            Log.i(TAG, "Alt+F4");
-            ConsoleModeSwitcher.manageActiveWindow(
-                    DesktopTaskController.SHORTCUT_CLOSE);
-            return;
-        }
-
-        if (isMetaOnlyDown()) {
-            if ("KEY_BACKSPACE".equals(keyName)) {
-                Log.i(TAG, "Meta+Backspace");
+    private static void dispatchShortcut(
+            final KeyboardShortcutStateMachine.Action action) {
+        switch (action) {
+            case ALT_TAB_FORWARD:
+                ConsoleModeSwitcher.advanceAltTab(false);
+                break;
+            case ALT_TAB_REVERSE:
+                ConsoleModeSwitcher.advanceAltTab(true);
+                break;
+            case ALT_TAB_COMMIT:
+                ConsoleModeSwitcher.finishAltTab();
+                break;
+            case TOGGLE_LAYOUT:
+                ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
+                break;
+            case DISMISS:
+                DesktopTaskController.dismissTransientActivity();
+                break;
+            case CLOSE:
+                ConsoleModeSwitcher.manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_CLOSE);
+                break;
+            case BACK:
                 ConsoleModeSwitcher.sendSystemBack();
-                return;
-            }
-            if ("KEY_L".equals(keyName)) {
-                Log.i(TAG, "Meta+L");
+                break;
+            case LOCK:
                 ConsoleModeSwitcher.lockDevice();
-                return;
-            }
-            if ("KEY_N".equals(keyName)) {
-                Log.i(TAG, "Meta+N");
+                break;
+            case NOTIFICATIONS:
                 ConsoleModeSwitcher.toggleNotificationCenter();
-                return;
-            }
-            if ("KEY_UP".equals(keyName)) {
-                Log.i(TAG, "Meta+Up");
+                break;
+            case FULLSCREEN:
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_FULLSCREEN);
-                return;
-            }
-            if ("KEY_DOWN".equals(keyName)) {
-                Log.i(TAG, "Meta+Down");
+                break;
+            case RESTORE:
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_RESTORE);
-                return;
-            }
-            if ("KEY_LEFT".equals(keyName)) {
-                Log.i(TAG, "Meta+Left");
+                break;
+            case SNAP_LEFT:
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_LEFT);
-                return;
-            }
-            if ("KEY_RIGHT".equals(keyName)) {
-                Log.i(TAG, "Meta+Right");
+                break;
+            case SNAP_RIGHT:
                 ConsoleModeSwitcher.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
-                return;
-            }
-            if (isPrintScreenKey(keyName)) {
-                Log.i(TAG, "Meta+PrintScreen");
+                break;
+            case SHOW_DESKTOP:
+                ConsoleModeSwitcher.showMagicDesk();
+                break;
+            case SCREENSHOT:
                 ConsoleModeSwitcher.captureScreenshot();
-                return;
-            }
-            if ("KEY_SLASH".equals(keyName)) {
-                Log.i(TAG, "Meta+Slash");
+                break;
+            case SHORTCUT_HELP:
                 ConsoleModeSwitcher.showShortcutHelp();
-            }
-            return;
-        }
-
-    }
-
-    private static String parseKeyName(final String line) {
-        final String[] parts = line.trim().split("\\s+");
-        for (int i = 0; i < parts.length; i++) {
-            if (parts[i].startsWith("KEY_")) {
-                return parts[i];
-            }
-        }
-        return null;
-    }
-
-    private static int parseKeyAction(final String line) {
-        if (line.endsWith(" DOWN") || line.indexOf(" DOWN") >= 0) {
-            return 1;
-        }
-        if (line.endsWith(" UP") || line.indexOf(" UP") >= 0) {
-            return 0;
-        }
-        if (line.endsWith(" REPEAT") || line.indexOf(" REPEAT") >= 0) {
-            return 2;
-        }
-        return -1;
-    }
-
-    private static boolean isCtrlKey(final String keyName) {
-        return "KEY_LEFTCTRL".equals(keyName) || "KEY_RIGHTCTRL".equals(keyName);
-    }
-
-    private static boolean isAltKey(final String keyName) {
-        return "KEY_LEFTALT".equals(keyName) || "KEY_RIGHTALT".equals(keyName);
-    }
-
-    private static boolean isShiftKey(final String keyName) {
-        return "KEY_LEFTSHIFT".equals(keyName) || "KEY_RIGHTSHIFT".equals(keyName);
-    }
-
-    private static boolean isMetaKey(final String keyName) {
-        return "KEY_LEFTMETA".equals(keyName) || "KEY_RIGHTMETA".equals(keyName);
-    }
-
-    private static boolean isPrintScreenKey(final String keyName) {
-        return "KEY_SYSRQ".equals(keyName) || "KEY_PRINT".equals(keyName);
-    }
-
-    private static boolean isCtrlOnlyDown() {
-        synchronized (LOCK) {
-            return sCtrlDown && !sAltDown && !sShiftDown && !sMetaDown;
-        }
-    }
-
-    private static boolean isAltOnlyDown() {
-        synchronized (LOCK) {
-            return sAltDown && !sCtrlDown && !sShiftDown && !sMetaDown;
-        }
-    }
-
-    private static boolean isMetaOnlyDown() {
-        synchronized (LOCK) {
-            return sMetaDown && !sCtrlDown && !sAltDown && !sShiftDown;
-        }
-    }
-
-    private static boolean isNoModifierDown() {
-        synchronized (LOCK) {
-            return !sCtrlDown && !sAltDown && !sShiftDown && !sMetaDown;
-        }
-    }
-
-    private static void setMetaDown(final boolean down) {
-        synchronized (LOCK) {
-            sMetaDown = down;
-        }
-    }
-
-    private static void setCtrlDown(final boolean down) {
-        synchronized (LOCK) {
-            sCtrlDown = down;
-        }
-    }
-
-    private static void setShiftDown(final boolean down) {
-        synchronized (LOCK) {
-            sShiftDown = down;
-        }
-    }
-
-    private static void finishAltTabIfActive() {
-        final boolean finishAltTab;
-        synchronized (LOCK) {
-            finishAltTab = sAltTabActive;
-            sAltTabActive = false;
-        }
-        if (finishAltTab) {
-            Log.i(TAG, "Alt+Tab commit");
-            ConsoleModeSwitcher.finishAltTab();
+                break;
+            case NONE:
+            default:
+                break;
         }
     }
 
     private static void clearModifierState() {
-        final boolean cancelAltTab;
-        synchronized (LOCK) {
-            cancelAltTab = sAltTabActive;
-            clearModifierStateLocked();
-        }
-        if (cancelAltTab) {
+        if (SHORTCUTS.reset()) {
             ConsoleModeSwitcher.cancelAltTab();
         }
-    }
-
-    private static void clearModifierStateLocked() {
-        sCtrlDown = false;
-        sAltDown = false;
-        sAltTabActive = false;
-        sShiftDown = false;
-        sMetaDown = false;
     }
 
     private static boolean isRunning(final long generation) {
@@ -783,7 +590,7 @@ final class KeyboardShortcutWatcher {
     }
 
     private static void setInputStream(
-            final ShellAccess.StreamHandle stream,
+            final ShellStreamHandle stream,
             final long generation,
             final boolean fullShortcutMode) {
         synchronized (LOCK) {
@@ -795,7 +602,7 @@ final class KeyboardShortcutWatcher {
     }
 
     private static void setRoutingStream(
-            final ShellAccess.StreamHandle stream,
+            final ShellStreamHandle stream,
             final long generation) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
@@ -815,7 +622,7 @@ final class KeyboardShortcutWatcher {
     }
 
     private static void clearInputStream(
-            final ShellAccess.StreamHandle stream) {
+            final ShellStreamHandle stream) {
         synchronized (LOCK) {
             if (sInputStream == stream) {
                 sInputStream = null;
@@ -827,7 +634,7 @@ final class KeyboardShortcutWatcher {
     }
 
     private static void clearRoutingStream(
-            final ShellAccess.StreamHandle stream) {
+            final ShellStreamHandle stream) {
         synchronized (LOCK) {
             if (sRoutingStream == stream) {
                 sRoutingStream = null;

@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ComponentName;
 import android.content.Intent;
 import android.os.BatteryManager;
 import android.provider.Settings;
@@ -9,8 +8,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
-import android.view.inputmethod.InputMethodInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -32,7 +29,7 @@ final class TaskbarController {
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
     private TextView mKeyboardLayout;
-    private LinearLayout mInputMethodPanel;
+    private final InputMethodMenuController mInputMethodMenu;
     private TextView mBatteryStatus;
     private ImageButton mConsoleButton;
     private ImageButton mPhoneScreenButton;
@@ -45,6 +42,7 @@ final class TaskbarController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
+        mInputMethodMenu = new InputMethodMenuController(activity, ui);
     }
 
     LinearLayout create() {
@@ -190,7 +188,7 @@ final class TaskbarController {
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 desktopDp(8, 6),
                 DesktopUiFactory.COLOR_PANEL_ALT));
-        mKeyboardLayout.setOnClickListener(this::toggleInputMethodMenu);
+        mKeyboardLayout.setOnClickListener(mInputMethodMenu::toggle);
         mKeyboardLayout.setEnabled(
                 ShellAccess.isReady());
         taskbar.addView(mKeyboardLayout, new LinearLayout.LayoutParams(
@@ -259,7 +257,7 @@ final class TaskbarController {
         mTaskbar = null;
         mPins = null;
         mKeyboardLayout = null;
-        mInputMethodPanel = null;
+        mInputMethodMenu.release();
         mBatteryStatus = null;
         mConsoleButton = null;
         mPhoneScreenButton = null;
@@ -397,96 +395,6 @@ final class TaskbarController {
                         : layoutName);
         mKeyboardLayout.setContentDescription(description);
         mKeyboardLayout.setTooltipText(description);
-    }
-
-    private void toggleInputMethodMenu(final View anchor) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null) {
-            return;
-        }
-        if (overlays.isVisible(mInputMethodPanel)) {
-            overlays.hide(mInputMethodPanel);
-            return;
-        }
-        final InputMethodManager manager = mActivity.getSystemService(
-                InputMethodManager.class);
-        final List<InputMethodInfo> methods = manager == null
-                ? java.util.Collections.emptyList()
-                : manager.getEnabledInputMethodList();
-        if (methods.isEmpty()) {
-            return;
-        }
-        if (mInputMethodPanel == null) {
-            mInputMethodPanel = new LinearLayout(mActivity);
-            mInputMethodPanel.setOrientation(LinearLayout.VERTICAL);
-            mInputMethodPanel.setPadding(
-                    desktopDp(8, 6), desktopDp(8, 6),
-                    desktopDp(8, 6), desktopDp(8, 6));
-            mInputMethodPanel.setBackground(mUi.rounded(
-                    DesktopUiFactory.COLOR_PANEL,
-                    desktopDp(8, 6),
-                    DesktopUiFactory.COLOR_CYAN));
-            mInputMethodPanel.setClickable(true);
-        }
-        mInputMethodPanel.removeAllViews();
-        final String current = Settings.Secure.getString(
-                mActivity.getContentResolver(),
-                Settings.Secure.DEFAULT_INPUT_METHOD);
-        for (final InputMethodInfo method : methods) {
-            final String id = method.getId();
-            final CharSequence label = method.loadLabel(
-                    mActivity.getPackageManager());
-            final Button button = mUi.actionButton(
-                    current != null && current.equals(id)
-                            ? "\u2713 " + label : label.toString(),
-                    current != null && current.equals(id)
-                            ? DesktopUiFactory.COLOR_CYAN
-                            : DesktopUiFactory.COLOR_PANEL_ALT);
-            button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            button.setOnClickListener(view -> selectInputMethod(id));
-            final LinearLayout.LayoutParams params =
-                    new LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            desktopDp(44, 36));
-            params.setMargins(0, desktopDp(2, 1), 0, desktopDp(2, 1));
-            mInputMethodPanel.addView(button, params);
-        }
-        final int width = desktopDp(280, 220);
-        mInputMethodPanel.measure(
-                View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(
-                        mActivity.getDesktopAreaHeight(), View.MeasureSpec.AT_MOST));
-        final int[] location = new int[2];
-        anchor.getLocationOnScreen(location);
-        final int height = mInputMethodPanel.getMeasuredHeight();
-        final int left = Math.max(
-                mActivity.getDesktopAreaLeft(),
-                location[0] + anchor.getWidth() - width);
-        final int top = Math.max(
-                mActivity.getDesktopAreaTop(), location[1] - height);
-        overlays.show(
-                mInputMethodPanel, left, top, width, height,
-                false, "MagicDesk input methods");
-    }
-
-    private void selectInputMethod(final String id) {
-        mActivity.hideAllPanels();
-        if (ComponentName.unflattenFromString(id) == null) {
-            return;
-        }
-        new Thread(() -> {
-            try {
-                ShellAccess.run("/system/bin/ime set " + shellQuote(id));
-                HardwareKeyboardLayoutController.configureVirtualLayouts(null);
-            } catch (Exception error) {
-                android.util.Log.w(
-                        "MagicDeskTaskbar", "Could not select input method", error);
-            }
-        }, "MagicDeskInputMethod").start();
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     void updatePhoneScreen(

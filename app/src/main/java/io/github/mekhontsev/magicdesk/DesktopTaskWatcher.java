@@ -36,7 +36,7 @@ final class DesktopTaskWatcher {
             new HashMap<>();
 
     private long mNextFocusSequence;
-    private ShellAccess.TaskObserverHandle mHandle;
+    private ShellTaskObserverHandle mHandle;
     private TaskObserverCallback mCallback;
     private boolean mDestroyed;
 
@@ -124,7 +124,7 @@ final class DesktopTaskWatcher {
     private void open(final int generation) {
         final TaskObserverCallback callback =
                 new TaskObserverCallback(this, generation);
-        ShellAccess.TaskObserverHandle handle = null;
+        ShellTaskObserverHandle handle = null;
         try {
             handle = ShellAccess.openTaskObserver(
                     callback,
@@ -186,7 +186,7 @@ final class DesktopTaskWatcher {
     }
 
     private synchronized void closeHandle() {
-        final ShellAccess.TaskObserverHandle handle = mHandle;
+        final ShellTaskObserverHandle handle = mHandle;
         mHandle = null;
         mCallback = null;
         if (handle != null) {

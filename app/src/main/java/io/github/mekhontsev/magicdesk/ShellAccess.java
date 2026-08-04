@@ -3,23 +3,18 @@ package io.github.mekhontsev.magicdesk;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 
-import java.io.Closeable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import rikka.shizuku.Shizuku;
@@ -29,15 +24,13 @@ final class ShellAccess {
     static final int SHELL_UID = 2000;
     static final String MANAGER_PACKAGE = "moe.shizuku.privileged.api";
     private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
-    private static final long BIND_TIMEOUT_MILLIS = 10_000;
-    private static final Object LOCK = new Object();
     private static final AtomicLong NEXT_STREAM_ID =
             new AtomicLong();
     private static final Set<StateListener> STATE_LISTENERS =
             new CopyOnWriteArraySet<>();
 
-    private static IShizukuCommandService sService;
-    private static boolean sBinding;
+    private static final ShellServiceConnection SERVICE_CONNECTION =
+            new ShellServiceConnection(() -> publish(inspectNow()));
     private static boolean sInitialized;
     private static volatile Snapshot sSnapshot = Snapshot.unavailable(
             false, "Shizuku access is not initialized");
@@ -62,32 +55,6 @@ final class ShellAccess {
                     refresh();
                 }
             };
-
-    private static final ServiceConnection CONNECTION = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(
-                final ComponentName componentName, final IBinder binder) {
-            synchronized (LOCK) {
-                sService = binder != null && binder.pingBinder()
-                        ? IShizukuCommandService.Stub.asInterface(binder) : null;
-                sBinding = false;
-                LOCK.notifyAll();
-            }
-            // The Shizuku server may already be ready while its UserService is
-            // still starting. Notify setup/runtime listeners once the command
-            // Binder arrives so a transient startup audit is not left on screen.
-            publish(inspectNow());
-        }
-
-        @Override
-        public void onServiceDisconnected(final ComponentName componentName) {
-            synchronized (LOCK) {
-                sService = null;
-                sBinding = false;
-                LOCK.notifyAll();
-            }
-        }
-    };
 
     private ShellAccess() {
     }
@@ -291,24 +258,24 @@ final class ShellAccess {
         }
     }
 
-    static StreamHandle openOwnedStream(final String command)
+    static ShellStreamHandle openOwnedStream(final String command)
             throws IOException {
         return openStream(command, false);
     }
 
-    static StreamHandle openHeartbeatStream(final String command)
+    static ShellStreamHandle openHeartbeatStream(final String command)
             throws IOException {
         return openStream(command, true);
     }
 
-    static TaskObserverHandle openTaskObserver(
+    static ShellTaskObserverHandle openTaskObserver(
             final ITaskObserverCallback callback,
             final Runnable disconnected) throws IOException {
         if (callback == null) {
             throw new IOException("missing task observer callback");
         }
         final IShizukuCommandService service = requireService();
-        final TaskObserverHandle handle = new TaskObserverHandle(
+        final ShellTaskObserverHandle handle = new ShellTaskObserverHandle(
                 service, callback, disconnected);
         try {
             handle.start();
@@ -329,7 +296,7 @@ final class ShellAccess {
         }
     }
 
-    private static StreamHandle openStream(
+    private static ShellStreamHandle openStream(
             final String command,
             final boolean heartbeatEnabled) throws IOException {
         if (command == null || command.isEmpty()) {
@@ -351,7 +318,7 @@ final class ShellAccess {
                 throw new IOException(
                         "Shizuku command service returned no stream");
             }
-            return new StreamHandle(
+            return new ShellStreamHandle(
                     requestId,
                     descriptor,
                     ownerToken,
@@ -383,64 +350,11 @@ final class ShellAccess {
     }
 
     static void disconnect() {
-        synchronized (LOCK) {
-            if (!sBinding && sService == null) {
-                return;
-            }
-        }
-        try {
-            if (Shizuku.pingBinder()) {
-                Shizuku.unbindUserService(userServiceArgs(), CONNECTION, true);
-            }
-        } catch (RuntimeException ignored) {
-            // The server may already be gone.
-        } finally {
-            clearService();
-        }
+        SERVICE_CONNECTION.disconnect(ShellAccess::userServiceArgs);
     }
 
     private static IShizukuCommandService requireService() throws IOException {
-        final Snapshot snapshot = sSnapshot;
-        if (!snapshot.isReady()) {
-            throw new IOException(snapshot.error.isEmpty()
-                    ? "Shizuku shell access is unavailable" : snapshot.error);
-        }
-        synchronized (LOCK) {
-            if (sService != null) {
-                return sService;
-            }
-            final long deadline =
-                    android.os.SystemClock.uptimeMillis() + BIND_TIMEOUT_MILLIS;
-            while (sService == null) {
-                if (!sBinding) {
-                    sBinding = true;
-                    try {
-                        Shizuku.bindUserService(userServiceArgs(), CONNECTION);
-                    } catch (RuntimeException error) {
-                        sBinding = false;
-                        throw new IOException(
-                                "could not bind Shizuku command service: "
-                                        + usefulMessage(error),
-                                error);
-                    }
-                }
-                final long remaining =
-                        deadline - android.os.SystemClock.uptimeMillis();
-                if (remaining <= 0) {
-                    sBinding = false;
-                    throw new IOException("timed out binding Shizuku command service");
-                }
-                try {
-                    LOCK.wait(remaining);
-                } catch (InterruptedException error) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException(
-                            "interrupted while binding Shizuku command service",
-                            error);
-                }
-            }
-            return sService;
-        }
+        return SERVICE_CONNECTION.require(sSnapshot, ShellAccess::userServiceArgs);
     }
 
     private static Shizuku.UserServiceArgs userServiceArgs() {
@@ -458,11 +372,7 @@ final class ShellAccess {
     }
 
     private static void clearService() {
-        synchronized (LOCK) {
-            sService = null;
-            sBinding = false;
-            LOCK.notifyAll();
-        }
+        SERVICE_CONNECTION.clear();
     }
 
     private static void handleServiceFailure() {
@@ -505,7 +415,7 @@ final class ShellAccess {
         }
     }
 
-    private static String usefulMessage(final Throwable error) {
+    static String usefulMessage(final Throwable error) {
         final String message = error.getMessage();
         return message == null || message.isEmpty()
                 ? error.getClass().getSimpleName() : message;
@@ -557,213 +467,4 @@ final class ShellAccess {
         }
     }
 
-    static final class StreamHandle implements Closeable {
-        private final long mRequestId;
-        private final InputStream mInput;
-        // Keep the local Binder alive while the UserService owns this stream.
-        @SuppressWarnings("unused")
-        private final IBinder mOwnerToken;
-        private final IShizukuCommandService mService;
-        private final AtomicBoolean mClosed = new AtomicBoolean();
-
-        StreamHandle(
-                final long requestId,
-                final ParcelFileDescriptor descriptor,
-                final IBinder ownerToken,
-                final IShizukuCommandService service) {
-            mRequestId = requestId;
-            mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
-            mOwnerToken = ownerToken;
-            mService = service;
-        }
-
-        InputStream inputStream() {
-            return mInput;
-        }
-
-        void writeLine(final String line) throws IOException {
-            if (mClosed.get()) {
-                throw new IOException("Shizuku stream is closed");
-            }
-            try {
-                mService.writeStream(mRequestId, line);
-            } catch (RemoteException | RuntimeException error) {
-                throw new IOException(
-                        "Shizuku stream write failed: "
-                                + usefulMessage(error),
-                        error);
-            }
-        }
-
-        @Override
-        public void close() {
-            if (!mClosed.compareAndSet(false, true)) {
-                return;
-            }
-            try {
-                mInput.close();
-            } catch (IOException ignored) {
-                // The remote stream may already have ended.
-            }
-
-            try {
-                mService.closeStream(mRequestId);
-            } catch (RemoteException | RuntimeException ignored) {
-                // Closing a disconnected UserService is already complete.
-            }
-        }
-    }
-
-    static final class TaskObserverHandle implements Closeable {
-        private final IShizukuCommandService mService;
-        private final IBinder mServiceBinder;
-        private final ITaskObserverCallback mCallback;
-        private final Runnable mDisconnected;
-        private final IBinder.DeathRecipient mServiceDeathRecipient;
-        private final AtomicBoolean mClosed = new AtomicBoolean();
-
-        private volatile boolean mRegistered;
-        private boolean mServiceLinked;
-
-        TaskObserverHandle(
-                final IShizukuCommandService service,
-                final ITaskObserverCallback callback,
-                final Runnable disconnected) {
-            mService = service;
-            mServiceBinder = service.asBinder();
-            mCallback = callback;
-            mDisconnected = disconnected;
-            mServiceDeathRecipient = this::serviceDisconnected;
-        }
-
-        void start() throws RemoteException {
-            mServiceBinder.linkToDeath(mServiceDeathRecipient, 0);
-            synchronized (this) {
-                mServiceLinked = true;
-            }
-            mService.startTaskObserver(mCallback);
-            if (mClosed.get()) {
-                try {
-                    mService.stopTaskObserver(mCallback);
-                } catch (RemoteException | RuntimeException ignored) {
-                    // The service disconnected while registering the observer.
-                }
-                throw new RemoteException(
-                        "task observer disconnected during registration");
-            }
-            mRegistered = true;
-        }
-
-        void configure(
-                final int displayId,
-                final Rect displayBounds,
-                final Rect workAreaBounds) throws IOException {
-            if (displayBounds == null || workAreaBounds == null) {
-                throw new IOException("missing task observer bounds");
-            }
-            callService(() -> mService.configureTaskObserver(
-                    mCallback,
-                    displayId,
-                    displayBounds.left,
-                    displayBounds.top,
-                    displayBounds.right,
-                    displayBounds.bottom,
-                    workAreaBounds.left,
-                    workAreaBounds.top,
-                    workAreaBounds.right,
-                    workAreaBounds.bottom));
-        }
-
-        void focusStack(
-                final long sequence,
-                final int displayId,
-                final int[] taskIds) throws IOException {
-            callService(() -> mService.focusTaskStack(
-                    mCallback, sequence, displayId, taskIds));
-        }
-
-        boolean isClosed() {
-            return mClosed.get();
-        }
-
-        @Override
-        public void close() {
-            if (!mClosed.compareAndSet(false, true)) {
-                return;
-            }
-            unlinkServiceDeath();
-            if (!mRegistered) {
-                return;
-            }
-            mRegistered = false;
-            try {
-                mService.stopTaskObserver(mCallback);
-            } catch (RemoteException | RuntimeException ignored) {
-                // A disconnected service has already released its observer.
-            }
-        }
-
-        private void callService(final RemoteServiceCall call)
-                throws IOException {
-            if (mClosed.get()) {
-                throw new IOException("task observer is closed");
-            }
-            try {
-                call.run();
-            } catch (RemoteException error) {
-                serviceDisconnected();
-                throw new IOException(
-                        "task observer call failed: "
-                                + usefulMessage(error),
-                        error);
-            } catch (RuntimeException error) {
-                stopRemoteObserver();
-                serviceDisconnected();
-                throw new IOException(
-                        "task observer call failed: "
-                                + usefulMessage(error),
-                        error);
-            }
-        }
-
-        private void stopRemoteObserver() {
-            try {
-                mService.stopTaskObserver(mCallback);
-            } catch (RemoteException | RuntimeException ignored) {
-                // The observer may already have failed or disconnected.
-            }
-        }
-
-        private void closeAfterStartFailure() {
-            stopRemoteObserver();
-            if (!mClosed.compareAndSet(false, true)) {
-                return;
-            }
-            unlinkServiceDeath();
-        }
-
-        private void serviceDisconnected() {
-            if (!mClosed.compareAndSet(false, true)) {
-                return;
-            }
-            mRegistered = false;
-            unlinkServiceDeath();
-            if (mDisconnected != null) {
-                mDisconnected.run();
-            }
-        }
-
-        private synchronized void unlinkServiceDeath() {
-            if (!mServiceLinked) {
-                return;
-            }
-            mServiceBinder.unlinkToDeath(mServiceDeathRecipient, 0);
-            mServiceLinked = false;
-        }
-
-        @FunctionalInterface
-        private interface RemoteServiceCall {
-            void run() throws RemoteException;
-        }
-    }
 }

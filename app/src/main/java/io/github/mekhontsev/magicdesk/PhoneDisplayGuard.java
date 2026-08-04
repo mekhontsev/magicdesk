@@ -172,7 +172,7 @@ final class PhoneDisplayGuard {
         private volatile boolean mRestoreRequested;
         private volatile boolean mGuardReady;
         private volatile String mFailure = "guard exited before ready";
-        private volatile ShellAccess.StreamHandle mStream;
+        private volatile ShellStreamHandle mStream;
 
         Session(final int generation) {
             mGeneration = generation;
@@ -216,7 +216,7 @@ final class PhoneDisplayGuard {
 
         void requestRestore() {
             mRestoreRequested = true;
-            final ShellAccess.StreamHandle stream = mStream;
+            final ShellStreamHandle stream = mStream;
             if (stream == null) {
                 return;
             }
@@ -235,7 +235,7 @@ final class PhoneDisplayGuard {
 
         @Override
         public void run() {
-            ShellAccess.StreamHandle stream = null;
+            ShellStreamHandle stream = null;
             BufferedReader reader = null;
             boolean expected = false;
             try {

@@ -12,25 +12,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.hardware.display.DisplayManager;
-import android.hardware.input.InputManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.InputDevice;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-public final class MagicDeskRuntimeService extends Service
-        implements InputManager.InputDeviceListener, DisplayManager.DisplayListener {
+public final class MagicDeskRuntimeService extends Service {
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
     private static final String ACTION_SHOW_MAGIC_DESK =
@@ -40,19 +34,14 @@ public final class MagicDeskRuntimeService extends Service
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
-    private static final long DEVICE_CHANGE_DEBOUNCE_MILLIS = 600;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
-    private static final String MAGICDESK_KEYBOARD_NAME =
-            "MagicDesk Keyboard";
-    private static final String MAGICDESK_MOUSE_NAME =
-            "MagicDesk Mouse";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
 
     private Handler mHandler;
-    private DisplayManager mDisplayManager;
-    private InputManager mInputManager;
+    private RuntimeDisplayCoordinator mDisplayCoordinator;
+    private RuntimeInputCoordinator mInputCoordinator;
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
     private String mExternalInputDeviceSignature;
@@ -79,7 +68,6 @@ public final class MagicDeskRuntimeService extends Service
                 }
             };
 
-    private final Runnable mDeviceChangeRunnable = this::handleDeviceStateMaybeChanged;
     private final Runnable mPhoneHomeRecoveryRunnable =
             this::restorePrimaryPhoneHomeIfNeeded;
     private final Runnable mLocalDesktopCleanupRunnable =
@@ -193,19 +181,18 @@ public final class MagicDeskRuntimeService extends Service
         mInitialized = true;
         mDesktopTasks = new DesktopTaskController(this, mHandler);
         mConsoleMouseBridge = new ConsoleMouseBridge(this);
-        mDisplayManager = getSystemService(DisplayManager.class);
-        mInputManager = getSystemService(InputManager.class);
-        mHasHardwareKeyboard = hasHardwareKeyboard();
-        mHasExternalMouse = hasExternalMouse();
-        mExternalInputDeviceSignature = getExternalInputDeviceSignature();
+        mInputCoordinator = new RuntimeInputCoordinator(
+                this, mHandler, this::handleInputStateChanged);
+        final RuntimeInputCoordinator.Snapshot inputState =
+                mInputCoordinator.start();
+        mHasHardwareKeyboard = inputState.hardwareKeyboard;
+        mHasExternalMouse = inputState.externalMouse;
+        mExternalInputDeviceSignature = inputState.deviceSignature;
+        mDisplayCoordinator = new RuntimeDisplayCoordinator(
+                this, mHandler, this::handleDisplayStateChanged);
+        mDisplayCoordinator.start();
         mConsoleDisplayId = getConsoleDisplayId();
         mConsoleModeActive = mConsoleDisplayId > 0;
-        if (mInputManager != null) {
-            mInputManager.registerInputDeviceListener(this, mHandler);
-        }
-        if (mDisplayManager != null) {
-            mDisplayManager.registerDisplayListener(this, mHandler);
-        }
         registerConfigurationReceiver();
         registerConsoleModeObserver();
         if (ShellAccess.isReady()) {
@@ -273,11 +260,11 @@ public final class MagicDeskRuntimeService extends Service
             sInstance = new WeakReference<>(null);
         }
         ShellAccess.removeStateListener(mShellStateListener);
-        if (mInputManager != null) {
-            mInputManager.unregisterInputDeviceListener(this);
+        if (mInputCoordinator != null) {
+            mInputCoordinator.stop();
         }
-        if (mDisplayManager != null) {
-            mDisplayManager.unregisterDisplayListener(this);
+        if (mDisplayCoordinator != null) {
+            mDisplayCoordinator.stop();
         }
         if (mConfigurationReceiver != null) {
             unregisterReceiver(mConfigurationReceiver);
@@ -288,7 +275,6 @@ public final class MagicDeskRuntimeService extends Service
             mConsoleModeObserver = null;
         }
         if (mHandler != null) {
-            mHandler.removeCallbacks(mDeviceChangeRunnable);
             mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
             mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         }
@@ -310,58 +296,17 @@ public final class MagicDeskRuntimeService extends Service
         return null;
     }
 
-    @Override
-    public void onInputDeviceAdded(final int deviceId) {
-        scheduleDeviceStateCheck();
-    }
-
-    @Override
-    public void onInputDeviceRemoved(final int deviceId) {
-        scheduleDeviceStateCheck();
-    }
-
-    @Override
-    public void onInputDeviceChanged(final int deviceId) {
-        scheduleDeviceStateCheck();
-    }
-
-    @Override
-    public void onDisplayAdded(final int displayId) {
-        handleConsoleStateMaybeChanged();
-    }
-
-    @Override
-    public void onDisplayRemoved(final int displayId) {
-        handleConsoleStateMaybeChanged();
-        schedulePhoneHomeRecovery();
-    }
-
-    @Override
-    public void onDisplayChanged(final int displayId) {
-        handleConsoleStateMaybeChanged();
-        // This also fires for brightness and refresh-rate changes. Home recovery
-        // is intentionally tied to startup, display removal, and Console exit.
-    }
-
-    private void scheduleDeviceStateCheck() {
-        mHandler.removeCallbacks(mDeviceChangeRunnable);
-        mHandler.postDelayed(mDeviceChangeRunnable, DEVICE_CHANGE_DEBOUNCE_MILLIS);
-    }
-
-    private void handleDeviceStateMaybeChanged() {
-        final boolean hasHardwareKeyboard = hasHardwareKeyboard();
-        final boolean hasExternalMouse = hasExternalMouse();
-        final boolean keyboardChanged = hasHardwareKeyboard != mHasHardwareKeyboard;
-        final boolean mouseChanged = hasExternalMouse != mHasExternalMouse;
-        final String inputDeviceSignature = getExternalInputDeviceSignature();
-        final boolean inputInventoryChanged =
-                !inputDeviceSignature.equals(mExternalInputDeviceSignature);
+    private void handleInputStateChanged(
+            final RuntimeInputCoordinator.Snapshot inputState,
+            final boolean keyboardChanged,
+            final boolean mouseChanged,
+            final boolean inputInventoryChanged) {
         if (!keyboardChanged && !mouseChanged && !inputInventoryChanged) {
             return;
         }
-        mHasHardwareKeyboard = hasHardwareKeyboard;
-        mHasExternalMouse = hasExternalMouse;
-        mExternalInputDeviceSignature = inputDeviceSignature;
+        mHasHardwareKeyboard = inputState.hardwareKeyboard;
+        mHasExternalMouse = inputState.externalMouse;
+        mExternalInputDeviceSignature = inputState.deviceSignature;
         Log.i(TAG, "hardwareKeyboard=" + mHasHardwareKeyboard
                 + " externalMouse=" + mHasExternalMouse
                 + " inputInventoryChanged=" + inputInventoryChanged);
@@ -384,83 +329,11 @@ public final class MagicDeskRuntimeService extends Service
         updateConsoleMouseBridge();
     }
 
-    private boolean hasHardwareKeyboard() {
-        return hasExternalAlphabeticKeyboardDevice() || hasConfiguredHardKeyboard();
-    }
-
-    private boolean hasExternalAlphabeticKeyboardDevice() {
-        for (final int deviceId : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(deviceId);
-            if (isExternalAlphabeticKeyboard(device)) {
-                return true;
-            }
+    private void handleDisplayStateChanged(final boolean displayRemoved) {
+        handleConsoleStateMaybeChanged();
+        if (displayRemoved) {
+            schedulePhoneHomeRecovery();
         }
-        return false;
-    }
-
-    private boolean hasExternalMouse() {
-        for (final int deviceId : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null
-                    || isMagicDeskInputDevice(device)
-                    || device.isVirtual()
-                    || !device.isExternal()) {
-                continue;
-            }
-            if ((device.getSources() & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String getExternalInputDeviceSignature() {
-        final List<String> devices = new ArrayList<>();
-        for (final int deviceId : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null
-                    || isMagicDeskInputDevice(device)
-                    || device.isVirtual()
-                    || !device.isExternal()) {
-                continue;
-            }
-            devices.add(deviceId + ":" + device.getDescriptor()
-                    + ":" + device.getVendorId()
-                    + ":" + device.getProductId()
-                    + ":" + device.getSources()
-                    + ":" + device.getKeyboardType());
-        }
-        Collections.sort(devices);
-        return devices.toString();
-    }
-
-    private boolean hasConfiguredHardKeyboard() {
-        final Configuration configuration = getResources().getConfiguration();
-        return configuration.keyboard == Configuration.KEYBOARD_QWERTY
-                && configuration.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO;
-    }
-
-    private static boolean isExternalAlphabeticKeyboard(final InputDevice device) {
-        if (device == null
-                || isMagicDeskInputDevice(device)
-                || device.isVirtual()
-                || !device.isExternal()) {
-            return false;
-        }
-        final boolean hasKeyboardSource =
-                (device.getSources() & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD;
-        return hasKeyboardSource
-                && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
-    }
-
-    private static boolean isMagicDeskInputDevice(
-            final InputDevice device) {
-        if (device == null) {
-            return false;
-        }
-        final String name = device.getName();
-        return name.startsWith(MAGICDESK_KEYBOARD_NAME)
-                || MAGICDESK_MOUSE_NAME.equals(name);
     }
 
     private void registerConfigurationReceiver() {
@@ -468,7 +341,9 @@ public final class MagicDeskRuntimeService extends Service
             @Override
             public void onReceive(final Context context, final Intent intent) {
                 if (Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction())) {
-                    scheduleDeviceStateCheck();
+                    if (mInputCoordinator != null) {
+                        mInputCoordinator.scheduleRefresh();
+                    }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
                         && PhoneDisplayGuard.isActive()) {
                     ConsoleModeSwitcher.setPhoneScreenOff(false, null);
@@ -672,8 +547,8 @@ public final class MagicDeskRuntimeService extends Service
         try {
             final int displayId = Settings.Global.getInt(
                     getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
-            if (displayId <= 0 || mDisplayManager == null
-                    || mDisplayManager.getDisplay(displayId) == null) {
+            if (mDisplayCoordinator == null
+                    || !mDisplayCoordinator.hasDisplay(displayId)) {
                 return -1;
             }
             return displayId;
@@ -742,21 +617,8 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void logInputState() {
-        final Configuration configuration = getResources().getConfiguration();
-        Log.i(TAG, "config keyboard=" + configuration.keyboard
-                + " hardKeyboardHidden=" + configuration.hardKeyboardHidden
-                + " keyboardHidden=" + configuration.keyboardHidden);
-        for (final int deviceId : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null) {
-                continue;
-            }
-            Log.i(TAG, "device id=" + deviceId
-                    + " name=" + device.getName()
-                    + " external=" + device.isExternal()
-                    + " virtual=" + device.isVirtual()
-                    + " sources=0x" + Integer.toHexString(device.getSources())
-                    + " keyboardType=" + device.getKeyboardType());
+        if (mInputCoordinator != null) {
+            mInputCoordinator.logState(TAG);
         }
     }
 
