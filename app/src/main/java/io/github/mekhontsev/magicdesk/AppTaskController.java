@@ -91,9 +91,7 @@ final class AppTaskController {
                         ExistingTaskController.reuseIfExists(
                                 app.packageName,
                                 mActivity.getCurrentDisplayId(),
-                                false,
-                                FullscreenTransitionPolicy.shouldPreserveClient(
-                                        mActivity, app.packageName));
+                                false);
                 if (reuseResult.found) {
                     DesktopTaskController.finishFullscreenTransition(
                             displayId, true);
@@ -129,9 +127,7 @@ final class AppTaskController {
                     launchIntent, mActivity.getCurrentDisplayId());
             ExistingTaskController.normalizeLaunchedFullscreen(
                     app.packageName,
-                    mActivity.getCurrentDisplayId(),
-                    FullscreenTransitionPolicy.shouldPreserveClient(
-                            mActivity, app.packageName));
+                    mActivity.getCurrentDisplayId());
             DesktopTaskController.finishFullscreenTransition(
                     displayId, true);
         } catch (IOException e) {
@@ -287,8 +283,6 @@ final class AppTaskController {
                 R.string.status_launching_fullscreen, app.label));
         TaskRepository.setFullscreen(
                 task,
-                FullscreenTransitionPolicy.shouldPreserveClient(
-                        mActivity, task),
                 result -> {
                     DesktopTaskController.finishFullscreenTransition(
                             displayId, result.success);

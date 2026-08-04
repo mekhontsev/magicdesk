@@ -249,7 +249,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                     mPrepared = true;
                     Log.i(TAG, "ready task=" + taskId + " display=" + displayId);
                     if (mRequests.isEmpty()) {
-                        restoreDesktopFocus();
+                        parkAnchorAndRestoreDesktopFocus();
                     } else {
                         launchNext();
                     }
@@ -322,6 +322,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                                 mDisplayId,
                                 request.preservedTaskIds,
                                 !existingTask);
+                        parkAnchorNow(getTaskId(), mDisplayId);
                         MAIN_HANDLER.post(() -> finishLaunch(restoreTouchpad));
                     });
                 } catch (RuntimeException error) {
@@ -375,6 +376,23 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                 Log.w(TAG, "cannot restore desktop focus task=" + desktopTaskId, error);
             }
         });
+    }
+
+    private void parkAnchorAndRestoreDesktopFocus() {
+        final int taskId = getTaskId();
+        final int displayId = mDisplayId;
+        LAUNCH_EXECUTOR.execute(() -> {
+            parkAnchorNow(taskId, displayId);
+            restoreDesktopFocus();
+        });
+    }
+
+    private static void parkAnchorNow(final int taskId, final int displayId) {
+        try {
+            ExistingTaskController.parkFreeformLaunchSource(taskId, displayId);
+        } catch (IOException | RuntimeException error) {
+            Log.w(TAG, "cannot park launch anchor task=" + taskId, error);
+        }
     }
 
     private Rect defaultLaunchBounds() {

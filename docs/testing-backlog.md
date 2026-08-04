@@ -65,8 +65,9 @@ retired prototypes are listed separately and are not current product modes.
   reveal caption layers through SurfaceFlinger option `1102`, then restore
   Nubia's latest wired-privacy value on mirror, exit, and interrupted-session
   recovery.
-- [x] Validate client-preserving freeform/fullscreen transitions with the
-  same-display one-DPI refresh. No display-0 trampoline or task restart is used.
+- [x] Validate client-preserving freeform/fullscreen transitions by
+  synchronously clearing the exact stale task-local caption source. No density
+  pulse, display-0 trampoline, Activity recreation, or task restart is used.
 - [x] Enter and leave application-requested immersive fullscreen from YouTube
   in Firefox, restoring the previous freeform geometry.
 - [x] Handle Android chooser/dialog tasks without permanently demoting a

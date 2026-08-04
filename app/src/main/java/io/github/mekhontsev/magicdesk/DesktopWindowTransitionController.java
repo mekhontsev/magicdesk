@@ -332,8 +332,6 @@ final class DesktopWindowTransitionController {
         } else {
             TaskRepository.setFullscreen(
                     task,
-                    FullscreenTransitionPolicy.shouldPreserveClient(
-                            mContext, task),
                     callback);
         }
     }

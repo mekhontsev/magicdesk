@@ -90,7 +90,7 @@ public final class TaskCaptionInsetsCommand {
         excludeInsetsTypes.setInt(hierarchyOp, getCaptionBarType());
     }
 
-    private static int getCaptionBarType() throws ReflectiveOperationException {
+    static int getCaptionBarType() throws ReflectiveOperationException {
         final Class<?> typeClass = Class.forName("android.view.WindowInsets$Type");
         return ((Integer) typeClass.getMethod("captionBar").invoke(null)).intValue();
     }

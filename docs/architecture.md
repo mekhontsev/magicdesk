@@ -341,11 +341,11 @@ hides its shell and lets the same Activity enter true fullscreen. Leaving
 immersive mode restores the prior desktop geometry.
 
 REDMAGIC can retain a stale caption inset after changing windowing mode. The
-working same-display refresh changes the task's density by one DPI and restores
-it immediately through the same WindowContainerTransaction sequence. The
-one-DPI pulse causes a real configuration refresh without routing through the
-phone display or restarting the application. Details and rejected alternatives
-are in [Fullscreen transitions](fullscreen-transitions.md).
+working same-display refresh captures the task-local caption source before the
+transition, then synchronously replaces that exact client source with an empty
+frame after fullscreen mode is established. It neither changes density nor
+recreates the Activity. Details and rejected alternatives are in
+[Fullscreen transitions](fullscreen-transitions.md).
 
 ## Physical Input
 
@@ -468,8 +468,11 @@ These results explain otherwise tempting implementation choices:
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
-- Setting a task to its current DPI does not refresh stale insets; a real
-  one-DPI configuration pulse does.
+- Generic configuration changes cannot reliably refresh stale insets: some
+  applications recreate while others handle the change in place. Refresh the
+  exact task-local caption source instead.
+- Asynchronous add/remove of the replacement inset source can be coalesced by
+  Nubia before the client observes it; both stages require sync callbacks.
 - Accessibility key filtering does not reliably receive physical keys routed
   to the external desktop.
 - Per-button mouse reinjection loses application context and pointer semantics;

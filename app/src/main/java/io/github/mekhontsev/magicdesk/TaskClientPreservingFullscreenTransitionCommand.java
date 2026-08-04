@@ -6,8 +6,9 @@ import android.graphics.Rect;
 /**
  * Same-display fullscreen transition that preserves the current Activity instance.
  *
- * <p>App-requested fullscreen must not pulse task density because recreating the
- * Activity would discard the active video fullscreen session.</p>
+ * <p>The application's own insets request updates its client. This command does
+ * not wait for the first fullscreen frame because repeating a slow transition
+ * can discard the active video fullscreen session.</p>
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskClientPreservingFullscreenTransitionCommand {

@@ -16,6 +16,8 @@ final class ExistingTaskController {
     private static final String CMD = "/system/bin/cmd";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
+    private static final String TASK_WINDOWING_COMMAND =
+            "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
     private static final String MODE_FULLSCREEN = "fullscreen";
     private static final String MODE_FREEFORM = "freeform";
     private static final long TASK_APPEAR_TIMEOUT_MILLIS = 6000;
@@ -26,16 +28,14 @@ final class ExistingTaskController {
     }
 
     static ReuseResult reuseIfExists(final String packageName, final int targetDisplayId,
-            final boolean targetFreeform,
-            final boolean preserveFullscreenClient) throws IOException {
+            final boolean targetFreeform) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, targetFreeform,
-                null, false, false, preserveFullscreenClient);
+                null, false, false);
     }
 
     static ReuseResult normalizeLaunchedFullscreen(
             final String packageName,
-            final int targetDisplayId,
-            final boolean preserveFullscreenClient) throws IOException {
+            final int targetDisplayId) throws IOException {
         final TaskInfo task = waitForBestTask(
                 packageName, targetDisplayId, false);
         if (task == null) {
@@ -54,7 +54,7 @@ final class ExistingTaskController {
             runCommand(command);
             waitForTaskDisplay(task.taskId, targetDisplayId);
         }
-        setFullscreen(task, targetDisplayId, preserveFullscreenClient);
+        setFullscreen(task, targetDisplayId);
         bringTaskStackToFrontBestEffort(task, null);
         return ReuseResult.reused(task.packageName);
     }
@@ -63,14 +63,14 @@ final class ExistingTaskController {
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, true, waitForTask, false);
+                preservedTopFirstTaskIds, true, waitForTask);
     }
 
     static ReuseResult reuseFreeformIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, false, waitForTask, false);
+                preservedTopFirstTaskIds, false, waitForTask);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -108,11 +108,21 @@ final class ExistingTaskController {
                 Collections.singletonList(Integer.valueOf(taskId))));
     }
 
+    static void parkFreeformLaunchSource(
+            final int taskId,
+            final int displayId) throws IOException {
+        if (taskId < 0 || displayId < 0) {
+            throw new IOException("invalid freeform launch source");
+        }
+        runCommand(AppProcessCommand.run(
+                TASK_WINDOWING_COMMAND,
+                "send-behind " + displayId + " " + taskId));
+    }
+
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
-            final boolean waitForTask,
-            final boolean preserveFullscreenClient) throws IOException {
+            final boolean waitForTask) throws IOException {
         final TaskInfo task = waitForTask
                 ? waitForBestTask(packageName, targetDisplayId, targetFreeform)
                 : findBestTask(packageName, targetDisplayId, targetFreeform);
@@ -163,7 +173,7 @@ final class ExistingTaskController {
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
             } else if (!targetFreeform && taskIsFreeform) {
                 Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
-                setFullscreen(task, targetDisplayId, preserveFullscreenClient);
+                setFullscreen(task, targetDisplayId);
             } else {
                 setCaptionInsetExcluded(task.taskId, targetDisplayId,
                         !targetFreeform);
@@ -254,14 +264,10 @@ final class ExistingTaskController {
                 displayId, taskId, bounds));
     }
 
-    private static void setFullscreen(final TaskInfo task, final int displayId,
-            final boolean preserveClient)
+    private static void setFullscreen(final TaskInfo task, final int displayId)
             throws IOException {
-        runCommand(preserveClient
-                ? TaskRepository.createClientPreservingFullscreenTransitionCommand(
-                        displayId, task.taskId)
-                : TaskRepository.createFullscreenTransitionCommand(
-                        displayId, task.taskId));
+        runCommand(TaskRepository.createFullscreenTransitionCommand(
+                displayId, task.taskId));
     }
 
     private static void setCaptionInsetExcluded(final int taskId, final int displayId,

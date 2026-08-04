@@ -5,14 +5,7 @@ import android.graphics.Rect;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * Establishes final fullscreen geometry and recreates the client with those parameters.
- *
- * <p>Nubia can retain a desktop caption inset in the client after the task has already
- * become fullscreen. The temporary density override requests an Activity relaunch after
- * fullscreen bounds and caption exclusion are committed. Restoring density inheritance
- * requires a second configuration transaction.</p>
- */
+/** Establishes fullscreen geometry and clears Nubia's stale client caption inset. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskFullscreenTransitionCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
@@ -34,9 +27,10 @@ public final class TaskFullscreenTransitionCommand {
         try {
             final int displayId = parseInt(args[0], "display id");
             final int taskId = parseInt(args[1], "task id");
-            applyFullscreen(displayId, taskId, false);
+            final boolean captionRefreshed =
+                    applyFullscreen(displayId, taskId, false);
             System.out.println("task-fullscreen=" + taskId + " display=" + displayId
-                    + " client=recreated");
+                    + " caption=" + (captionRefreshed ? "refreshed" : "not-present"));
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
             while (cause.getCause() != null && cause.getCause() != cause) {
@@ -47,56 +41,49 @@ public final class TaskFullscreenTransitionCommand {
         }
     }
 
-    static void applyFullscreen(final int displayId, final int taskId,
+    static boolean applyFullscreen(final int displayId, final int taskId,
             final boolean forceTranslucent)
             throws ReflectiveOperationException {
+        final int captionSourceId =
+                TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId);
         final Object service = HiddenTaskApi.getService();
-        final Object task = HiddenTaskApi.requireTask(
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Object taskToken = HiddenTaskApi.getField(task, "token");
-        final Object configuration =
-                HiddenTaskApi.getField(task, "configuration");
-        final int densityDpi =
-                HiddenTaskApi.getIntField(configuration, "densityDpi");
-        if (densityDpi <= 1 || densityDpi == Integer.MAX_VALUE) {
-            throw new IllegalStateException("invalid task density " + densityDpi);
-        }
 
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
-        boolean temporaryDensityApplied = false;
+        final Object fullscreenTransaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(fullscreenTransaction, taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                .invoke(fullscreenTransaction, taskToken, new Rect());
+        transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
+                .invoke(fullscreenTransaction, taskToken, Boolean.TRUE);
+        transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE)
+                .invoke(fullscreenTransaction, taskToken,
+                        Boolean.valueOf(forceTranslucent));
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
+
+        startTransition(transactionClass, fullscreenTransaction);
+        awaitFullscreen(service, displayId, taskId);
+        if (captionSourceId == TaskLocalInsetsSourceParser.NO_SOURCE_ID) {
+            return false;
+        }
         try {
-            final Object fullscreenTransaction =
-                    transactionClass.getConstructor().newInstance();
-            transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(fullscreenTransaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(fullscreenTransaction, taskToken, new Rect());
-            transactionClass.getMethod("setDensityDpi", tokenClass, Integer.TYPE)
-                    .invoke(fullscreenTransaction, taskToken,
-                            Integer.valueOf(densityDpi + 1));
-            transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                    .invoke(fullscreenTransaction, taskToken, Boolean.TRUE);
-            transactionClass.getMethod(
-                    "setForceTranslucent", tokenClass, Boolean.TYPE)
-                    .invoke(fullscreenTransaction, taskToken,
-                            Boolean.valueOf(forceTranslucent));
-            TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                    transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
-
-            startTransition(transactionClass, fullscreenTransaction);
-            temporaryDensityApplied = true;
-
-            awaitFullscreen(service, displayId, taskId);
-            applyDensity(service, transactionClass, tokenClass, taskToken, 0);
-            temporaryDensityApplied = false;
-        } finally {
-            if (temporaryDensityApplied) {
-                applyDensity(service, transactionClass, tokenClass, taskToken, 0);
-            }
+            TaskCaptionInsetsRefresher.refresh(
+                    service, transactionClass, tokenClass, taskToken,
+                    captionSourceId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            System.err.printf("caption source refresh failed: id=%08x: %s%n",
+                    captionSourceId, e);
+            return false;
         }
     }
 
@@ -128,16 +115,6 @@ public final class TaskFullscreenTransitionCommand {
             }
         }
         throw new IllegalStateException("fullscreen transition timed out");
-    }
-
-    private static void applyDensity(final Object service,
-            final Class<?> transactionClass, final Class<?> tokenClass,
-            final Object taskToken, final int densityDpi)
-            throws ReflectiveOperationException {
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setDensityDpi", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(densityDpi));
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
     }
 
     private static int parseInt(final String value, final String label) {
