@@ -18,6 +18,8 @@ final class DesktopRuntimeBridge {
             new WeakReference<>(null);
     private static WeakReference<DesktopShellActivity> sDesktop =
             new WeakReference<>(null);
+    // WMS may move the task to display 0 before reporting the external display removal.
+    private static int sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
 
     private DesktopRuntimeBridge() {
     }
@@ -28,6 +30,9 @@ final class DesktopRuntimeBridge {
 
     static void registerDesktop(final DesktopShellActivity activity) {
         final DesktopShellActivity previous = sDesktop.get();
+        final boolean replacingSameTask = previous != null
+                && previous != activity
+                && previous.getTaskId() == activity.getTaskId();
         final boolean previousWasLocal =
                 previous != null
                         && previous != activity
@@ -44,7 +49,12 @@ final class DesktopRuntimeBridge {
             }
         }
         sDesktop = new WeakReference<>(activity);
-        if (activity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY
+        final int displayId = activity.getCurrentDisplayId();
+        if (!replacingSameTask || displayId != Display.DEFAULT_DISPLAY) {
+            sDesktopSessionDisplayId = displayId;
+        }
+        if (displayId == Display.DEFAULT_DISPLAY
+                && sDesktopSessionDisplayId == Display.DEFAULT_DISPLAY
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
@@ -61,10 +71,38 @@ final class DesktopRuntimeBridge {
         if (sDesktop.get() == activity) {
             final int displayId = activity.getCurrentDisplayId();
             sDesktop.clear();
+            sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
             if (displayId == Display.DEFAULT_DISPLAY) {
                 MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
             }
+        }
+    }
+
+    static void closeExternalDesktopSession(final int consoleDisplayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || consoleDisplayId <= Display.DEFAULT_DISPLAY
+                || sDesktopSessionDisplayId != consoleDisplayId) {
+            return;
+        }
+        sDesktop.clear();
+        if (sShell.get() == activity) {
+            sShell.clear();
+        }
+        sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+        final Runnable close = () -> {
+            FreeformLaunchAnchorActivity.release();
+            activity.releaseDesktopOverlays();
+            if (!activity.isFinishing()) {
+                activity.finishAndRemoveTask();
+            }
+            MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            close.run();
+        } else {
+            MAIN_HANDLER.post(close);
         }
     }
 

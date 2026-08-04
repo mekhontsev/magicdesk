@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.AppOpsManager;
 import android.content.Context;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -18,6 +19,7 @@ final class OverlayPanelController {
     private static final String TAG = "MagicDeskPanels";
 
     private final Context mApplicationContext;
+    private final AppOpsManager mAppOpsManager;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final WindowManager mWindowManager;
     private final Rect mBounds = new Rect();
@@ -25,14 +27,28 @@ final class OverlayPanelController {
 
     private View mVisiblePanel;
     private View mPersistentView;
+    private WindowManager.LayoutParams mPersistentParams;
     private View mTransientView;
     private boolean mAdded;
     private boolean mPersistentAdded;
     private boolean mTransientAdded;
+    private boolean mOverlayPermissionGranted;
+    private boolean mPermissionWatcherStarted;
+    private boolean mReleased;
     private final Runnable mTransientTimeout = this::hideTransient;
+    private final AppOpsManager.OnOpChangedListener mOverlayPermissionListener;
 
     OverlayPanelController(final Context context, final int displayId) {
         mApplicationContext = context.getApplicationContext();
+        mAppOpsManager = mApplicationContext.getSystemService(AppOpsManager.class);
+        mOverlayPermissionGranted = Settings.canDrawOverlays(mApplicationContext);
+        mOverlayPermissionListener = (operation, packageName) -> {
+            if (!AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW.equals(operation)
+                    || !mApplicationContext.getPackageName().equals(packageName)) {
+                return;
+            }
+            mMainHandler.post(this::reconcileOverlayPermission);
+        };
         final DisplayManager displayManager = mApplicationContext.getSystemService(
                 DisplayManager.class);
         final Display display = displayManager == null
@@ -52,6 +68,13 @@ final class OverlayPanelController {
                         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                         null);
         mWindowManager = windowContext.getSystemService(WindowManager.class);
+        if (mAppOpsManager != null) {
+            mAppOpsManager.startWatchingMode(
+                    AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
+                    mApplicationContext.getPackageName(),
+                    mOverlayPermissionListener);
+            mPermissionWatcherStarted = true;
+        }
     }
 
     boolean show(final View panel, final int left, final int top,
@@ -156,12 +179,14 @@ final class OverlayPanelController {
         try {
             mWindowManager.addView(view, params);
             mPersistentView = view;
+            mPersistentParams = params;
             mPersistentAdded = true;
             mPersistentBounds.set(left, top, left + width, top + height);
             return true;
         } catch (RuntimeException e) {
             view.setVisibility(View.GONE);
             mPersistentView = null;
+            mPersistentParams = null;
             mPersistentAdded = false;
             mPersistentBounds.setEmpty();
             Log.w(TAG, "failed to attach persistent overlay " + title, e);
@@ -253,8 +278,10 @@ final class OverlayPanelController {
                 || mWindowManager == null) {
             return;
         }
-        final WindowManager.LayoutParams params =
-                (WindowManager.LayoutParams) mPersistentView.getLayoutParams();
+        final WindowManager.LayoutParams params = mPersistentParams;
+        if (params == null) {
+            return;
+        }
         params.x = left;
         params.y = top;
         params.width = width;
@@ -299,8 +326,64 @@ final class OverlayPanelController {
     }
 
     void release() {
+        mReleased = true;
+        if (mPermissionWatcherStarted && mAppOpsManager != null) {
+            mAppOpsManager.stopWatchingMode(mOverlayPermissionListener);
+            mPermissionWatcherStarted = false;
+        }
         hideAll();
         detachPersistent();
+    }
+
+    private void reconcileOverlayPermission() {
+        if (mReleased) {
+            return;
+        }
+        final boolean granted = Settings.canDrawOverlays(mApplicationContext);
+        if (granted == mOverlayPermissionGranted) {
+            return;
+        }
+        mOverlayPermissionGranted = granted;
+        if (!granted) {
+            hideAll();
+            suspendPersistent();
+            Log.i(TAG, "desktop overlays suspended after permission revocation");
+            return;
+        }
+        resumePersistent();
+    }
+
+    private void suspendPersistent() {
+        final View view = mPersistentView;
+        if (!mPersistentAdded || view == null || mWindowManager == null) {
+            return;
+        }
+        try {
+            mWindowManager.removeViewImmediate(view);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "failed to suspend persistent overlay", e);
+        }
+        mPersistentAdded = false;
+    }
+
+    private void resumePersistent() {
+        final View view = mPersistentView;
+        if (mPersistentAdded || view == null || mPersistentParams == null
+                || mWindowManager == null) {
+            return;
+        }
+        try {
+            mWindowManager.addView(view, mPersistentParams);
+            mPersistentAdded = true;
+            Log.i(TAG, "desktop overlays resumed after permission grant");
+        } catch (RuntimeException e) {
+            Log.w(TAG, "failed to resume persistent overlay", e);
+            CompatibilityDiagnostics.record(
+                    "OVERLAY-008",
+                    "The MagicDesk taskbar could not be restored",
+                    "overlay permission was granted again",
+                    e);
+        }
     }
 
     private void detachPersistent() {
@@ -316,6 +399,7 @@ final class OverlayPanelController {
             view.setVisibility(View.GONE);
         }
         mPersistentView = null;
+        mPersistentParams = null;
         mPersistentAdded = false;
         mPersistentBounds.setEmpty();
     }

@@ -111,13 +111,8 @@ final class PhoneHomeRecoveryController {
             complete(callback, false);
             return;
         }
-        if (!needsPrimaryHomeRestore(
-                snapshot.tasks, includeStrandedDesktop)) {
-            complete(callback,
-                    !includeStrandedDesktop
-                            || hasVisiblePhoneTask(snapshot.tasks));
-            return;
-        }
+        final boolean needsPrimaryHome = needsPrimaryHomeRestore(
+                snapshot.tasks, includeStrandedDesktop);
         if (includeStrandedDesktop) {
             TaskRepository.recoverPhoneDesktopTasks(result -> {
                 if (!result.success) {
@@ -131,8 +126,17 @@ final class PhoneHomeRecoveryController {
                     complete(callback, false);
                     return;
                 }
-                restorePrimaryHome(callback);
+                if (needsPrimaryHome
+                        || !hasVisiblePhoneTask(snapshot.tasks)) {
+                    restorePrimaryHome(callback);
+                } else {
+                    complete(callback, true);
+                }
             });
+            return;
+        }
+        if (!needsPrimaryHome) {
+            complete(callback, true);
             return;
         }
         restorePrimaryHome(callback);

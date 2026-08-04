@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.os.Process;
 import android.util.DisplayMetrics;
@@ -62,12 +63,11 @@ final class LauncherAppRepository {
                     launcherInfo.getLabel();
             final String label = labelChars == null || labelChars.length() == 0
                     ? packageName : labelChars.toString();
-            final Drawable icon = mIconRenderer.render(
-                    launcherInfo.getIcon(DisplayMetrics.DENSITY_XHIGH));
             final ApplicationInfo applicationInfo =
                     launcherInfo.getApplicationInfo();
             final ActivityInfo activityInfo =
                     launcherInfo.getActivityInfo();
+            final Drawable icon = loadIcon(activityInfo, applicationInfo);
             result.add(new AppItem(
                     label,
                     packageName,
@@ -111,9 +111,9 @@ final class LauncherAppRepository {
                     fullscreenPreference(
                             launcherInfo.getActivityInfo(),
                             launcherInfo.getApplicationInfo()),
-                    mIconRenderer.render(
-                            launcherInfo.getIcon(
-                                    DisplayMetrics.DENSITY_XHIGH)),
+                    loadIcon(
+                            launcherInfo.getActivityInfo(),
+                            launcherInfo.getApplicationInfo()),
                     AppLaunchTarget.packageDefault(packageName));
         }
         try {
@@ -127,7 +127,7 @@ final class LauncherAppRepository {
                     packageName,
                     universalFreeform,
                     fullscreenPreference(activityInfo, info),
-                    mIconRenderer.render(info.loadIcon(mPackageManager)),
+                    loadIcon(activityInfo, info),
                     AppLaunchTarget.packageDefault(packageName));
         } catch (PackageManager.NameNotFoundException error) {
             Log.w(TAG, "Task package is not installed: " + packageName, error);
@@ -175,8 +175,7 @@ final class LauncherAppRepository {
                         target.packageName,
                         universalFreeform,
                         fullscreenPreference(activityInfo, applicationInfo),
-                        mIconRenderer.render(
-                                activityInfo.loadIcon(mPackageManager)),
+                        loadIcon(activityInfo, applicationInfo),
                         target));
                 addedPackages.add(target.packageName);
             } catch (PackageManager.NameNotFoundException error) {
@@ -214,6 +213,31 @@ final class LauncherAppRepository {
         final LauncherActivityInfo launcherInfo =
                 findLauncherActivity(packageName);
         return launcherInfo == null ? null : launcherInfo.getActivityInfo();
+    }
+
+    private Drawable loadIcon(
+            final ActivityInfo activityInfo,
+            final ApplicationInfo applicationInfo) {
+        int resourceId = activityInfo == null
+                ? 0 : activityInfo.getIconResource();
+        if (resourceId == 0 && applicationInfo != null) {
+            resourceId = applicationInfo.icon;
+        }
+        if (resourceId != 0 && applicationInfo != null) {
+            try {
+                final Resources resources =
+                        mPackageManager.getResourcesForApplication(
+                                applicationInfo);
+                return mIconRenderer.render(resources.getDrawableForDensity(
+                        resourceId,
+                        DisplayMetrics.DENSITY_XHIGH,
+                        null));
+            } catch (PackageManager.NameNotFoundException
+                    | RuntimeException ignored) {
+                // Fall through to Android's default icon.
+            }
+        }
+        return mIconRenderer.render(mPackageManager.getDefaultActivityIcon());
     }
 
     private static String fullscreenPreference(

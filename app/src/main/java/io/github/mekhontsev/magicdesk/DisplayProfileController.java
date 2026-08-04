@@ -17,6 +17,10 @@ final class DisplayProfileController {
     private static final long DISPLAY_SETTLE_MILLIS = 1_000L;
     private static final long MONITOR_IDENTITY_RETRY_MILLIS = 2_000L;
     private static final int MAX_MONITOR_IDENTITY_ATTEMPTS = 3;
+    private static final Object MONITOR_IDENTITY_BUDGET_LOCK = new Object();
+
+    private static int sMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
+    private static int sMonitorIdentityAttempts;
 
     private final DesktopShellActivity mActivity;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
@@ -29,8 +33,8 @@ final class DisplayProfileController {
     private String mProfileDisplayKey;
     private String mMonitorProfileKey;
     private boolean mMonitorIdentityRequested;
+    private int mMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
     private int mMonitorIdentityGeneration;
-    private int mMonitorIdentityAttempts;
 
     DisplayProfileController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -50,6 +54,7 @@ final class DisplayProfileController {
 
             @Override
             public void onDisplayRemoved(final int displayId) {
+                resetMonitorIdentityBudget(displayId);
                 scheduleRefresh();
             }
 
@@ -105,7 +110,6 @@ final class DisplayProfileController {
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = null;
         mMonitorIdentityRequested = false;
-        mMonitorIdentityAttempts = 0;
         mMonitorIdentityGeneration++;
         mHandler.removeCallbacks(mMonitorIdentityRetry);
         getProfile();
@@ -132,10 +136,14 @@ final class DisplayProfileController {
                 || profileDisplay.getName().contains("NubiaAppMirror")) {
             return;
         }
+        final int profileDisplayId = profileDisplay.getDisplayId();
+        if (!reserveMonitorIdentityAttempt(profileDisplayId)) {
+            return;
+        }
         mMonitorIdentityRequested = true;
+        mMonitorIdentityDisplayId = profileDisplayId;
         final String requestedDisplayKey = resolveProfileKey();
         final int generation = ++mMonitorIdentityGeneration;
-        mMonitorIdentityAttempts++;
         new Thread(() -> {
             final String output;
             try {
@@ -296,7 +304,7 @@ final class DisplayProfileController {
             return;
         }
         mMonitorIdentityRequested = false;
-        if (mMonitorIdentityAttempts < MAX_MONITOR_IDENTITY_ATTEMPTS) {
+        if (hasMonitorIdentityAttemptsRemaining(mMonitorIdentityDisplayId)) {
             mHandler.removeCallbacks(mMonitorIdentityRetry);
             mHandler.postDelayed(
                     mMonitorIdentityRetry,
@@ -351,6 +359,37 @@ final class DisplayProfileController {
                 mode.getPhysicalWidth(),
                 mode.getPhysicalHeight(),
                 DisplayMetrics.DENSITY_DEVICE_STABLE);
+    }
+
+    private static boolean reserveMonitorIdentityAttempt(final int displayId) {
+        synchronized (MONITOR_IDENTITY_BUDGET_LOCK) {
+            if (sMonitorIdentityDisplayId != displayId) {
+                sMonitorIdentityDisplayId = displayId;
+                sMonitorIdentityAttempts = 0;
+            }
+            if (sMonitorIdentityAttempts >= MAX_MONITOR_IDENTITY_ATTEMPTS) {
+                return false;
+            }
+            sMonitorIdentityAttempts++;
+            return true;
+        }
+    }
+
+    private static boolean hasMonitorIdentityAttemptsRemaining(final int displayId) {
+        synchronized (MONITOR_IDENTITY_BUDGET_LOCK) {
+            return sMonitorIdentityDisplayId != displayId
+                    || sMonitorIdentityAttempts < MAX_MONITOR_IDENTITY_ATTEMPTS;
+        }
+    }
+
+    private static void resetMonitorIdentityBudget(final int displayId) {
+        synchronized (MONITOR_IDENTITY_BUDGET_LOCK) {
+            if (sMonitorIdentityDisplayId != displayId) {
+                return;
+            }
+            sMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
+            sMonitorIdentityAttempts = 0;
+        }
     }
 
 }

@@ -362,6 +362,7 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         final boolean wasConsoleModeActive = mConsoleModeActive;
+        final int previousConsoleDisplayId = mConsoleDisplayId;
         final boolean activeStateChanged = consoleModeActive != wasConsoleModeActive;
         mConsoleModeActive = consoleModeActive;
         mConsoleDisplayId = consoleDisplayId;
@@ -377,6 +378,10 @@ public final class MagicDeskRuntimeService extends Service {
         updateConsoleMouseBridge();
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
+        }
+        if (wasConsoleModeActive && !consoleModeActive) {
+            DesktopRuntimeBridge.closeExternalDesktopSession(
+                    previousConsoleDisplayId);
         }
         updateDesktopTasks();
         if (wasConsoleModeActive && !consoleModeActive
