@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.SystemClock;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -14,6 +15,10 @@ import java.util.Set;
 
 final class ConsoleInputRoutingSession implements AutoCloseable {
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
+    private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
+    private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
+    private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
+            "magicdesk-keyboard-";
     private static final String DUMPSYS = "/system/bin/dumpsys";
     private static final String SETTINGS = "/system/bin/settings";
     private static final String CONSOLE_DISPLAY_SETTING =
@@ -32,19 +37,29 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
     private int mConsoleDisplayId = -1;
     private int mDisplayPort = -1;
     private int mKeyboardAssociationCount;
+    private int mVirtualKeyboardCount;
     private boolean mClosed;
 
     private ConsoleInputRoutingSession() {
     }
 
     static ConsoleInputRoutingSession open(
-            final List<ConsoleKeyboardDevice> keyboards,
-            final List<ConsoleMouseDevice> mice) throws Exception {
+            final int expectedVirtualKeyboardCount) throws Exception {
+        if (expectedVirtualKeyboardCount <= 0) {
+            throw new IllegalArgumentException(
+                    "virtual keyboard count must be positive");
+        }
+        final List<ConsoleKeyboardDevice> keyboards =
+                waitForVirtualKeyboards(expectedVirtualKeyboardCount);
+        final List<ConsoleMouseDevice> mice =
+                ConsoleInputDeviceDiscovery.findRoutableMice();
         cleanupStaleAssociations();
         final ConsoleInputRoutingSession session =
                 new ConsoleInputRoutingSession();
         try {
             session.start(keyboards, mice);
+            session.mVirtualKeyboardCount =
+                    countVirtualKeyboards(keyboards);
             return session;
         } catch (Exception error) {
             session.close();
@@ -64,8 +79,11 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         return mKeyboardAssociationCount;
     }
 
+    int virtualKeyboardCount() {
+        return mVirtualKeyboardCount;
+    }
+
     static int cleanupStaleAssociations() throws Exception {
-        final String inputDump = readInputDump();
         final Set<String> ownedPorts =
                 ConsoleInputRoutingOwnership.read();
         if (ownedPorts.isEmpty()) {
@@ -359,6 +377,37 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         mConsoleDisplayId = -1;
         mDisplayPort = -1;
         mKeyboardAssociationCount = 0;
+        mVirtualKeyboardCount = 0;
+    }
+
+    private static List<ConsoleKeyboardDevice> waitForVirtualKeyboards(
+            final int expectedCount)
+            throws IOException, InterruptedException {
+        final long deadline = SystemClock.uptimeMillis()
+                + VIRTUAL_KEYBOARD_TIMEOUT_MILLIS;
+        List<ConsoleKeyboardDevice> keyboards;
+        do {
+            keyboards = ConsoleInputDeviceDiscovery.findRoutableKeyboards();
+            if (countVirtualKeyboards(keyboards) == expectedCount) {
+                return keyboards;
+            }
+            Thread.sleep(VIRTUAL_KEYBOARD_POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "Expected " + expectedCount
+                        + " MagicDesk virtual keyboards in EventHub");
+    }
+
+    private static int countVirtualKeyboards(
+            final List<ConsoleKeyboardDevice> keyboards) {
+        int count = 0;
+        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+            if (keyboard.location.startsWith(
+                    VIRTUAL_KEYBOARD_LOCATION_PREFIX)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static void removeAssociations(

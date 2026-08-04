@@ -10,12 +10,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 final class KeyboardShortcutWatcher {
     private static final String TAG = "MagicDeskKeys";
-    private static final String ROUTING_COMMAND =
-            "io.github.mekhontsev.magicdesk.ConsoleInputRoutingCommand";
     private static final String INPUT_EVENT_COMMAND =
             "/system/bin/getevent -lt";
     private static final String KEYBOARD_HELPER =
@@ -29,7 +26,7 @@ final class KeyboardShortcutWatcher {
             new KeyboardShortcutStateMachine();
     private static boolean sRunning;
     private static ShellStreamHandle sInputStream;
-    private static ShellStreamHandle sRoutingStream;
+    private static ShellInputRoutingHandle sInputRouting;
     private static Thread sThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
@@ -60,7 +57,7 @@ final class KeyboardShortcutWatcher {
 
     static void stop() {
         final ShellStreamHandle inputStream;
-        final ShellStreamHandle routingStream;
+        final ShellInputRoutingHandle inputRouting;
         final Thread thread;
         final boolean cancelAltTab;
         synchronized (LOCK) {
@@ -68,10 +65,10 @@ final class KeyboardShortcutWatcher {
             sGeneration++;
             cancelAltTab = SHORTCUTS.reset();
             inputStream = sInputStream;
-            routingStream = sRoutingStream;
+            inputRouting = sInputRouting;
             thread = sThread;
             sInputStream = null;
-            sRoutingStream = null;
+            sInputRouting = null;
             sThread = null;
             sFullShortcutMode = false;
             sConsoleMode = false;
@@ -79,8 +76,8 @@ final class KeyboardShortcutWatcher {
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
         }
+        closeQuietly(inputRouting);
         closeQuietly(inputStream);
-        closeQuietly(routingStream);
         if (thread != null) {
             thread.interrupt();
         }
@@ -89,7 +86,7 @@ final class KeyboardShortcutWatcher {
     static boolean isRunning() {
         synchronized (LOCK) {
             return sRunning && (sInputStream != null
-                    || sRoutingStream != null);
+                    || sInputRouting != null);
         }
     }
 
@@ -102,20 +99,20 @@ final class KeyboardShortcutWatcher {
     static void refreshConsoleInputSources(
             final List<ConsoleKeyboardDevice> keyboards) {
         final ShellStreamHandle inputStream;
-        final ShellStreamHandle routingStream;
+        final ShellInputRoutingHandle inputRouting;
         synchronized (LOCK) {
             if (!sRunning || !sConsoleMode) {
                 return;
             }
             inputStream = sInputStream;
-            routingStream = sRoutingStream;
+            inputRouting = sInputRouting;
         }
         try {
             if (inputStream != null) {
                 inputStream.writeLine(buildSourcesCommand(keyboards));
             }
-            if (routingStream != null) {
-                routingStream.writeLine("refresh");
+            if (inputRouting != null) {
+                inputRouting.refresh();
             }
         } catch (IOException error) {
             Log.w(TAG, "Could not refresh console input sources", error);
@@ -127,7 +124,7 @@ final class KeyboardShortcutWatcher {
             ShellStreamHandle inputStream = null;
             BufferedReader reader = null;
             try {
-                cleanupStaleInputRouting();
+                ShellAccess.cleanupInputRouting();
                 if (consoleMode) {
                     runConsoleSession(generation);
                     continue;
@@ -173,29 +170,12 @@ final class KeyboardShortcutWatcher {
         Log.i(TAG, "input watcher stopped");
     }
 
-    private static void cleanupStaleInputRouting()
-            throws IOException {
-        final String output = ShellAccess.run(
-                AppProcessCommand.run(
-                        ROUTING_COMMAND,
-                        "cleanup-stale"));
-        if (!output.contains(
-                "MAGICDESK_ROUTING_CLEAN")) {
-            throw new IOException(
-                    "stale input routing cleanup failed: "
-                            + output);
-        }
-    }
-
     private static void runConsoleSession(final long generation)
             throws IOException {
         ShellStreamHandle keyboardStream = null;
-        ShellStreamHandle routingStream = null;
+        ShellInputRoutingHandle inputRouting = null;
         BufferedReader keyboardReader = null;
-        BufferedReader routingReader = null;
-        Thread routingMonitor = null;
         HardwareKeyboardLayoutController.LayoutSink layoutSink = null;
-        final AtomicBoolean sessionClosing = new AtomicBoolean();
         try {
             final List<ConsoleKeyboardDevice> keyboards =
                     ConsoleInputDeviceDiscovery.findKeyboards(
@@ -219,43 +199,15 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_KEYBOARD_READY",
                     "keyboard bridge");
 
-            routingStream = ShellAccess.openOwnedStream(
-                    AppProcessCommand.exec(
-                            ROUTING_COMMAND,
-                            Integer.toString(layoutCount)));
-            setRoutingStream(routingStream, generation);
-            routingReader = new BufferedReader(new InputStreamReader(
-                    routingStream.inputStream()));
-            final String routingReady = waitForLine(
-                    routingReader,
-                    "MAGICDESK_ROUTING_READY",
-                    "input routing");
-            final int routedKeyboards =
-                    parseIntegerValue(routingReady, "keyboards");
-            final int routedVirtualKeyboards =
-                    parseIntegerValue(
-                            routingReady, "virtualKeyboards");
-            if (routedVirtualKeyboards != layoutCount) {
+            inputRouting = ShellAccess.openInputRouting(layoutCount);
+            setInputRouting(inputRouting, generation);
+            if (inputRouting.virtualKeyboardCount() != layoutCount) {
                 throw new IOException(
-                        "virtual keyboard was not routed: "
-                                + routingReady);
+                        "virtual keyboard routing count mismatch");
             }
 
             final ShellStreamHandle activeKeyboardStream =
                     keyboardStream;
-            final BufferedReader activeRoutingReader = routingReader;
-            final Thread sessionThread = Thread.currentThread();
-            routingMonitor = new Thread(
-                    () -> monitorRouting(
-                            activeRoutingReader,
-                            activeKeyboardStream,
-                            sessionThread,
-                            sessionClosing,
-                            generation),
-                    "MagicDeskInputRouting");
-            routingMonitor.setDaemon(true);
-            routingMonitor.start();
-
             layoutSink = index -> activeKeyboardStream.writeLine(
                     "layout " + index);
             HardwareKeyboardLayoutController.attachLayoutSink(
@@ -270,7 +222,10 @@ final class KeyboardShortcutWatcher {
             Log.i(TAG, "input watcher started shell="
                     + ShellAccess.statusLabel()
                     + " full=true console=true"
-                    + " keyboards=" + routedKeyboards
+                    + " keyboards="
+                    + inputRouting.keyboardAssociationCount()
+                    + " associations="
+                    + inputRouting.associationCount()
                     + " layouts=" + layoutCount);
 
             String line;
@@ -284,19 +239,14 @@ final class KeyboardShortcutWatcher {
                         "Keyboard bridge exited unexpectedly");
             }
         } finally {
-            sessionClosing.set(true);
+            closeQuietly(inputRouting);
             closeQuietly(keyboardReader);
-            closeQuietly(routingReader);
             closeQuietly(keyboardStream);
-            closeQuietly(routingStream);
-            clearRoutingStream(routingStream);
+            clearInputRouting(inputRouting);
             clearInputStream(keyboardStream);
             HardwareKeyboardLayoutController.detachLayoutSink(
                     layoutSink);
             clearModifierState();
-            if (routingMonitor != null) {
-                routingMonitor.interrupt();
-            }
             if (isRunning(generation)) {
                 Thread.interrupted();
             }
@@ -355,24 +305,6 @@ final class KeyboardShortcutWatcher {
         throw new IOException(component + " exited before becoming ready");
     }
 
-    private static int parseIntegerValue(
-            final String line,
-            final String key) {
-        final String prefix = key + "=";
-        for (final String part : line.split("\\s+")) {
-            if (!part.startsWith(prefix)) {
-                continue;
-            }
-            try {
-                return Integer.parseInt(
-                        part.substring(prefix.length()));
-            } catch (NumberFormatException ignored) {
-                return -1;
-            }
-        }
-        return -1;
-    }
-
     private static void syncHardwareKeyboardLayout()
             throws IOException {
         final CountDownLatch complete = new CountDownLatch(1);
@@ -385,32 +317,6 @@ final class KeyboardShortcutWatcher {
             throw new IOException(
                     "interrupted while applying the virtual keyboard layout",
                     error);
-        }
-    }
-
-    private static void monitorRouting(
-            final BufferedReader reader,
-            final ShellStreamHandle keyboardStream,
-            final Thread sessionThread,
-            final AtomicBoolean sessionClosing,
-            final long generation) {
-        try {
-            String line;
-            while (isRunning(generation)
-                    && (line = reader.readLine()) != null) {
-                if (!line.isEmpty()) {
-                    Log.d(TAG, line);
-                }
-            }
-        } catch (IOException error) {
-            if (isRunning(generation)) {
-                Log.w(TAG, "Input routing stopped", error);
-            }
-        } finally {
-            if (!sessionClosing.get() && isRunning(generation)) {
-                closeQuietly(keyboardStream);
-                sessionThread.interrupt();
-            }
         }
     }
 
@@ -601,12 +507,12 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void setRoutingStream(
-            final ShellStreamHandle stream,
+    private static void setInputRouting(
+            final ShellInputRoutingHandle inputRouting,
             final long generation) {
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
-                sRoutingStream = stream;
+                sInputRouting = inputRouting;
             }
         }
     }
@@ -626,18 +532,18 @@ final class KeyboardShortcutWatcher {
         synchronized (LOCK) {
             if (sInputStream == stream) {
                 sInputStream = null;
-                if (sRoutingStream == null) {
+                if (sInputRouting == null) {
                     sFullShortcutMode = false;
                 }
             }
         }
     }
 
-    private static void clearRoutingStream(
-            final ShellStreamHandle stream) {
+    private static void clearInputRouting(
+            final ShellInputRoutingHandle inputRouting) {
         synchronized (LOCK) {
-            if (sRoutingStream == stream) {
-                sRoutingStream = null;
+            if (sInputRouting == inputRouting) {
+                sInputRouting = null;
                 if (sInputStream == null) {
                     sFullShortcutMode = false;
                 }

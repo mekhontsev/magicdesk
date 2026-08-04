@@ -23,6 +23,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Locale;
 
 final class ShizukuCapabilityProbe {
     private static final String[] PERMISSIONS = {
@@ -107,7 +108,8 @@ final class ShizukuCapabilityProbe {
             final Context context) {
         for (final String permission : PERMISSIONS) {
             final String key = permission.substring(
-                    permission.lastIndexOf('.') + 1).toLowerCase();
+                    permission.lastIndexOf('.') + 1)
+                    .toLowerCase(Locale.ROOT);
             if (context == null) {
                 append(report, "permission." + key, "unknown", "no service context");
                 continue;

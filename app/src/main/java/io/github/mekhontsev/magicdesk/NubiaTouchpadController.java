@@ -40,7 +40,7 @@ final class NubiaTouchpadController {
                             "Console mode is inactive");
                     return;
                 }
-                request();
+                refreshOrOpen();
             } finally {
                 OPEN_IN_PROGRESS.set(false);
             }
@@ -76,7 +76,7 @@ final class NubiaTouchpadController {
                 touchpadMissing = true;
                 Log.i(TAG,
                         "restore Nubia touchpad after desktop transition");
-                restored = request();
+                restored = refreshOrOpen();
             } finally {
                 OPEN_IN_PROGRESS.set(false);
                 if (callback != null) {
@@ -92,14 +92,6 @@ final class NubiaTouchpadController {
     }
 
     static boolean refreshOrOpen() {
-        return requestTouchpad();
-    }
-
-    private static boolean request() {
-        return requestTouchpad();
-    }
-
-    private static boolean requestTouchpad() {
         final boolean pointerCaptured = MagicDeskRuntimeService
                 .capturePointerPositionIfRunning();
         try {
@@ -131,7 +123,7 @@ final class NubiaTouchpadController {
         } finally {
             if (pointerCaptured) {
                 MagicDeskRuntimeService
-                        .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
+                        .restorePointerPositionOnNextMotionIfRunning();
             }
         }
     }

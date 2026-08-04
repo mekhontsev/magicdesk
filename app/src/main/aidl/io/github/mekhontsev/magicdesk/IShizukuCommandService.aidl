@@ -55,4 +55,14 @@ interface IShizukuCommandService {
     void restorePointerPositionIfDisplaced() = 16;
 
     void injectSecondaryClick(int displayId) = 17;
+
+    int[] startInputRouting(
+        int expectedVirtualKeyboardCount,
+        IBinder ownerToken) = 18;
+
+    int refreshInputRouting() = 19;
+
+    void stopInputRouting(IBinder ownerToken) = 20;
+
+    int cleanupInputRouting() = 21;
 }

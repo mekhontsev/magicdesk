@@ -279,11 +279,6 @@ public final class ControlActivity extends Activity
         refresh();
     }
 
-    @Override
-    public void releaseSessionUi() {
-        // The control panel does not own desktop overlay windows.
-    }
-
     private void refresh() {
         if (mPanel == null) {
             return;

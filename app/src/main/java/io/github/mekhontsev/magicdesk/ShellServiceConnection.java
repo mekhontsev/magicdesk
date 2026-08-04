@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.ComponentName;
 import android.content.ServiceConnection;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 
 import java.io.IOException;
@@ -54,23 +55,14 @@ final class ShellServiceConnection {
             if (mService != null) {
                 return mService;
             }
+            bindLocked(argsSupplier);
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                throw new IOException("Shizuku command service is connecting");
+            }
             final long deadline = SystemClock.uptimeMillis() + BIND_TIMEOUT_MILLIS;
             while (mService == null) {
-                if (!mBinding) {
-                    mBinding = true;
-                    try {
-                        Shizuku.bindUserService(argsSupplier.get(), mConnection);
-                    } catch (RuntimeException error) {
-                        mBinding = false;
-                        throw new IOException(
-                                "could not bind Shizuku command service: "
-                                        + ShellAccess.usefulMessage(error),
-                                error);
-                    }
-                }
                 final long remaining = deadline - SystemClock.uptimeMillis();
                 if (remaining <= 0) {
-                    mBinding = false;
                     throw new IOException("timed out binding Shizuku command service");
                 }
                 try {
@@ -83,6 +75,48 @@ final class ShellServiceConnection {
                 }
             }
             return mService;
+        }
+    }
+
+    void connect(
+            final ShellAccess.Snapshot snapshot,
+            final Supplier<Shizuku.UserServiceArgs> argsSupplier) {
+        if (!snapshot.isReady()) {
+            return;
+        }
+        synchronized (mLock) {
+            if (mService != null || mBinding) {
+                return;
+            }
+            try {
+                bindLocked(argsSupplier);
+            } catch (IOException error) {
+                // A later background operation can retry and report the failure.
+            }
+        }
+    }
+
+    IShizukuCommandService connectedService() {
+        synchronized (mLock) {
+            return mService;
+        }
+    }
+
+    private void bindLocked(
+            final Supplier<Shizuku.UserServiceArgs> argsSupplier)
+            throws IOException {
+        if (mService != null || mBinding) {
+            return;
+        }
+        mBinding = true;
+        try {
+            Shizuku.bindUserService(argsSupplier.get(), mConnection);
+        } catch (RuntimeException error) {
+            mBinding = false;
+            throw new IOException(
+                    "could not bind Shizuku command service: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
         }
     }
 

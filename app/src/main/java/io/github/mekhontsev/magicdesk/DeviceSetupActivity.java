@@ -583,7 +583,7 @@ public final class DeviceSetupActivity extends Activity {
         DeviceSetupManager.authorizeRuntime(this);
         final int currentDisplayId = currentDisplayId();
         final boolean phoneControl =
-                ActivityRoleResolver.opensPhoneControl(currentDisplayId);
+                currentDisplayId == Display.DEFAULT_DISPLAY;
         final int launchDisplayId = phoneControl
                 ? Display.DEFAULT_DISPLAY : resolveLaunchDisplayId();
         final Class<?> activityClass = phoneControl

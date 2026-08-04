@@ -15,7 +15,6 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
@@ -125,7 +124,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                 .putExtra(EXTRA_DESKTOP_TASK_ID, desktopTaskId);
         putRequest(intent, request);
         final ActivityOptions options = ActivityOptions.makeBasic();
-        invokeIntOption(options, "setLaunchDisplayId", displayId);
+        options.setLaunchDisplayId(displayId);
         try {
             desktop.startActivity(intent, options.toBundle());
         } catch (RuntimeException error) {
@@ -339,7 +338,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
 
     private void startTargetActivity(final Intent launchIntent) {
         final ActivityOptions options = ActivityOptions.makeBasic();
-        invokeIntOption(options, "setLaunchDisplayId", mDisplayId);
+        options.setLaunchDisplayId(mDisplayId);
         options.setLaunchBounds(defaultLaunchBounds());
         Log.i(TAG, "launch package=" + launchIntent.getPackage()
                 + " display=" + mDisplayId
@@ -461,20 +460,6 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private static int getDisplayId(final Activity activity) {
         final Display display = activity.getDisplay();
         return display == null ? Display.DEFAULT_DISPLAY : display.getDisplayId();
-    }
-
-    private static void invokeIntOption(
-            final ActivityOptions options,
-            final String methodName,
-            final int value) {
-        try {
-            final Method method = ActivityOptions.class.getMethod(methodName, Integer.TYPE);
-            method.invoke(options, Integer.valueOf(value));
-        } catch (ReflectiveOperationException error) {
-            Log.w(TAG, methodName + " unavailable", error);
-        } catch (RuntimeException error) {
-            Log.w(TAG, methodName + " failed", error);
-        }
     }
 
     private static void showToast(final Context context, final String message) {

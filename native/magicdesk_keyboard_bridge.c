@@ -13,13 +13,11 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define BITS_PER_LONG (sizeof(unsigned long) * 8U)
-#define BIT_WORDS(maximum) (((maximum) / BITS_PER_LONG) + 1U)
+#include "magicdesk_input_sources.h"
+
 #define MAX_QUEUED_EVENTS 2048
 #define CONTROL_BUFFER_SIZE 2048
 #define MAX_LAYOUTS 16
-#define MAX_SOURCES 16
-#define SOURCE_PATH_SIZE 128
 #define MAGICDESK_VENDOR_ID 0x4d44
 #define MAGICDESK_KEYBOARD_PRODUCT_BASE 0x4b00
 
@@ -27,14 +25,6 @@
 #define MOD_ALT (1U << 1)
 #define MOD_SHIFT (1U << 2)
 #define MOD_META (1U << 3)
-
-struct source_device {
-    int fd;
-    char path[SOURCE_PATH_SIZE];
-    bool grabbed;
-    bool key_down[KEY_MAX + 1];
-    bool consumed[KEY_MAX + 1];
-};
 
 struct queued_event {
     int source_index;
@@ -71,13 +61,6 @@ static int active_uinput_fd(const struct bridge_state *state) {
 static void request_stop(int signal_number) {
     (void)signal_number;
     stop_requested = 1;
-}
-
-static bool bit_is_set(
-        const unsigned long *bits,
-        const unsigned int bit) {
-    return (bits[bit / BITS_PER_LONG]
-            & (1UL << (bit % BITS_PER_LONG))) != 0;
 }
 
 static bool is_modifier(const unsigned short code) {
@@ -485,130 +468,6 @@ static int create_virtual_keyboard(
     return 0;
 }
 
-static void release_sources(
-        struct source_device *sources,
-        const int source_count) {
-    for (int index = 0; index < source_count; ++index) {
-        if (sources[index].fd < 0) {
-            continue;
-        }
-        if (sources[index].grabbed) {
-            ioctl(sources[index].fd, EVIOCGRAB, 0);
-        }
-        close(sources[index].fd);
-        sources[index].fd = -1;
-        sources[index].path[0] = '\0';
-    }
-}
-
-static void drain_source(const int source_fd);
-static int try_grab_source(struct source_device *source);
-
-static int open_source(
-        struct source_device *source,
-        const char *path,
-        const bool grab) {
-    memset(source, 0, sizeof(*source));
-    source->fd = -1;
-    if (strlen(path) >= sizeof(source->path)) {
-        errno = ENAMETOOLONG;
-        return -1;
-    }
-    strcpy(source->path, path);
-    source->fd = open(
-                source->path,
-                O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (source->fd < 0) {
-        return -1;
-    }
-    if (grab) {
-        if (try_grab_source(source) < 0) {
-            close(source->fd);
-            source->fd = -1;
-            return -1;
-        }
-    }
-    return 0;
-}
-
-static int open_sources(
-        struct source_device *sources,
-        const int source_count,
-        char **paths) {
-    for (int index = 0; index < source_count; ++index) {
-        if (open_source(&sources[index], paths[index], false) < 0) {
-            fprintf(stderr,
-                    "MAGICDESK_KEYBOARD_ERROR open=%s error=%s\n",
-                    paths[index],
-                    strerror(errno));
-            return -1;
-        }
-    }
-    return 0;
-}
-
-static void drain_source(const int source_fd) {
-    struct input_event events[64];
-    while (read(source_fd, events, sizeof(events)) > 0) {
-        // Discard events accumulated before routing was ready.
-    }
-}
-
-static int source_has_active_keys(const int source_fd) {
-    unsigned long key_bits[BIT_WORDS(KEY_MAX)] = {0};
-    if (ioctl(
-                source_fd,
-                EVIOCGKEY(sizeof(key_bits)),
-                key_bits) < 0) {
-        return -1;
-    }
-    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
-        if (bit_is_set(key_bits, code)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static int try_grab_source(struct source_device *source) {
-    // Let Android finish an in-flight physical key sequence before capture.
-    if (source->grabbed) {
-        return 1;
-    }
-    const int active_before = source_has_active_keys(source->fd);
-    if (active_before != 0) {
-        return active_before < 0 ? -1 : 0;
-    }
-    drain_source(source->fd);
-    if (ioctl(source->fd, EVIOCGRAB, 1) < 0) {
-        return -1;
-    }
-    source->grabbed = true;
-    const int active_after = source_has_active_keys(source->fd);
-    if (active_after <= 0) {
-        return active_after < 0 ? -1 : 1;
-    }
-    ioctl(source->fd, EVIOCGRAB, 0);
-    source->grabbed = false;
-    drain_source(source->fd);
-    return 0;
-}
-
-static int grab_sources(
-        struct source_device *sources,
-        const int source_count) {
-    for (int index = 0; index < source_count; ++index) {
-        if (try_grab_source(&sources[index]) < 0) {
-            fprintf(stderr,
-                    "MAGICDESK_KEYBOARD_ERROR grab=%s error=%s\n",
-                    sources[index].path,
-                    strerror(errno));
-            return -1;
-        }
-    }
-    return 0;
-}
-
 static int release_forwarded_keys(struct bridge_state *state) {
     bool released = false;
     for (unsigned int code = 0; code <= KEY_MAX; ++code) {
@@ -627,7 +486,8 @@ static int release_forwarded_keys(struct bridge_state *state) {
     return !released || emit_sync(active_uinput_fd(state)) == 0 ? 0 : -1;
 }
 
-static int clear_input_state(struct bridge_state *state) {
+static int clear_input_state(void *context) {
+    struct bridge_state *state = context;
     if (release_forwarded_keys(state) < 0) {
         return -1;
     }
@@ -654,140 +514,41 @@ static int clear_input_state(struct bridge_state *state) {
     return 0;
 }
 
-static void close_source(struct source_device *source) {
-    if (source->fd >= 0) {
-        if (source->grabbed) {
-            ioctl(source->fd, EVIOCGRAB, 0);
-        }
-        close(source->fd);
-    }
-    memset(source, 0, sizeof(*source));
-    source->fd = -1;
-}
-
-static int parse_source_paths(
-        const char *value,
-        char paths[MAX_SOURCES][SOURCE_PATH_SIZE]) {
-    int count = 0;
-    const char *cursor = value;
-    while (*cursor != '\0') {
-        while (*cursor == ' ') {
-            cursor++;
-        }
-        if (*cursor == '\0') {
-            break;
-        }
-        const char *end = strchr(cursor, ' ');
-        const size_t length = end == NULL
-                ? strlen(cursor) : (size_t)(end - cursor);
-        if (length == 0 || length >= SOURCE_PATH_SIZE
-                || count >= MAX_SOURCES) {
-            return -1;
-        }
-        memcpy(paths[count], cursor, length);
-        paths[count][length] = '\0';
-        bool duplicate = false;
-        for (int index = 0; index < count; ++index) {
-            if (strcmp(paths[index], paths[count]) == 0) {
-                duplicate = true;
-                break;
-            }
-        }
-        if (!duplicate) {
-            count++;
-        }
-        cursor = end == NULL ? cursor + length : end + 1;
-    }
-    return count;
-}
-
 static int reconcile_sources(
         struct bridge_state *state,
         const char *value) {
-    char paths[MAX_SOURCES][SOURCE_PATH_SIZE];
-    const int requested_count = parse_source_paths(value, paths);
-    if (requested_count < 0) {
-        fprintf(stderr,
-                "MAGICDESK_KEYBOARD_ERROR sources=invalid\n");
-        return 0;
-    }
-    bool unchanged = requested_count == state->source_count;
-    for (int index = 0; unchanged && index < requested_count; ++index) {
-        unchanged = strcmp(
-                paths[index], state->sources[index].path) == 0;
-    }
-    if (unchanged) {
-        return 0;
-    }
-    if (clear_input_state(state) < 0) {
+    const int result = magicdesk_reconcile_sources(
+            state->sources,
+            &state->source_count,
+            value,
+            state->started,
+            clear_input_state,
+            state,
+            "KEYBOARD");
+    if (result < 0) {
         return -1;
     }
-
-    struct source_device next[MAX_SOURCES];
-    memset(next, 0, sizeof(next));
-    for (int index = 0; index < MAX_SOURCES; ++index) {
-        next[index].fd = -1;
+    if (result > 0) {
+        char output[96];
+        snprintf(output, sizeof(output),
+                "MAGICDESK_KEYBOARD_SOURCES count=%d",
+                state->source_count);
+        emit_line(output);
     }
-    int next_count = 0;
-    for (int requested = 0; requested < requested_count; ++requested) {
-        int existing = -1;
-        for (int index = 0; index < state->source_count; ++index) {
-            if (state->sources[index].fd >= 0
-                    && strcmp(state->sources[index].path,
-                            paths[requested]) == 0) {
-                existing = index;
-                break;
-            }
-        }
-        if (existing >= 0) {
-            next[next_count++] = state->sources[existing];
-            state->sources[existing].fd = -1;
-            state->sources[existing].path[0] = '\0';
-            continue;
-        }
-        if (open_source(
-                    &next[next_count],
-                    paths[requested],
-                    state->started) < 0) {
-            fprintf(stderr,
-                    "MAGICDESK_KEYBOARD_SOURCE_SKIPPED"
-                    " path=%s error=%s\n",
-                    paths[requested],
-                    strerror(errno));
-            continue;
-        }
-        next_count++;
-    }
-    release_sources(state->sources, state->source_count);
-    memcpy(state->sources, next, sizeof(next));
-    state->source_count = next_count;
-
-    char output[96];
-    snprintf(output, sizeof(output),
-            "MAGICDESK_KEYBOARD_SOURCES count=%d",
-            state->source_count);
-    emit_line(output);
     return 0;
 }
 
 static int remove_source(
         struct bridge_state *state,
         const int source_index) {
-    if (clear_input_state(state) < 0) {
+    if (magicdesk_remove_source(
+                state->sources,
+                &state->source_count,
+                source_index,
+                clear_input_state,
+                state) < 0) {
         return -1;
     }
-    close_source(&state->sources[source_index]);
-    if (source_index + 1 < state->source_count) {
-        memmove(
-                &state->sources[source_index],
-                &state->sources[source_index + 1],
-                (size_t)(state->source_count - source_index - 1)
-                        * sizeof(state->sources[0]));
-    }
-    state->source_count--;
-    memset(&state->sources[state->source_count], 0,
-            sizeof(state->sources[0]));
-    state->sources[state->source_count].fd = -1;
     char output[96];
     snprintf(output, sizeof(output),
             "MAGICDESK_KEYBOARD_SOURCES count=%d",
@@ -827,7 +588,10 @@ static int handle_control_line(
                 state->active_layout);
         emit_line(output);
     } else if (strcmp(line, "start") == 0 && !state->started) {
-        if (grab_sources(state->sources, state->source_count) < 0) {
+        if (magicdesk_grab_sources(
+                    state->sources,
+                    state->source_count,
+                    "KEYBOARD") < 0) {
             return -1;
         }
         state->started = true;
@@ -955,7 +719,8 @@ static int forward_events(struct bridge_state *state) {
                 break;
             }
             if (!state->sources[index].grabbed) {
-                if (try_grab_source(&state->sources[index]) < 0
+                if (magicdesk_try_grab_source(
+                            &state->sources[index]) < 0
                         && remove_source(state, index) < 0) {
                     result = -1;
                     stop_requested = 1;
@@ -1032,8 +797,12 @@ int main(int argc, char **argv) {
     for (int index = 0; index < MAX_SOURCES; ++index) {
         sources[index].fd = -1;
     }
-    if (open_sources(sources, source_count, &argv[3]) < 0) {
-        release_sources(sources, source_count);
+    if (magicdesk_open_sources(
+                sources,
+                source_count,
+                &argv[3],
+                "KEYBOARD") < 0) {
+        magicdesk_release_sources(sources, source_count);
         free(sources);
         return 1;
     }
@@ -1042,7 +811,7 @@ int main(int argc, char **argv) {
             (size_t)layout_count, sizeof(*uinput_fds));
     if (uinput_fds == NULL) {
         perror("allocate virtual keyboards");
-        release_sources(sources, source_count);
+        magicdesk_release_sources(sources, source_count);
         free(sources);
         return 1;
     }
@@ -1077,7 +846,7 @@ int main(int argc, char **argv) {
             close(uinput_fds[index]);
         }
         free(uinput_fds);
-        release_sources(sources, source_count);
+        magicdesk_release_sources(sources, source_count);
         free(sources);
         return 1;
     }
@@ -1103,7 +872,7 @@ int main(int argc, char **argv) {
         close(uinput_fds[index]);
     }
     free(uinput_fds);
-    release_sources(sources, state.source_count);
+    magicdesk_release_sources(sources, state.source_count);
     free(sources);
     return result == 0 ? 0 : 1;
 }

@@ -31,6 +31,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final NubiaPointerPositionGuard mPointerPositionGuard;
+    private final Object mInputRoutingLock = new Object();
+    private ConsoleInputRoutingSession mInputRoutingSession;
+    private IBinder mInputRoutingOwner;
+    private IBinder.DeathRecipient mInputRoutingOwnerDeath;
 
     public ShizukuCommandService() {
         this(null);
@@ -230,6 +234,91 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public int[] startInputRouting(
+            final int expectedVirtualKeyboardCount,
+            final IBinder ownerToken) {
+        if (ownerToken == null) {
+            throw new IllegalArgumentException(
+                    "missing input routing owner token");
+        }
+        synchronized (mInputRoutingLock) {
+            stopInputRoutingLocked(null);
+            ConsoleInputRoutingSession session = null;
+            IBinder.DeathRecipient ownerDeath = null;
+            boolean ownerLinked = false;
+            try {
+                session = ConsoleInputRoutingSession.open(
+                        expectedVirtualKeyboardCount);
+                ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
+                ownerToken.linkToDeath(ownerDeath, 0);
+                ownerLinked = true;
+                mInputRoutingSession = session;
+                mInputRoutingOwner = ownerToken;
+                mInputRoutingOwnerDeath = ownerDeath;
+                return new int[] {
+                        session.consoleDisplayId(),
+                        session.associationCount(),
+                        session.keyboardAssociationCount(),
+                        session.virtualKeyboardCount()
+                };
+            } catch (Exception error) {
+                if (ownerLinked) {
+                    ownerToken.unlinkToDeath(ownerDeath, 0);
+                }
+                if (session != null) {
+                    session.close();
+                }
+                throw new IllegalStateException(
+                        "cannot start input routing: "
+                                + usefulMessage(error),
+                        error);
+            }
+        }
+    }
+
+    @Override
+    public int refreshInputRouting() {
+        synchronized (mInputRoutingLock) {
+            if (mInputRoutingSession == null) {
+                return 0;
+            }
+            try {
+                return mInputRoutingSession.refreshAssociations();
+            } catch (Exception error) {
+                throw new IllegalStateException(
+                        "cannot refresh input routing: "
+                                + usefulMessage(error),
+                        error);
+            }
+        }
+    }
+
+    @Override
+    public void stopInputRouting(final IBinder ownerToken) {
+        synchronized (mInputRoutingLock) {
+            stopInputRoutingLocked(ownerToken);
+        }
+    }
+
+    @Override
+    public int cleanupInputRouting() {
+        synchronized (mInputRoutingLock) {
+            if (mInputRoutingSession != null) {
+                return 0;
+            }
+            try {
+                return ConsoleInputRoutingSession
+                        .cleanupStaleAssociations();
+            } catch (Exception error) {
+                throw new IllegalStateException(
+                        "cannot clean stale input routing: "
+                                + usefulMessage(error),
+                        error);
+            }
+        }
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -320,6 +409,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void destroy() {
         Log.i(TAG, "command service stopped");
+        synchronized (mInputRoutingLock) {
+            stopInputRoutingLocked(null);
+        }
         mPointerPositionGuard.close();
         mTaskObserverManager.close();
         for (final StreamSession session
@@ -327,6 +419,33 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             closeStream(session.requestId);
         }
         System.exit(0);
+    }
+
+    private void stopInputRoutingForOwner(final IBinder ownerToken) {
+        synchronized (mInputRoutingLock) {
+            stopInputRoutingLocked(ownerToken);
+        }
+    }
+
+    private void stopInputRoutingLocked(final IBinder expectedOwner) {
+        if (expectedOwner != null
+                && (mInputRoutingOwner == null
+                        || !mInputRoutingOwner.equals(expectedOwner))) {
+            return;
+        }
+        final ConsoleInputRoutingSession session = mInputRoutingSession;
+        final IBinder owner = mInputRoutingOwner;
+        final IBinder.DeathRecipient ownerDeath =
+                mInputRoutingOwnerDeath;
+        mInputRoutingSession = null;
+        mInputRoutingOwner = null;
+        mInputRoutingOwnerDeath = null;
+        if (owner != null && ownerDeath != null) {
+            owner.unlinkToDeath(ownerDeath, 0);
+        }
+        if (session != null) {
+            session.close();
+        }
     }
 
     private static void closeQuietly(final Closeable closeable) {

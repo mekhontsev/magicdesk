@@ -537,10 +537,7 @@ final class DesktopItemsController {
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();
-        DesktopShellActivity.invokeIntOption(
-                options,
-                "setLaunchDisplayId",
-                mActivity.getCurrentDisplayId());
+        options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
         try {
             mActivity.startActivity(intent, options.toBundle());
         } catch (RuntimeException e) {

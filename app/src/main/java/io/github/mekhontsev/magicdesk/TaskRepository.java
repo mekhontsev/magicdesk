@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -77,7 +76,8 @@ final class TaskRepository {
             complete(callback, false, "invalid task");
             return;
         }
-        runAction(createTaskFocusCommand(task.taskId), callback);
+        runAction(TaskFocusCommands.createShellCommand(
+                Collections.singletonList(task.taskId)), callback);
     }
 
     static void bringStackToFront(final List<TaskEntry> topFirstTasks,
@@ -217,8 +217,7 @@ final class TaskRepository {
             return;
         }
         runAction(
-                createAppProcessCommand(
-                        PHONE_FREEFORM_CLEANUP_COMMAND, ""),
+                AppProcessCommand.run(PHONE_FREEFORM_CLEANUP_COMMAND),
                 callback);
     }
 
@@ -318,21 +317,8 @@ final class TaskRepository {
         return createTaskControlCommand(action + " " + taskId);
     }
 
-    private static String createTaskFocusCommand(final int taskId) {
-        if (ShellAccess.isReady()) {
-            return TaskFocusCommands.createShellCommand(
-                    Arrays.asList(Integer.valueOf(taskId)));
-        }
-        return createTaskControlCommand("focus", taskId);
-    }
-
     private static String createTaskControlCommand(final String arguments) {
-        return createAppProcessCommand(TASK_CONTROL_COMMAND, arguments);
-    }
-
-    private static String createAppProcessCommand(final String className,
-            final String arguments) {
-        return AppProcessCommand.run(className, arguments);
+        return AppProcessCommand.run(TASK_CONTROL_COMMAND, arguments);
     }
 
     private static String createTaskWindowingCommand(final String arguments) {
@@ -342,17 +328,16 @@ final class TaskRepository {
 
     static String createFullscreenTransitionCommand(final int displayId,
             final int taskId) {
-        return createAppProcessEnvironment()
-                + createAppProcessInvocation(TASK_FULLSCREEN_TRANSITION_COMMAND,
-                        displayId + " " + taskId);
+        return AppProcessCommand.run(
+                TASK_FULLSCREEN_TRANSITION_COMMAND,
+                displayId + " " + taskId);
     }
 
     static String createClientPreservingFullscreenTransitionCommand(
             final int displayId, final int taskId) {
-        return createAppProcessEnvironment()
-                + createAppProcessInvocation(
-                        TASK_CLIENT_PRESERVING_FULLSCREEN_TRANSITION_COMMAND,
-                        displayId + " " + taskId);
+        return AppProcessCommand.run(
+                TASK_CLIENT_PRESERVING_FULLSCREEN_TRANSITION_COMMAND,
+                displayId + " " + taskId);
     }
 
     static String createFreeformTransitionCommand(final int displayId,
@@ -360,25 +345,15 @@ final class TaskRepository {
         final String arguments = "freeform " + displayId + " " + taskId
                 + " " + bounds.left + " " + bounds.top
                 + " " + bounds.right + " " + bounds.bottom;
-        return createAppProcessEnvironment()
-                + createAppProcessInvocation(TASK_WINDOWING_COMMAND, arguments);
+        return AppProcessCommand.run(TASK_WINDOWING_COMMAND, arguments);
     }
 
     static String createCaptionInsetsCommand(final int displayId, final int taskId,
             final boolean excluded) {
-        return createAppProcessEnvironment()
-                + createAppProcessInvocation(TASK_CAPTION_INSETS_COMMAND,
-                        displayId + " " + taskId + " "
-                                + (excluded ? "exclude" : "include"));
-    }
-
-    private static String createAppProcessEnvironment() {
-        return AppProcessCommand.environment();
-    }
-
-    private static String createAppProcessInvocation(final String className,
-            final String arguments) {
-        return AppProcessCommand.invocation(className, arguments);
+        return AppProcessCommand.run(
+                TASK_CAPTION_INSETS_COMMAND,
+                displayId + " " + taskId + " "
+                        + (excluded ? "exclude" : "include"));
     }
 
     private static void complete(final ActionCallback callback, final boolean success,

@@ -44,7 +44,7 @@ final class HardwareKeyboardLayoutController {
             } finally {
                 if (pointerCaptured) {
                     MagicDeskRuntimeService
-                            .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
+                            .restorePointerPositionOnNextMotionIfRunning();
                 }
                 runCompletion(completion);
             }

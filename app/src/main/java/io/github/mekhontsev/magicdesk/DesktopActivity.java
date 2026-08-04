@@ -24,9 +24,8 @@ public final class DesktopActivity extends DesktopShellActivity {
         if (sourceDisplayId == displayId) {
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
-            DesktopShellActivity.invokeIntOption(
-                    options, "setLaunchWindowingMode",
-                    WINDOWING_MODE_FREEFORM);
+            DesktopShellActivity.setLaunchWindowingMode(
+                    options, WINDOWING_MODE_FREEFORM);
             source.startActivity(
                     new Intent(source, DesktopActivity.class)
                             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -39,9 +38,8 @@ public final class DesktopActivity extends DesktopShellActivity {
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        DesktopShellActivity.invokeIntOption(
-                options, "setLaunchWindowingMode",
-                WINDOWING_MODE_FREEFORM);
+        DesktopShellActivity.setLaunchWindowingMode(
+                options, WINDOWING_MODE_FREEFORM);
         source.startActivity(
                 createLaunchIntent(source).addFlags(
                         Intent.FLAG_ACTIVITY_MULTIPLE_TASK),

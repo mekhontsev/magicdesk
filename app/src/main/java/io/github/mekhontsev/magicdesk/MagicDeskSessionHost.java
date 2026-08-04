@@ -9,5 +9,4 @@ interface MagicDeskSessionHost {
 
     void showSessionError(String code, String message, Throwable error);
 
-    void releaseSessionUi();
 }

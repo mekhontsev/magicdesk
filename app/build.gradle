@@ -39,6 +39,10 @@ android {
 
 def termuxPrefix = System.getenv('PREFIX') ?: '/data/data/com.termux/files/usr'
 def termuxCompiler = file("${termuxPrefix}/bin/clang")
+def inputSourcesSource =
+        rootProject.file('native/magicdesk_input_sources.c')
+def inputSourcesHeader =
+        rootProject.file('native/magicdesk_input_sources.h')
 def uinputBridgeSource = rootProject.file('native/magicdesk_uinput_bridge.c')
 def uinputBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_uinput_bridge.so")
@@ -66,7 +70,7 @@ def resolveNativeCompilerCommand = {
 }
 
 tasks.register('buildMagicDeskUinputBridge', Exec) {
-    inputs.file(uinputBridgeSource)
+    inputs.files(uinputBridgeSource, inputSourcesSource, inputSourcesHeader)
     outputs.file(uinputBridgeOutput)
     doFirst {
         uinputBridgeOutput.parentFile.mkdirs()
@@ -75,14 +79,15 @@ tasks.register('buildMagicDeskUinputBridge', Exec) {
                 '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                 '-fPIE', '-pie', '-Wl,-z,noexecstack',
                 '-o', uinputBridgeOutput.absolutePath,
-                uinputBridgeSource.absolutePath
+                uinputBridgeSource.absolutePath,
+                inputSourcesSource.absolutePath
         ])
         commandLine compilerCommand
     }
 }
 
 tasks.register('buildMagicDeskKeyboardBridge', Exec) {
-    inputs.file(keyboardBridgeSource)
+    inputs.files(keyboardBridgeSource, inputSourcesSource, inputSourcesHeader)
     outputs.file(keyboardBridgeOutput)
     doFirst {
         keyboardBridgeOutput.parentFile.mkdirs()
@@ -91,7 +96,8 @@ tasks.register('buildMagicDeskKeyboardBridge', Exec) {
                 '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                 '-fPIE', '-pie', '-Wl,-z,noexecstack',
                 '-o', keyboardBridgeOutput.absolutePath,
-                keyboardBridgeSource.absolutePath
+                keyboardBridgeSource.absolutePath,
+                inputSourcesSource.absolutePath
         ])
         commandLine compilerCommand
     }

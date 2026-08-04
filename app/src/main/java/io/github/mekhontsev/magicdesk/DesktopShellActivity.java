@@ -578,7 +578,7 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        invokeIntOption(options, "setLaunchDisplayId", getCurrentDisplayId());
+        options.setLaunchDisplayId(getCurrentDisplayId());
         try {
             startActivity(intent, options.toBundle());
         } catch (RuntimeException e) {
@@ -1051,15 +1051,17 @@ public abstract class DesktopShellActivity extends Activity
         return display == null ? 0 : display.getDisplayId();
     }
 
-    static void invokeIntOption(final ActivityOptions options, final String methodName,
+    static void setLaunchWindowingMode(
+            final ActivityOptions options,
             final int value) {
         try {
-            final Method method = ActivityOptions.class.getMethod(methodName, Integer.TYPE);
+            final Method method = ActivityOptions.class.getMethod(
+                    "setLaunchWindowingMode", Integer.TYPE);
             method.invoke(options, Integer.valueOf(value));
         } catch (ReflectiveOperationException e) {
-            Log.w(TAG, methodName + " unavailable", e);
+            Log.w(TAG, "setLaunchWindowingMode unavailable", e);
         } catch (RuntimeException e) {
-            Log.w(TAG, methodName + " failed", e);
+            Log.w(TAG, "setLaunchWindowingMode failed", e);
         }
     }
 
@@ -1123,11 +1125,6 @@ public abstract class DesktopShellActivity extends Activity
             final String message,
             final Throwable error) {
         setErrorStatus(code, message, "", error);
-    }
-
-    @Override
-    public void releaseSessionUi() {
-        releaseDesktopOverlays();
     }
 
 }

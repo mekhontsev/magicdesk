@@ -1,0 +1,53 @@
+#ifndef MAGICDESK_INPUT_SOURCES_H
+#define MAGICDESK_INPUT_SOURCES_H
+
+#include <linux/input.h>
+#include <stdbool.h>
+
+#define MAX_SOURCES 16
+#define SOURCE_PATH_SIZE 128
+
+struct source_device {
+    int fd;
+    char path[SOURCE_PATH_SIZE];
+    bool grabbed;
+    bool key_down[KEY_MAX + 1];
+    bool consumed[KEY_MAX + 1];
+};
+
+typedef int (*magicdesk_clear_input_state_fn)(void *context);
+
+int magicdesk_open_sources(
+        struct source_device *sources,
+        int source_count,
+        char **paths,
+        const char *component);
+
+int magicdesk_grab_sources(
+        struct source_device *sources,
+        int source_count,
+        const char *component);
+
+int magicdesk_try_grab_source(struct source_device *source);
+
+void magicdesk_release_sources(
+        struct source_device *sources,
+        int source_count);
+
+int magicdesk_reconcile_sources(
+        struct source_device *sources,
+        int *source_count,
+        const char *value,
+        bool grab_new_sources,
+        magicdesk_clear_input_state_fn clear_input_state,
+        void *context,
+        const char *component);
+
+int magicdesk_remove_source(
+        struct source_device *sources,
+        int *source_count,
+        int source_index,
+        magicdesk_clear_input_state_fn clear_input_state,
+        void *context);
+
+#endif

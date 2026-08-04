@@ -92,7 +92,9 @@ final class ShellAccess {
     }
 
     static synchronized Snapshot refresh() {
-        return publish(inspectNow());
+        final Snapshot snapshot = publish(inspectNow());
+        SERVICE_CONNECTION.connect(snapshot, ShellAccess::userServiceArgs);
+        return snapshot;
     }
 
     private static Snapshot inspectNow() {
@@ -215,9 +217,13 @@ final class ShellAccess {
         if (!isReady()) {
             return false;
         }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
         try {
-            return requireService().capturePointerPosition();
-        } catch (IOException | RemoteException | RuntimeException error) {
+            return service.capturePointerPosition();
+        } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
             return false;
         }
@@ -227,9 +233,13 @@ final class ShellAccess {
         if (!isReady()) {
             return;
         }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return;
+        }
         try {
-            requireService().restorePointerPositionIfDisplaced();
-        } catch (IOException | RemoteException | RuntimeException error) {
+            service.restorePointerPositionIfDisplaced();
+        } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
         }
     }
@@ -238,9 +248,13 @@ final class ShellAccess {
         if (!isReady() || displayId <= 0) {
             return;
         }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return;
+        }
         try {
-            requireService().injectSecondaryClick(displayId);
-        } catch (IOException | RemoteException | RuntimeException error) {
+            service.injectSecondaryClick(displayId);
+        } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
         }
     }
@@ -296,6 +310,42 @@ final class ShellAccess {
             handle.closeAfterStartFailure();
             throw new IOException(
                     "Shizuku task observer failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static ShellInputRoutingHandle openInputRouting(
+            final int expectedVirtualKeyboardCount) throws IOException {
+        if (expectedVirtualKeyboardCount <= 0) {
+            throw new IOException("virtual keyboard count must be positive");
+        }
+        final IShizukuCommandService service = requireService();
+        final IBinder ownerToken = new Binder();
+        try {
+            final int[] state = service.startInputRouting(
+                    expectedVirtualKeyboardCount, ownerToken);
+            if (state == null || state.length != 4) {
+                service.stopInputRouting(ownerToken);
+                throw new IOException("invalid input routing state");
+            }
+            return new ShellInputRoutingHandle(service, ownerToken, state);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku input routing failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static int cleanupInputRouting() throws IOException {
+        try {
+            return requireService().cleanupInputRouting();
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku input routing cleanup failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -360,6 +410,16 @@ final class ShellAccess {
 
     private static IShizukuCommandService requireService() throws IOException {
         return SERVICE_CONNECTION.require(sSnapshot, ShellAccess::userServiceArgs);
+    }
+
+    private static IShizukuCommandService connectedServiceOrConnect() {
+        final IShizukuCommandService service =
+                SERVICE_CONNECTION.connectedService();
+        if (service != null) {
+            return service;
+        }
+        SERVICE_CONNECTION.connect(sSnapshot, ShellAccess::userServiceArgs);
+        return null;
     }
 
     private static Shizuku.UserServiceArgs userServiceArgs() {

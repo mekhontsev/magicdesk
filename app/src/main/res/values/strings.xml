@@ -5,7 +5,6 @@
     <string name="section_hardware">Hardware</string>
     <string name="control_section_desktop">Desktop session</string>
     <string name="control_section_system">System</string>
-    <string name="section_fullscreen">Fullscreen</string>
     <string name="launch_mode_auto">Auto</string>
     <string name="launch_mode_windowed">Windowed</string>
     <string name="launch_mode_fullscreen">Fullscreen</string>

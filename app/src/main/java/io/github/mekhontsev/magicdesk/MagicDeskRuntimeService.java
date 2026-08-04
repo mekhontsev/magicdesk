@@ -75,7 +75,7 @@ public final class MagicDeskRuntimeService extends Service {
 
     public static void start(final Context context) {
         final Intent intent = new Intent(context, MagicDeskRuntimeService.class);
-        startForegroundService(context, intent);
+        context.startForegroundService(intent);
     }
 
     public static void stop(final Context context) {
@@ -140,16 +140,6 @@ public final class MagicDeskRuntimeService extends Service {
                 .restorePointerPositionIfDisplacedOnNextMotion();
     }
 
-    static void restorePointerPositionIfDisplacedOnNextMotionIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed
-                || service.mConsoleMouseBridge == null) {
-            return;
-        }
-        service.mConsoleMouseBridge
-                .restorePointerPositionIfDisplacedOnNextMotion();
-    }
-
     static boolean showStartIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null || service.mDestroyed || service.mHandler == null) {
@@ -157,10 +147,6 @@ public final class MagicDeskRuntimeService extends Service {
         }
         service.mHandler.post(service::showStart);
         return true;
-    }
-
-    private static void startForegroundService(final Context context, final Intent intent) {
-        context.startForegroundService(intent);
     }
 
     @Override
@@ -246,8 +232,7 @@ public final class MagicDeskRuntimeService extends Service {
         if (displayId > 0) {
             options.setLaunchDisplayId(displayId);
         }
-        DesktopShellActivity.invokeIntOption(
-                options, "setLaunchWindowingMode", 5);
+        DesktopShellActivity.setLaunchWindowingMode(options, 5);
         startActivity(
                 DesktopShellActivity.createShowStartIntent(this),
                 options.toBundle());

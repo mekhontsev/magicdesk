@@ -320,7 +320,7 @@ final class StartMenuController {
         }
         if (pointerCaptured) {
             MagicDeskRuntimeService
-                    .restorePointerPositionIfDisplacedOnNextMotionIfRunning();
+                    .restorePointerPositionOnNextMotionIfRunning();
         }
     }
 
