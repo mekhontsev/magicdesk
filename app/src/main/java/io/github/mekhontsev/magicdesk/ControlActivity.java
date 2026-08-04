@@ -6,6 +6,7 @@ import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,13 +16,24 @@ public final class ControlActivity extends Activity
         implements PhoneControlPanelController.Actions,
         MagicDeskSessionHost {
     private static final int REQUEST_NOTIFICATIONS = 1;
+    private static final long DISPLAY_PROBE_SETTLE_MILLIS = 200L;
+
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mDisplayProbe = this::startExternalDisplayProbe;
 
     private PhoneControlPanelController mPanel;
     private MagicDeskSessionController mSessionController;
     private ContentObserver mConsoleStateObserver;
+    private DisplayManager mDisplayManager;
+    private DisplayManager.DisplayListener mDisplayListener;
     private SessionProfile mSessionProfile;
+    private PhoneControlPanelController.ExternalDisplayState
+            mExternalDisplayState =
+                    PhoneControlPanelController.ExternalDisplayState.CHECKING;
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
+    private boolean mStartExternalDesktopAfterProbe;
+    private int mDisplayProbeGeneration;
     private String mStatus;
 
     static Intent createLaunchIntent(final android.content.Context context) {
@@ -133,7 +145,9 @@ public final class ControlActivity extends Activity
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
         registerConsoleStateObserver();
+        registerDisplayListener();
         MagicDeskRuntimeService.start(this);
+        scheduleExternalDisplayProbe(false, 0L);
         refresh();
     }
 
@@ -148,6 +162,9 @@ public final class ControlActivity extends Activity
         mStatus = getString(ConsoleModeState.isActive(this)
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
+        if (mPanel != null) {
+            scheduleExternalDisplayProbe(false, 0L);
+        }
         refresh();
     }
 
@@ -158,6 +175,13 @@ public final class ControlActivity extends Activity
                     mConsoleStateObserver);
             mConsoleStateObserver = null;
         }
+        mDisplayProbeGeneration++;
+        mMainHandler.removeCallbacks(mDisplayProbe);
+        if (mDisplayManager != null && mDisplayListener != null) {
+            mDisplayManager.unregisterDisplayListener(mDisplayListener);
+        }
+        mDisplayListener = null;
+        mDisplayManager = null;
         super.onDestroy();
     }
 
@@ -173,6 +197,19 @@ public final class ControlActivity extends Activity
         if (!ShellAccess.isReady()) {
             return;
         }
+        final int consoleDisplayId =
+                ConsoleModeState.activeDisplayId(this);
+        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
+            mStatus = getString(R.string.status_console_starting);
+            refresh();
+            ConsoleModeSwitcher.showMagicDesk(consoleDisplayId);
+            return;
+        }
+        mStatus = getString(R.string.status_external_display_checking);
+        scheduleExternalDisplayProbe(true, 0L);
+    }
+
+    private void startExternalDesktopAfterProbe() {
         mStatus = getString(R.string.status_console_starting);
         refresh();
         ConsoleModeSwitcher.showMagicDesk();
@@ -295,6 +332,7 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady(),
                 ConsoleModeState.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
+                mExternalDisplayState,
                 mStatus,
                 ShellAccess.statusLabel(),
                 currentDisplayId(),
@@ -303,13 +341,15 @@ public final class ControlActivity extends Activity
 
     private void registerConsoleStateObserver() {
         mConsoleStateObserver = new ContentObserver(
-                new Handler(Looper.getMainLooper())) {
+                mMainHandler) {
             @Override
             public void onChange(final boolean selfChange) {
                 mStatus = getString(ConsoleModeState.isActive(
                         ControlActivity.this)
                         ? R.string.control_status_console_active
                         : R.string.control_status_ready);
+                scheduleExternalDisplayProbe(
+                        false, DISPLAY_PROBE_SETTLE_MILLIS);
                 refresh();
             }
         };
@@ -323,6 +363,94 @@ public final class ControlActivity extends Activity
                         ConsoleModeState.PHONE_SCREEN_OFF_SETTING),
                 false,
                 mConsoleStateObserver);
+    }
+
+    private void registerDisplayListener() {
+        mDisplayManager = getSystemService(DisplayManager.class);
+        if (mDisplayManager == null) {
+            mExternalDisplayState =
+                    PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
+            return;
+        }
+        mDisplayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(final int displayId) {
+                onExternalDisplayEvent(displayId);
+            }
+
+            @Override
+            public void onDisplayRemoved(final int displayId) {
+                onExternalDisplayEvent(displayId);
+            }
+
+            @Override
+            public void onDisplayChanged(final int displayId) {
+                onExternalDisplayEvent(displayId);
+            }
+        };
+        mDisplayManager.registerDisplayListener(
+                mDisplayListener, mMainHandler);
+    }
+
+    private void onExternalDisplayEvent(final int displayId) {
+        if (displayId > Display.DEFAULT_DISPLAY) {
+            scheduleExternalDisplayProbe(
+                    false, DISPLAY_PROBE_SETTLE_MILLIS);
+        }
+    }
+
+    private void scheduleExternalDisplayProbe(
+            final boolean startWhenConnected,
+            final long delayMillis) {
+        if (startWhenConnected) {
+            mStartExternalDesktopAfterProbe = true;
+        }
+        if (!ShellAccess.isReady()) {
+            mExternalDisplayState =
+                    PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
+            if (mStartExternalDesktopAfterProbe) {
+                mStartExternalDesktopAfterProbe = false;
+                mStatus = getString(
+                        R.string.status_external_display_unavailable);
+            }
+            refresh();
+            return;
+        }
+        mExternalDisplayState =
+                PhoneControlPanelController.ExternalDisplayState.CHECKING;
+        mDisplayProbeGeneration++;
+        mMainHandler.removeCallbacks(mDisplayProbe);
+        mMainHandler.postDelayed(mDisplayProbe, delayMillis);
+        refresh();
+    }
+
+    private void startExternalDisplayProbe() {
+        final int generation = mDisplayProbeGeneration;
+        ConsoleModeSwitcher.probeExternalDisplay(connected ->
+                runOnUiThread(() -> finishExternalDisplayProbe(
+                        generation, connected)));
+    }
+
+    private void finishExternalDisplayProbe(
+            final int generation,
+            final boolean connected) {
+        if (generation != mDisplayProbeGeneration
+                || isActivityUnavailable()) {
+            return;
+        }
+        mExternalDisplayState = connected
+                ? PhoneControlPanelController.ExternalDisplayState.CONNECTED
+                : PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
+        final boolean shouldStart = mStartExternalDesktopAfterProbe;
+        mStartExternalDesktopAfterProbe = false;
+        if (shouldStart && connected) {
+            startExternalDesktopAfterProbe();
+            return;
+        }
+        if (shouldStart) {
+            mStatus = getString(R.string.status_external_display_unavailable);
+        }
+        refresh();
     }
 
     private int currentDisplayId() {

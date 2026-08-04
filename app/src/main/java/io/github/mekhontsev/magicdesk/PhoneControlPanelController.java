@@ -21,6 +21,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 final class PhoneControlPanelController {
+    enum ExternalDisplayState {
+        CHECKING,
+        DISCONNECTED,
+        CONNECTED
+    }
+
     interface Actions {
         void openDesktopHere();
 
@@ -45,6 +51,7 @@ final class PhoneControlPanelController {
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
+        final ExternalDisplayState externalDisplayState;
         final String status;
         final String runtime;
         final int currentDisplayId;
@@ -56,6 +63,7 @@ final class PhoneControlPanelController {
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
+                final ExternalDisplayState externalDisplayState,
                 final String status,
                 final String runtime,
                 final int currentDisplayId,
@@ -65,6 +73,7 @@ final class PhoneControlPanelController {
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
+            this.externalDisplayState = externalDisplayState;
             this.status = status;
             this.runtime = runtime;
             this.currentDisplayId = currentDisplayId;
@@ -154,7 +163,17 @@ final class PhoneControlPanelController {
                 Integer.valueOf(state.currentDisplayId),
                 consoleDisplay));
 
-        if (!state.consoleActive) {
+        if (!state.consoleActive
+                && state.externalDisplayState
+                        == ExternalDisplayState.CHECKING) {
+            mExternalDesktop.setText(
+                    R.string.action_checking_external_display);
+        } else if (!state.consoleActive
+                && state.externalDisplayState
+                        == ExternalDisplayState.DISCONNECTED) {
+            mExternalDesktop.setText(
+                    R.string.action_connect_external_display);
+        } else if (!state.consoleActive) {
             mExternalDesktop.setText(
                     R.string.action_start_console_mode);
         } else if (!state.desktopReady) {
@@ -165,7 +184,10 @@ final class PhoneControlPanelController {
                     R.string.action_show_external_desktop);
         }
         mExternalDesktop.setEnabled(
-                state.consoleControlAvailable);
+                state.consoleControlAvailable
+                        && (state.consoleActive
+                                || state.externalDisplayState
+                                        == ExternalDisplayState.CONNECTED));
         mMirror.setEnabled(
                 state.consoleActive
                         && state.consoleControlAvailable);

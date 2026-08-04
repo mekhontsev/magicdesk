@@ -97,6 +97,16 @@ final class ConsoleModeSwitcher {
         });
     }
 
+    static void probeExternalDisplay(final ResultCallback callback) {
+        EXECUTOR.execute(() -> {
+            final boolean connected =
+                    ConsoleDisplayController.findExternalDisplayId() > 0;
+            if (callback != null) {
+                callback.onComplete(connected);
+            }
+        });
+    }
+
     static void openTouchpad() {
         NubiaTouchpadController.open();
     }
