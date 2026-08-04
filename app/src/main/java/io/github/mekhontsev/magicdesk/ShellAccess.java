@@ -21,6 +21,7 @@ import rikka.shizuku.Shizuku;
 
 final class ShellAccess {
     static final int REQUEST_PERMISSION_CODE = 7104;
+    static final int ROOT_UID = 0;
     static final int SHELL_UID = 2000;
     static final String MANAGER_PACKAGE = "moe.shizuku.privileged.api";
     private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
@@ -120,8 +121,8 @@ final class ShellAccess {
             final String error;
             if (!permissionGranted) {
                 error = "Shizuku permission is not granted";
-            } else if (uid != SHELL_UID) {
-                error = "Shizuku must run as shell UID 2000; found UID " + uid;
+            } else if (!isSupportedServiceUid(uid)) {
+                error = "Shizuku service UID is unsupported: " + uid;
             } else {
                 error = "";
             }
@@ -141,6 +142,10 @@ final class ShellAccess {
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
+    }
+
+    static boolean isSupportedServiceUid(final int uid) {
+        return uid == SHELL_UID || uid == ROOT_UID;
     }
 
     static String run(final String command) throws IOException {
@@ -452,7 +457,7 @@ final class ShellAccess {
         boolean isReady() {
             return running
                     && permissionGranted
-                    && uid == SHELL_UID
+                    && isSupportedServiceUid(uid)
                     && version >= 11;
         }
 

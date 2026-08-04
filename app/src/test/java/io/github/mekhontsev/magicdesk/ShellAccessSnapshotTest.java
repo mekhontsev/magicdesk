@@ -12,10 +12,9 @@ public final class ShellAccessSnapshotTest {
     }
 
     @Test
-    public void unavailableOrUnprivilegedServerIsNotReady() {
+    public void unavailableOrOutdatedServerIsNotReady() {
         assertFalse(snapshot(false, true, 2000, 11).isReady());
         assertFalse(snapshot(true, false, 2000, 11).isReady());
-        assertFalse(snapshot(true, true, 0, 11).isReady());
         assertFalse(snapshot(true, true, 2000, 10).isReady());
     }
 

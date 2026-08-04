@@ -18,8 +18,9 @@ The ordinary-UID tests ran from MagicDesk's real application UID in the
 `u:r:untrusted_app:s0` SELinux domain. Root was used only by the research
 harness to install debug builds, start instrumentation, and inspect firmware.
 Unless noted otherwise, the vendor calls themselves ran without elevated
-runtime access. The production application now accepts only Shizuku shell UID
-2000; ordinary-UID results below explain why that boundary exists.
+runtime access. The production application performs privileged work only
+through its Shizuku UserService; ordinary-UID results below explain why that
+boundary exists.
 
 ## Confirmed Interfaces
 

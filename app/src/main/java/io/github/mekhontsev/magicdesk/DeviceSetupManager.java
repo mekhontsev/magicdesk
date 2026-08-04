@@ -65,10 +65,9 @@ final class DeviceSetupManager {
             try {
                 final int serviceUid = ShellAccess.connectAndGetUid();
                 shizukuUid = serviceUid;
-                if (serviceUid != ShellAccess.SHELL_UID) {
+                if (!ShellAccess.isSupportedServiceUid(serviceUid)) {
                     throw new IOException(
-                            "Shizuku must run as shell UID 2000; found UID "
-                                    + serviceUid);
+                            "Shizuku service UID is unsupported: " + serviceUid);
                 }
                 values = parseValues(ShellAccess.run(buildAuditCommand()));
                 shellReady = true;

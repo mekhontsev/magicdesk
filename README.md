@@ -102,13 +102,12 @@ MagicDesk is intentionally REDMAGIC/ZTE-specific and requires:
 
 - a ZTE, nubia, or REDMAGIC device running Android 16 / API 36 or newer;
 - USB-C DisplayPort output and REDMAGIC external-display support;
-- the official Shizuku application, with its server started through wireless
-  debugging or ADB as Android shell UID 2000;
+- the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
-MagicDesk does not request or use root. It does not run in a reduced fallback
-mode when Shizuku is stopped, permission is denied, or its service is not UID
-2000. This strict boundary keeps runtime behavior predictable and reviewable.
+MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
+permission is denied. All privileged operations use the same Shizuku
+UserService path, keeping runtime behavior predictable and reviewable.
 
 **Currently verified:**
 
@@ -129,10 +128,11 @@ device-specific failure.
 
 1. Install Shizuku from the
    [official GitHub Releases](https://github.com/RikkaApps/Shizuku/releases).
-2. Enable **Developer options** using Android's standard method: open
-   **Settings > About phone** and tap **Build number** seven times. Then enable
-   **Wireless debugging** under **Developer options**.
-3. In Shizuku, select pairing through Wireless debugging. In Android's
+2. Start its server using one of the methods supported by the official app.
+3. For the standard wireless-debugging method, enable **Developer options**:
+   open **Settings > About phone** and tap **Build number** seven times, then
+   enable **Wireless debugging**. In Shizuku, select pairing through Wireless
+   debugging. In Android's
    **Wireless debugging** screen, choose **Pair device with pairing code**,
    enter that code through the Shizuku notification, then press **Start** in
    Shizuku.
@@ -140,9 +140,7 @@ device-specific failure.
    Shizuku must be started again after every reboot.
 
 Use the [official Shizuku setup guide](https://shizuku.rikka.app/guide/setup/)
-for device-specific pairing details. MagicDesk requires the ADB/Wireless
-debugging server running as shell UID 2000; do not use Shizuku's root or Sui
-startup mode.
+for device-specific pairing and startup details.
 
 ## Getting Started
 
@@ -214,20 +212,20 @@ cycles the same configured layouts as `Ctrl+Space`.
 
 ## Privileges And Trust
 
-MagicDesk uses the official `dev.rikka.shizuku` UserService API. A server
-started through ADB or wireless debugging runs its bounded commands as Android
-shell UID 2000. This enables Console Mode, native task control, display density,
-screenshots, phone-screen dimming, locking, wallpaper access, vendor cooling
-and bypass charging, and physical input routing.
+MagicDesk uses the official `dev.rikka.shizuku` UserService API for Console
+Mode, native task control, display density, screenshots, phone-screen dimming,
+locking, wallpaper access, vendor cooling and bypass charging, and physical
+input routing. MagicDesk does not independently acquire elevated privileges.
 
 The trust boundaries are deliberately narrow:
 
 - The complete source and CI workflow are reviewable under the MIT license.
-- The main APK declares no Internet permission and contains no root command
-  path, `su` invocation, kernel module, or kernel-module loader.
+- The main APK declares no Internet permission and contains no independent
+  privilege-escalation path, kernel module, or kernel-module loader.
 - Shizuku is never downloaded, installed, or started by MagicDesk. The user
   controls the official manager and grants MagicDesk separately.
-- A root/Sui Shizuku service is rejected; only shell UID 2000 is accepted.
+- The connected UserService identity is included in Diagnostics; every
+  supported Shizuku startup method uses the same commands and feature set.
 - MagicDesk changes only the four desktop settings documented under Device
   Setup and stores their previous values for restoration. The REDMAGIC
   property writer accepts only two hardcoded boolean desktop properties.

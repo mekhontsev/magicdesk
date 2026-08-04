@@ -11,10 +11,10 @@ MagicDesk follows these constraints:
 1. Android applications remain real Android tasks.
 2. The firmware's `ShellTaskOrganizer` and native window decorations remain in
    control of move, resize, snap, maximize, minimize, and close.
-3. Runtime system access requires Shizuku running as shell UID 2000.
+3. Runtime system access requires an authorized Shizuku UserService.
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
-6. Optional root and kernel code stays outside the main APK.
+6. Optional kernel code stays outside the main APK.
 
 MagicDesk does not register a competing task organizer, host applications in
 surrogate activities, draw replacement captions, patch SystemUI, invoke `su`,
@@ -171,9 +171,10 @@ desktop panels. Keep this split when adding vendor-specific behavior.
 
 ## Shizuku Runtime
 
-`DeviceSetupManager` accepts Shizuku only after the bound
-`ShizukuCommandService` reports UID 2000. There is no root, basic, automatic,
-or fallback runtime branch.
+`DeviceSetupManager` accepts Shizuku after the bound
+`ShizukuCommandService` reports Android shell UID 2000 or root UID 0. Both use
+the same service, commands, and feature set; there is no separate root, basic,
+automatic, or fallback runtime branch.
 
 `ShellAccess` owns the official UserService connection and an immutable
 runtime snapshot. Shizuku Binder and permission events update the snapshot;
@@ -400,8 +401,8 @@ setting names and vendor services can change across firmware.
 
 ## Device Setup And Recovery
 
-Device Setup requires a compatible ZTE/nubia Android 16+ device and a live
-Shizuku UserService at UID 2000. It audits:
+Device Setup requires a compatible ZTE/nubia Android 16+ device and a live,
+authorized Shizuku UserService. It audits:
 
 ```text
 Settings.Global enable_freeform_support = 1

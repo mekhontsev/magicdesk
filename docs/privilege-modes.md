@@ -1,8 +1,7 @@
 # Shizuku And Display Modes
 
-MagicDesk has one runtime privilege path: an official Shizuku UserService
-running as Android shell UID 2000. Display selection is an independent session
-property.
+MagicDesk has one runtime privilege path: an official Shizuku UserService.
+Display selection is an independent session property.
 
 ## Runtime Contract
 
@@ -14,8 +13,9 @@ The runtime contract is deliberately strict:
 
 - Shizuku must be installed and running.
 - The user must grant MagicDesk access.
-- The connected UserService must report UID 2000.
-- A root/Sui service reporting UID 0 is rejected.
+- The connected UserService must report Android shell UID 2000 or root UID 0.
+- Both identities use the same commands and feature set; MagicDesk has no
+  root-specific runtime branch.
 - Losing Shizuku stops privileged runtime work instead of changing security
   boundaries silently.
 
@@ -120,7 +120,7 @@ setprop persist.wm.debug.desktop_mode_enforce_device_restrictions false
 setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
 
-Shizuku writes the two global settings as shell UID 2000. The ordinary
+The connected Shizuku UserService writes the two global settings. The ordinary
 MagicDesk process uses a verified REDMAGIC property service for the two
 persistent properties. Its production wrapper accepts only those two keys,
 boolean values, and restoration of a previously absent value; it verifies each
