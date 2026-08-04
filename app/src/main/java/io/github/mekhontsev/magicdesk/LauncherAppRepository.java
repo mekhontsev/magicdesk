@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
@@ -72,8 +73,11 @@ final class LauncherAppRepository {
                     packageName,
                     universalFreeform,
                     fullscreenPreference(activityInfo, applicationInfo),
-                    icon));
+                    icon,
+                    AppLaunchTarget.packageDefault(packageName)));
         }
+
+        addRedmagicEntryPoints(result, addedPackages, universalFreeform);
 
         Collections.sort(result, new Comparator<AppItem>() {
             @Override
@@ -109,7 +113,8 @@ final class LauncherAppRepository {
                             launcherInfo.getApplicationInfo()),
                     mIconRenderer.render(
                             launcherInfo.getIcon(
-                                    DisplayMetrics.DENSITY_XHIGH)));
+                                    DisplayMetrics.DENSITY_XHIGH)),
+                    AppLaunchTarget.packageDefault(packageName));
         }
         try {
             final ApplicationInfo info =
@@ -122,10 +127,62 @@ final class LauncherAppRepository {
                     packageName,
                     universalFreeform,
                     fullscreenPreference(activityInfo, info),
-                    mIconRenderer.render(info.loadIcon(mPackageManager)));
+                    mIconRenderer.render(info.loadIcon(mPackageManager)),
+                    AppLaunchTarget.packageDefault(packageName));
         } catch (PackageManager.NameNotFoundException error) {
             Log.w(TAG, "Task package is not installed: " + packageName, error);
             return null;
+        }
+    }
+
+    private void addRedmagicEntryPoints(
+            final List<AppItem> result,
+            final Set<String> addedPackages,
+            final boolean universalFreeform) {
+        for (final RedmagicEntryPointCatalog.EntryPoint entry
+                : RedmagicEntryPointCatalog.entries()) {
+            final AppLaunchTarget target = entry.launchTarget;
+            if (addedPackages.contains(target.packageName)) {
+                continue;
+            }
+            try {
+                final ActivityInfo activityInfo = mPackageManager.getActivityInfo(
+                        new ComponentName(
+                                target.packageName,
+                                target.activityClassName),
+                        0);
+                final ApplicationInfo applicationInfo =
+                        activityInfo.applicationInfo;
+                if (!activityInfo.exported
+                        || !activityInfo.enabled
+                        || applicationInfo == null
+                        || !applicationInfo.enabled) {
+                    continue;
+                }
+                final CharSequence activityLabel =
+                        activityInfo.loadLabel(mPackageManager);
+                final CharSequence applicationLabel =
+                        applicationInfo.loadLabel(mPackageManager);
+                final String label = activityLabel != null
+                                && activityLabel.length() > 0
+                        ? activityLabel.toString()
+                        : applicationLabel != null
+                                && applicationLabel.length() > 0
+                                ? applicationLabel.toString()
+                                : target.packageName;
+                result.add(new AppItem(
+                        label,
+                        target.packageName,
+                        universalFreeform,
+                        fullscreenPreference(activityInfo, applicationInfo),
+                        mIconRenderer.render(
+                                activityInfo.loadIcon(mPackageManager)),
+                        target));
+                addedPackages.add(target.packageName);
+            } catch (PackageManager.NameNotFoundException error) {
+                Log.d(TAG, "Optional REDMAGIC entry point is unavailable: "
+                        + target.packageName);
+            }
         }
     }
 

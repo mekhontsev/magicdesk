@@ -4,6 +4,9 @@ import android.content.ComponentName;
 import android.content.Intent;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Set;
 
 final class FullscreenAppLauncher {
     private static final String AM = "/system/bin/am";
@@ -19,6 +22,8 @@ final class FullscreenAppLauncher {
         final String output = ShellAccess.run(createLaunchCommand(
                 component.getPackageName(),
                 component.getClassName(),
+                intent.getAction(),
+                intent.getCategories(),
                 displayId,
                 intent.getFlags()));
         if (commandFailed(output)) {
@@ -29,22 +34,42 @@ final class FullscreenAppLauncher {
     static String createLaunchCommand(
             final String packageName,
             final String className,
+            final String action,
+            final Set<String> categories,
             final int displayId,
             final int flags) {
         if (!PackageNameValidator.isSafe(packageName)
                 || !isSafeClassName(className)
+                || !isSafeIntentName(action)
                 || displayId < 0) {
             throw new IllegalArgumentException("invalid fullscreen launch target");
         }
         final String componentClass = className.startsWith(packageName + ".")
                 ? className.substring(packageName.length()) : className;
-        return AM + " start --user 0 --display " + displayId
+        final StringBuilder command = new StringBuilder(
+                AM + " start --user 0 --display " + displayId
                 + " --windowingMode 1"
                 + " -f 0x" + Integer.toHexString(flags)
-                + " -a android.intent.action.MAIN"
-                + " -c android.intent.category.LAUNCHER"
-                + " --ez start_from_heartservice_app_lock true"
-                + " -n " + packageName + "/" + componentClass;
+                + " -a " + action);
+        if (categories != null && !categories.isEmpty()) {
+            final ArrayList<String> sortedCategories =
+                    new ArrayList<>(categories);
+            Collections.sort(sortedCategories);
+            for (final String category : sortedCategories) {
+                if (!isSafeIntentName(category)) {
+                    throw new IllegalArgumentException(
+                            "invalid fullscreen launch category");
+                }
+                command.append(" -c ").append(category);
+            }
+        }
+        return command
+                .append(" --ez start_from_heartservice_app_lock true")
+                .append(" -n ")
+                .append(packageName)
+                .append('/')
+                .append(componentClass)
+                .toString();
     }
 
     static boolean commandFailed(final String output) {
@@ -64,6 +89,22 @@ final class FullscreenAppLauncher {
                     || value == '.'
                     || value == '_'
                     || value == '$')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isSafeIntentName(final String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            final char character = value.charAt(index);
+            if (!(Character.isLetterOrDigit(character)
+                    || character == '.'
+                    || character == '_'
+                    || character == '$')) {
                 return false;
             }
         }

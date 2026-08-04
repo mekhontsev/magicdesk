@@ -68,7 +68,7 @@ final class AppTaskController {
         try {
             FreeformLaunchAnchorActivity.launch(
                     mActivity,
-                    app.packageName,
+                    app.launchTarget,
                     getTaskIds(visibleTasks));
         } catch (RuntimeException e) {
             TaskRepository.bringStackToFront(
@@ -109,8 +109,8 @@ final class AppTaskController {
             Log.i(TAG,
                     "fresh fullscreen launch package="
                             + app.packageName);
-            final Intent launchIntent = mActivity.getPackageManager()
-                    .getLaunchIntentForPackage(app.packageName);
+            final Intent launchIntent = app.launchTarget.resolve(
+                    mActivity.getPackageManager());
             if (launchIntent == null) {
                 DesktopTaskController.finishFullscreenTransition(
                         displayId, false);

@@ -28,6 +28,10 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             "io.github.mekhontsev.magicdesk.action.LAUNCH_FREEFORM";
     private static final String EXTRA_PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk.extra.PACKAGE_NAME";
+    private static final String EXTRA_ACTIVITY_CLASS_NAME =
+            "io.github.mekhontsev.magicdesk.extra.ACTIVITY_CLASS_NAME";
+    private static final String EXTRA_LAUNCH_ACTION =
+            "io.github.mekhontsev.magicdesk.extra.LAUNCH_ACTION";
     private static final String EXTRA_PRESERVED_TASK_IDS =
             "io.github.mekhontsev.magicdesk.extra.PRESERVED_TASK_IDS";
     private static final String EXTRA_DESKTOP_TASK_ID =
@@ -65,12 +69,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
 
     static void launch(
             final Activity desktop,
-            final String packageName,
+            final AppLaunchTarget launchTarget,
             final int[] preservedTaskIds) {
-        if (!PackageNameValidator.isSafe(packageName)) {
-            throw new IllegalArgumentException("Bad package name");
+        if (launchTarget == null) {
+            throw new IllegalArgumentException("Missing launch target");
         }
-        requestAnchor(desktop, new LaunchRequest(packageName, preservedTaskIds));
+        requestAnchor(desktop, new LaunchRequest(
+                launchTarget, preservedTaskIds));
     }
 
     static void release() {
@@ -190,12 +195,21 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             return;
         }
         final String packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME);
-        if (!PackageNameValidator.isSafe(packageName)) {
-            showToast(getApplicationContext(), "Bad package name");
+        final String activityClassName =
+                intent.getStringExtra(EXTRA_ACTIVITY_CLASS_NAME);
+        final String launchAction = intent.getStringExtra(EXTRA_LAUNCH_ACTION);
+        final AppLaunchTarget launchTarget;
+        try {
+            launchTarget = AppLaunchTarget.explicit(
+                    packageName,
+                    activityClassName == null ? "" : activityClassName,
+                    launchAction);
+        } catch (IllegalArgumentException error) {
+            showToast(getApplicationContext(), "Bad launch target");
             return;
         }
         enqueue(new LaunchRequest(
-                packageName,
+                launchTarget,
                 intent.getIntArrayExtra(EXTRA_PRESERVED_TASK_IDS)));
     }
 
@@ -261,11 +275,12 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (request == null) {
             return;
         }
-        final Intent launchIntent = getPackageManager()
-                .getLaunchIntentForPackage(request.packageName);
+        final Intent launchIntent = request.launchTarget.resolve(
+                getPackageManager());
         if (launchIntent == null) {
             showToast(getApplicationContext(),
-                    "No launcher activity for " + request.packageName);
+                    "No launcher activity for "
+                            + request.launchTarget.packageName);
             launchNext();
             return;
         }
@@ -286,7 +301,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             final boolean restoreTouchpad) {
         try {
             final boolean existingTask = ExistingTaskController.taskExists(
-                    request.packageName, mDisplayId);
+                    request.launchTarget.packageName, mDisplayId);
             if (!existingTask) {
                 ExistingTaskController.focusFreeformLaunchSource(
                         getTaskId(), mDisplayId);
@@ -303,7 +318,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                     LAUNCH_EXECUTOR.execute(() -> {
                         convertToDesktopWindow(
                                 getApplicationContext(),
-                                request.packageName,
+                                request.launchTarget.packageName,
                                 mDisplayId,
                                 request.preservedTaskIds,
                                 !existingTask);
@@ -453,7 +468,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (request == null) {
             return;
         }
-        intent.putExtra(EXTRA_PACKAGE_NAME, request.packageName);
+        intent.putExtra(
+                EXTRA_PACKAGE_NAME,
+                request.launchTarget.packageName);
+        intent.putExtra(
+                EXTRA_ACTIVITY_CLASS_NAME,
+                request.launchTarget.activityClassName);
+        intent.putExtra(EXTRA_LAUNCH_ACTION, request.launchTarget.action);
         intent.putExtra(EXTRA_PRESERVED_TASK_IDS, request.preservedTaskIds);
     }
 
@@ -482,11 +503,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     }
 
     private static final class LaunchRequest {
-        final String packageName;
+        final AppLaunchTarget launchTarget;
         final int[] preservedTaskIds;
 
-        LaunchRequest(final String packageName, final int[] preservedTaskIds) {
-            this.packageName = packageName;
+        LaunchRequest(
+                final AppLaunchTarget launchTarget,
+                final int[] preservedTaskIds) {
+            this.launchTarget = launchTarget;
             this.preservedTaskIds = preservedTaskIds == null
                     ? null : preservedTaskIds.clone();
         }

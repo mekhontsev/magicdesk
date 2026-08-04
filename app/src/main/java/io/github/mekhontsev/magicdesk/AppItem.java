@@ -13,17 +13,24 @@ final class AppItem {
     final boolean canFloat;
     final String fullscreenReason;
     final Drawable icon;
+    final AppLaunchTarget launchTarget;
 
     AppItem(
             final String label,
             final String packageName,
             final boolean canFloat,
             final String fullscreenReason,
-            final Drawable icon) {
+            final Drawable icon,
+            final AppLaunchTarget launchTarget) {
+        if (launchTarget == null
+                || !packageName.equals(launchTarget.packageName)) {
+            throw new IllegalArgumentException("launch target package mismatch");
+        }
         this.label = label;
         this.packageName = packageName;
         this.canFloat = canFloat;
         this.fullscreenReason = fullscreenReason;
         this.icon = icon;
+        this.launchTarget = launchTarget;
     }
 }
