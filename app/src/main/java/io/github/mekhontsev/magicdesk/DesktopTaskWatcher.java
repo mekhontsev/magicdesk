@@ -38,6 +38,7 @@ final class DesktopTaskWatcher {
     private long mNextFocusSequence;
     private ShellAccess.TaskObserverHandle mHandle;
     private TaskObserverCallback mCallback;
+    private boolean mDestroyed;
 
     DesktopTaskWatcher(final Handler handler, final Listener listener) {
         mHandler = handler;
@@ -45,12 +46,26 @@ final class DesktopTaskWatcher {
     }
 
     void start(final int generation) {
-        mExecutor.execute(() -> open(generation));
+        synchronized (this) {
+            if (mDestroyed) {
+                throw new IllegalStateException("task watcher is destroyed");
+            }
+            mExecutor.execute(() -> open(generation));
+        }
     }
 
     synchronized void stop() {
         failPendingFocusCallbacks("task observer stopped");
         closeHandle();
+    }
+
+    synchronized void destroy() {
+        if (mDestroyed) {
+            return;
+        }
+        mDestroyed = true;
+        stop();
+        mExecutor.shutdownNow();
     }
 
     synchronized boolean configure(
@@ -65,6 +80,11 @@ final class DesktopTaskWatcher {
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
+            recordFailure(
+                    "TASK-OBSERVER-CONFIGURE-001",
+                    "Could not configure desktop task monitoring",
+                    "display=" + displayId,
+                    error);
             return false;
         }
     }
@@ -93,6 +113,11 @@ final class DesktopTaskWatcher {
             completeFocusCallback(
                     callback, false, "task observer focus failed");
             Log.w(TAG, "failed to focus task stack", error);
+            recordFailure(
+                    "TASK-OBSERVER-FOCUS-001",
+                    "Could not focus the requested desktop tasks",
+                    "display=" + displayId + " tasks=" + taskIds.size(),
+                    error);
         }
     }
 
@@ -108,9 +133,10 @@ final class DesktopTaskWatcher {
                 throw new IOException("task observer disconnected during startup");
             }
             synchronized (this) {
-                if (!mListener.isActive(generation) || handle.isClosed()) {
+                if (mDestroyed || !mListener.isActive(generation)
+                        || handle.isClosed()) {
                     handle.close();
-                    if (mListener.isActive(generation)) {
+                    if (!mDestroyed && mListener.isActive(generation)) {
                         throw new IOException(
                                 "task observer disconnected during startup");
                     }
@@ -126,6 +152,11 @@ final class DesktopTaskWatcher {
             }
             if (mListener.isActive(generation)) {
                 Log.w(TAG, "task observer failed", error);
+                recordFailure(
+                        "TASK-OBSERVER-START-001",
+                        "Desktop task monitoring could not start",
+                        "shell=" + ShellAccess.statusLabel(),
+                        error);
                 postDisconnected(generation);
             }
         }
@@ -220,7 +251,20 @@ final class DesktopTaskWatcher {
             final String error) {
         if (mListener.isActive(generation)) {
             Log.w(TAG, "task observer: " + error);
+            recordFailure(
+                    "TASK-OBSERVER-RUNTIME-001",
+                    "Desktop task monitoring reported an error",
+                    "error=" + error,
+                    null);
         }
+    }
+
+    private static void recordFailure(
+            final String code,
+            final String message,
+            final String detail,
+            final Throwable error) {
+        CompatibilityDiagnostics.record(code, message, detail, error);
     }
 
     private void postIfActive(

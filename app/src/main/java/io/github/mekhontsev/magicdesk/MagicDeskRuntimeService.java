@@ -293,7 +293,7 @@ public final class MagicDeskRuntimeService extends Service
             mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         }
         if (mDesktopTasks != null) {
-            mDesktopTasks.stop();
+            mDesktopTasks.destroy();
         }
         if (mConsoleMouseBridge != null) {
             mConsoleMouseBridge.stop();

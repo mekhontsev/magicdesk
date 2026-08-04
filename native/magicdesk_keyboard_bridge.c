@@ -883,9 +883,13 @@ static int forward_events(struct bridge_state *state) {
         poll_descriptors[0].fd = STDIN_FILENO;
         poll_descriptors[0].events = POLLIN | POLLHUP;
         for (int index = 0; index < state->source_count; ++index) {
-            poll_descriptors[index + 1].fd = state->sources[index].fd;
-            poll_descriptors[index + 1].events =
-                    POLLIN | POLLHUP | POLLERR;
+            if (state->started) {
+                poll_descriptors[index + 1].fd = state->sources[index].fd;
+                poll_descriptors[index + 1].events =
+                        POLLIN | POLLHUP | POLLERR;
+            } else {
+                poll_descriptors[index + 1].fd = -1;
+            }
         }
         const int poll_result =
                 poll(poll_descriptors, (nfds_t)descriptor_count, -1);

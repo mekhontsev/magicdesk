@@ -210,6 +210,11 @@ final class DesktopTaskController {
         DesktopTaskStateStore.clear(stoppedDisplayId);
     }
 
+    void destroy() {
+        stop();
+        mTaskWatcher.destroy();
+    }
+
     static synchronized List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
         return DesktopTaskStateStore.getVisibleTasks(displayId);

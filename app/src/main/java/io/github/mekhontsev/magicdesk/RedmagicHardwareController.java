@@ -111,19 +111,35 @@ final class RedmagicHardwareController {
     }
 
     static synchronized void stop() {
+        if (sStopping) {
+            return;
+        }
         sStopping = true;
         cancelPollingLocked();
-        if (sExecutor != null) {
-            sExecutor.shutdownNow();
-            sExecutor = null;
+        final ScheduledExecutorService executor = sExecutor;
+        if (executor == null) {
+            clearStoppedState();
+            return;
         }
-        synchronized (CONTROL_LOCK) {
-            if (sContext != null && canControlHardware()
-                    && hasOwnedState()
-                    && !restoreBaselineIfOwned()) {
-                Log.w(TAG, "hardware state remains owned after runtime stop");
+        executor.execute(() -> {
+            synchronized (CONTROL_LOCK) {
+                if (sContext != null && canControlHardware()
+                        && hasOwnedState()
+                        && !restoreBaselineIfOwned()) {
+                    Log.w(TAG, "hardware state remains owned after runtime stop");
+                }
             }
-        }
+            synchronized (RedmagicHardwareController.class) {
+                if (sExecutor == executor) {
+                    sExecutor = null;
+                    clearStoppedState();
+                }
+            }
+        });
+        executor.shutdown();
+    }
+
+    private static void clearStoppedState() {
         sFanMode = FanMode.SYSTEM;
         sPumpMode = PumpMode.SYSTEM;
         sSnapshot = RedmagicHardwareSnapshot.UNAVAILABLE;

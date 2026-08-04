@@ -107,15 +107,15 @@ final class SecondaryClickInjector {
 
     private static Method findInjectMethod() throws ReflectiveOperationException {
         final Class<?> type = Class.forName("android.hardware.input.IInputManager");
-        for (final Method method : type.getMethods()) {
-            if (("injectInputEvent".equals(method.getName())
-                    || "injectInputEventToTarget".equals(method.getName()))
-                    && method.getParameterCount() >= 2
-                    && InputEvent.class.isAssignableFrom(
-                            method.getParameterTypes()[0])) {
-                return method;
-            }
+        try {
+            return type.getMethod(
+                    "injectInputEvent", InputEvent.class, Integer.TYPE);
+        } catch (NoSuchMethodException ignored) {
+            return type.getMethod(
+                    "injectInputEventToTarget",
+                    InputEvent.class,
+                    Integer.TYPE,
+                    Integer.TYPE);
         }
-        throw new NoSuchMethodException("IInputManager input injection");
     }
 }
