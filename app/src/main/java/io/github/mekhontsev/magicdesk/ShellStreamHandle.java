@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class ShellStreamHandle implements Closeable {
     private final long mRequestId;
     private final InputStream mInput;
+    // The remote UserService owns the stream only while this Binder is alive.
     @SuppressWarnings("unused")
     private final IBinder mOwnerToken;
     private final IShizukuCommandService mService;

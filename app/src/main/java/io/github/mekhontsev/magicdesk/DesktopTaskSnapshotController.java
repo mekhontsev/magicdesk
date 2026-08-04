@@ -42,15 +42,16 @@ final class DesktopTaskSnapshotController {
                 break;
             }
         }
-        final boolean taskbarVisible =
-                activeTask == null
-                        || activeTask.isFreeform()
-                        || mActivity.getPackageName().equals(
-                                activeTask.packageName);
         final boolean desktopActive =
                 activeTask != null
                         && mActivity.getPackageName().equals(
                                 activeTask.packageName);
+        final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
+                mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
+                activeTask != null,
+                activeTask != null && activeTask.isFreeform(),
+                desktopActive,
+                mActivity.isTaskbarVisible());
         mSnapshot = snapshot;
         if (activeTask != null
                 && isTaskbarTask(activeTask)) {

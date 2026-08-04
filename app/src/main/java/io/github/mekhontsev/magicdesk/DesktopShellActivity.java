@@ -78,7 +78,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
-    private boolean mLocalTaskbarSuppressed;
+    private boolean mTaskbarVisible = true;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -353,7 +353,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
-        mLocalTaskbarSuppressed = false;
         MagicDeskRuntimeService.refreshNotificationIfRunning();
         refreshWorkspaceProfileForDisplay();
         resolveMonitorIdentityAsync();
@@ -376,7 +375,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onStop() {
         if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
-            mLocalTaskbarSuppressed = true;
             hideAllPanels();
             setTaskbarVisible(false);
         }
@@ -999,8 +997,12 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void setTaskbarVisible(final boolean visible) {
-        mTaskbarController.setVisible(
-                visible && !mLocalTaskbarSuppressed);
+        mTaskbarVisible = visible;
+        mTaskbarController.setVisible(visible);
+    }
+
+    boolean isTaskbarVisible() {
+        return mTaskbarVisible;
     }
 
     void exitMagicDesk() {

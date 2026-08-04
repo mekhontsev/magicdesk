@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -56,5 +57,85 @@ public final class KeyboardShortcutStateMachineTest {
         assertEquals(
                 KeyboardShortcutStateMachine.Action.NONE,
                 state.accept("MAGICDESK_ALT_TAB_COMMIT", true));
+    }
+
+    @Test
+    public void limitedModeKeepsOnlyGlobalShortcuts() {
+        final KeyboardShortcutStateMachine state =
+                new KeyboardShortcutStateMachine();
+
+        state.accept(key("KEY_LEFTMETA", "DOWN"), false);
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.SHOW_DESKTOP,
+                state.accept(key("KEY_D", "DOWN"), false));
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.NONE,
+                state.accept(key("KEY_N", "DOWN"), false));
+        state.accept(key("KEY_LEFTMETA", "UP"), false);
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.DISMISS,
+                state.accept(key("KEY_ESC", "DOWN"), false));
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.NONE,
+                state.accept("MAGICDESK_ALT_TAB_ADVANCE forward", false));
+    }
+
+    @Test
+    public void fullModeMapsWindowAndSystemShortcuts() {
+        final KeyboardShortcutStateMachine state =
+                new KeyboardShortcutStateMachine();
+
+        assertMetaAction(state, "KEY_BACKSPACE",
+                KeyboardShortcutStateMachine.Action.BACK);
+        assertMetaAction(state, "KEY_L",
+                KeyboardShortcutStateMachine.Action.LOCK);
+        assertMetaAction(state, "KEY_N",
+                KeyboardShortcutStateMachine.Action.NOTIFICATIONS);
+        assertMetaAction(state, "KEY_UP",
+                KeyboardShortcutStateMachine.Action.FULLSCREEN);
+        assertMetaAction(state, "KEY_DOWN",
+                KeyboardShortcutStateMachine.Action.RESTORE);
+        assertMetaAction(state, "KEY_LEFT",
+                KeyboardShortcutStateMachine.Action.SNAP_LEFT);
+        assertMetaAction(state, "KEY_RIGHT",
+                KeyboardShortcutStateMachine.Action.SNAP_RIGHT);
+        assertMetaAction(state, "KEY_SYSRQ",
+                KeyboardShortcutStateMachine.Action.SCREENSHOT);
+        assertMetaAction(state, "KEY_SLASH",
+                KeyboardShortcutStateMachine.Action.SHORTCUT_HELP);
+
+        state.reset();
+        state.accept(key("KEY_LEFTALT", "DOWN"), true);
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.CLOSE,
+                state.accept(key("KEY_F4", "DOWN"), true));
+    }
+
+    @Test
+    public void repeatsAndExtraModifiersDoNotTriggerShortcuts() {
+        final KeyboardShortcutStateMachine state =
+                new KeyboardShortcutStateMachine();
+        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
+
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.NONE,
+                state.accept(key("KEY_UP", "REPEAT"), true));
+        state.accept(key("KEY_LEFTSHIFT", "DOWN"), true);
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.NONE,
+                state.accept(key("KEY_UP", "DOWN"), true));
+        assertFalse(state.reset());
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.NONE,
+                state.accept(key("KEY_D", "DOWN"), true));
+    }
+
+    private static void assertMetaAction(
+            final KeyboardShortcutStateMachine state,
+            final String keyName,
+            final KeyboardShortcutStateMachine.Action expected) {
+        state.reset();
+        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
+        assertEquals(expected, state.accept(key(keyName, "DOWN"), true));
     }
 }

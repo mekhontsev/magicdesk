@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
@@ -81,16 +82,28 @@ final class RedmagicHardwareController {
     private static volatile FanMode sFanMode = FanMode.SYSTEM;
     private static volatile PumpMode sPumpMode = PumpMode.SYSTEM;
     private static volatile boolean sStopping;
+    // May be set while a previous executor is still completing asynchronous stop.
+    private static Context sRequestedContext;
 
     private RedmagicHardwareController() {
     }
 
     static synchronized void start(final Context context) {
-        if (!ShellAccess.isReady()
-                || sExecutor != null) {
+        if (!ShellAccess.isReady()) {
             return;
         }
-        sContext = context.getApplicationContext();
+        sRequestedContext = context.getApplicationContext();
+        if (sStopping || sExecutor != null) {
+            return;
+        }
+        startRequestedContextLocked();
+    }
+
+    private static void startRequestedContextLocked() {
+        sContext = sRequestedContext;
+        if (sContext == null) {
+            return;
+        }
         sStopping = false;
         sExecutor = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactory() {
@@ -111,6 +124,7 @@ final class RedmagicHardwareController {
     }
 
     static synchronized void stop() {
+        sRequestedContext = null;
         if (sStopping) {
             return;
         }
@@ -119,6 +133,7 @@ final class RedmagicHardwareController {
         final ScheduledExecutorService executor = sExecutor;
         if (executor == null) {
             clearStoppedState();
+            sStopping = false;
             return;
         }
         executor.execute(() -> {
@@ -133,6 +148,11 @@ final class RedmagicHardwareController {
                 if (sExecutor == executor) {
                     sExecutor = null;
                     clearStoppedState();
+                    sStopping = false;
+                    if (sRequestedContext != null
+                            && ShellAccess.isReady()) {
+                        startRequestedContextLocked();
+                    }
                 }
             }
         });
@@ -189,54 +209,66 @@ final class RedmagicHardwareController {
 
     static void setFanMode(final FanMode mode, final ResultCallback callback) {
         final ScheduledExecutorService executor = sExecutor;
-        if (executor == null || mode == null
+        if (executor == null || executor.isShutdown() || sStopping || mode == null
                 || !canControlHardware()) {
             complete(callback, false);
             return;
         }
-        executor.execute(() -> {
-            final boolean success;
-            synchronized (CONTROL_LOCK) {
-                success = !sStopping && applyFanMode(mode);
-            }
-            complete(callback, success);
-        });
+        try {
+            executor.execute(() -> {
+                final boolean success;
+                synchronized (CONTROL_LOCK) {
+                    success = !sStopping && applyFanMode(mode);
+                }
+                complete(callback, success);
+            });
+        } catch (RejectedExecutionException error) {
+            complete(callback, false);
+        }
     }
 
     static void setPumpMode(final PumpMode mode, final ResultCallback callback) {
         final ScheduledExecutorService executor = sExecutor;
-        if (executor == null || mode == null
+        if (executor == null || executor.isShutdown() || sStopping || mode == null
                 || !canControlHardware()) {
             complete(callback, false);
             return;
         }
-        executor.execute(() -> {
-            final boolean success;
-            synchronized (CONTROL_LOCK) {
-                success = !sStopping && applyPumpMode(mode);
-            }
-            complete(callback, success);
-        });
+        try {
+            executor.execute(() -> {
+                final boolean success;
+                synchronized (CONTROL_LOCK) {
+                    success = !sStopping && applyPumpMode(mode);
+                }
+                complete(callback, success);
+            });
+        } catch (RejectedExecutionException error) {
+            complete(callback, false);
+        }
     }
 
     static void restoreChangedState(final ResultCallback callback) {
         final ScheduledExecutorService executor = sExecutor;
-        if (executor == null) {
+        if (executor == null || executor.isShutdown() || sStopping) {
             complete(callback, true);
             return;
         }
-        executor.execute(() -> {
-            final boolean success;
-            synchronized (CONTROL_LOCK) {
-                success = restoreBaselineIfOwned();
-            }
-            if (success) {
-                sFanMode = FanMode.SYSTEM;
-                sPumpMode = PumpMode.SYSTEM;
-                pollInternal();
-            }
-            complete(callback, success);
-        });
+        try {
+            executor.execute(() -> {
+                final boolean success;
+                synchronized (CONTROL_LOCK) {
+                    success = restoreBaselineIfOwned();
+                }
+                if (success) {
+                    sFanMode = FanMode.SYSTEM;
+                    sPumpMode = PumpMode.SYSTEM;
+                    pollInternal();
+                }
+                complete(callback, success);
+            });
+        } catch (RejectedExecutionException error) {
+            complete(callback, false);
+        }
     }
 
     private static void recoverBaselineIfNeeded() {
