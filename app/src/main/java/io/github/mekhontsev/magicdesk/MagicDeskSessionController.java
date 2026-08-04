@@ -116,11 +116,11 @@ final class MagicDeskSessionController {
             continuation.run();
             return;
         }
-        TaskRepository.normalizePhoneFreeformTasks(result -> {
+        TaskRepository.recoverPhoneDesktopTasks(result -> {
             if (!result.success) {
                 abort(
                         "EXIT-005",
-                        "Could not clean local desktop tasks: "
+                        "Could not recover phone desktop tasks: "
                                 + result.message,
                         null);
                 return;

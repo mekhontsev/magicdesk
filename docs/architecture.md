@@ -236,7 +236,14 @@ This also avoids tying shell visibility to Activity focus callbacks.
 On display 0, Nubia Quickstep can crash while binding Recents to a desktop
 group containing freeform tasks. The active shell observer removes orphaned
 entries as tasks disappear, while normal desktop shutdown converts remaining
-live freeform tasks to fullscreen before exposing the phone launcher.
+live freeform tasks to fullscreen and removes verified orphaned Recents entries
+before exposing the phone launcher. Explicit exit performs the same stateless
+reconciliation, including debris left by an older MagicDesk process or a phone
+reboot. The firmware launcher is unusually destructive here: three crashes
+within roughly two seconds invoke its `DataCleaner`, which deletes the
+launcher's databases, preferences, and files. Preventing the stale task from
+reaching Quickstep is therefore required to preserve home-screen icons,
+widgets, drawer mode, and grid settings; MagicDesk never edits launcher data.
 
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store
@@ -296,6 +303,9 @@ one cleanup path:
 - stop keyboard, mouse, and phone-display streams;
 - restore caption privacy and display geometry ownership;
 - restore vendor hardware settings changed by MagicDesk;
+- normalize live freeform tasks on display 0 and remove dead Recent entries
+  still retained by the current user's WMShell desktop repository, including
+  entries left by earlier MagicDesk runs or restored after a reboot;
 - recover Quickstep/Home when Nubia reparents its secondary launcher to
   display 0;
 - stop the foreground runtime on explicit exit.

@@ -31,6 +31,19 @@ final class TaskRepository {
             "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
     private static final String PHONE_FREEFORM_CLEANUP_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneFreeformCleanupCommand";
+    private static final String PHONE_DESKTOP_TASK_RECOVERY_COMMAND =
+            "io.github.mekhontsev.magicdesk.PhoneDesktopTaskRecoveryCommand";
+    private static final String PHONE_DESKTOP_REPOSITORY_DUMP =
+            "/system/bin/dumpsys activity service "
+                    + "com.android.systemui/.SystemUIService"
+                    + " | /system/bin/awk 'BEGIN { found=0; done=0; base=0 } "
+                    + "{ line=$0; stripped=line; sub(/^[ ]*/, \"\", stripped); "
+                    + "indent=length(line)-length(stripped); "
+                    + "if (!found && !done "
+                    + "&& stripped == \"DesktopUserRepositories:\") "
+                    + "{ found=1; base=indent } "
+                    + "else if (found && stripped != \"\" && indent <= base) "
+                    + "{ found=0; done=1 } if (found) print line }'";
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
             new ThreadFactory() {
                 @Override
@@ -210,15 +223,50 @@ final class TaskRepository {
                 callback);
     }
 
-    static void normalizePhoneFreeformTasks(
-            final ActionCallback callback) {
+    static void recoverPhoneDesktopTasks(final ActionCallback callback) {
         if (!ShellAccess.isReady()) {
-            complete(callback, true, "task cleanup unavailable");
+            complete(callback, true, "phone desktop recovery unavailable");
             return;
         }
-        runAction(
-                AppProcessCommand.run(PHONE_FREEFORM_CLEANUP_COMMAND),
-                callback);
+        EXECUTOR.execute(() -> {
+            final CommandResult normalized = runCommand(
+                    AppProcessCommand.run(PHONE_FREEFORM_CLEANUP_COMMAND));
+            if (!normalized.success) {
+                complete(callback, false, normalized.output.trim());
+                return;
+            }
+            final CommandResult repository = runCommand(
+                    PHONE_DESKTOP_REPOSITORY_DUMP);
+            if (!repository.success) {
+                complete(callback, false, repository.output.trim());
+                return;
+            }
+            final Set<Integer> taskIds =
+                    SystemUiDesktopRepositoryParser.parsePhoneTaskIds(
+                            repository.output);
+            if (taskIds.isEmpty()) {
+                complete(callback, true,
+                        normalized.output.trim()
+                                + "; phone-desktop-recovery candidates=0");
+                return;
+            }
+            final StringBuilder arguments = new StringBuilder();
+            for (final Integer taskId : taskIds) {
+                if (arguments.length() > 0) {
+                    arguments.append(' ');
+                }
+                arguments.append(taskId.intValue());
+            }
+            final CommandResult recovered = runCommand(
+                    AppProcessCommand.run(
+                            PHONE_DESKTOP_TASK_RECOVERY_COMMAND,
+                            arguments.toString()));
+            complete(callback, recovered.success,
+                    recovered.success
+                            ? normalized.output.trim() + "; "
+                                    + recovered.output.trim()
+                            : recovered.output.trim());
+        });
     }
 
     static void setFullscreen(final TaskEntry task,

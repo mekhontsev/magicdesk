@@ -580,7 +580,7 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         mLocalDesktopCleanupInFlight = true;
-        TaskRepository.normalizePhoneFreeformTasks(result ->
+        TaskRepository.recoverPhoneDesktopTasks(result ->
                 mHandler.post(() -> {
                     mLocalDesktopCleanupInFlight = false;
                     if (mDestroyed) {
@@ -588,9 +588,9 @@ public final class MagicDeskRuntimeService extends Service {
                     }
                     if (result.success) {
                         LocalDesktopSessionState.clearCleanupPending(this);
-                        Log.i(TAG, "cleaned phone freeform tasks after local desktop");
+                        Log.i(TAG, "recovered phone desktop tasks after local desktop");
                     } else {
-                        Log.w(TAG, "phone freeform cleanup failed: "
+                        Log.w(TAG, "phone desktop recovery failed: "
                                 + result.message);
                         CompatibilityDiagnostics.record(
                                 "NUBIA-HOME-003",

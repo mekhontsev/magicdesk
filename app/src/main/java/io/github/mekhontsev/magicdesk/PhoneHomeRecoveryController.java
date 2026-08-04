@@ -118,6 +118,28 @@ final class PhoneHomeRecoveryController {
                             || hasVisiblePhoneTask(snapshot.tasks));
             return;
         }
+        if (includeStrandedDesktop) {
+            TaskRepository.recoverPhoneDesktopTasks(result -> {
+                if (!result.success) {
+                    Log.w(TAG, "phone desktop cleanup failed before Home: "
+                            + result.message);
+                    CompatibilityDiagnostics.record(
+                            "NUBIA-HOME-004",
+                            "Could not clean phone desktop tasks before"
+                                    + " restoring the launcher",
+                            result.message);
+                    complete(callback, false);
+                    return;
+                }
+                restorePrimaryHome(callback);
+            });
+            return;
+        }
+        restorePrimaryHome(callback);
+    }
+
+    private static void restorePrimaryHome(
+            final ResultCallback callback) {
         try {
             final String output =
                     ShellAccess.run(primaryHomeCommand()).trim();
