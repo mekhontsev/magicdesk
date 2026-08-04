@@ -193,7 +193,9 @@ final class PhoneControlPanelController {
         titleBlock.setPadding(dp(12), 0, 0, 0);
 
         final TextView title = new TextView(mActivity);
-        title.setText(R.string.app_name);
+        title.setText(mActivity.getString(
+                R.string.control_panel_title,
+                BuildConfig.VERSION_NAME));
         title.setTextColor(COLOR_TEXT);
         title.setTextSize(24);
         title.setTypeface(Typeface.DEFAULT_BOLD);
