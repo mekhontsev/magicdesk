@@ -138,6 +138,12 @@ process, but no runtime integration.
 - `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
   shell UserService. `ShellTaskObserver` registers the framework listener, and
   `ShellTaskStateMonitor` isolates the supplemental bounds/immersive polling.
+- `ShellFreeformTaskCleanup` remembers freeform application tasks observed
+  during the active desktop session. If one disappears, it verifies that no
+  live task remains and removes only a Recents entry with the same task ID,
+  package, and display. This prevents Nubia Quickstep from crashing while
+  binding a stale `DesktopTaskView` without persistent recovery state or
+  changes to unrelated Recents entries.
 - `DesktopTaskController` orchestrates native task transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
@@ -227,9 +233,9 @@ tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
 This also avoids tying shell visibility to Activity focus callbacks.
 
 On display 0, Nubia Quickstep can crash while binding Recents to a desktop
-group containing freeform tasks. A local session records pending cleanup and
-converts its freeform tasks to fullscreen before exposing the phone launcher.
-The marker survives process failure and is reconciled on the next manual start.
+group containing freeform tasks. The active shell observer removes orphaned
+entries as tasks disappear, while normal desktop shutdown converts remaining
+live freeform tasks to fullscreen before exposing the phone launcher.
 
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store

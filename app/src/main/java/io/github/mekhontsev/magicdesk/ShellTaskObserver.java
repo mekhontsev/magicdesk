@@ -20,6 +20,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ITaskObserverCallback mCallback;
     private final Runnable mCallbackFailure;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
+    private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
 
@@ -38,6 +39,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mCallback = callback;
         mCallbackFailure = callbackFailure;
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
+        // Nubia's launcher crashes while binding a DesktopTaskView when a
+        // finished freeform task remains in Recents and DesktopRepository.
+        mFreeformCleanup = new ShellFreeformTaskCleanup(
+                mService,
+                error -> callCallback(() -> mCallback.onObserverError(error)));
         mStateMonitor = new ShellTaskStateMonitor(
                 context,
                 mService,
@@ -47,6 +53,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int displayId,
                             final java.util.List<?> tasks) {
                         mTransientBounds.observeTasks(displayId, tasks);
+                        mFreeformCleanup.observeTasks(displayId, tasks);
                     }
 
                     @Override
@@ -90,6 +97,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
+        mFreeformCleanup.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
     }
@@ -188,6 +196,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mFreeformCleanup.close();
         mTransientBounds.close();
         mStateMonitor.close();
         if (!mRegistered) {

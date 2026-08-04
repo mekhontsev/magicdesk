@@ -1,6 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.view.Display;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -47,6 +50,31 @@ final class HiddenTaskApi {
                         Integer.valueOf(displayId));
         if (!(result instanceof List)) {
             throw new IllegalStateException("getTasks returned no task list");
+        }
+        return (List<?>) result;
+    }
+
+    static List<?> getAllTasks(final Object service)
+            throws ReflectiveOperationException {
+        return getTasks(service, Display.INVALID_DISPLAY);
+    }
+
+    static List<?> getRecentTasks(final Object service)
+            throws ReflectiveOperationException {
+        final Object slice = service.getClass()
+                .getMethod(
+                        "getRecentTasks",
+                        Integer.TYPE,
+                        Integer.TYPE,
+                        Integer.TYPE)
+                .invoke(service, Integer.valueOf(MAX_TASKS),
+                        Integer.valueOf(0), Integer.valueOf(0));
+        if (slice == null) {
+            throw new IllegalStateException("getRecentTasks returned no result");
+        }
+        final Object result = slice.getClass().getMethod("getList").invoke(slice);
+        if (!(result instanceof List)) {
+            throw new IllegalStateException("getRecentTasks returned no task list");
         }
         return (List<?>) result;
     }
@@ -117,5 +145,38 @@ final class HiddenTaskApi {
         return ((Integer) windowConfiguration.getClass()
                 .getMethod(methodName)
                 .invoke(windowConfiguration)).intValue();
+    }
+
+    static String getTaskPackage(final Object task) {
+        final String[] componentFields = {
+                "baseActivity", "realActivity", "origActivity", "topActivity"
+        };
+        for (final String field : componentFields) {
+            final Object value = getOptionalField(task, field);
+            if (value instanceof ComponentName) {
+                return ((ComponentName) value).getPackageName();
+            }
+        }
+        final Object baseIntent = getOptionalField(task, "baseIntent");
+        if (baseIntent instanceof Intent) {
+            final ComponentName component = ((Intent) baseIntent).getComponent();
+            if (component != null) {
+                return component.getPackageName();
+            }
+        }
+        return null;
+    }
+
+    static int getTaskDisplayId(final Object task) {
+        final Object value = getOptionalField(task, "displayId");
+        return value instanceof Number ? ((Number) value).intValue() : -1;
+    }
+
+    private static Object getOptionalField(final Object target, final String name) {
+        try {
+            return getField(target, name);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            return null;
+        }
     }
 }
