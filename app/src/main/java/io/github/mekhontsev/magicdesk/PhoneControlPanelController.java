@@ -165,11 +165,6 @@ final class PhoneControlPanelController {
 
         if (!state.consoleActive
                 && state.externalDisplayState
-                        == ExternalDisplayState.CHECKING) {
-            mExternalDesktop.setText(
-                    R.string.action_checking_external_display);
-        } else if (!state.consoleActive
-                && state.externalDisplayState
                         == ExternalDisplayState.DISCONNECTED) {
             mExternalDesktop.setText(
                     R.string.action_connect_external_display);
