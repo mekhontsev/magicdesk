@@ -261,6 +261,10 @@ settings, capability probes, recent structured MagicDesk errors, and
 MagicDesk-only logcat entries. It excludes user files, accounts, notification
 contents, and the installed-application list.
 
+**Diagnostics > Console** runs one-off shell commands through the authorized
+Shizuku service. It shows the effective UID, requires confirmation before its
+first command, and does not retain command history.
+
 Include the report, exact reproduction steps, and whether the problem survives
 a reboot when filing an issue.
 

@@ -522,6 +522,11 @@ Compatibility probes are non-destructive: they inspect permissions and reject
 invalid/null mutations after framework permission checks rather than changing
 real input, display, or hardware state.
 
+`CommandConsoleActivity` is an unexported, one-shot interface over the existing
+`ShellAccess` connection. It displays the effective Shizuku UID, requires an
+explicit first-run confirmation, combines stdout and stderr with the exit
+status, and persists neither commands nor output.
+
 ## Rejected Experiments Worth Remembering
 
 These results explain otherwise tempting implementation choices:
