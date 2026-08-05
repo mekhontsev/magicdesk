@@ -338,4 +338,25 @@
     <string name="diagnostics_share">Share report</string>
     <string name="diagnostics_copied">Diagnostics report copied</string>
     <string name="diagnostics_copy_failed">Clipboard unavailable</string>
+    <string name="console_title">Console</string>
+    <string name="console_description">Run a one-time shell command or script through Shizuku. Standard output and errors are shown together.</string>
+    <string name="console_warning">Commands receive all privileges of the current Shizuku server.</string>
+    <string name="console_warning_title">Run this script?</string>
+    <string name="console_warning_dialog">Run only commands you understand or received from a trusted source. This script can change Android system settings.</string>
+    <string name="console_command">Command or script</string>
+    <string name="console_command_hint">Paste shell text here</string>
+    <string name="console_run">Run</string>
+    <string name="console_clear">Clear</string>
+    <string name="console_copy_output">Copy output</string>
+    <string name="console_idle">Not run</string>
+    <string name="console_running">Running...</string>
+    <string name="console_running_output">Waiting for output...</string>
+    <string name="console_no_output">No output</string>
+    <string name="console_result">Exit %1$d | %2$s</string>
+    <string name="console_failed">Execution failed | %1$s</string>
+    <string name="console_shell_adb">Shizuku: Android shell (UID %1$d)</string>
+    <string name="console_shell_root">Shizuku: root (UID %1$d)</string>
+    <string name="console_shell_unavailable">Shizuku unavailable: %1$s</string>
+    <string name="console_copied">Console output copied</string>
+    <string name="console_copy_failed">Clipboard unavailable</string>
 </resources>

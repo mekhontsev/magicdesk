@@ -102,6 +102,13 @@
             android:resizeableActivity="true" />
 
         <activity
+            android:name=".CommandConsoleActivity"
+            android:exported="false"
+            android:label="@string/console_title"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true" />
+
+        <activity
             android:name=".FreeformLaunchAnchorActivity"
             android:configChanges="density|orientation|screenLayout|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"

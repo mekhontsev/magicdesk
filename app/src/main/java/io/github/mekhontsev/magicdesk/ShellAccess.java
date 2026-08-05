@@ -79,6 +79,10 @@ final class ShellAccess {
         return isReady() ? "ready" : "unavailable";
     }
 
+    static Snapshot currentSnapshot() {
+        return sSnapshot;
+    }
+
     static void addStateListener(final StateListener listener) {
         if (listener == null) {
             return;
@@ -151,6 +155,15 @@ final class ShellAccess {
     }
 
     static String run(final String command) throws IOException {
+        final CommandResult result = executeForConsole(command);
+        if (result.exitCode != 0) {
+            throw new IOException("Shizuku command failed " + result.exitCode + ": "
+                    + result.output.trim());
+        }
+        return result.output;
+    }
+
+    static CommandResult executeForConsole(final String command) throws IOException {
         final String encoded;
         try {
             encoded = requireService().execute(command);
@@ -159,6 +172,11 @@ final class ShellAccess {
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
+        return parseCommandResult(encoded);
+    }
+
+    static CommandResult parseCommandResult(final String encoded)
+            throws IOException {
         final int separator = encoded == null ? -1 : encoded.indexOf('\n');
         if (separator <= 0) {
             throw new IOException("invalid response from Shizuku command service");
@@ -170,11 +188,7 @@ final class ShellAccess {
             throw new IOException("invalid Shizuku command exit code", error);
         }
         final String output = encoded.substring(separator + 1);
-        if (exitCode != 0) {
-            throw new IOException("Shizuku command failed " + exitCode + ": "
-                    + output.trim());
-        }
-        return output;
+        return new CommandResult(exitCode, output);
     }
 
     static String probeCapabilities() throws IOException {
@@ -550,6 +564,16 @@ final class ShellAccess {
         final String message = error.getMessage();
         return message == null || message.isEmpty()
                 ? error.getClass().getSimpleName() : message;
+    }
+
+    static final class CommandResult {
+        final int exitCode;
+        final String output;
+
+        CommandResult(final int exitCode, final String output) {
+            this.exitCode = exitCode;
+            this.output = output == null ? "" : output;
+        }
     }
 
     static final class Snapshot {

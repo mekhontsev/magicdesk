@@ -116,6 +116,15 @@ public final class DiagnosticsActivity extends Activity {
         actions.addView(mShare, weightedButtonParams(dp(8)));
         page.addView(actions, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
+
+        final Button console = createButton(R.string.console_title, COLOR_CYAN);
+        console.setOnClickListener(view ->
+                startActivity(CommandConsoleActivity.createIntent(this)));
+        final LinearLayout.LayoutParams consoleParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        consoleParams.setMargins(0, dp(8), 0, 0);
+        page.addView(console, consoleParams);
         return page;
     }
 
