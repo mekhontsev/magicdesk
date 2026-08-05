@@ -147,7 +147,9 @@ for device-specific pairing and startup details.
 
 1. Complete **Install and start Shizuku** above and confirm that its server is
    running. Starting it from a computer through ADB is also supported.
-2. Install MagicDesk from a tagged GitHub Release or build it from source.
+2. Install MagicDesk from a tagged
+   [GitHub Release](https://github.com/mekhontsev/magicdesk/releases) or build
+   it from source.
 3. Launch MagicDesk on the phone and allow it through Shizuku.
 4. Press **Prepare device**. MagicDesk applies its app-specific permission and
    desktop-windowing configuration through Shizuku.
@@ -220,10 +222,11 @@ cycles the same configured layouts as `Ctrl+Space`.
 
 ## Privileges And Trust
 
-MagicDesk uses the official `dev.rikka.shizuku` UserService API for Console
-Mode, native task control, display density, screenshots, phone-screen dimming,
-locking, wallpaper access, vendor cooling and bypass charging, and physical
-input routing. MagicDesk does not independently acquire elevated privileges.
+MagicDesk uses the official `dev.rikka.shizuku` UserService API for external
+desktop sessions, native task control, display density, screenshots,
+phone-screen dimming, locking, wallpaper access, vendor cooling and bypass
+charging, and physical input routing. MagicDesk does not independently acquire
+elevated privileges.
 
 The trust boundaries are deliberately narrow:
 
@@ -234,6 +237,9 @@ The trust boundaries are deliberately narrow:
   controls the official manager and grants MagicDesk separately.
 - The connected UserService identity is included in Diagnostics; every
   supported Shizuku startup method uses the same commands and feature set.
+- The diagnostic Console executes only commands entered and confirmed by the
+  user. Those commands are not restricted to MagicDesk's internal allowlists
+  and have the effective privileges displayed by the Console.
 - MagicDesk changes only the four desktop settings documented under Device
   Setup. **Restore defaults** removes those overrides instead of guessing
   firmware values. The REDMAGIC property writer accepts only two hardcoded
