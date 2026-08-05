@@ -130,6 +130,18 @@ public final class KeyboardShortcutStateMachineTest {
                 state.accept(key("KEY_D", "DOWN"), true));
     }
 
+    @Test
+    public void metaShiftPrintScreenTogglesRecording() {
+        final KeyboardShortcutStateMachine state =
+                new KeyboardShortcutStateMachine();
+        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
+        state.accept(key("KEY_LEFTSHIFT", "DOWN"), true);
+
+        assertEquals(
+                KeyboardShortcutStateMachine.Action.SCREEN_RECORDING,
+                state.accept(key("KEY_SYSRQ", "DOWN"), true));
+    }
+
     private static void assertMetaAction(
             final KeyboardShortcutStateMachine state,
             final String keyName,

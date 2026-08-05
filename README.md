@@ -76,7 +76,8 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.
 - Calendar panel, battery state, active keyboard-layout indicator,
-  phone-screen control, and screenshot capture.
+  phone-screen control, screenshots, and configurable external-display
+  recording with internal audio.
 - Media-volume, connected audio-output, and REDMAGIC Touch Panel controls.
 - Stock REDMAGIC bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
@@ -209,6 +210,7 @@ supports tablets and allows development without an external monitor.
 | `Win+L` | Lock the phone |
 | `Win+N` | Toggle the notification center |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
+| `Win+Shift+Print Screen` | Start or stop external-display recording with internal audio; save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |

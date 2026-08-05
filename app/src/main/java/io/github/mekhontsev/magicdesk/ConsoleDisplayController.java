@@ -177,6 +177,27 @@ final class ConsoleDisplayController {
         return matcher.find() ? matcher.group(1) : null;
     }
 
+    static DisplaySize getExternalDisplaySize() throws IOException {
+        final int displayId = findExternalDisplayId();
+        if (displayId <= 0) {
+            throw new IOException("no external logical display is connected");
+        }
+        final String output = ShellAccess.run(
+                WM + " size -d " + displayId);
+        final Matcher matcher = WM_SIZE_PATTERN.matcher(output);
+        int width = -1;
+        int height = -1;
+        while (matcher.find()) {
+            width = Integer.parseInt(matcher.group(1));
+            height = Integer.parseInt(matcher.group(2));
+        }
+        if (width <= 0 || height <= 0) {
+            throw new IOException(
+                    "could not read external display size: " + output.trim());
+        }
+        return new DisplaySize(width, height);
+    }
+
     private static int getMirrorDisplayId() {
         final String output = runCommand(
                 SETTINGS + " get global app_mirror_displayid");
@@ -197,6 +218,16 @@ final class ConsoleDisplayController {
         } catch (IOException error) {
             Log.w(TAG, "display command failed: " + command, error);
             return "";
+        }
+    }
+
+    static final class DisplaySize {
+        final int width;
+        final int height;
+
+        DisplaySize(final int width, final int height) {
+            this.width = width;
+            this.height = height;
         }
     }
 

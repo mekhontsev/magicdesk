@@ -34,6 +34,7 @@ final class ConsoleControlsController {
     private final DesktopUiFactory mUi;
     private final DesktopAudioPanelController mAudio;
     private final RedmagicHardwarePanelController mHardware;
+    private final DisplayCapturePanelController mCapture;
     private final ChargeSeparationController mChargeSeparation;
     private final Set<Button> mConsoleModeActions =
             Collections.newSetFromMap(
@@ -51,7 +52,6 @@ final class ConsoleControlsController {
     private Intent mLastBatteryIntent;
     private String mLastStatusText;
     private boolean mUpdatingChargeSeparation;
-
     ConsoleControlsController(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
@@ -59,6 +59,7 @@ final class ConsoleControlsController {
         mUi = ui;
         mAudio = new DesktopAudioPanelController(activity, ui);
         mHardware = new RedmagicHardwarePanelController(activity, ui);
+        mCapture = new DisplayCapturePanelController(activity, ui);
         mChargeSeparation = new ChargeSeparationController(
                 activity, this::updateChargeSeparation);
     }
@@ -69,6 +70,7 @@ final class ConsoleControlsController {
         mChargeSeparation.start();
         mAudio.start();
         mHardware.start();
+        mCapture.start();
     }
 
     void stop() {
@@ -88,6 +90,7 @@ final class ConsoleControlsController {
         mChargeSeparation.stop();
         mAudio.stop();
         mHardware.stop();
+        mCapture.stop();
     }
 
     void setActivityStatus(final String text) {
@@ -174,13 +177,12 @@ final class ConsoleControlsController {
                 mActivity.openDiagnostics());
         addActionButton(actionGrid, diagnostics);
 
-        final Button screenshot = mUi.actionButton(
-                R.string.action_screenshot,
+        final Button capture = mUi.actionButton(
+                R.string.action_capture,
                 DesktopUiFactory.COLOR_CYAN);
-        screenshot.setEnabled(ShellAccess.isReady());
-        screenshot.setOnClickListener(view ->
-                mActivity.captureDesktopScreenshot());
-        addActionButton(actionGrid, screenshot);
+        capture.setOnClickListener(view ->
+                mActivity.showCaptureControls());
+        addActionButton(actionGrid, capture);
 
         final Button exit = mUi.actionButton(
                 R.string.action_exit,
@@ -240,6 +242,12 @@ final class ConsoleControlsController {
 
         mAudio.populate(parent, spacing);
         mHardware.populate(parent, spacing);
+    }
+
+    void populateCapture(
+            final LinearLayout parent,
+            final int spacing) {
+        mCapture.populate(parent, spacing);
     }
 
     void update() {

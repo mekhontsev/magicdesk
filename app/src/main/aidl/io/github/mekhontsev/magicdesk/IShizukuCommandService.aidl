@@ -69,4 +69,14 @@ interface IShizukuCommandService {
     void startLocalDesktopNavigationGuard(IBinder ownerToken) = 22;
 
     void stopLocalDesktopNavigationGuard(IBinder ownerToken) = 23;
+
+    String startDisplayRecording(
+        String physicalDisplayId,
+        String outputPath,
+        int width,
+        int height,
+        int bitrateMbps,
+        IBinder ownerToken) = 24;
+
+    String stopDisplayRecording(IBinder ownerToken) = 25;
 }

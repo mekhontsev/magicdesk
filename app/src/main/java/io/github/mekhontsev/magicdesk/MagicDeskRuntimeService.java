@@ -59,6 +59,7 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
     private int mInputSourceRefreshGeneration;
+    private String mOperationStatus;
 
     private final ShellAccess.StateListener mShellStateListener =
             snapshot -> {
@@ -92,6 +93,17 @@ public final class MagicDeskRuntimeService extends Service {
         } else if (service.mHandler != null) {
             service.mHandler.post(service::updateNotification);
         }
+    }
+
+    static void setOperationStatusIfRunning(final String status) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return;
+        }
+        service.mHandler.post(() -> {
+            service.mOperationStatus = status;
+            service.updateNotification();
+        });
     }
 
     static void refreshDesktopTasksIfRunning() {
@@ -675,9 +687,11 @@ public final class MagicDeskRuntimeService extends Service {
                         OPEN_TOUCHPAD_REQUEST_CODE,
                         openTouchpadIntent,
                         pendingIntentFlags());
-        final String text = mHasHardwareKeyboard
-                ? getString(R.string.notification_hw_connected)
-                : getString(R.string.notification_hw_disconnected);
+        final String text = mOperationStatus != null
+                ? mOperationStatus
+                : (mHasHardwareKeyboard
+                        ? getString(R.string.notification_hw_connected)
+                        : getString(R.string.notification_hw_disconnected));
 
         final Notification.Builder builder =
                 new Notification.Builder(this, CHANNEL_ID);

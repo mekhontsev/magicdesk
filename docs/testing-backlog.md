@@ -14,8 +14,9 @@ retired prototypes are listed separately and are not current product modes.
 ## Completed: Setup And Runtime
 
 - [x] Verify strict Shizuku admission. A stopped server, denied permission,
-  UserService failure, UID 0, or any UID other than 2000 leaves runtime access
-  unavailable and never invokes `su` or an app-UID fallback.
+  UserService failure, or any UID other than 0/2000 leaves runtime access
+  unavailable and never invokes `su` or an app-UID fallback. Root-started and
+  shell-started Shizuku use the same UserService feature path.
 - [x] Provision both global windowing settings through shell UID 2000 and the
   two allowlisted persistent properties through `redmagic.app.manager`. Verify
   read-back and the reboot marker.
@@ -130,6 +131,13 @@ retired prototypes are listed separately and are not current product modes.
   reports `[NOTIFICATIONS-005]` when firmware refuses to reconnect it.
 - [x] Open, act on, and dismiss notifications from the desktop. Verify transient
   notification popups and state restoration after process restart.
+
+## Completed: External Display Recording
+
+- [x] Record a fullscreen game from a shell-UID-2000 Shizuku session at
+  1920x1080. Verify the finished MP4 contains H.264 video and non-silent AAC
+  internal audio at 48 kHz, compensates the measured track-start offset, and
+  leaves no `screenrecord` process or temporary track after finalization.
 
 ## Historical Experiments: Retired Paths
 

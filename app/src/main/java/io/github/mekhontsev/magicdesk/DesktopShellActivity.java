@@ -829,6 +829,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.captureScreenshot();
     }
 
+    void toggleDesktopRecording() {
+        mSystemActions.toggleRecording();
+    }
+
     void restoreLastVisibleWindows() {
         mAppTasks.restoreLastVisibleWindows();
     }
@@ -933,6 +937,16 @@ public abstract class DesktopShellActivity extends Activity
             final LinearLayout parent,
             final int spacing) {
         mConsoleControls.populateHardware(parent, spacing);
+    }
+
+    void populateCaptureControls(
+            final LinearLayout parent,
+            final int spacing) {
+        mConsoleControls.populateCapture(parent, spacing);
+    }
+
+    void showCaptureControls() {
+        mStartMenuController.showCapture();
     }
 
     int getPreferredDesktopDpi() {

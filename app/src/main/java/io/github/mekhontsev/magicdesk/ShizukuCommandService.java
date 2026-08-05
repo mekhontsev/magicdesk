@@ -32,6 +32,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellTaskObserverManager mTaskObserverManager;
     private final NubiaPointerPositionGuard mPointerPositionGuard;
     private final SystemNavigationGuard mSystemNavigationGuard;
+    private final ShellDisplayRecordingSession mDisplayRecording;
     private final Object mInputRoutingLock = new Object();
     private ConsoleInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -46,6 +47,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mTaskObserverManager = new ShellTaskObserverManager(context);
         mPointerPositionGuard = new NubiaPointerPositionGuard();
         mSystemNavigationGuard = new SystemNavigationGuard();
+        mDisplayRecording = new ShellDisplayRecordingSession(context);
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -333,6 +335,28 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public String startDisplayRecording(
+            final String physicalDisplayId,
+            final String outputPath,
+            final int width,
+            final int height,
+            final int bitrateMbps,
+            final IBinder ownerToken) {
+        return mDisplayRecording.start(
+                physicalDisplayId,
+                outputPath,
+                width,
+                height,
+                bitrateMbps,
+                ownerToken);
+    }
+
+    @Override
+    public String stopDisplayRecording(final IBinder ownerToken) {
+        return mDisplayRecording.stop(ownerToken);
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -423,6 +447,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void destroy() {
         Log.i(TAG, "command service stopped");
+        mDisplayRecording.close();
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
         }

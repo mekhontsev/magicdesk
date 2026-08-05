@@ -380,6 +380,43 @@ final class ShellAccess {
         }
     }
 
+    static String startDisplayRecording(
+            final String physicalDisplayId,
+            final String outputPath,
+            final int width,
+            final int height,
+            final int bitrateMbps,
+            final IBinder ownerToken) throws IOException {
+        try {
+            return requireService().startDisplayRecording(
+                    physicalDisplayId,
+                    outputPath,
+                    width,
+                    height,
+                    bitrateMbps,
+                    ownerToken);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku display recording start failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static String stopDisplayRecording(final IBinder ownerToken)
+            throws IOException {
+        try {
+            return requireService().stopDisplayRecording(ownerToken);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku display recording finalization failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     private static ShellStreamHandle openStream(
             final String command,
             final boolean heartbeatEnabled) throws IOException {

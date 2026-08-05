@@ -396,6 +396,10 @@ final class KeyboardShortcutWatcher {
             ConsoleModeSwitcher.captureScreenshot();
             return;
         }
+        if ("META_SHIFT_PRINT_SCREEN".equals(action)) {
+            DisplayRecordingController.get().toggle();
+            return;
+        }
         if ("META_SLASH".equals(action)) {
             ConsoleModeSwitcher.showShortcutHelp();
         }
@@ -473,6 +477,9 @@ final class KeyboardShortcutWatcher {
                 break;
             case SCREENSHOT:
                 ConsoleModeSwitcher.captureScreenshot();
+                break;
+            case SCREEN_RECORDING:
+                DisplayRecordingController.get().toggle();
                 break;
             case SHORTCUT_HELP:
                 ConsoleModeSwitcher.showShortcutHelp();

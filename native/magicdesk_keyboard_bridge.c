@@ -182,6 +182,9 @@ static const char *shortcut_action(
     if (modifiers == MOD_ALT && code == KEY_F4) {
         return "ALT_F4";
     }
+    if (modifiers == (MOD_META | MOD_SHIFT) && code == KEY_SYSRQ) {
+        return "META_SHIFT_PRINT_SCREEN";
+    }
     if (modifiers != MOD_META) {
         return NULL;
     }

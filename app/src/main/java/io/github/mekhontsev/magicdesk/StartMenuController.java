@@ -27,6 +27,7 @@ final class StartMenuController {
     static final int MENU_APPS = 1;
     static final int MENU_HARDWARE = 2;
     static final int MENU_TOOLS = 3;
+    static final int MENU_CAPTURE = 4;
 
     private static final int LAUNCH_AUTO = 0;
     private static final int LAUNCH_WINDOWED = 1;
@@ -208,6 +209,10 @@ final class StartMenuController {
             addHardware();
             return;
         }
+        if (mMode == MENU_CAPTURE) {
+            addCapture();
+            return;
+        }
 
         addLaunchModeControl();
 
@@ -254,7 +259,7 @@ final class StartMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (overlays != null
                 && overlays.isVisible(mPanel)
-                && mMode == MENU_TOOLS) {
+                && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE)) {
             setVisible(false);
             return;
         }
@@ -265,7 +270,7 @@ final class StartMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         return overlays != null
                 && overlays.isVisible(mPanel)
-                && mMode == MENU_TOOLS;
+                && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE);
     }
 
     void toggleHardware() {
@@ -277,6 +282,16 @@ final class StartMenuController {
             return;
         }
         showSection(MENU_HARDWARE, false);
+    }
+
+    void showCapture() {
+        mMode = MENU_CAPTURE;
+        mPage = 0;
+        mSearchQuery = "";
+        if (mSearch != null && mSearch.length() > 0) {
+            mSearch.setText("");
+        }
+        render();
     }
 
     void setVisible(final boolean visible) {
@@ -385,7 +400,7 @@ final class StartMenuController {
     private Button createTab(final int textResId, final int mode) {
         final Button button = mUi.actionButton(
                 textResId,
-                mMode == mode
+                tabSelected(mode)
                         ? DesktopUiFactory.COLOR_CYAN
                         : DesktopUiFactory.COLOR_PANEL_ALT);
         button.setTextSize(11);
@@ -444,8 +459,30 @@ final class StartMenuController {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
+    private void addCapture() {
+        final LinearLayout capture = new LinearLayout(mActivity);
+        capture.setOrientation(LinearLayout.VERTICAL);
+        capture.setPadding(0, dp(14), 0, 0);
+        mActivity.populateCaptureControls(capture, dp(10));
+
+        final ScrollView scroll = new ScrollView(mActivity);
+        scroll.setFillViewport(true);
+        scroll.addView(capture, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        mContent.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+    }
+
+    private boolean tabSelected(final int mode) {
+        return mMode == mode
+                || (mode == MENU_TOOLS && mMode == MENU_CAPTURE);
+    }
+
     private static boolean isUtilityMode(final int mode) {
-        return mode == MENU_TOOLS || mode == MENU_HARDWARE;
+        return mode == MENU_TOOLS
+                || mode == MENU_HARDWARE
+                || mode == MENU_CAPTURE;
     }
 
     private void syncHardwareMonitoring() {

@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Display;
+import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
 
@@ -137,6 +138,23 @@ final class DesktopRuntimeBridge {
         }
         activity.runOnUiThread(activity::showStartFromRuntime);
         return true;
+    }
+
+    static void showTransientStatus(
+            final String message,
+            final boolean longDuration) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            activity.setStatus(message);
+            Toast.makeText(
+                    activity,
+                    message,
+                    longDuration ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT)
+                    .show();
+        });
     }
 
     static void refreshConsoleControls() {

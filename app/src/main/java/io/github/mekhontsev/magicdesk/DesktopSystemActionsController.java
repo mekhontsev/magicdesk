@@ -27,6 +27,25 @@ final class DesktopSystemActionsController {
                 decor.postOnAnimation(ConsoleModeSwitcher::captureScreenshot));
     }
 
+    void toggleRecording() {
+        final DisplayRecordingController controller =
+                DisplayRecordingController.get();
+        final boolean starting = controller.snapshot().state
+                == DisplayRecordingController.State.IDLE;
+        mActivity.hideAllPanels();
+        if (!starting) {
+            controller.toggle();
+            return;
+        }
+        final View decor = mActivity.getWindow().getDecorView();
+        if (!decor.isAttachedToWindow()) {
+            controller.toggle();
+            return;
+        }
+        decor.postOnAnimation(() ->
+                decor.postOnAnimation(controller::toggle));
+    }
+
     void openDeviceSetup() {
         mActivity.hideAllPanels();
         mActivity.startActivity(

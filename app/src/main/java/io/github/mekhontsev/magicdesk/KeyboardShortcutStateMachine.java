@@ -18,6 +18,7 @@ final class KeyboardShortcutStateMachine {
         SNAP_RIGHT,
         SHOW_DESKTOP,
         SCREENSHOT,
+        SCREEN_RECORDING,
         SHORTCUT_HELP
     }
 
@@ -85,6 +86,9 @@ final class KeyboardShortcutStateMachine {
         if ("KEY_F4".equals(keyName) && altOnly()) {
             return Action.CLOSE;
         }
+        if (isPrintKey(keyName) && metaShiftOnly()) {
+            return Action.SCREEN_RECORDING;
+        }
         if (!metaOnly()) {
             return Action.NONE;
         }
@@ -144,6 +148,10 @@ final class KeyboardShortcutStateMachine {
         return mMetaDown && !mCtrlDown && !mAltDown && !mShiftDown;
     }
 
+    private boolean metaShiftOnly() {
+        return mMetaDown && mShiftDown && !mCtrlDown && !mAltDown;
+    }
+
     private boolean noModifiers() {
         return !mCtrlDown && !mAltDown && !mShiftDown && !mMetaDown;
     }
@@ -173,6 +181,12 @@ final class KeyboardShortcutStateMachine {
 
     private static boolean isCtrlKey(final String key) {
         return "KEY_LEFTCTRL".equals(key) || "KEY_RIGHTCTRL".equals(key);
+    }
+
+    private static boolean isPrintKey(final String key) {
+        return "KEY_SYSRQ".equals(key)
+                || "KEY_PRINT".equals(key)
+                || "KEY_PRINTSCREEN".equals(key);
     }
 
     private static boolean isAltKey(final String key) {

@@ -419,6 +419,39 @@ from the phone notification or desktop controls and repairs its pointer
 viewport after virtual-display geometry changes. It does not replace the
 vendor touchpad implementation.
 
+## External Display Recording
+
+MagicDesk records the physical REDMAGIC output with Android's system
+`screenrecord --display-id` command. Internal audio uses the firmware's
+`AUDIO_SOURCE_SYSTEM_RECORD` value `80`, the same source used by the stock ZTE
+screen recorder and Game Highlights. The source is accepted by
+`MediaRecorder`, but the audio HAL rejects it through `AudioRecord`; these APIs
+are not interchangeable on the verified firmware.
+
+The Capture panel stores a global resolution scale (`100%`, `75%`, or `50%`)
+and H.264 bitrate (`4`-`40 Mbps`). Native resolution omits `screenrecord`'s
+`--size` option; scaled output preserves the physical display aspect ratio and
+uses even dimensions for encoder compatibility. The default remains native
+resolution at `20 Mbps`.
+
+A Shizuku UserService is an `app_process` with an Application context but no
+bound `ActivityThread.AppBindData`. Android 16's `MediaRecorder(Context)` passes
+`ActivityThread.currentPackageName()` into JNI, where a null value aborts the
+entire process. `InternalAudioRecorder` temporarily supplies the matching
+MagicDesk or `com.android.shell` application identity only while constructing
+the recorder, then immediately restores the prior ActivityThread state. This
+keeps the stock vendor audio path usable for both supported Shizuku UIDs.
+
+Audio starts before video, so an unsupported audio source cannot leave an
+orphan screen recorder. The video shell wrapper also watches its UserService
+PID and sends `SIGINT` to `screenrecord` if that owner disappears. Temporary
+tracks live under `Movies/MagicDesk/.recording` with `.nomedia`; successful
+capture normalizes each track's timestamps against measured monotonic start
+times, muxes H.264 and AAC into one MP4, and indexes only the finished file.
+The video start time is measured when the encoder first writes output rather
+than when the process is forked, avoiding a firmware-observed startup error of
+roughly 100 ms.
+
 ## Hardware Controls
 
 Hardware monitoring reads firmware-exposed thermal values. Fan and liquid-pump
@@ -512,6 +545,8 @@ These results explain otherwise tempting implementation choices:
   the DisplayManager phone-screen guard solves the wake problem at its source.
 - A persistent vendor freezer whitelist is unnecessary and harder to clean up;
   the transient service-working heartbeat is sufficient.
+- ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
+  `AudioRecord` fails in AudioFlinger even for a privileged UserService.
 
 Additional vendor-level evidence is preserved in
 [Nubia vendor interface audit](nubia-vendor-audit.md).
