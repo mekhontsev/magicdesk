@@ -191,6 +191,7 @@ public final class MagicDeskRuntimeService extends Service {
         updateConsoleMouseBridge();
         updateDesktopTasks();
         if (LocalDesktopSessionState.isCleanupPending(this)) {
+            maintainLocalDesktopNavigationGuard();
             scheduleLocalDesktopCleanup();
         }
         RedmagicHardwareController.start(this);
@@ -205,7 +206,14 @@ public final class MagicDeskRuntimeService extends Service {
         initialize();
         if (intent != null) {
             if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
-                if (ShellAccess.isReady()) {
+                final int desktopDisplayId =
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                if (desktopDisplayId >= 0
+                        && DesktopRuntimeBridge.focusDesktopOnDisplay(
+                                desktopDisplayId)) {
+                    Log.i(TAG, "focused existing desktop from notification"
+                            + " display=" + desktopDisplayId);
+                } else if (ShellAccess.isReady()) {
                     ConsoleModeSwitcher.showMagicDesk();
                 } else {
                     startActivity(DeviceSetupActivity.createLaunchIntent(this));
@@ -524,6 +532,7 @@ public final class MagicDeskRuntimeService extends Service {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
                     mConsoleModeActive);
             RedmagicHardwareController.start(this);
+            maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
@@ -585,25 +594,52 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         mLocalDesktopCleanupInFlight = true;
-        TaskRepository.recoverPhoneDesktopTasks(result ->
-                mHandler.post(() -> {
+        final long generation =
+                LocalDesktopNavigationController.currentGeneration();
+        LocalDesktopNavigationController.cleanupClosedSession(
+                generation,
+                (completed, success, message) -> {
                     mLocalDesktopCleanupInFlight = false;
                     if (mDestroyed) {
                         return;
                     }
-                    if (result.success) {
-                        LocalDesktopSessionState.clearCleanupPending(this);
-                        Log.i(TAG, "recovered phone desktop tasks after local desktop");
-                    } else {
-                        Log.w(TAG, "phone desktop recovery failed: "
-                                + result.message);
+                    if (!success) {
+                        Log.w(TAG, "phone desktop recovery failed: " + message);
                         CompatibilityDiagnostics.record(
                                 "NUBIA-HOME-003",
                                 "Could not clean local desktop tasks before"
                                         + " returning to the phone launcher",
-                                result.message);
+                                message);
+                        return;
                     }
-                }));
+                    if (!completed) {
+                        if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                                != android.view.Display.DEFAULT_DISPLAY) {
+                            scheduleLocalDesktopCleanup();
+                        }
+                        return;
+                    }
+                    LocalDesktopSessionState.clearCleanupPending(this);
+                    Log.i(TAG, "recovered phone desktop tasks after local desktop");
+                });
+    }
+
+    private void maintainLocalDesktopNavigationGuard() {
+        if (!ShellAccess.isReady()
+                || !LocalDesktopSessionState.isCleanupPending(this)
+                || DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        != android.view.Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        LocalDesktopNavigationController.acquire(
+                (generation, success, message) -> {
+            if (!success) {
+                CompatibilityDiagnostics.record(
+                        "NUBIA-HOME-005",
+                        "Could not maintain the local desktop navigation guard",
+                        message);
+            }
+        });
     }
 
     private void logInputState() {

@@ -32,6 +32,7 @@ final class DeviceSetupView {
     private Button mDiagnosticsAction;
     private Button mSecondaryAction;
     private Button mRestoreAction;
+    private TextView mRestoreNote;
 
     DeviceSetupView(final DeviceSetupActivity activity) {
         mActivity = activity;
@@ -146,6 +147,17 @@ final class DeviceSetupView {
         diagnosticsParams.setMargins(0, dp(8), 0, 0);
         actions.addView(mDiagnosticsAction, diagnosticsParams);
 
+        mRestoreNote = new TextView(mActivity);
+        mRestoreNote.setText(R.string.setup_restore_uninstall_note);
+        mRestoreNote.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mRestoreNote.setTextSize(13);
+        final LinearLayout.LayoutParams restoreNoteParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        restoreNoteParams.setMargins(dp(4), dp(12), dp(4), 0);
+        actions.addView(mRestoreNote, restoreNoteParams);
+
         mSecondaryRow = new LinearLayout(mActivity);
         mSecondaryRow.setOrientation(LinearLayout.HORIZONTAL);
         mSecondaryAction = createActionButton(
@@ -168,6 +180,7 @@ final class DeviceSetupView {
 
         mPrimaryAction.setText(R.string.setup_action_recheck);
         mSecondaryAction.setText(R.string.setup_action_exit);
+        mRestoreNote.setVisibility(View.GONE);
         mRestoreAction.setVisibility(View.GONE);
 
         final ScrollView scroll = new ScrollView(mActivity);
@@ -205,6 +218,8 @@ final class DeviceSetupView {
         mSecondaryAction.setVisibility(
                 secondaryVisible ? View.VISIBLE : View.GONE);
         mRestoreAction.setVisibility(
+                restoreVisible ? View.VISIBLE : View.GONE);
+        mRestoreNote.setVisibility(
                 restoreVisible ? View.VISIBLE : View.GONE);
     }
 

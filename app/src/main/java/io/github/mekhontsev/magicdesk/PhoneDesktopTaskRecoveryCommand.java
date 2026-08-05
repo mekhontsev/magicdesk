@@ -1,13 +1,18 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.os.Bundle;
+
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Removes dead Recent entries still retained by WMShell's phone desktop. */
+/** Revives Recent tasks needed to reconcile Nubia's phone desktop state. */
 public final class PhoneDesktopTaskRecoveryCommand {
+    private static final String MAGICDESK_PACKAGE =
+            "io.github.mekhontsev.magicdesk";
+
     private PhoneDesktopTaskRecoveryCommand() {
     }
 
@@ -25,9 +30,9 @@ public final class PhoneDesktopTaskRecoveryCommand {
                     HiddenTaskApi.getAllTasks(service));
             final Map<Integer, Object> recentTasks = indexTasks(
                     HiddenTaskApi.getRecentTasks(service));
-            int removed = 0;
+            int revived = 0;
             int live = 0;
-            int absent = 0;
+            int unresolved = 0;
             int rejected = 0;
             for (final Integer candidate : candidates) {
                 if (liveTasks.containsKey(candidate)) {
@@ -36,33 +41,45 @@ public final class PhoneDesktopTaskRecoveryCommand {
                 }
                 final Object recentTask = recentTasks.get(candidate);
                 if (recentTask == null) {
-                    absent++;
+                    unresolved++;
                     continue;
                 }
                 final String packageName =
                         HiddenTaskApi.getTaskPackage(recentTask);
-                if (!PackageNameValidator.isSafe(packageName)) {
+                if (!PackageNameValidator.isSafe(packageName)
+                        || MAGICDESK_PACKAGE.equals(packageName)) {
                     rejected++;
                     continue;
                 }
-                if (TaskControlCommand.removeTask(
-                        service, candidate.intValue())) {
-                    removed++;
-                } else {
-                    throw new IllegalStateException(
-                            "could not remove orphaned task " + candidate);
-                }
+                startTaskFromRecents(service, candidate.intValue());
+                revived++;
             }
             System.out.println("phone-desktop-recovery candidates="
                     + candidates.size()
-                    + " removed=" + removed
+                    + " revived=" + revived
                     + " live=" + live
-                    + " absent=" + absent
+                    + " unresolved=" + unresolved
                     + " rejected=" + rejected);
+            if (unresolved != 0 || rejected != 0) {
+                System.exit(1);
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("phone desktop recovery failed: "
                     + usefulMessage(error));
             System.exit(1);
+        }
+    }
+
+    private static void startTaskFromRecents(
+            final Object service,
+            final int taskId) throws ReflectiveOperationException {
+        final Object result = service.getClass().getMethod(
+                "startActivityFromRecents", Integer.TYPE, Bundle.class)
+                .invoke(service, Integer.valueOf(taskId), null);
+        if (!(result instanceof Integer)
+                || ((Integer) result).intValue() < 0) {
+            throw new IllegalStateException(
+                    "could not revive task " + taskId + ": " + result);
         }
     }
 

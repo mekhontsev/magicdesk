@@ -79,7 +79,12 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     }
 
     static void release() {
+        releaseForCleanup();
+    }
+
+    static int releaseForCleanup() {
         final FreeformLaunchAnchorActivity anchor = sAnchor.get();
+        final int taskId = anchor == null ? -1 : anchor.getTaskId();
         sAnchor.clear();
         sStartingDisplayId = -1;
         sStartingDesktopTaskId = -1;
@@ -87,6 +92,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (anchor != null) {
             anchor.closeAnchor();
         }
+        return taskId;
     }
 
     private static void requestAnchor(

@@ -45,6 +45,7 @@ final class DesktopTaskController {
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
     private boolean mTaskWatcherReady;
+    private boolean mRestoringLocalDesktop;
 
     DesktopTaskController(final Context context, final Handler handler) {
         mApplicationContext = context.getApplicationContext();
@@ -204,6 +205,7 @@ final class DesktopTaskController {
         mDisplayId = -1;
         mFocusingTaskId = -1;
         mTaskWatcherReady = false;
+        mRestoringLocalDesktop = false;
         mNativeWindowBounds.reset();
         mPhoneUiReconciler.reset();
         clearActiveController(this);
@@ -540,6 +542,23 @@ final class DesktopTaskController {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
+        final boolean shouldRestoreLocalDesktop =
+                LocalDesktopHostRecoveryPolicy.shouldRestore(
+                        mDisplayId,
+                        snapshot.tasks,
+                        MAGICDESK_PACKAGE);
+        if (shouldRestoreLocalDesktop) {
+            if (!mRestoringLocalDesktop) {
+                final TaskRepository.TaskEntry desktopHost =
+                        findDesktopHostTask(snapshot.tasks);
+                if (desktopHost != null) {
+                    restoreLocalDesktop(desktopHost);
+                }
+            }
+            if (mRestoringLocalDesktop) {
+                return;
+            }
+        }
         mNativeWindowBounds.reconcile(
                 snapshot.tasks,
                 mWindowTransitions.fullscreenTransitionTasks(),
@@ -594,6 +613,38 @@ final class DesktopTaskController {
             }
         }
         return null;
+    }
+
+    private static TaskRepository.TaskEntry findDesktopHostTask(
+            final List<TaskRepository.TaskEntry> tasks) {
+        if (tasks == null) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (isDesktopHostTask(task)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    private void restoreLocalDesktop(
+            final TaskRepository.TaskEntry desktopHost) {
+        final int generation = mGeneration;
+        mRestoringLocalDesktop = true;
+        Log.i(TAG, "restoring local desktop after system Home became active");
+        TaskRepository.configureDesktopHost(desktopHost, result ->
+                mHandler.post(() -> {
+                    if (!mRunning || generation != mGeneration) {
+                        return;
+                    }
+                    mRestoringLocalDesktop = false;
+                    if (!result.success) {
+                        Log.w(TAG, "local desktop restore failed: "
+                                + result.message);
+                    }
+                    scheduleRefresh(0);
+                }));
     }
 
     private boolean isVisibleFreeformTask(final TaskRepository.TaskEntry task) {

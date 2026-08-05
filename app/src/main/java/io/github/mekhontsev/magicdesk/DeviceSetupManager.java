@@ -32,14 +32,6 @@ final class DeviceSetupManager {
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20260204.221845:user/release-keys";
 
-    private static final String ITEM_FREEFORM = "freeform";
-    private static final String ITEM_RESIZABLE = "resizable";
-    private static final String ITEM_RESTRICTIONS = "restrictions";
-    private static final String ITEM_ROUNDED_CORNERS = "rounded_corners";
-
-    private static final String ORIGINAL_PREFIX = "original_";
-    private static final String OWNED_PREFIX = "owned_";
-    private static final String VALUE_ABSENT = "__MAGICDESK_VALUE_ABSENT__";
     private DeviceSetupManager() {
     }
 
@@ -155,8 +147,7 @@ final class DeviceSetupManager {
                 restrictionsDisabled,
                 roundedCornersDisabled,
                 configurationReady,
-                rebootRequired,
-                hasManagedChanges(preferences));
+                rebootRequired);
     }
 
     static Audit configure(
@@ -173,50 +164,27 @@ final class DeviceSetupManager {
         }
 
         final SharedPreferences preferences = preferences(context);
-        final SharedPreferences.Editor originals = preferences.edit();
         final List<String> commands = new ArrayList<>();
         final List<NubiaDesktopPropertyManager.Property> properties =
                 new ArrayList<>();
         addGlobalSettingChange(
-                preferences,
-                originals,
                 commands,
-                ITEM_FREEFORM,
                 FREEFORM_SETTING,
-                before.freeformValue,
                 before.freeformEnabled);
         addGlobalSettingChange(
-                preferences,
-                originals,
                 commands,
-                ITEM_RESIZABLE,
                 RESIZABLE_SETTING,
-                before.resizableValue,
                 before.resizableEnabled);
         addNubiaPropertyChange(
-                preferences,
-                originals,
                 properties,
-                ITEM_RESTRICTIONS,
                 NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS,
-                before.restrictionsValue,
                 before.restrictionsDisabled);
         addNubiaPropertyChange(
-                preferences,
-                originals,
                 properties,
-                ITEM_ROUNDED_CORNERS,
                 NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS,
-                before.roundedCornersValue,
                 before.roundedCornersDisabled);
         if (!commands.isEmpty() || !properties.isEmpty()) {
-            originals.putString(
-                    KEY_PENDING_BOOT_ID,
-                    before.bootId.isEmpty()
-                            ? "unknown-current-boot" : before.bootId);
-        }
-        if (!originals.commit()) {
-            throw new IOException("could not save Shizuku setup state");
+            savePendingReboot(preferences, before.bootId);
         }
         if (!commands.isEmpty()) {
             ShellAccess.run(joinCommands(commands));
@@ -232,7 +200,7 @@ final class DeviceSetupManager {
         return audit(context, sessionProfile);
     }
 
-    static Audit restoreManagedChanges(
+    static Audit restoreNubiaDefaults(
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
@@ -240,48 +208,52 @@ final class DeviceSetupManager {
             throw new IOException(
                     "running Shizuku shell access is required");
         }
-        final SharedPreferences preferences = preferences(context);
-        final List<String> commands = new ArrayList<>();
-        final List<PropertyRestore> propertyRestores = new ArrayList<>();
-        addGlobalSettingRestore(
-                preferences, commands, ITEM_FREEFORM, FREEFORM_SETTING);
-        addGlobalSettingRestore(
-                preferences, commands, ITEM_RESIZABLE, RESIZABLE_SETTING);
-        addNubiaPropertyRestore(
-                preferences,
-                propertyRestores,
-                ITEM_RESTRICTIONS,
-                NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS);
-        addNubiaPropertyRestore(
-                preferences,
-                propertyRestores,
-                ITEM_ROUNDED_CORNERS,
-                NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS);
-        if (!commands.isEmpty()) {
-            ShellAccess.run(joinCommands(commands));
-        }
-        for (final PropertyRestore restore : propertyRestores) {
-            NubiaDesktopPropertyManager.write(restore.property, restore.value);
+        if (!before.compatibleDevice) {
+            throw new IOException(
+                    "requires a ZTE/nubia device with Android 16 or newer");
         }
 
-        final SharedPreferences.Editor editor = preferences.edit();
-        clearManagedItem(editor, ITEM_FREEFORM);
-        clearManagedItem(editor, ITEM_RESIZABLE);
-        clearManagedItem(editor, ITEM_RESTRICTIONS);
-        clearManagedItem(editor, ITEM_ROUNDED_CORNERS);
-        if (!commands.isEmpty() || !propertyRestores.isEmpty()) {
-            editor.putString(
-                    KEY_PENDING_BOOT_ID,
-                    before.bootId.isEmpty()
-                            ? "unknown-current-boot" : before.bootId);
-        } else {
-            editor.remove(KEY_PENDING_BOOT_ID);
+        DeviceSetupRuntimeController.revoke(context);
+        final PhoneDesktopTaskRecovery.Result taskRecovery =
+                PhoneDesktopTaskRecovery.recoverBlocking();
+        if (!taskRecovery.success) {
+            CompatibilityDiagnostics.record(
+                    "NUBIA-DEFAULTS-001",
+                    "Phone desktop task cleanup was incomplete",
+                    taskRecovery.message);
         }
-        if (!editor.commit()) {
-            throw new IOException(
-                    "could not save restored Shizuku setup state");
+        final boolean systemNavigationRestored =
+                LocalDesktopNavigationController.releaseBlocking();
+        if (!systemNavigationRestored) {
+            CompatibilityDiagnostics.record(
+                    "NUBIA-DEFAULTS-002",
+                    "System navigation restoration was incomplete",
+                    "Local desktop navigation guard release failed");
+        }
+        ShellAccess.run(nubiaDefaultsCommand());
+        NubiaDesktopPropertyManager.write(
+                NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS,
+                "");
+        NubiaDesktopPropertyManager.write(
+                NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS,
+                "");
+        final SharedPreferences preferences = preferences(context);
+        if (!preferences.edit().clear().commit()) {
+            throw new IOException("could not clear MagicDesk setup state");
+        }
+        savePendingReboot(preferences, before.bootId);
+        if (taskRecovery.success && systemNavigationRestored) {
+            LocalDesktopSessionState.clearCleanupPending(context);
         }
         return audit(context, sessionProfile);
+    }
+
+    static String nubiaDefaultsCommand() {
+        return "/system/bin/settings delete global " + FREEFORM_SETTING
+                + " && /system/bin/settings delete global " + RESIZABLE_SETTING
+                + " && /system/bin/wm size reset -d 0"
+                + " && /system/bin/wm density reset -d 0"
+                + " && /system/bin/wm scaling auto -d 0";
     }
 
     static void ensureOverlayPermission(final Context context) throws IOException {
@@ -340,106 +312,34 @@ final class DeviceSetupManager {
     }
 
     private static void addGlobalSettingChange(
-            final SharedPreferences preferences,
-            final SharedPreferences.Editor editor,
             final List<String> commands,
-            final String item,
             final String setting,
-            final String currentValue,
             final boolean alreadyConfigured) {
         if (alreadyConfigured) {
             return;
         }
-        rememberOriginal(preferences, editor, item, currentValue);
         commands.add("/system/bin/settings put global " + setting + " 1");
     }
 
-    private static void rememberOriginal(
-            final SharedPreferences preferences,
-            final SharedPreferences.Editor editor,
-            final String item,
-            final String value) {
-        if (preferences.getBoolean(OWNED_PREFIX + item, false)) {
-            return;
-        }
-        editor.putBoolean(OWNED_PREFIX + item, true);
-        editor.putString(ORIGINAL_PREFIX + item,
-                value.isEmpty() || "null".equals(value) ? VALUE_ABSENT : value);
-    }
-
-    private static void addGlobalSettingRestore(
-            final SharedPreferences preferences,
-            final List<String> commands,
-            final String item,
-            final String setting) {
-        if (!preferences.getBoolean(OWNED_PREFIX + item, false)) {
-            return;
-        }
-        final String original = preferences.getString(
-                ORIGINAL_PREFIX + item, VALUE_ABSENT);
-        if (VALUE_ABSENT.equals(original)) {
-            commands.add("/system/bin/settings delete global " + setting);
-        } else {
-            commands.add("/system/bin/settings put global " + setting + " "
-                    + shellQuote(original));
-        }
-    }
-
     private static void addNubiaPropertyChange(
-            final SharedPreferences preferences,
-            final SharedPreferences.Editor editor,
             final List<NubiaDesktopPropertyManager.Property> properties,
-            final String item,
             final NubiaDesktopPropertyManager.Property property,
-            final String currentValue,
-            final boolean alreadyConfigured) throws IOException {
+            final boolean alreadyConfigured) {
         if (alreadyConfigured) {
             return;
         }
-        if (!NubiaDesktopPropertyManager.isBooleanOrEmpty(currentValue)) {
-            throw new IOException(
-                    "unexpected value for " + property.key + ": " + currentValue);
-        }
-        rememberOriginal(preferences, editor, item, currentValue);
         properties.add(property);
     }
 
-    private static void addNubiaPropertyRestore(
+    private static void savePendingReboot(
             final SharedPreferences preferences,
-            final List<PropertyRestore> restores,
-            final String item,
-            final NubiaDesktopPropertyManager.Property property)
-            throws IOException {
-        if (!preferences.getBoolean(OWNED_PREFIX + item, false)) {
-            return;
+            final String bootId) throws IOException {
+        if (!preferences.edit().putString(
+                KEY_PENDING_BOOT_ID,
+                bootId.isEmpty() ? "unknown-current-boot" : bootId)
+                .commit()) {
+            throw new IOException("could not save pending reboot state");
         }
-        final String original = preferences.getString(
-                ORIGINAL_PREFIX + item, VALUE_ABSENT);
-        final String value = VALUE_ABSENT.equals(original) ? "" : original;
-        if (!NubiaDesktopPropertyManager.isBooleanOrEmpty(value)) {
-            throw new IOException(
-                    "cannot safely restore " + property.key
-                            + ": unexpected saved value " + value);
-        }
-        restores.add(new PropertyRestore(property, value));
-    }
-
-    private static void clearManagedItem(
-            final SharedPreferences.Editor editor, final String item) {
-        editor.remove(OWNED_PREFIX + item);
-        editor.remove(ORIGINAL_PREFIX + item);
-    }
-
-    private static boolean hasManagedChanges(final SharedPreferences preferences) {
-        return hasManagedWindowingChanges(preferences)
-                || preferences.getBoolean(OWNED_PREFIX + ITEM_RESTRICTIONS, false)
-                || preferences.getBoolean(OWNED_PREFIX + ITEM_ROUNDED_CORNERS, false);
-    }
-
-    private static boolean hasManagedWindowingChanges(
-            final SharedPreferences preferences) {
-        return preferences.getBoolean(OWNED_PREFIX + ITEM_FREEFORM, false)
-                || preferences.getBoolean(OWNED_PREFIX + ITEM_RESIZABLE, false);
     }
 
     private static String buildAuditCommand() {
@@ -536,10 +436,6 @@ final class DeviceSetupManager {
         return value == null ? "" : value;
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
-    }
-
     private static String usefulMessage(final IOException error) {
         final String message = error.getMessage();
         return message == null || message.isEmpty()
@@ -548,18 +444,6 @@ final class DeviceSetupManager {
 
     private static SharedPreferences preferences(final Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-    }
-
-    private static final class PropertyRestore {
-        final NubiaDesktopPropertyManager.Property property;
-        final String value;
-
-        PropertyRestore(
-                final NubiaDesktopPropertyManager.Property property,
-                final String value) {
-            this.property = property;
-            this.value = value;
-        }
     }
 
     static final class Audit {
@@ -584,7 +468,6 @@ final class DeviceSetupManager {
         final boolean roundedCornersDisabled;
         final boolean configurationReady;
         final boolean rebootRequired;
-        final boolean hasManagedChanges;
 
         Audit(
                 final String runtimeError,
@@ -607,8 +490,7 @@ final class DeviceSetupManager {
                 final boolean restrictionsDisabled,
                 final boolean roundedCornersDisabled,
                 final boolean configurationReady,
-                final boolean rebootRequired,
-                final boolean hasManagedChanges) {
+                final boolean rebootRequired) {
             this.runtimeError = runtimeError;
             this.shellState = shellState;
             this.sessionProfile = sessionProfile;
@@ -630,7 +512,6 @@ final class DeviceSetupManager {
             this.roundedCornersDisabled = roundedCornersDisabled;
             this.configurationReady = configurationReady;
             this.rebootRequired = rebootRequired;
-            this.hasManagedChanges = hasManagedChanges;
         }
 
         boolean canEnterMagicDesk() {

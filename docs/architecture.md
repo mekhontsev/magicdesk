@@ -216,8 +216,9 @@ A `SessionProfile` stores only a display selection policy. Runtime display IDs
 are never persisted as constants.
 
 - A normal launch on display 0 opens the phone control panel.
-- **Open desktop here** keeps a local desktop in the same task, producing one
-  Recents card and supporting tablets.
+- **Open desktop here** uses a dedicated task excluded from Recents. The phone
+  control panel remains MagicDesk's only Recents card, while the desktop uses
+  the same host model on tablets, phones, and external displays.
 - An external desktop is a display-sized standard multi-window activity on
   Nubia's virtual desktop display. Its position in the task stack separates
   visible windows from resumed minimized windows without replacing the phone
@@ -234,16 +235,42 @@ tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
 This also avoids tying shell visibility to Activity focus callbacks.
 
 On display 0, Nubia Quickstep can crash while binding Recents to a desktop
-group containing freeform tasks. The active shell observer removes orphaned
-entries as tasks disappear, while normal desktop shutdown converts remaining
-live freeform tasks to fullscreen and removes verified orphaned Recents entries
-before exposing the phone launcher. Explicit exit performs the same stateless
-reconciliation, including debris left by an older MagicDesk process or a phone
-reboot. The firmware launcher is unusually destructive here: three crashes
-within roughly two seconds invoke its `DataCleaner`, which deletes the
-launcher's databases, preferences, and files. Preventing the stale task from
-reaching Quickstep is therefore required to preserve home-screen icons,
-widgets, drawer mode, and grid settings; MagicDesk never edits launcher data.
+group containing freeform tasks. Its `DesktopTaskView.bind()` creates task
+containers without a title view, but `TaskView.setThumbnailOrientation()`
+unconditionally asserts that the same title view is non-null. Current AOSP
+Launcher3 intentionally permits that field to be absent; this is a vendor
+integration defect rather than malformed task metadata.
+
+Before the first local freeform task is created, the Shizuku UserService uses
+`IStatusBarService.disable(DISABLE_HOME | DISABLE_RECENT, token, package)` to
+make the stock Home/Overview gesture unavailable for the lifetime of that
+local desktop. Disabling Recents alone is insufficient on this firmware: its
+gesture path can still enter Quickstep while `DISABLE_RECENT` is set, whereas
+the combined state makes Quickstep treat Home itself as disabled. The service
+token is automatically cleared by SystemUI if the UserService dies, and a
+separate owner token releases it if the MagicDesk process dies. MagicDesk's
+taskbar, Recent tab, and `Alt+Tab` remain the navigation UI. This guard is not
+used on an external display.
+
+The active shell observer removes orphaned entries as tasks disappear. Normal
+local-desktop shutdown first converts remaining live freeform tasks to
+fullscreen and removes verified orphaned Recents entries, then releases the
+navigation guard before exposing the phone launcher. Explicit Exit attempts
+the same stateless reconciliation, including debris left by an older
+MagicDesk process or a phone reboot, but it always completes at the user's
+request. A failed reconciliation remains marked as pending and is retried by a
+later runtime or **Restore defaults** operation.
+
+Task snapshots and windowing commands issued through `TaskRepository` share a
+single `TaskCommandQueue` with phone-recovery transitions. Recovery also
+observes the local-session generation before every mutation. A request to open
+a newer local desktop therefore cancels stale cleanup before that desktop is
+launched, while ordinary taskbar operations cannot interleave with recovery
+commands.
+
+The firmware launcher is unusually destructive here: three crashes within
+roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
+databases, preferences, and files. MagicDesk never edits launcher data.
 
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store
@@ -424,7 +451,7 @@ persist.wm.debug.desktop_use_rounded_corners = false
 Shell UID 2000 owns the global settings. The two persistent properties are
 written through the firmware's `redmagic.app.manager` Binder from the ordinary
 APK UID. `NubiaDesktopPropertyManager` exposes a closed enum, permits only
-boolean/absent values, verifies every write, and stores original values.
+boolean/absent values, and verifies every write.
 
 Normal first-run UI exposes only the next required user action: start Shizuku,
 grant MagicDesk through Shizuku, prepare the device, restart, or start
@@ -442,9 +469,13 @@ The boot ID marks configuration that still requires reboot. MagicDesk never
 reboots automatically and has no boot receiver. A successful audit after boot
 enters the control panel without flashing setup UI.
 
-**Restore previous values** restores only values whose original state was
-captured and whose ownership marker remains. Diagnostics and background audits
-never authorize a runtime session or start services.
+**Restore defaults** is available independently of setup history. It stops the
+runtime, normalizes stale phone desktop tasks, removes the two global
+desktop-windowing overrides, clears the two allowlisted persistent properties,
+and resets primary-display size/density/scaling overrides. Removing overrides
+lets the firmware supply its defaults and remains usable after MagicDesk has
+been uninstalled and installed again. Diagnostics and background audits never
+authorize a runtime session or start services.
 
 ## Diagnostics
 

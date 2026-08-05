@@ -114,7 +114,7 @@ final class PhoneHomeRecoveryController {
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
                 snapshot.tasks, includeStrandedDesktop);
         if (includeStrandedDesktop) {
-            TaskRepository.recoverPhoneDesktopTasks(result -> {
+            PhoneDesktopTaskRecovery.recover(result -> {
                 if (!result.success) {
                     Log.w(TAG, "phone desktop cleanup failed before Home: "
                             + result.message);

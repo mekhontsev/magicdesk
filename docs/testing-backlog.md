@@ -18,7 +18,10 @@ retired prototypes are listed separately and are not current product modes.
   unavailable and never invokes `su` or an app-UID fallback.
 - [x] Provision both global windowing settings through shell UID 2000 and the
   two allowlisted persistent properties through `redmagic.app.manager`. Verify
-  read-back, ownership, reboot marker, and **Restore previous values**.
+  read-back and the reboot marker.
+- [ ] After clearing MagicDesk app data, verify **Restore defaults** removes the
+  desktop settings/properties, resets display 0 overrides, recovers stale phone
+  desktop tasks, and requests one reboot.
 - [x] Reboot with a saved profile and verify MagicDesk remains stopped. The app
   has no boot receiver or boot permission; manual launch starts one runtime
   service only.
@@ -156,8 +159,13 @@ not supported runtime modes:
 - [ ] Test another REDMAGIC/ZTE Android 16 firmware and record every changed
   Binder service, component, setting, and diagnostic code.
 - [ ] Validate Tools audio output across HDMI, USB, Bluetooth, and phone speaker.
-- [ ] On display 0, leave multiple freeform tasks open, return with Android Back,
-  and verify cleanup prevents Nubia Quickstep from resetting launcher shortcuts.
+- [ ] On display 0, leave multiple freeform tasks open and verify the system
+  Home and Recents gestures are unavailable while MagicDesk task switching
+  still works. Exit the local desktop and verify both gestures return only
+  after task cleanup, including after terminating the Shizuku UserService.
+- [x] Verify phone-desktop recovery shares the task-command queue, revives a
+  missing Recent task before transitioning it, and cancels before mutation
+  when a newer local desktop supersedes cleanup.
 - [ ] Validate VITURE Beast's 1200-line 3D EDID transition with the independent
   Kernel Fixes APK.
 - [ ] Repeat display-off failure tests after a REDMAGIC OTA because both

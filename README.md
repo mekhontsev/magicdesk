@@ -149,8 +149,7 @@ for device-specific pairing and startup details.
 2. Install MagicDesk from a tagged GitHub Release or build it from source.
 3. Launch MagicDesk on the phone and allow it through Shizuku.
 4. Press **Prepare device**. MagicDesk applies its app-specific permission and
-   desktop-windowing configuration through Shizuku, while storing previous
-   system values for later restoration.
+   desktop-windowing configuration through Shizuku.
 5. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
 6. Launch MagicDesk manually after reboot. It has no boot receiver and starts
@@ -159,9 +158,16 @@ for device-specific pairing and startup details.
 Notification access is optional. Grant it from Android settings to enable the
 MagicDesk notification center and notification popups.
 
-Use **Device Setup > Restore previous values** before uninstalling when the
-Android desktop settings changed by MagicDesk should be restored. Android does
-not notify an application before it is uninstalled.
+### Uninstalling
+
+Before uninstalling MagicDesk, open **Device Setup > Restore defaults**, then
+restart the phone. Android does not allow MagicDesk to perform this cleanup
+automatically while it is being uninstalled.
+
+If MagicDesk has already been removed, reinstall it, grant Shizuku access, run
+**Restore defaults**, and restart. The action does not depend on saved setup
+history. It removes the desktop-windowing overrides and resets the primary
+display size, density, and scaling to the defaults supplied by nubia.
 
 ### Typical workflow
 
@@ -227,8 +233,9 @@ The trust boundaries are deliberately narrow:
 - The connected UserService identity is included in Diagnostics; every
   supported Shizuku startup method uses the same commands and feature set.
 - MagicDesk changes only the four desktop settings documented under Device
-  Setup and stores their previous values for restoration. The REDMAGIC
-  property writer accepts only two hardcoded boolean desktop properties.
+  Setup. **Restore defaults** removes those overrides instead of guessing
+  firmware values. The REDMAGIC property writer accepts only two hardcoded
+  boolean/absent desktop properties.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every

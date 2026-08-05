@@ -351,6 +351,35 @@ final class ShellAccess {
         }
     }
 
+    static void startLocalDesktopNavigationGuard(
+            final IBinder ownerToken) throws IOException {
+        try {
+            requireService().startLocalDesktopNavigationGuard(ownerToken);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku local desktop navigation guard failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static void stopLocalDesktopNavigationGuard(
+            final IBinder ownerToken) throws IOException {
+        if (!isReady()) {
+            return;
+        }
+        try {
+            requireService().stopLocalDesktopNavigationGuard(ownerToken);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku local desktop navigation restore failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     private static ShellStreamHandle openStream(
             final String command,
             final boolean heartbeatEnabled) throws IOException {

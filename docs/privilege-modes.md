@@ -111,7 +111,7 @@ desktop mode, launch Touch Panel, or apply an external monitor profile.
 
 ## Device Setup
 
-Device Setup audits and owns four desktop-windowing values:
+Device Setup audits and configures four desktop-windowing values:
 
 ```sh
 settings put global enable_freeform_support 1
@@ -122,13 +122,15 @@ setprop persist.wm.debug.desktop_use_rounded_corners false
 
 The connected Shizuku UserService writes the two global settings. The ordinary
 MagicDesk process uses a verified REDMAGIC property service for the two
-persistent properties. Its production wrapper accepts only those two keys,
-boolean values, and restoration of a previously absent value; it verifies each
-write with `getprop` and records the original before mutation.
+persistent properties. Its production wrapper accepts only those two keys and
+boolean/absent values, and verifies each write with `getprop`.
 
 WMShell and ActivityTaskManager cache these values. Device Setup records the
-current boot ID and requires a real reboot after a change. **Restore previous
-values** restores only values that MagicDesk owns.
+current boot ID and requires a real reboot after a change. **Restore defaults**
+deletes the two global overrides, clears the two persistent properties, resets
+the primary-display size/density/scaling overrides, and normalizes stale phone
+desktop tasks. It intentionally restores firmware defaults rather than values
+captured by an earlier MagicDesk installation.
 
 MagicDesk has no boot receiver. Rebooting leaves the phone in its normal state
 until the user launches MagicDesk manually.

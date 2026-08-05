@@ -70,6 +70,7 @@ final class DesktopRuntimeBridge {
         }
         if (sDesktop.get() == activity) {
             final int displayId = activity.getCurrentDisplayId();
+            FreeformLaunchAnchorActivity.release();
             sDesktop.clear();
             sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();

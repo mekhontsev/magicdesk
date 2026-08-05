@@ -31,6 +31,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final NubiaPointerPositionGuard mPointerPositionGuard;
+    private final SystemNavigationGuard mSystemNavigationGuard;
     private final Object mInputRoutingLock = new Object();
     private ConsoleInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -44,6 +45,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         mTaskObserverManager = new ShellTaskObserverManager(context);
         mPointerPositionGuard = new NubiaPointerPositionGuard();
+        mSystemNavigationGuard = new SystemNavigationGuard();
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -319,6 +321,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void startLocalDesktopNavigationGuard(final IBinder ownerToken) {
+        mSystemNavigationGuard.acquire(ownerToken);
+        Log.i(TAG, "system Home and Recents disabled for local desktop");
+    }
+
+    @Override
+    public void stopLocalDesktopNavigationGuard(final IBinder ownerToken) {
+        mSystemNavigationGuard.release(ownerToken);
+        Log.i(TAG, "system Home and Recents restored after local desktop");
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -411,6 +425,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         Log.i(TAG, "command service stopped");
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
+        }
+        try {
+            mSystemNavigationGuard.close();
+        } catch (RuntimeException error) {
+            Log.w(TAG, "system navigation guard cleanup failed", error);
         }
         mPointerPositionGuard.close();
         mTaskObserverManager.close();

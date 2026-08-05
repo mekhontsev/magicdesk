@@ -210,9 +210,11 @@ public final class DeviceSetupActivity extends Activity {
                 R.string.setup_build_value, audit.androidRelease, audit.fingerprint));
 
         mSetupView.primaryAction().setVisibility(View.VISIBLE);
-        final boolean canRestore = audit.shellReady && audit.hasManagedChanges;
-        mSetupView.setSecondaryActionsVisible(mManual, mManual && canRestore);
+        mSetupView.setSecondaryActionsVisible(
+                mManual || audit.shellReady,
+                audit.shellReady);
         mSetupView.restoreAction().setText(R.string.setup_action_restore);
+        mSetupView.restoreAction().setEnabled(audit.shellReady);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
         if (!audit.shellState.running) {
@@ -255,9 +257,7 @@ public final class DeviceSetupActivity extends Activity {
             setCloseAction();
             return;
         }
-        if (audit.rebootRequired
-                && (audit.configurationReady
-                        || !audit.hasManagedChanges)) {
+        if (audit.rebootRequired) {
             mSetupView.summary().setText(R.string.setup_status_reboot_required);
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_reboot_now);
@@ -451,7 +451,7 @@ public final class DeviceSetupActivity extends Activity {
                 .setPositiveButton(R.string.setup_action_restore,
                         (dialog, which) -> runOperation(
                                 R.string.setup_status_restoring,
-                                () -> DeviceSetupManager.restoreManagedChanges(
+                                () -> DeviceSetupManager.restoreNubiaDefaults(
                                         getApplicationContext(),
                                         mSessionProfile)))
                 .show();

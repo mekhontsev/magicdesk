@@ -1,15 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.content.Intent;
 import android.util.Log;
-
-import java.io.IOException;
 
 final class MagicDeskSessionController {
     private static final String TAG = "MagicDesk";
-    private static final String AM = "/system/bin/am";
-    private static final String KEYBOARD_WATCHER_SERVICE =
-            "io.github.mekhontsev.magicdesk/.MagicDeskRuntimeService";
 
     private final MagicDeskSessionHost mHost;
     private final Activity mActivity;
@@ -89,24 +86,35 @@ final class MagicDeskSessionController {
     private void finishExit() {
         KeyboardShortcutWatcher.stop();
         MagicDeskRuntimeService.stop(mActivity);
-        runCommandBestEffort(
-                AM + " stop-service -n " + KEYBOARD_WATCHER_SERVICE);
+        ShellAccess.disconnect();
+        mActivity.runOnUiThread(this::openHomeAndFinishTasks);
+    }
+
+    private void openHomeAndFinishTasks() {
         try {
-            runCommand(
-                    AM + " start --display 0"
-                            + " -a android.intent.action.MAIN"
-                            + " -c android.intent.category.HOME");
-            runCommand(
-                    AM + " force-stop --user 0 "
-                            + mActivity.getPackageName());
-        } catch (IOException e) {
-            Log.w(TAG, "full MagicDesk exit failed", e);
+            final Intent home = new Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            mActivity.startActivity(home);
+
+            final ActivityManager activityManager =
+                    mActivity.getSystemService(ActivityManager.class);
+            if (activityManager == null) {
+                mActivity.finishAndRemoveTask();
+                return;
+            }
+            for (final ActivityManager.AppTask task
+                    : activityManager.getAppTasks()) {
+                task.finishAndRemoveTask();
+            }
+        } catch (RuntimeException error) {
+            Log.w(TAG, "full MagicDesk exit failed", error);
             abort(
                     "EXIT-004",
                     mActivity.getString(
                             R.string.status_exit_failed,
-                            e.getMessage()),
-                    e);
+                            error.getMessage()),
+                    error);
         }
     }
 
@@ -116,17 +124,41 @@ final class MagicDeskSessionController {
             continuation.run();
             return;
         }
-        TaskRepository.recoverPhoneDesktopTasks(result -> {
+        mActivity.runOnUiThread(() -> {
+            final int anchorTaskId =
+                    FreeformLaunchAnchorActivity.releaseForCleanup();
+            recoverPhoneTasksAfterAnchorRelease(
+                    anchorTaskId, continuation);
+        });
+    }
+
+    private void recoverPhoneTasksAfterAnchorRelease(
+            final int anchorTaskId,
+            final Runnable continuation) {
+        PhoneDesktopTaskRecovery.recover(anchorTaskId, result -> {
             if (!result.success) {
-                abort(
-                        "EXIT-005",
+                final String detail =
                         "Could not recover phone desktop tasks: "
-                                + result.message,
-                        null);
-                return;
+                                + result.message;
+                Log.w(TAG, detail);
+                CompatibilityDiagnostics.record(
+                        "EXIT-005",
+                        "Phone desktop cleanup remains pending",
+                        detail);
             }
-            LocalDesktopSessionState.clearCleanupPending(mActivity);
-            continuation.run();
+            LocalDesktopNavigationController.release((released, message) -> {
+                if (!released) {
+                    abort(
+                            "EXIT-006",
+                            "Could not restore system navigation: " + message,
+                            null);
+                    return;
+                }
+                if (result.success) {
+                    LocalDesktopSessionState.clearCleanupPending(mActivity);
+                }
+                continuation.run();
+            });
         });
     }
 
@@ -141,20 +173,4 @@ final class MagicDeskSessionController {
         });
     }
 
-    private static String runCommand(final String command)
-            throws IOException {
-        return ShellAccess.run(command);
-    }
-
-    private static void runCommandBestEffort(
-            final String command) {
-        try {
-            runCommand(command);
-        } catch (IOException e) {
-            Log.w(
-                    TAG,
-                    "best-effort privileged command failed: " + command,
-                    e);
-        }
-    }
 }

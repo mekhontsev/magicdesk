@@ -59,11 +59,12 @@ MagicDesk uses this to remove the clean-Shizuku setup gap:
 3. Android is rebooted so WMShell and ActivityTaskManager rebuild from the
    resulting configuration.
 
-The production setter accepts enum-like operations rather than caller-provided
-keys or values, rejects unexpected property values, records originals before
-mutation, and verifies every write and restore. Earlier ordinary-UID experiments
-showed that this property path alone is insufficient: exact task, input, and
-display ownership still requires shell access.
+The production wrapper accepts enum-like properties rather than caller-provided
+keys, permits only boolean/absent values, and verifies every write. Setup writes
+`false`; **Restore defaults** clears both persistent overrides so firmware
+defaults apply. Earlier ordinary-UID experiments showed that this property path
+alone is insufficient: exact task, input, and display ownership still requires
+shell access.
 
 The unrestricted vendor setter is a firmware security weakness. MagicDesk
 must not turn it into a general-purpose command, exported component, intent
@@ -95,6 +96,25 @@ list explains why selected applications such as Chrome, Gmail, and Telegram
 can use Nubia floating windows while an arbitrary resizable application may
 not. MagicDesk does not use `WindowReply` as a fallback because it is a vendor
 allowlist mechanism, not a general desktop contract.
+
+## Phone Recents Defect
+
+MiFavor Launcher combines two incompatible Launcher3 assumptions. Its
+`DesktopTaskView.bind()` constructs `TaskContainer` objects with a null
+`titleView`, while `TaskView.setThumbnailOrientation()` immediately applies a
+Kotlin non-null assertion to `getTitleView()`. SystemUI places every display-0
+freeform task in `DesktopUserRepositories`, and `RecentTasksController` groups
+those tasks into the `DesktopTaskView` that reaches this crash.
+
+Task bounds, affinity, `excludeFromRecents`, and repository cleanup after task
+removal do not prevent the live-task crash. For a local desktop, MagicDesk
+therefore disables system Home and Recents through `IStatusBarService` while
+freeform tasks are live. Nubia's gesture path was observed entering Quickstep
+despite `DISABLE_RECENT`; adding `DISABLE_HOME` makes Quickstep's own overview
+target treat Home as unavailable. The call is owned by Binder tokens, uses
+shell's existing `android.permission.STATUS_BAR`, requires no polling, and is
+released only after the display-0 task repository has been normalized.
+External-display sessions do not use this guard.
 
 ## Console And Caption Control
 
