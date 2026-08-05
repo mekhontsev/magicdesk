@@ -310,6 +310,20 @@ final class DesktopTaskController {
         }
     }
 
+    static void beginExplicitWindowedLaunch(final int taskId) {
+        final DesktopTaskController controller = getActiveController();
+        if (controller != null && controller.mRunning) {
+            controller.mWindowTransitions.beginExplicitWindowedLaunch(taskId);
+        }
+    }
+
+    static void finishExplicitWindowedLaunch(final int taskId) {
+        final DesktopTaskController controller = getActiveController();
+        if (controller != null && controller.mRunning) {
+            controller.mWindowTransitions.finishExplicitWindowedLaunch(taskId);
+        }
+    }
+
     static void expectTouchpadDisplacement() {
         final DesktopTaskController controller = getActiveController();
         if (controller != null && controller.mRunning) {

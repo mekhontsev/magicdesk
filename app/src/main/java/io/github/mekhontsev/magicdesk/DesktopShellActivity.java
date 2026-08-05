@@ -1006,6 +1006,10 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.launchFloating(app);
     }
 
+    void launchWindowed(final AppItem app) {
+        mAppTasks.launchWindowed(app);
+    }
+
     void launchFullscreen(final AppItem app) {
         mAppTasks.launchFullscreen(app);
     }

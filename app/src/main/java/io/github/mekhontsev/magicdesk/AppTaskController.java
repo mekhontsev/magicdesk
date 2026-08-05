@@ -46,6 +46,16 @@ final class AppTaskController {
     }
 
     void launchFloating(final AppItem app) {
+        launchFloating(app, false);
+    }
+
+    void launchWindowed(final AppItem app) {
+        launchFloating(app, true);
+    }
+
+    private void launchFloating(
+            final AppItem app,
+            final boolean explicitWindowed) {
         if (!canControlWindowing()) {
             launchFullscreen(app);
             return;
@@ -59,7 +69,8 @@ final class AppTaskController {
             return;
         }
         Log.i(TAG, "launch floating package=" + app.packageName
-                + " display=" + mActivity.getCurrentDisplayId());
+                + " display=" + mActivity.getCurrentDisplayId()
+                + " explicitWindowed=" + explicitWindowed);
         mActivity.setTaskbarVisible(true);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_window, app.label));
@@ -69,7 +80,8 @@ final class AppTaskController {
             FreeformLaunchAnchorActivity.launch(
                     mActivity,
                     app.launchTarget,
-                    getTaskIds(visibleTasks));
+                    getTaskIds(visibleTasks),
+                    explicitWindowed);
         } catch (RuntimeException e) {
             TaskRepository.bringStackToFront(
                     visibleTasks, null, null);

@@ -30,7 +30,7 @@ final class ExistingTaskController {
     static ReuseResult reuseIfExists(final String packageName, final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, targetFreeform,
-                null, false, false);
+                null, false, false, false);
     }
 
     static ReuseResult normalizeLaunchedFullscreen(
@@ -61,16 +61,20 @@ final class ExistingTaskController {
 
     static ReuseResult reuseNativeDesktopIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
-            final boolean waitForTask) throws IOException {
+            final boolean waitForTask,
+            final boolean explicitWindowed) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, true, waitForTask);
+                preservedTopFirstTaskIds, true, waitForTask,
+                explicitWindowed);
     }
 
     static ReuseResult reuseFreeformIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
-            final boolean waitForTask) throws IOException {
+            final boolean waitForTask,
+            final boolean explicitWindowed) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
-                preservedTopFirstTaskIds, false, waitForTask);
+                preservedTopFirstTaskIds, false, waitForTask,
+                explicitWindowed);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -122,7 +126,8 @@ final class ExistingTaskController {
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
-            final boolean waitForTask) throws IOException {
+            final boolean waitForTask,
+            final boolean explicitWindowed) throws IOException {
         final TaskInfo task = waitForTask
                 ? waitForBestTask(packageName, targetDisplayId, targetFreeform)
                 : findBestTask(packageName, targetDisplayId, targetFreeform);
@@ -131,28 +136,36 @@ final class ExistingTaskController {
             return ReuseResult.notFound();
         }
 
-        Log.i(TAG, "found package=" + packageName
-                + " rootTask=" + task.rootTaskId
-                + " task=" + task.taskId
-                + " display=" + task.displayId
-                + " mode=" + task.windowingMode
-                + " targetDisplay=" + targetDisplayId
-                + " targetFreeform=" + targetFreeform
-                + " nativeDesktop=" + nativeDesktop);
-        if (nativeDesktop) {
-            NativeDesktopController.requireAvailable();
-        }
-        final boolean restoreTouchpad =
-                nativeDesktop && ConsoleModeSwitcher.isTouchpadVisible();
-        if (restoreTouchpad) {
-            DesktopTaskController.expectTouchpadDisplacement();
-        }
-        final boolean taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
-        final boolean taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
-        if (targetFreeform) {
+        final boolean protectStartupWindowing = targetFreeform
+                && waitForTask
+                && explicitWindowed;
+        if (protectStartupWindowing) {
+            DesktopTaskController.beginExplicitWindowedLaunch(task.taskId);
+        } else if (targetFreeform) {
             DesktopTaskController.noteManualFreeformTransition(task.taskId);
         }
+        boolean restoreTouchpad = false;
         try {
+            Log.i(TAG, "found package=" + packageName
+                    + " rootTask=" + task.rootTaskId
+                    + " task=" + task.taskId
+                    + " display=" + task.displayId
+                    + " mode=" + task.windowingMode
+                    + " targetDisplay=" + targetDisplayId
+                    + " targetFreeform=" + targetFreeform
+                    + " nativeDesktop=" + nativeDesktop);
+            if (nativeDesktop) {
+                NativeDesktopController.requireAvailable();
+            }
+            restoreTouchpad = nativeDesktop
+                    && ConsoleModeSwitcher.isTouchpadVisible();
+            if (restoreTouchpad) {
+                DesktopTaskController.expectTouchpadDisplacement();
+            }
+            final boolean taskIsFreeform =
+                    MODE_FREEFORM.equals(task.windowingMode);
+            final boolean taskIsFullscreen =
+                    MODE_FULLSCREEN.equals(task.windowingMode);
             if (task.displayId != targetDisplayId) {
                 final String command = CMD + " activity display move-stack "
                         + task.rootTaskId + " " + targetDisplayId;
@@ -180,13 +193,17 @@ final class ExistingTaskController {
             }
 
             bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
+            return ReuseResult.reused(task.packageName);
         } finally {
+            if (protectStartupWindowing) {
+                DesktopTaskController.finishExplicitWindowedLaunch(
+                        task.taskId);
+            }
             if (restoreTouchpad) {
                 DesktopTaskController.finishTouchpadPreservation();
                 ConsoleModeSwitcher.restoreTouchpadIfMissing();
             }
         }
-        return ReuseResult.reused(task.packageName);
     }
 
     private static TaskInfo waitForBestTask(final String packageName,

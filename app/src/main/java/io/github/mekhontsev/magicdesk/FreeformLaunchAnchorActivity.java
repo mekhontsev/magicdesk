@@ -34,6 +34,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             "io.github.mekhontsev.magicdesk.extra.LAUNCH_ACTION";
     private static final String EXTRA_PRESERVED_TASK_IDS =
             "io.github.mekhontsev.magicdesk.extra.PRESERVED_TASK_IDS";
+    private static final String EXTRA_EXPLICIT_WINDOWED =
+            "io.github.mekhontsev.magicdesk.extra.EXPLICIT_WINDOWED";
     private static final String EXTRA_DESKTOP_TASK_ID =
             "io.github.mekhontsev.magicdesk.extra.DESKTOP_TASK_ID";
 
@@ -70,12 +72,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     static void launch(
             final Activity desktop,
             final AppLaunchTarget launchTarget,
-            final int[] preservedTaskIds) {
+            final int[] preservedTaskIds,
+            final boolean explicitWindowed) {
         if (launchTarget == null) {
             throw new IllegalArgumentException("Missing launch target");
         }
         requestAnchor(desktop, new LaunchRequest(
-                launchTarget, preservedTaskIds));
+                launchTarget, preservedTaskIds, explicitWindowed));
     }
 
     static void release() {
@@ -216,7 +219,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         }
         enqueue(new LaunchRequest(
                 launchTarget,
-                intent.getIntArrayExtra(EXTRA_PRESERVED_TASK_IDS)));
+                intent.getIntArrayExtra(EXTRA_PRESERVED_TASK_IDS),
+                intent.getBooleanExtra(EXTRA_EXPLICIT_WINDOWED, false)));
     }
 
     private void enqueue(final LaunchRequest request) {
@@ -327,7 +331,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                                 request.launchTarget.packageName,
                                 mDisplayId,
                                 request.preservedTaskIds,
-                                !existingTask);
+                                !existingTask,
+                                request.explicitWindowed);
                         parkAnchorNow(getTaskId(), mDisplayId);
                         MAIN_HANDLER.post(() -> finishLaunch(restoreTouchpad));
                     });
@@ -458,16 +463,17 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             final String packageName,
             final int displayId,
             final int[] preservedTaskIds,
-            final boolean waitForVisibleTask) {
+            final boolean waitForVisibleTask,
+            final boolean explicitWindowed) {
         try {
             final boolean nativeDesktop = NativeDesktopController.shouldUse();
             final ExistingTaskController.ReuseResult reuseResult = nativeDesktop
                     ? ExistingTaskController.reuseNativeDesktopIfExists(
                             packageName, displayId, preservedTaskIds,
-                            waitForVisibleTask)
+                            waitForVisibleTask, explicitWindowed)
                     : ExistingTaskController.reuseFreeformIfExists(
                             packageName, displayId, preservedTaskIds,
-                            waitForVisibleTask);
+                            waitForVisibleTask, explicitWindowed);
             if (!reuseResult.found) {
                 throw new IOException("task not found");
             }
@@ -500,6 +506,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                 request.launchTarget.activityClassName);
         intent.putExtra(EXTRA_LAUNCH_ACTION, request.launchTarget.action);
         intent.putExtra(EXTRA_PRESERVED_TASK_IDS, request.preservedTaskIds);
+        intent.putExtra(EXTRA_EXPLICIT_WINDOWED, request.explicitWindowed);
     }
 
     private static int getDisplayId(final Activity activity) {
@@ -529,13 +536,16 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private static final class LaunchRequest {
         final AppLaunchTarget launchTarget;
         final int[] preservedTaskIds;
+        final boolean explicitWindowed;
 
         LaunchRequest(
                 final AppLaunchTarget launchTarget,
-                final int[] preservedTaskIds) {
+                final int[] preservedTaskIds,
+                final boolean explicitWindowed) {
             this.launchTarget = launchTarget;
             this.preservedTaskIds = preservedTaskIds == null
                     ? null : preservedTaskIds.clone();
+            this.explicitWindowed = explicitWindowed;
         }
     }
 }

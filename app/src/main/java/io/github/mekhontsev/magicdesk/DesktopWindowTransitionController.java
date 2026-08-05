@@ -43,6 +43,8 @@ final class DesktopWindowTransitionController {
     private final Set<Integer> mFullscreenTransitionTasks = new HashSet<>();
     private final Set<Integer> mManualImmersiveOverrides =
             ConcurrentHashMap.newKeySet();
+    private final Set<Integer> mStartupWindowedTasks =
+            ConcurrentHashMap.newKeySet();
 
     DesktopWindowTransitionController(
             final Context context,
@@ -125,9 +127,15 @@ final class DesktopWindowTransitionController {
             }
             return;
         }
-        if (isNewImmersiveRequest(
-                previous, requestingImmersive, initialSample)) {
+        final boolean newImmersiveRequest = isNewImmersiveRequest(
+                previous, requestingImmersive, initialSample);
+        final boolean startupWindowedRequest = newImmersiveRequest
+                && mStartupWindowedTasks.remove(key);
+        if (shouldClearManualImmersiveOverride(
+                newImmersiveRequest, startupWindowedRequest)) {
             mManualImmersiveOverrides.remove(key);
+        } else if (startupWindowedRequest) {
+            Log.i(TAG, "kept startup task windowed task=" + taskId);
         }
         mRuntimeState.scheduleRefresh();
     }
@@ -135,6 +143,22 @@ final class DesktopWindowTransitionController {
     void noteManualFreeformTransition(final int taskId) {
         if (taskId >= 0) {
             mManualImmersiveOverrides.add(Integer.valueOf(taskId));
+        }
+    }
+
+    void beginExplicitWindowedLaunch(final int taskId) {
+        if (taskId < 0) {
+            return;
+        }
+        final Integer key = Integer.valueOf(taskId);
+        mManualImmersiveOverrides.add(key);
+        mStartupWindowedTasks.add(key);
+        Log.i(TAG, "protecting startup windowed task=" + taskId);
+    }
+
+    void finishExplicitWindowedLaunch(final int taskId) {
+        if (taskId >= 0) {
+            mStartupWindowedTasks.remove(Integer.valueOf(taskId));
         }
     }
 
@@ -147,6 +171,13 @@ final class DesktopWindowTransitionController {
                 && Boolean.FALSE.equals(previous);
     }
 
+    static boolean shouldClearManualImmersiveOverride(
+            final boolean newImmersiveRequest,
+            final boolean startupWindowedRequest) {
+        return !startupWindowedRequest
+                && newImmersiveRequest;
+    }
+
     void forgetTaskState(final int taskId) {
         final Integer key = Integer.valueOf(taskId);
         mImmersiveRequests.remove(key);
@@ -157,6 +188,7 @@ final class DesktopWindowTransitionController {
                     mRuntimeState.displayId(), false);
         }
         mManualImmersiveOverrides.remove(key);
+        mStartupWindowedTasks.remove(key);
         mFullscreenRestoreBounds.remove(key);
         mRestoreBounds.remove(key);
         mNativeWindowBounds.forget(taskId);

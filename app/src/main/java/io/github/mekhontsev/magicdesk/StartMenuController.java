@@ -687,7 +687,7 @@ final class StartMenuController {
 
     private void launchForCurrentMode(final AppItem app) {
         if (mLaunchMode == LAUNCH_WINDOWED) {
-            mActivity.launchFloating(app);
+            mActivity.launchWindowed(app);
         } else if (mLaunchMode == LAUNCH_FULLSCREEN) {
             mActivity.launchFullscreen(app);
         } else {

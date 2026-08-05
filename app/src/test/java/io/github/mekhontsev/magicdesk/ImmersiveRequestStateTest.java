@@ -33,4 +33,14 @@ public final class ImmersiveRequestStateTest {
         assertFalse(DesktopWindowTransitionController.isNewImmersiveRequest(
                 Boolean.TRUE, false, false));
     }
+
+    @Test
+    public void explicitWindowedLaunchKeepsOverrideForStartupRequest() {
+        assertFalse(DesktopWindowTransitionController
+                .shouldClearManualImmersiveOverride(
+                        true, true));
+        assertTrue(DesktopWindowTransitionController
+                .shouldClearManualImmersiveOverride(
+                        true, false));
+    }
 }
