@@ -12,11 +12,15 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Display;
 
+import java.lang.ref.WeakReference;
+
 public final class ControlActivity extends Activity
         implements PhoneControlPanelController.Actions,
         MagicDeskSessionHost {
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final long DISPLAY_PROBE_SETTLE_MILLIS = 200L;
+    private static WeakReference<ControlActivity> sActive =
+            new WeakReference<>(null);
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Runnable mDisplayProbe = this::startExternalDisplayProbe;
@@ -46,6 +50,9 @@ public final class ControlActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        synchronized (ControlActivity.class) {
+            sActive = new WeakReference<>(this);
+        }
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         if (DeviceSetupManager.isRuntimeAuthorized()) {
             initializeControlPanel();
@@ -170,6 +177,11 @@ public final class ControlActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        synchronized (ControlActivity.class) {
+            if (sActive.get() == this) {
+                sActive.clear();
+            }
+        }
         if (mConsoleStateObserver != null) {
             getContentResolver().unregisterContentObserver(
                     mConsoleStateObserver);
@@ -183,6 +195,17 @@ public final class ControlActivity extends Activity
         mDisplayListener = null;
         mDisplayManager = null;
         super.onDestroy();
+    }
+
+    static void finishActiveForMirrorTransition() {
+        final ControlActivity activity;
+        synchronized (ControlActivity.class) {
+            activity = sActive.get();
+        }
+        if (activity == null || activity.isActivityUnavailable()) {
+            return;
+        }
+        activity.runOnUiThread(activity::finishAndRemoveTask);
     }
 
     @Override
@@ -213,6 +236,19 @@ public final class ControlActivity extends Activity
         mStatus = getString(R.string.status_console_starting);
         refresh();
         ConsoleModeSwitcher.showMagicDesk();
+    }
+
+    @Override
+    public void setFillExternalDisplay(final boolean enabled) {
+        ExternalDisplayLaunchSettings.setFillDisplay(this, enabled);
+        refresh();
+    }
+
+    @Override
+    public void setExternalOutputMode(
+            final ExternalDisplayLaunchSettings.OutputMode outputMode) {
+        ExternalDisplayLaunchSettings.setOutputMode(this, outputMode);
+        refresh();
     }
 
     @Override
@@ -324,6 +360,8 @@ public final class ControlActivity extends Activity
                 ConsoleModeState.activeDisplayId(this);
         final boolean consoleActive =
                 consoleDisplayId > Display.DEFAULT_DISPLAY;
+        final ExternalDisplayLaunchSettings.Config displayConfig =
+                ExternalDisplayLaunchSettings.load(this);
         mPanel.render(new PhoneControlPanelController.State(
                 consoleActive,
                 consoleActive
@@ -332,6 +370,8 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady(),
                 ConsoleModeState.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
+                displayConfig.fillDisplay,
+                displayConfig.outputMode,
                 mExternalDisplayState,
                 mStatus,
                 ShellAccess.statusLabel(),

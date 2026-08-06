@@ -343,20 +343,26 @@ final class ConsoleControlsController {
             action.setEnabled(false);
         }
         mActivity.setStatus(R.string.status_mirror_switching);
+        ControlActivity.finishActiveForMirrorTransition();
         ConsoleModeSwitcher.switchToMirror(
-                success -> mActivity.runOnUiThread(() -> {
-                    update();
-                    final int result = success
-                            ? R.string.status_mirror_active
-                            : R.string.status_mirror_failed;
+                success -> {
                     if (success) {
-                        mActivity.setStatus(result);
-                    } else {
-                        mActivity.setErrorStatus(
-                                "NUBIA-CONSOLE-001",
-                                mActivity.getString(result));
+                        PhoneControlPanelLauncher.openOnPhoneWithShell();
                     }
-                }));
+                    mActivity.runOnUiThread(() -> {
+                        update();
+                        final int result = success
+                                ? R.string.status_mirror_active
+                                : R.string.status_mirror_failed;
+                        if (success) {
+                            mActivity.setStatus(result);
+                        } else {
+                            mActivity.setErrorStatus(
+                                    "NUBIA-CONSOLE-001",
+                                    mActivity.getString(result));
+                        }
+                    });
+                });
     }
 
     private boolean isPhoneScreenOff() {

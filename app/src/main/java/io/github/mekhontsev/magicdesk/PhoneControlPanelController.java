@@ -13,11 +13,15 @@ import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 
 final class PhoneControlPanelController {
@@ -31,6 +35,11 @@ final class PhoneControlPanelController {
         void openDesktopHere();
 
         void showExternalDesktop();
+
+        void setFillExternalDisplay(boolean enabled);
+
+        void setExternalOutputMode(
+                ExternalDisplayLaunchSettings.OutputMode outputMode);
 
         void switchToMirror();
 
@@ -51,6 +60,8 @@ final class PhoneControlPanelController {
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
+        final boolean fillExternalDisplay;
+        final ExternalDisplayLaunchSettings.OutputMode externalOutputMode;
         final ExternalDisplayState externalDisplayState;
         final String status;
         final String runtime;
@@ -63,6 +74,8 @@ final class PhoneControlPanelController {
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
+                final boolean fillExternalDisplay,
+                final ExternalDisplayLaunchSettings.OutputMode externalOutputMode,
                 final ExternalDisplayState externalDisplayState,
                 final String status,
                 final String runtime,
@@ -73,6 +86,8 @@ final class PhoneControlPanelController {
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
+            this.fillExternalDisplay = fillExternalDisplay;
+            this.externalOutputMode = externalOutputMode;
             this.externalDisplayState = externalDisplayState;
             this.status = status;
             this.runtime = runtime;
@@ -94,6 +109,9 @@ final class PhoneControlPanelController {
     private Button mMirror;
     private Button mTouchpad;
     private Button mPhoneScreen;
+    private Switch mFillDisplay;
+    private Spinner mOutputMode;
+    private boolean mRendering = true;
 
     PhoneControlPanelController(
             final Activity activity,
@@ -152,6 +170,7 @@ final class PhoneControlPanelController {
     }
 
     void render(final State state) {
+        mRendering = true;
         mStatus.setText(state.status);
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
@@ -183,6 +202,15 @@ final class PhoneControlPanelController {
                         && (state.consoleActive
                                 || state.externalDisplayState
                                         == ExternalDisplayState.CONNECTED));
+        final boolean canConfigureOutput =
+                !state.consoleActive
+                        && state.consoleControlAvailable
+                        && state.externalDisplayState
+                                == ExternalDisplayState.CONNECTED;
+        mFillDisplay.setChecked(state.fillExternalDisplay);
+        mFillDisplay.setEnabled(canConfigureOutput);
+        mOutputMode.setSelection(state.externalOutputMode.ordinal(), false);
+        mOutputMode.setEnabled(canConfigureOutput);
         mMirror.setEnabled(
                 state.consoleActive
                         && state.consoleControlAvailable);
@@ -194,6 +222,7 @@ final class PhoneControlPanelController {
         mPhoneScreen.setEnabled(
                 state.consoleActive
                         && state.phoneScreenControlAvailable);
+        mRendering = false;
     }
 
     private View createHeader() {
@@ -255,6 +284,8 @@ final class PhoneControlPanelController {
     private void addDesktopActions(final LinearLayout parent) {
         addSectionTitle(parent, R.string.control_section_desktop, dp(22));
 
+        addExternalDisplayOptions(parent);
+
         mExternalDesktop = actionButton(
                 R.string.action_start_console_mode, COLOR_CYAN);
         mExternalDesktop.setOnClickListener(
@@ -283,6 +314,80 @@ final class PhoneControlPanelController {
         mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
         addGridAction(actions, mPhoneScreen);
         parent.addView(actions, fullWidthWrapParams(dp(6)));
+    }
+
+    private void addExternalDisplayOptions(final LinearLayout parent) {
+        final LinearLayout fitRow = optionRow();
+        fitRow.addView(optionLabel(R.string.external_display_fill),
+                new LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1));
+        mFillDisplay = new Switch(mActivity);
+        mFillDisplay.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setFillExternalDisplay(checked);
+            }
+        });
+        fitRow.addView(mFillDisplay);
+        parent.addView(fitRow);
+
+        final LinearLayout resolutionRow = optionRow();
+        resolutionRow.addView(optionLabel(R.string.external_display_resolution),
+                new LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1));
+        mOutputMode = new Spinner(mActivity, Spinner.MODE_DROPDOWN);
+        final ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(
+                mActivity,
+                R.array.external_display_output_modes,
+                android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(
+                android.R.layout.simple_spinner_dropdown_item);
+        mOutputMode.setAdapter(adapter);
+        mOutputMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(
+                    final AdapterView<?> parentView,
+                    final View selected,
+                    final int position,
+                    final long id) {
+                if (mRendering) {
+                    return;
+                }
+                final ExternalDisplayLaunchSettings.OutputMode[] modes =
+                        ExternalDisplayLaunchSettings.OutputMode.values();
+                if (position >= 0 && position < modes.length) {
+                    mActions.setExternalOutputMode(modes[position]);
+                }
+            }
+
+            @Override
+            public void onNothingSelected(final AdapterView<?> parentView) {
+            }
+        });
+        resolutionRow.addView(mOutputMode, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(48)));
+        parent.addView(resolutionRow);
+    }
+
+    private LinearLayout optionRow() {
+        final LinearLayout row = new LinearLayout(mActivity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(48));
+        row.setPadding(dp(6), 0, dp(3), 0);
+        return row;
+    }
+
+    private TextView optionLabel(final int textResId) {
+        final TextView label = new TextView(mActivity);
+        label.setText(textResId);
+        label.setTextColor(COLOR_TEXT);
+        label.setTextSize(14);
+        return label;
     }
 
     private void addSystemActions(final LinearLayout parent) {

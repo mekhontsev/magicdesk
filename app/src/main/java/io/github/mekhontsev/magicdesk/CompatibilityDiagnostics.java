@@ -304,6 +304,26 @@ final class CompatibilityDiagnostics {
         report.append("Console display setting: ")
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "app_mirror_displayid"))
+                .append('\n');
+        final ExternalDisplayLaunchSettings.Config displayConfig =
+                ExternalDisplayLaunchSettings.load(context);
+        report.append("External display launch: fill=")
+                .append(displayConfig.fillDisplay)
+                .append(", output=")
+                .append(displayConfig.outputMode)
+                .append('\n')
+                .append("Nubia projection settings: fit=")
+                .append(Settings.Global.getString(
+                        context.getContentResolver(), "app_mirror_fit_status"))
+                .append(", sizeType=")
+                .append(Settings.Global.getString(
+                        context.getContentResolver(), "app_mirror_size_type"))
+                .append(", support=")
+                .append(Settings.Global.getString(
+                        context.getContentResolver(), "nb_app_mirror_support_fit"))
+                .append(", current=")
+                .append(Settings.Global.getString(
+                        context.getContentResolver(), "nb_app_mirror_now_fit"))
                 .append("\n\n");
     }
 
@@ -322,6 +342,7 @@ final class CompatibilityDiagnostics {
         for (final Display display : displays) {
             final android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
             display.getRealMetrics(metrics);
+            final Display.Mode mode = display.getMode();
             report.append("- id=").append(display.getDisplayId())
                     .append(" name=").append(cleanSingleLine(display.getName(), 120))
                     .append(" flags=0x").append(Integer.toHexString(display.getFlags()))
@@ -329,7 +350,16 @@ final class CompatibilityDiagnostics {
                     .append(" size=").append(metrics.widthPixels)
                     .append('x').append(metrics.heightPixels)
                     .append(" dpi=").append(metrics.densityDpi)
-                    .append(" rotation=").append(display.getRotation())
+                    .append(" rotation=").append(display.getRotation());
+            if (mode != null) {
+                report.append(" mode=")
+                        .append(mode.getPhysicalWidth())
+                        .append('x')
+                        .append(mode.getPhysicalHeight())
+                        .append('@')
+                        .append(Math.round(mode.getRefreshRate()));
+            }
+            report
                     .append('\n');
         }
         report.append('\n');

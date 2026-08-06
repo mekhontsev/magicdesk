@@ -57,6 +57,15 @@
     <string name="action_start_console_mode">Start external desktop</string>
     <string name="action_resume_external_desktop">Resume external desktop</string>
     <string name="action_show_external_desktop">Show external desktop</string>
+    <string name="external_display_fill">Fill display</string>
+    <string name="external_display_resolution">Output resolution</string>
+    <string-array name="external_display_output_modes">
+        <item>Native</item>
+        <item>System</item>
+        <item>1080p</item>
+        <item>1440p</item>
+        <item>2160p</item>
+    </string-array>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="status_local_desktop_guard_failed">Local desktop could not start safely: %1$s</string>
     <string name="action_open_touchpad">Open touchpad</string>

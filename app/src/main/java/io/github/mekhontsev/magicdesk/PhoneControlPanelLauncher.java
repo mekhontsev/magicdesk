@@ -29,23 +29,8 @@ final class PhoneControlPanelLauncher {
         final boolean crossDisplay = display != null
                 && display.getDisplayId() != Display.DEFAULT_DISPLAY;
         if (crossDisplay && ShellAccess.isReady()) {
-            final String command = createLaunchCommand(
-                    source.getPackageName(),
-                    ControlActivity.class.getName());
             EXECUTOR.execute(() -> {
-                try {
-                    final String output =
-                            ShellAccess.run(command);
-                    if (commandFailed(output)) {
-                        throw new IOException(output.trim());
-                    }
-                } catch (IOException | RuntimeException error) {
-                    Log.w(TAG, "privileged phone panel launch failed", error);
-                    CompatibilityDiagnostics.record(
-                            "NUBIA-DISPLAY-003",
-                            "Could not open the MagicDesk phone control panel",
-                            "shell=" + ShellAccess.statusLabel(),
-                            error);
+                if (!openOnPhoneWithShell()) {
                     source.runOnUiThread(() -> openWithAndroidApi(source));
                 }
             });
@@ -63,6 +48,28 @@ final class PhoneControlPanelLauncher {
                 + Display.DEFAULT_DISPLAY
                 + " --activity-clear-top --activity-single-top -n "
                 + packageName + "/" + componentClass;
+    }
+
+    static boolean openOnPhoneWithShell() {
+        final String packageName =
+                MagicDeskApplication.applicationContext().getPackageName();
+        final String command = createLaunchCommand(
+                packageName, ControlActivity.class.getName());
+        try {
+            final String output = ShellAccess.run(command);
+            if (commandFailed(output)) {
+                throw new IOException(output.trim());
+            }
+            return true;
+        } catch (IOException | RuntimeException error) {
+            Log.w(TAG, "phone panel launch after Mirror failed", error);
+            CompatibilityDiagnostics.record(
+                    "NUBIA-DISPLAY-003",
+                    "Could not open the MagicDesk phone control panel",
+                    "shell=" + ShellAccess.statusLabel(),
+                    error);
+            return false;
+        }
     }
 
     static boolean commandFailed(final String output) {
