@@ -102,6 +102,10 @@
     <string name="hardware_write_failed">The hardware control did not accept the requested value.</string>
     <string name="hardware_restore_failed">Could not restore the hardware state that existed before MagicDesk changed it.</string>
     <string name="hardware_power_section">Power</string>
+    <string name="hardware_input_section">Input</string>
+    <string name="pointer_speed">Pointer speed</string>
+    <string name="pointer_speed_value">%1$d</string>
+    <string name="status_pointer_speed_failed">Could not change pointer speed</string>
     <string name="charge_separation_label">Bypass charging</string>
     <string name="charge_separation_enabled_description">Bypass charging is enabled</string>
     <string name="charge_separation_disabled_description">Bypass charging is disabled</string>

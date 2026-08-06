@@ -46,6 +46,7 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mHasExternalMouse;
     private String mExternalInputDeviceSignature;
     private boolean mConsoleModeActive;
+    private boolean mOwnsConsoleDesktop;
     private int mConsoleDisplayId;
     private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
@@ -111,7 +112,10 @@ public final class MagicDeskRuntimeService extends Service {
         if (service == null || service.mDestroyed || service.mHandler == null) {
             return;
         }
-        service.mHandler.post(service::updateDesktopTasks);
+        service.mHandler.post(() -> {
+            service.refreshDesktopOwnership();
+            service.updateDesktopTasks();
+        });
     }
 
     static void scheduleLocalDesktopCleanupIfRunning() {
@@ -191,11 +195,12 @@ public final class MagicDeskRuntimeService extends Service {
         mDisplayCoordinator.start();
         mConsoleDisplayId = getConsoleDisplayId();
         mConsoleModeActive = mConsoleDisplayId > 0;
+        refreshDesktopOwnership();
         registerConfigurationReceiver();
         registerConsoleModeObserver();
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
-                    mConsoleModeActive);
+                    mOwnsConsoleDesktop);
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
         }
@@ -336,6 +341,7 @@ public final class MagicDeskRuntimeService extends Service {
 
     private void handleDisplayStateChanged(final boolean displayRemoved) {
         handleConsoleStateMaybeChanged();
+        refreshDesktopOwnership();
         if (displayRemoved) {
             schedulePhoneHomeRecovery();
         }
@@ -379,6 +385,7 @@ public final class MagicDeskRuntimeService extends Service {
         final boolean consoleModeActive = consoleDisplayId > 0;
         if (consoleModeActive == mConsoleModeActive
                 && consoleDisplayId == mConsoleDisplayId) {
+            refreshDesktopOwnership();
             return;
         }
         final boolean wasConsoleModeActive = mConsoleModeActive;
@@ -386,6 +393,7 @@ public final class MagicDeskRuntimeService extends Service {
         final boolean activeStateChanged = consoleModeActive != wasConsoleModeActive;
         mConsoleModeActive = consoleModeActive;
         mConsoleDisplayId = consoleDisplayId;
+        refreshDesktopOwnership();
         ++mInputSourceRefreshGeneration;
         Log.i(TAG, "consoleMode=" + mConsoleModeActive
                 + " display=" + mConsoleDisplayId);
@@ -394,10 +402,6 @@ public final class MagicDeskRuntimeService extends Service {
             if (consoleModeActive) {
                 mConsoleExitRecoveryPending = false;
             }
-        }
-        updateConsoleMouseBridge();
-        if (ShellAccess.isReady()) {
-            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(consoleModeActive);
         }
         if (wasConsoleModeActive && !consoleModeActive) {
             DesktopRuntimeBridge.closeExternalDesktopSession(
@@ -494,7 +498,7 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private boolean shouldRunConsoleMouseBridge() {
-        return mConsoleModeActive
+        return mOwnsConsoleDesktop
                 && (mHasExternalMouse
                         || (mConsoleMouseBridge != null
                                 && mConsoleMouseBridge.isRunning()))
@@ -502,7 +506,7 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void refreshConsoleInputSources() {
-        if (!mConsoleModeActive || !ShellAccess.isReady()) {
+        if (!mOwnsConsoleDesktop || !ShellAccess.isReady()) {
             return;
         }
         final int generation = ++mInputSourceRefreshGeneration;
@@ -515,7 +519,7 @@ public final class MagicDeskRuntimeService extends Service {
                 final List<ConsoleMouseDevice> mice =
                         ConsoleInputDeviceDiscovery.findMice(inputDump);
                 mHandler.post(() -> {
-                    if (mDestroyed || !mConsoleModeActive
+                    if (mDestroyed || !mOwnsConsoleDesktop
                             || generation != mInputSourceRefreshGeneration) {
                         return;
                     }
@@ -538,11 +542,15 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         updateKeyboardWatcher();
+        refreshDesktopOwnership();
         updateConsoleMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
+            if (mOwnsConsoleDesktop) {
+                NubiaHostAssistPanelController.hideIfPresent();
+            }
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
-                    mConsoleModeActive);
+                    mOwnsConsoleDesktop);
             RedmagicHardwareController.start(this);
             maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
@@ -566,6 +574,31 @@ public final class MagicDeskRuntimeService extends Service {
         } catch (RuntimeException e) {
             Log.w(TAG, "failed to read Console Mode state", e);
             return -1;
+        }
+    }
+
+    private void refreshDesktopOwnership() {
+        final int desktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final boolean ownsConsoleDesktop = mConsoleModeActive
+                && desktopDisplayId == mConsoleDisplayId;
+        if (ownsConsoleDesktop == mOwnsConsoleDesktop) {
+            return;
+        }
+        mOwnsConsoleDesktop = ownsConsoleDesktop;
+        Log.i(TAG, "ownsConsoleDesktop=" + mOwnsConsoleDesktop
+                + " desktopDisplay=" + desktopDisplayId
+                + " consoleDisplay=" + mConsoleDisplayId);
+        if (mOwnsConsoleDesktop) {
+            NubiaHostAssistPanelController.hideIfPresent();
+        }
+        updateConsoleMouseBridge();
+        if (ShellAccess.isReady()) {
+            ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
+                    mOwnsConsoleDesktop);
+        }
+        if (mOwnsConsoleDesktop) {
+            refreshConsoleInputSources();
         }
     }
 

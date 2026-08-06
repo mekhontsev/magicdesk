@@ -34,6 +34,7 @@ final class ConsoleControlsController {
     private final DesktopUiFactory mUi;
     private final DesktopAudioPanelController mAudio;
     private final RedmagicHardwarePanelController mHardware;
+    private final PointerSpeedPanelController mPointerSpeed;
     private final DisplayCapturePanelController mCapture;
     private final ChargeSeparationController mChargeSeparation;
     private final Set<Button> mConsoleModeActions =
@@ -59,6 +60,7 @@ final class ConsoleControlsController {
         mUi = ui;
         mAudio = new DesktopAudioPanelController(activity, ui);
         mHardware = new RedmagicHardwarePanelController(activity, ui);
+        mPointerSpeed = new PointerSpeedPanelController(activity, ui);
         mCapture = new DisplayCapturePanelController(activity, ui);
         mChargeSeparation = new ChargeSeparationController(
                 activity, this::updateChargeSeparation);
@@ -70,6 +72,7 @@ final class ConsoleControlsController {
         mChargeSeparation.start();
         mAudio.start();
         mHardware.start();
+        mPointerSpeed.start();
         mCapture.start();
     }
 
@@ -90,6 +93,7 @@ final class ConsoleControlsController {
         mChargeSeparation.stop();
         mAudio.stop();
         mHardware.stop();
+        mPointerSpeed.stop();
         mCapture.stop();
     }
 
@@ -240,6 +244,7 @@ final class ConsoleControlsController {
         parent.addView(mChargeSeparationSwitch, chargeParams);
         updateChargeSeparation(mChargeSeparation.state());
 
+        mPointerSpeed.populate(parent, spacing);
         mAudio.populate(parent, spacing);
         mHardware.populate(parent, spacing);
     }
@@ -252,6 +257,7 @@ final class ConsoleControlsController {
 
     void update() {
         mActivity.taskbar().updateKeyboardLayout();
+        mPointerSpeed.refresh();
 
         final boolean phoneScreenOff = isPhoneScreenOff();
         final boolean phoneScreenControl = ShellAccess.isReady();
