@@ -3,18 +3,19 @@
 ## Problem
 
 On the REDMAGIC 11 Pro (`NX809J`), VITURE glasses can change their EDID through
-an HPD-low/HPD-high transition when entering side-by-side 3D. The original
-failure was reproduced with a `1920x1080` to `3840x1080@60` transition. VITURE
-Beast currently exposes `1920x1200` in 2D and can use a corresponding wider
-1200-line mode in 3D. Nubia's DisplayPort driver keeps a user-selected mode and
-a `mode_override` flag in the DP panel state.
+an HPD-low/HPD-high transition when changing refresh rate or entering
+side-by-side 3D. The original failure was reproduced with a `1920x1080` to
+`3840x1080@60` transition. VITURE Beast exposes `1920x1200` at both 60 and
+120 Hz, and can use a corresponding wider 1200-line mode in 3D. Nubia's
+DisplayPort driver keeps a user-selected mode and a `mode_override` flag in the
+DP panel state.
 
 The full USB-C disconnect path clears that flag, but the HPD-low path used by
 the glasses does not. There is also a second stale-state path:
 `nubia_edid_modes()` reapplies the saved mode even when it no longer exists in
-the new EDID. The valid 3D mode is rejected, DRM has no accepted EDID modes, and
-Android falls back to `640x480`. In the glasses this normally appears as a
-black screen.
+the new EDID. The valid replacement mode is rejected, DRM has no accepted EDID
+modes, and Android falls back to `640x480`. In the glasses this appears as a
+black screen or a corrupted low-resolution image.
 
 The module does not contain hardcoded 1080p or 1200p dimensions. It compares
 the complete saved mode against the connector's current EDID mode list, so the
@@ -52,14 +53,16 @@ add-on then:
 6. Treats a repeated press as an idempotent `already active` operation.
 
 The module lives only in kernel memory. It must be activated manually once
-after every reboot, before switching the glasses into 3D. A reboot unloads it
-automatically. MagicDesk itself never requests root for this operation.
+after every reboot, before changing the glasses' refresh or 3D mode. A reboot
+unloads it automatically. MagicDesk itself never requests root for this
+operation.
 
 ## Validated target
 
 - Device: REDMAGIC 11 Pro (`NX809J`)
-- Displays: VITURE Pro XR transition validated; VITURE Beast `1920x1200` 2D
-  mode observed, with its 3D transition requiring a fresh validation pass
+- Displays: VITURE Pro XR 2D/3D transition validated; VITURE Beast
+  `1920x1200@60` to `1920x1200@120` HPD transition validated, with its 3D
+  transition still requiring a separate validation pass
 - Kernel release:
   `6.12.23-android16-5-gf1bdb13583da-ab13761046-4k`
 - Android common-kernel commit:
