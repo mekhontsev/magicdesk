@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.appwidget.AppWidgetProviderInfo;
 import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -12,7 +13,7 @@ import android.widget.TextView;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-final class AppContextMenuController {
+final class DesktopContextMenuController {
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final Map<View, ContextTarget> mTargets = new WeakHashMap<>();
@@ -20,7 +21,7 @@ final class AppContextMenuController {
     private LinearLayout mPanel;
     private View mHoveredTargetView;
 
-    AppContextMenuController(
+    DesktopContextMenuController(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
@@ -49,11 +50,46 @@ final class AppContextMenuController {
         if (view == null || app == null) {
             return;
         }
-        mTargets.put(view, new ContextTarget(app, task));
+        registerTarget(view, ContextTarget.app(app, task));
+    }
+
+    void registerFileTarget(final View view, final DesktopFile file) {
+        if (view == null || file == null) {
+            return;
+        }
+        registerTarget(view, ContextTarget.file(file));
+    }
+
+    void registerDesktopAppTarget(final View view, final AppItem app) {
+        if (view == null || app == null) {
+            return;
+        }
+        registerTarget(view, ContextTarget.desktopApp(app));
+    }
+
+    void registerWidgetTarget(
+            final View view,
+            final int appWidgetId,
+            final String label,
+            final boolean configurable,
+            final int resizeMode) {
+        if (view == null || appWidgetId < 0) {
+            return;
+        }
+        registerTarget(
+                view,
+                ContextTarget.widget(
+                        appWidgetId, label, configurable, resizeMode));
+    }
+
+    private void registerTarget(
+            final View view,
+            final ContextTarget contextTarget) {
+        mTargets.put(view, contextTarget);
         view.setHapticFeedbackEnabled(false);
         view.setOnLongClickListener(target -> {
             mActivity.captureInteractionStackForPanel();
-            showForView(target, app, task);
+            showForView(target, contextTarget);
             return true;
         });
         view.setOnHoverListener((hoveredView, event) -> {
@@ -75,7 +111,7 @@ final class AppContextMenuController {
             target = findTargetAt(x, y);
         }
         if (target != null) {
-            showAppMenu(x, y, target.app, target.task);
+            showTargetMenu(x, y, target);
             return;
         }
         final OverlayPanelController overlays = mActivity.overlayPanels();
@@ -106,6 +142,21 @@ final class AppContextMenuController {
         mPanel.addView(title, titleParams);
 
         addAction(
+                R.string.action_new_file,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.createDesktopFile(false));
+        addAction(
+                R.string.action_new_folder,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.createDesktopFile(true));
+        addAction(
+                R.string.action_add_widget,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.addDesktopWidget());
+        addAction(
                 R.string.action_refresh,
                 DesktopUiFactory.COLOR_CYAN,
                 true,
@@ -120,18 +171,10 @@ final class AppContextMenuController {
                 true,
                 view -> mActivity.showTaskOverview());
         addAction(
-                R.string.action_choose_desktop_folder,
+                R.string.action_open_desktop_folder,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
-                view -> mActivity.chooseDesktopFolder());
-        addAction(
-                R.string.action_hide_desktop_folder,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                mActivity.hasDesktopFolder(),
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.clearDesktopFolder();
-                });
+                view -> mActivity.openDesktopFolder());
         addAction(
                 R.string.section_tools,
                 DesktopUiFactory.COLOR_PANEL_ALT,
@@ -164,22 +207,124 @@ final class AppContextMenuController {
 
     private void showForView(
             final View view,
-            final AppItem app,
-            final TaskRepository.TaskEntry task) {
+            final ContextTarget target) {
         final int[] location = new int[2];
         view.getLocationOnScreen(location);
-        showAppMenu(
+        showTargetMenu(
                 location[0] + view.getWidth() / 2f,
                 location[1] + view.getHeight() / 2f,
-                app,
-                task);
+                target);
+    }
+
+    private void showTargetMenu(
+            final float x,
+            final float y,
+            final ContextTarget target) {
+        if (target.app != null) {
+            showAppMenu(
+                    x, y, target.app, target.task, target.desktopItem);
+        } else if (target.file != null) {
+            showFileMenu(x, y, target.file);
+        } else if (target.appWidgetId >= 0) {
+            showWidgetMenu(x, y, target);
+        }
+    }
+
+    private void showFileMenu(
+            final float x,
+            final float y,
+            final DesktopFile file) {
+        prepareMenuTitle(file.name);
+        addAction(
+                R.string.action_open,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.openDesktopFile(file));
+        addAction(
+                R.string.action_rename,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.renameDesktopFile(file));
+        addAction(
+                R.string.action_delete,
+                DesktopUiFactory.COLOR_RED,
+                true,
+                view -> mActivity.confirmDeleteDesktopFile(file));
+        positionAndShow(x, y);
+    }
+
+    private void showWidgetMenu(
+            final float x,
+            final float y,
+            final ContextTarget target) {
+        prepareMenuTitle(target.widgetLabel == null
+                ? mActivity.getString(R.string.widget_default_name)
+                : target.widgetLabel);
+        addAction(R.string.action_widget_move,
+                DesktopUiFactory.COLOR_CYAN, true,
+                view -> mActivity.beginDesktopWidgetMove(
+                        target.appWidgetId));
+        addAction(R.string.action_widget_wider,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                (target.widgetResizeMode
+                        & AppWidgetProviderInfo.RESIZE_HORIZONTAL) != 0,
+                view -> mActivity.resizeDesktopWidget(
+                        target.appWidgetId, 1, 0));
+        addAction(R.string.action_widget_narrower,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                (target.widgetResizeMode
+                        & AppWidgetProviderInfo.RESIZE_HORIZONTAL) != 0,
+                view -> mActivity.resizeDesktopWidget(
+                        target.appWidgetId, -1, 0));
+        addAction(R.string.action_widget_taller,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                (target.widgetResizeMode
+                        & AppWidgetProviderInfo.RESIZE_VERTICAL) != 0,
+                view -> mActivity.resizeDesktopWidget(
+                        target.appWidgetId, 0, 1));
+        addAction(R.string.action_widget_shorter,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                (target.widgetResizeMode
+                        & AppWidgetProviderInfo.RESIZE_VERTICAL) != 0,
+                view -> mActivity.resizeDesktopWidget(
+                        target.appWidgetId, 0, -1));
+        addAction(R.string.action_widget_configure,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                target.widgetConfigurable,
+                view -> mActivity.configureDesktopWidget(
+                        target.appWidgetId));
+        addAction(R.string.action_delete,
+                DesktopUiFactory.COLOR_RED, true,
+                view -> mActivity.removeDesktopWidget(
+                        target.appWidgetId));
+        positionAndShow(x, y);
+    }
+
+    private void prepareMenuTitle(final CharSequence text) {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        if (mPanel == null || overlays == null) {
+            return;
+        }
+        overlays.hide(mPanel);
+        mPanel.removeAllViews();
+        final TextView title = new TextView(mActivity);
+        title.setText(text);
+        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        title.setTextSize(16);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        mPanel.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
     private void showAppMenu(
             final float x,
             final float y,
             final AppItem app,
-            final TaskRepository.TaskEntry exactTask) {
+            final TaskRepository.TaskEntry exactTask,
+            final boolean desktopItem) {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (mPanel == null || overlays == null) {
             return;
@@ -279,18 +424,26 @@ final class AppContextMenuController {
                     mActivity.hideAllPanels();
                     mActivity.togglePinned(app);
                 });
-        final boolean desktopShortcut =
-                mActivity.isDesktopShortcut(app.packageName);
-        addAction(
-                desktopShortcut
-                        ? R.string.action_remove_from_desktop
-                        : R.string.action_add_to_desktop,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.toggleDesktopShortcut(app);
-                });
+        if (desktopItem) {
+            addAction(
+                    R.string.action_delete,
+                    DesktopUiFactory.COLOR_RED,
+                    true,
+                    view -> mActivity.deleteDesktopShortcut(app));
+        } else {
+            final boolean desktopShortcut =
+                    mActivity.isDesktopShortcut(app);
+            addAction(
+                    desktopShortcut
+                            ? R.string.action_remove_from_desktop
+                            : R.string.action_add_to_desktop,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.toggleDesktopShortcut(app);
+                    });
+        }
         final boolean workspaceApp =
                 mActivity.isWorkspaceApp(app.packageName);
         addAction(

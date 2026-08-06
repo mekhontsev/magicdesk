@@ -118,8 +118,18 @@ runtime integration and are not distributed through the same release path.
 
 ### Desktop UI
 
-- `StartMenuController`, `TaskbarController`, `TaskOverviewController`,
-  `NotificationCenterController`, and `DesktopItemsController` own desktop UI.
+- `StartMenuController`, `TaskbarController`, `TaskOverviewController`, and
+  `NotificationCenterController` own the persistent desktop controls.
+- `DesktopWorkspaceController` composes shortcuts, the fixed Android
+  `Desktop` directory, and Android widgets on one `DesktopGridLayout` surface.
+- `DesktopFolderController` owns asynchronous desktop-file operations and the
+  lifecycle of an event-driven observer. `ShellDesktopDirectory` constrains
+  typed UserService operations to `/storage/emulated/0/Desktop` and owns its
+  `FileObserver`. `DesktopWidgetController` owns the process-wide
+  `AppWidgetHost` lifecycle and widget binding/configuration.
+- `DesktopContentStore` stores global desktop content. `DisplayProfileStore`
+  stores only display-specific DPI and geometry. `DesktopPlacementEngine` is
+  the platform-independent collision and reflow policy.
 - `OverlayPanelController` provides consistent toggle, dismissal, placement,
   and display-scoped overlay behavior.
 - `DesktopInputController` handles shell UI input and delegates global physical
@@ -149,8 +159,9 @@ runtime integration and are not distributed through the same release path.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
-- `AppTaskController`, `WorkspaceController`, and `AltTabController` coordinate
-  task actions, Show Desktop, restoration, and exact-task switching.
+- `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
+  coordinate task actions, Show Desktop, restoration, and exact-task
+  switching.
 
 ### Platform services
 
@@ -274,9 +285,40 @@ databases, preferences, and files. MagicDesk never edits launcher data.
 
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store
-DPI, desktop-folder URI, and confirmed window bounds/Z-order. Taskbar pins,
-desktop shortcuts, and the recent-app history are global so the same workspace
-entry points follow the user between the phone, a tablet, and every monitor.
+DPI, sparse desktop-item placements, widget spans, and confirmed window
+geometry. Files under `/storage/emulated/0/Desktop`, widget bindings, taskbar
+pins, desktop shortcuts, the kept workspace application, and recent-app
+history are global, so the same desktop content follows the user between the
+phone, a tablet, and every monitor while adapting to each viewport.
+
+## Desktop Surface And Widgets
+
+`DesktopGridLayout` is a real `ViewGroup`, not a bitmap or remote task
+container. Every shortcut, file, and `AppWidgetHostView` remains an ordinary
+Android view with native accessibility and input behavior. Placements use
+logical cells and row/column spans rather than pixels, so DPI or resolution
+changes only reflow items that no longer fit.
+
+Widget IDs are owned by Android's `AppWidgetHost` and are therefore global to
+the MagicDesk installation. MagicDesk persists only their per-display
+placement and size. Provider clicks remain native; widget movement is entered
+explicitly from the context menu so drag handling cannot steal controls or
+scroll gestures from the provider. Binding and optional configuration use the
+system widget activities and do not depend on Shizuku.
+
+Desktop filesystem operations cross one typed AIDL boundary instead of
+interpolating filenames into shell commands. The UserService rejects paths
+outside the fixed root, symbolic-link traversal, invalid names, and accidental
+overwrite. Explicit physical deletion is recursive only after user
+confirmation; removing an application shortcut or widget never deletes
+application data. MagicDesk does not delete the Desktop directory or its
+contents during Exit or uninstall.
+
+Files opened in another application are exposed through a non-exported,
+read-only `ContentProvider` with a per-Intent URI grant. The receiving
+application never receives Shizuku access or a raw privileged filesystem
+handle. Directory changes are delivered by `FileObserver`; there is no folder
+polling while the desktop is idle.
 
 ## External Desktop Activation
 

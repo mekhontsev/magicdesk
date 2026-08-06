@@ -135,6 +135,57 @@ final class LauncherAppRepository {
         }
     }
 
+    AppItem findOrLoad(
+            final List<AppItem> apps,
+            final AppLaunchTarget target,
+            final boolean universalFreeform) {
+        if (target == null) {
+            return null;
+        }
+        if (apps != null) {
+            for (final AppItem app : apps) {
+                if (target.equals(app.launchTarget)) {
+                    return app;
+                }
+            }
+        }
+        if (target.activityClassName.length() == 0) {
+            return findOrLoad(apps, target.packageName, universalFreeform);
+        }
+        try {
+            final ActivityInfo activityInfo =
+                    mPackageManager.getActivityInfo(
+                            new ComponentName(
+                                    target.packageName,
+                                    target.activityClassName),
+                            0);
+            final ApplicationInfo applicationInfo =
+                    activityInfo.applicationInfo;
+            final CharSequence activityLabel =
+                    activityInfo.loadLabel(mPackageManager);
+            final CharSequence applicationLabel = applicationInfo == null
+                    ? null : applicationInfo.loadLabel(mPackageManager);
+            final String label = activityLabel != null
+                    && activityLabel.length() > 0
+                    ? activityLabel.toString()
+                    : applicationLabel != null
+                            && applicationLabel.length() > 0
+                            ? applicationLabel.toString()
+                            : target.packageName;
+            return new AppItem(
+                    label,
+                    target.packageName,
+                    universalFreeform,
+                    fullscreenPreference(activityInfo, applicationInfo),
+                    loadIcon(activityInfo, applicationInfo),
+                    target);
+        } catch (PackageManager.NameNotFoundException error) {
+            Log.w(TAG, "Launch target is not installed: "
+                    + target.stableKey(), error);
+            return null;
+        }
+    }
+
     private void addRedmagicEntryPoints(
             final List<AppItem> result,
             final Set<String> addedPackages,

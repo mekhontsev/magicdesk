@@ -33,6 +33,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final NubiaPointerPositionGuard mPointerPositionGuard;
     private final SystemNavigationGuard mSystemNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
+    private final ShellDesktopDirectory mDesktopDirectory;
     private final Object mInputRoutingLock = new Object();
     private ConsoleInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -48,6 +49,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mPointerPositionGuard = new NubiaPointerPositionGuard();
         mSystemNavigationGuard = new SystemNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
+        mDesktopDirectory = new ShellDesktopDirectory();
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -357,6 +359,50 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public DesktopFileInfo[] listDesktopFiles() {
+        return mDesktopDirectory.list();
+    }
+
+    @Override
+    public ParcelFileDescriptor openDesktopFile(final String relativePath) {
+        return mDesktopDirectory.open(relativePath);
+    }
+
+    @Override
+    public DesktopFileInfo createDesktopEntry(
+            final String name, final boolean directory) {
+        return mDesktopDirectory.create(name, directory);
+    }
+
+    @Override
+    public DesktopFileInfo renameDesktopEntry(
+            final String relativePath, final String newName) {
+        return mDesktopDirectory.rename(relativePath, newName);
+    }
+
+    @Override
+    public void deleteDesktopEntry(final String relativePath) {
+        mDesktopDirectory.delete(relativePath);
+    }
+
+    @Override
+    public void startDesktopFolderObserver(
+            final IDesktopFolderObserverCallback callback) {
+        mDesktopDirectory.startObserver(callback);
+    }
+
+    @Override
+    public void stopDesktopFolderObserver(
+            final IDesktopFolderObserverCallback callback) {
+        mDesktopDirectory.stopObserver(callback);
+    }
+
+    @Override
+    public DesktopFileInfo getDesktopFileInfo(final String relativePath) {
+        return mDesktopDirectory.info(relativePath);
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -448,6 +494,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public void destroy() {
         Log.i(TAG, "command service stopped");
         mDisplayRecording.close();
+        mDesktopDirectory.close();
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
         }

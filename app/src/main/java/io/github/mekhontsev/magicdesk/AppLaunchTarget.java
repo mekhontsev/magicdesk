@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 
+import java.util.Objects;
+
 final class AppLaunchTarget {
     final String packageName;
     final String activityClassName;
@@ -38,6 +40,29 @@ final class AppLaunchTarget {
         }
         return new Intent(action.isEmpty() ? Intent.ACTION_MAIN : action)
                 .setClassName(packageName, activityClassName);
+    }
+
+    String stableKey() {
+        return packageName + "|" + activityClassName + "|" + action;
+    }
+
+    @Override
+    public boolean equals(final Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof AppLaunchTarget)) {
+            return false;
+        }
+        final AppLaunchTarget target = (AppLaunchTarget) other;
+        return packageName.equals(target.packageName)
+                && activityClassName.equals(target.activityClassName)
+                && action.equals(target.action);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(packageName, activityClassName, action);
     }
 
     static boolean isSafeClassName(final String value) {

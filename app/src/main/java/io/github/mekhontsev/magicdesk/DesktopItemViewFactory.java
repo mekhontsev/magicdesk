@@ -1,0 +1,148 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.text.TextUtils;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+final class DesktopItemViewFactory {
+    private final DesktopShellActivity mActivity;
+    private final DesktopUiFactory mUi;
+
+    DesktopItemViewFactory(
+            final DesktopShellActivity activity,
+            final DesktopUiFactory ui) {
+        mActivity = activity;
+        mUi = ui;
+    }
+
+    View app(final AppItem app, final boolean workspaceApp) {
+        final LinearLayout item = iconContainer();
+        if (workspaceApp) {
+            item.setBackground(mUi.rounded(
+                    0x55172033,
+                    dp(8),
+                    DesktopUiFactory.COLOR_AMBER));
+        }
+        final ImageView icon = new ImageView(mActivity);
+        icon.setImageDrawable(app.icon);
+        item.addView(icon, iconParams());
+        addLabel(item, app.label);
+        return item;
+    }
+
+    View file(final DesktopFile file) {
+        final LinearLayout item = iconContainer();
+        final ImageView icon = new ImageView(mActivity);
+        icon.setScaleType(file.thumbnail == null
+                ? ImageView.ScaleType.CENTER_INSIDE
+                : ImageView.ScaleType.CENTER_CROP);
+        if (file.thumbnail != null) {
+            icon.setImageBitmap(file.thumbnail);
+            icon.setBackground(mUi.rounded(
+                    0x66111827,
+                    dp(6),
+                    0x99E5E7EB));
+            icon.setClipToOutline(true);
+            icon.setPadding(dp(1), dp(1), dp(1), dp(1));
+        } else {
+            icon.setImageResource(file.directory
+                    ? R.drawable.ic_desktop_folder
+                    : fileIcon(file.mimeType));
+        }
+        icon.setContentDescription(file.name);
+        item.addView(icon, iconParams());
+        addLabel(item, file.name);
+        return item;
+    }
+
+    View overflow(final int hiddenCount) {
+        final LinearLayout item = iconContainer();
+        final ImageView icon = new ImageView(mActivity);
+        icon.setImageResource(R.drawable.ic_desktop_folder);
+        item.addView(icon, iconParams());
+        addLabel(item, mActivity.getString(
+                R.string.desktop_more_files, Integer.valueOf(hiddenCount)));
+        return item;
+    }
+
+    private LinearLayout iconContainer() {
+        final LinearLayout item = new LinearLayout(mActivity);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        item.setPadding(
+                desktopDp(8, 5),
+                desktopDp(6, 4),
+                desktopDp(8, 5),
+                desktopDp(6, 4));
+        item.setClickable(true);
+        item.setFocusable(true);
+        return item;
+    }
+
+    private LinearLayout.LayoutParams iconParams() {
+        return new LinearLayout.LayoutParams(
+                desktopDp(44, 34), desktopDp(44, 34));
+    }
+
+    private void addLabel(
+            final LinearLayout item,
+            final CharSequence text) {
+        final TextView label = new TextView(mActivity);
+        label.setText(text);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(mActivity.isCompactDesktopPreview() ? 10 : 12);
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(2);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setShadowLayer(dp(2), 0, dp(1), 0xE6000000);
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(6), 0, 0);
+        item.addView(label, params);
+    }
+
+    private int fileIcon(final String mimeType) {
+        if (mimeType != null && mimeType.startsWith("image/")) {
+            return R.drawable.ic_desktop_file_image;
+        }
+        if (mimeType != null
+                && (mimeType.startsWith("audio/")
+                        || mimeType.startsWith("video/"))) {
+            return R.drawable.ic_desktop_file_media;
+        }
+        if ("application/pdf".equals(mimeType)) {
+            return R.drawable.ic_desktop_file_pdf;
+        }
+        if (mimeType != null
+                && (mimeType.startsWith("text/")
+                        || mimeType.contains("json")
+                        || mimeType.contains("xml"))) {
+            return R.drawable.ic_desktop_file_text;
+        }
+        if (mimeType != null
+                && (mimeType.contains("zip")
+                        || mimeType.contains("archive")
+                        || mimeType.contains("compressed"))) {
+            return R.drawable.ic_desktop_file_archive;
+        }
+        return R.drawable.ic_desktop_file_document;
+    }
+
+    private int dp(final int value) {
+        return mUi.dp(value);
+    }
+
+    private int desktopDp(
+            final int normalValue,
+            final int compactValue) {
+        return mUi.desktopDp(
+                normalValue,
+                compactValue,
+                mActivity.isCompactDesktopPreview());
+    }
+}

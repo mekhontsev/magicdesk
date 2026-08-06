@@ -281,17 +281,17 @@ final class TaskbarController {
             return;
         }
         mPins.removeAllViews();
-        final Set<String> pinnedPackages = mActivity.getPinnedPackages();
+        final List<String> pinnedPackages = mActivity.getPinnedPackages();
         final String workspacePackage = mActivity.getWorkspacePackage();
-        if (workspacePackage != null) {
+        if (workspacePackage != null
+                && !pinnedPackages.contains(workspacePackage)) {
             pinnedPackages.add(workspacePackage);
         }
         final Set<Integer> renderedTaskIds = new HashSet<>();
         final List<TaskRepository.TaskEntry> orderedTasks =
                 getOrderedTaskbarTasks();
 
-        for (final String packageName :
-                mActivity.getOrderedPinnedPackages(apps, pinnedPackages)) {
+        for (final String packageName : pinnedPackages) {
             final AppItem app = LauncherAppRepository.find(apps, packageName);
             if (app == null) {
                 continue;
@@ -319,6 +319,29 @@ final class TaskbarController {
                 addPin(app, task);
             }
         }
+    }
+
+    List<String> getPinnedPackages() {
+        return DesktopPreferences.taskbarPackages(mActivity);
+    }
+
+    void togglePinned(final AppItem app) {
+        final List<String> pinned = getPinnedPackages();
+        final boolean nowPinned;
+        if (pinned.remove(app.packageName)) {
+            nowPinned = false;
+        } else {
+            pinned.add(app.packageName);
+            nowPinned = true;
+        }
+        DesktopPreferences.saveTaskbarPackages(mActivity, pinned);
+        renderPins(mActivity.getLauncherApps());
+        mActivity.renderStartMenuContent();
+        mActivity.setStatus(mActivity.getString(
+                nowPinned
+                        ? R.string.status_app_pinned
+                        : R.string.status_app_unpinned,
+                app.label));
     }
 
     private List<TaskRepository.TaskEntry> getOrderedTaskbarTasks() {

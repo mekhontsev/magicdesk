@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import io.github.mekhontsev.magicdesk.DesktopFileInfo;
+import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
 
 interface IShizukuCommandService {
@@ -79,4 +81,23 @@ interface IShizukuCommandService {
         IBinder ownerToken) = 24;
 
     String stopDisplayRecording(IBinder ownerToken) = 25;
+
+    DesktopFileInfo[] listDesktopFiles() = 26;
+
+    ParcelFileDescriptor openDesktopFile(String relativePath) = 27;
+
+    DesktopFileInfo createDesktopEntry(String name, boolean directory) = 28;
+
+    DesktopFileInfo renameDesktopEntry(
+        String relativePath, String newName) = 29;
+
+    void deleteDesktopEntry(String relativePath) = 30;
+
+    void startDesktopFolderObserver(
+        IDesktopFolderObserverCallback callback) = 31;
+
+    void stopDesktopFolderObserver(
+        IDesktopFolderObserverCallback callback) = 32;
+
+    DesktopFileInfo getDesktopFileInfo(String relativePath) = 33;
 }

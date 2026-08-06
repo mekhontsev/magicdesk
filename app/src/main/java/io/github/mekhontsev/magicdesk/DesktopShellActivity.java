@@ -14,6 +14,7 @@ import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputType;
 import android.util.Log;
 import android.view.Display;
 import android.view.GestureDetector;
@@ -22,18 +23,17 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 
 public abstract class DesktopShellActivity extends Activity
         implements MagicDeskSessionHost {
@@ -48,7 +48,6 @@ public abstract class DesktopShellActivity extends Activity
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
-    private static final int MAX_DESKTOP_FILES = 30;
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private FrameLayout mDesktopRoot;
@@ -62,18 +61,17 @@ public abstract class DesktopShellActivity extends Activity
     private DisplayProfileController mDisplayProfiles;
     private StartMenuController mStartMenuController;
     private TaskOverviewController mTaskOverviewController;
-    private AppContextMenuController mContextMenuController;
+    private DesktopContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
     private AltTabController mAltTabController;
-    private WorkspaceController mWorkspaceController;
+    private WorkspaceAppController mWorkspaceAppController;
+    private DesktopWorkspaceController mDesktopWorkspaceController;
     private AppTaskController mAppTasks;
     private DesktopTaskSnapshotController mTaskSnapshots;
     private DisplayDensityController mDisplayDensityController;
     private ConsoleControlsController mConsoleControls;
     private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
-    private DesktopFileRepository mDesktopFileRepository;
-    private DesktopItemsController mDesktopItemsController;
     private DesktopInputController mInputController;
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
@@ -134,21 +132,20 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayProfiles = new DisplayProfileController(this);
         mStartMenuController = new StartMenuController(this, mUi);
         mTaskOverviewController = new TaskOverviewController(this, mUi);
-        mContextMenuController = new AppContextMenuController(this, mUi);
+        mContextMenuController = new DesktopContextMenuController(this, mUi);
         mTaskbarController = new TaskbarController(this, mUi);
         mAltTabController = new AltTabController(this);
-        mWorkspaceController = new WorkspaceController(this);
+        mDesktopWorkspaceController =
+                new DesktopWorkspaceController(this, mUi);
+        mWorkspaceAppController = new WorkspaceAppController(
+                this, mDesktopWorkspaceController.content());
         mAppTasks = new AppTaskController(this);
         mTaskSnapshots = new DesktopTaskSnapshotController(
-                this, mWorkspaceController);
+                this, mWorkspaceAppController);
         mDisplayDensityController = new DisplayDensityController(this);
         mConsoleControls = new ConsoleControlsController(this, mUi);
         mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
-        mDesktopFileRepository =
-                new DesktopFileRepository(getContentResolver(), MAX_DESKTOP_FILES);
-        mDesktopItemsController = new DesktopItemsController(
-                this, mUi, mDesktopFileRepository);
         mInputController = new DesktopInputController(this);
         mHostWindowController = new DesktopHostWindowController(this);
         mSystemActions = new DesktopSystemActionsController(this);
@@ -211,8 +208,8 @@ public abstract class DesktopShellActivity extends Activity
         if (mTaskSnapshots != null) {
             mTaskSnapshots.release();
         }
-        if (mDesktopItemsController != null) {
-            mDesktopItemsController.cancel();
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.release();
         }
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
@@ -310,7 +307,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     String getWorkspacePackage() {
-        return getWorkspaceProfile().workspacePackage;
+        return mWorkspaceAppController.getWorkspacePackage();
     }
 
     void clearInteractionVisibleTasks() {
@@ -326,12 +323,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     boolean isWorkspaceApp(final String packageName) {
-        return packageName != null
-                && packageName.equals(getWorkspaceProfile().workspacePackage);
-    }
-
-    boolean hasDesktopFolder() {
-        return getWorkspaceProfile().folderUri != null;
+        return mWorkspaceAppController.isWorkspaceApp(packageName);
     }
 
     boolean isPointInside(final View view, final float x, final float y) {
@@ -354,7 +346,7 @@ public abstract class DesktopShellActivity extends Activity
     protected void onResume() {
         super.onResume();
         MagicDeskRuntimeService.refreshNotificationIfRunning();
-        refreshWorkspaceProfileForDisplay();
+        refreshDisplayProfile();
         resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
         setTaskbarVisible(true);
@@ -373,7 +365,18 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.start();
+        }
+    }
+
+    @Override
     protected void onStop() {
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.stop();
+        }
         if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
             hideAllPanels();
             setTaskbarVisible(false);
@@ -395,14 +398,14 @@ public abstract class DesktopShellActivity extends Activity
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        mDesktopItemsController.handleActivityResult(
+        mDesktopWorkspaceController.handleActivityResult(
                 requestCode, resultCode, data);
     }
 
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
-        refreshWorkspaceProfileForDisplay();
+        refreshDisplayProfile();
         resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
     }
@@ -430,7 +433,7 @@ public abstract class DesktopShellActivity extends Activity
         if (hasFocus) {
             // A client may leave Android pointer capture orphaned after losing focus.
             getWindow().getDecorView().releasePointerCapture();
-            refreshWorkspaceProfileForDisplay();
+            refreshDisplayProfile();
             resolveMonitorIdentityAsync();
         }
         refreshTaskSnapshot();
@@ -500,6 +503,7 @@ public abstract class DesktopShellActivity extends Activity
                     @Override
                     public boolean onDown(final MotionEvent event) {
                         hideAllPanels();
+                        mDesktopWorkspaceController.cancelEditMode();
                         clearInteractionVisibleTasks();
                         return true;
                     }
@@ -526,7 +530,8 @@ public abstract class DesktopShellActivity extends Activity
         });
         desktop.setOnClickListener(view -> { });
 
-        final GridLayout desktopIcons = mDesktopItemsController.createGrid();
+        final DesktopGridLayout desktopIcons =
+                mDesktopWorkspaceController.createGrid();
         final LinearLayout.LayoutParams iconsParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
         desktop.addView(desktopIcons, iconsParams);
@@ -612,8 +617,107 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.registerTarget(view, app, task);
     }
 
+    void registerDesktopAppContextTarget(
+            final View view, final AppItem app) {
+        mContextMenuController.registerDesktopAppTarget(view, app);
+    }
+
+    void registerFileContextTarget(
+            final View view,
+            final DesktopFile file) {
+        mContextMenuController.registerFileTarget(view, file);
+    }
+
+    void registerWidgetContextTarget(
+            final View view,
+            final int appWidgetId,
+            final String label,
+            final boolean configurable,
+            final int resizeMode) {
+        mContextMenuController.registerWidgetTarget(
+                view, appWidgetId, label, configurable, resizeMode);
+    }
+
     void showDesktopContextMenu(final float x, final float y) {
         mContextMenuController.showDesktopMenu(x, y);
+    }
+
+    void addDesktopWidget() {
+        mDesktopWorkspaceController.addWidget();
+    }
+
+    void configureDesktopWidget(final int appWidgetId) {
+        hideAllPanels();
+        mDesktopWorkspaceController.configureWidget(appWidgetId);
+    }
+
+    void beginDesktopWidgetMove(final int appWidgetId) {
+        hideAllPanels();
+        mDesktopWorkspaceController.beginWidgetMove(appWidgetId);
+    }
+
+    void removeDesktopWidget(final int appWidgetId) {
+        hideAllPanels();
+        mDesktopWorkspaceController.removeWidget(appWidgetId);
+    }
+
+    void resizeDesktopWidget(
+            final int appWidgetId,
+            final int columnDelta,
+            final int rowDelta) {
+        hideAllPanels();
+        mDesktopWorkspaceController.resizeWidget(
+                appWidgetId, columnDelta, rowDelta);
+    }
+
+    void openDesktopFile(final DesktopFile file) {
+        mDesktopWorkspaceController.openFile(file);
+    }
+
+    void createDesktopFile(final boolean directory) {
+        showDesktopNameDialog(
+                directory
+                        ? R.string.new_folder_title
+                        : R.string.new_file_title,
+                "",
+                directory
+                        ? R.string.new_folder_name_hint
+                        : R.string.new_file_name_hint,
+                name -> mDesktopWorkspaceController.createFile(
+                        name, directory));
+    }
+
+    void renameDesktopFile(final DesktopFile file) {
+        showDesktopNameDialog(
+                R.string.rename_desktop_entry_title,
+                file.name,
+                R.string.desktop_entry_name_hint,
+                name -> mDesktopWorkspaceController.renameFile(
+                        file, name));
+    }
+
+    void confirmDeleteDesktopFile(final DesktopFile file) {
+        hideAllPanels();
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.delete_desktop_entry_title)
+                .setMessage(getString(
+                        file.directory
+                                ? R.string.delete_desktop_folder_message
+                                : R.string.delete_desktop_file_message,
+                        file.name))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                        R.string.action_delete,
+                        (confirmedDialog, which) ->
+                                mDesktopWorkspaceController.deleteFile(file))
+                .create();
+        configureOverlayDialog(dialog);
+        dialog.show();
+    }
+
+    void deleteDesktopShortcut(final AppItem app) {
+        hideAllPanels();
+        mDesktopWorkspaceController.deleteShortcut(app);
     }
 
     void showStartSection(final int mode) {
@@ -675,7 +779,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private void renderDesktop(final List<AppItem> apps) {
-        refreshWorkspaceProfileForDisplay();
+        refreshDisplayProfile();
         resolveMonitorIdentityAsync();
         renderDesktopIcons(apps);
         renderTaskbarPins(apps);
@@ -685,19 +789,88 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void renderDesktopIcons(final List<AppItem> apps) {
-        mDesktopItemsController.render(apps);
+        mDesktopWorkspaceController.render(apps);
     }
 
-    void chooseDesktopFolder() {
-        mDesktopItemsController.chooseFolder();
-    }
-
-    void clearDesktopFolder() {
-        mDesktopItemsController.clearFolder();
+    void openDesktopFolder() {
+        hideAllPanels();
+        mDesktopWorkspaceController.openFolder();
     }
 
     void refreshDesktopFolder(final boolean force) {
-        mDesktopItemsController.refreshFolder(force);
+        mDesktopWorkspaceController.refreshFolder(force);
+    }
+
+    private void showDesktopNameDialog(
+            final int titleResId,
+            final String initialValue,
+            final int hintResId,
+            final DesktopNameAction action) {
+        hideAllPanels();
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setHint(hintResId);
+        input.setText(initialValue);
+        input.setSelectAllOnFocus(true);
+        final int padding = mUi.dp(20);
+        final FrameLayout container = new FrameLayout(this);
+        container.setPadding(padding, 0, padding, 0);
+        container.addView(input, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT));
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(titleResId)
+                .setView(container)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.action_create, null)
+                .create();
+        configureOverlayDialog(dialog);
+        dialog.setOnShowListener(ignored -> {
+            final Button positive = dialog.getButton(
+                    AlertDialog.BUTTON_POSITIVE);
+            positive.setText(initialValue.length() == 0
+                    ? R.string.action_create : R.string.action_rename);
+            positive.setOnClickListener(view -> {
+                final String name = input.getText().toString().trim();
+                if (name.length() == 0) {
+                    input.setError(getString(
+                            R.string.desktop_entry_name_required));
+                    return;
+                }
+                dialog.dismiss();
+                action.run(name);
+            });
+            input.requestFocus();
+            final Window window = dialog.getWindow();
+            if (window != null) {
+                window.setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+            input.post(() -> {
+                final InputMethodManager inputMethodManager =
+                        getSystemService(InputMethodManager.class);
+                if (inputMethodManager != null) {
+                    inputMethodManager.showSoftInput(
+                            input, InputMethodManager.SHOW_IMPLICIT);
+                }
+            });
+        });
+        dialog.show();
+    }
+
+    private void configureOverlayDialog(final AlertDialog dialog) {
+        final Window window = dialog.getWindow();
+        if (window != null && Settings.canDrawOverlays(this)) {
+            window.setType(
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        }
+    }
+
+    @FunctionalInterface
+    private interface DesktopNameAction {
+        void run(String name);
     }
 
     void refreshTaskSnapshot() {
@@ -717,56 +890,38 @@ public abstract class DesktopShellActivity extends Activity
                 apps, packageName, isUniversalFreeformEnabled());
     }
 
-    List<String> getOrderedPinnedPackages(final List<AppItem> apps,
-            final Set<String> pinnedPackages) {
-        final List<String> ordered = new ArrayList<>();
-        for (final String packageName : DesktopPreferences.favoritePackages()) {
-            if (pinnedPackages.contains(packageName)) {
-                ordered.add(packageName);
-            }
-        }
-        for (final AppItem app : apps) {
-            if (pinnedPackages.contains(app.packageName)
-                    && !ordered.contains(app.packageName)) {
-                ordered.add(app.packageName);
-            }
-        }
-        return ordered;
+    AppItem findOrLoadApp(
+            final List<AppItem> apps,
+            final AppLaunchTarget target) {
+        return mLauncherApps.findOrLoad(
+                apps, target, isUniversalFreeformEnabled());
     }
 
-    Set<String> getPinnedPackages() {
-        return mWorkspaceController.getPinnedPackages();
+    List<String> getPinnedPackages() {
+        return mTaskbarController.getPinnedPackages();
     }
 
     void togglePinned(final AppItem app) {
-        mWorkspaceController.togglePinned(app);
+        mTaskbarController.togglePinned(app);
     }
 
-    boolean isDesktopShortcut(final String packageName) {
-        return mWorkspaceController.isDesktopShortcut(packageName);
-    }
-
-    List<String> getDesktopShortcutPackages() {
-        return mWorkspaceController.getDesktopShortcutPackages();
-    }
-
-    void saveDesktopShortcutPackages(final List<String> packages) {
-        mWorkspaceController.saveDesktopShortcutPackages(packages);
+    boolean isDesktopShortcut(final AppItem app) {
+        return mDesktopWorkspaceController.isDesktopShortcut(app);
     }
 
     void toggleDesktopShortcut(final AppItem app) {
-        mWorkspaceController.toggleDesktopShortcut(app);
+        mDesktopWorkspaceController.toggleDesktopShortcut(app);
     }
 
     void setWorkspaceApp(final AppItem app,
             final TaskRepository.TaskEntry task, final boolean keep) {
-        mWorkspaceController.setWorkspaceApp(app, task, keep);
+        mWorkspaceAppController.setWorkspaceApp(app, task, keep);
     }
 
     void restoreWorkspaceApp(
             final TaskRepository.Snapshot snapshot,
             final boolean bringToFront) {
-        mWorkspaceController.restore(snapshot, bringToFront);
+        mWorkspaceAppController.restore(snapshot, bringToFront);
     }
 
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
@@ -950,21 +1105,21 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     int getPreferredDesktopDpi() {
-        return getWorkspaceProfile().dpi;
+        return getDisplayProfile().dpi;
     }
 
     void setPreferredDesktopDpi(final int dpi) {
-        final WorkspaceProfileStore.Profile profile = getWorkspaceProfile();
+        final DisplayProfileStore.Profile profile = getDisplayProfile();
         profile.dpi = dpi;
         profile.dpiExplicit = true;
-        saveWorkspaceProfile();
+        saveDisplayProfile();
     }
 
-    WorkspaceProfileStore.Profile getWorkspaceProfile() {
+    DisplayProfileStore.Profile getDisplayProfile() {
         return mDisplayProfiles.getProfile();
     }
 
-    private void refreshWorkspaceProfileForDisplay() {
+    private void refreshDisplayProfile() {
         mDisplayProfiles.refreshForDisplay();
     }
 
@@ -976,18 +1131,18 @@ public abstract class DesktopShellActivity extends Activity
         return mDisplayProfiles.getMonitorLabel();
     }
 
-    void saveWorkspaceProfile() {
+    void saveDisplayProfile() {
         mDisplayProfiles.save();
     }
 
-    void onWorkspaceProfileReset() {
-        mWorkspaceController.resetProfileState();
-        mDesktopItemsController.resetProfileState();
+    void onDisplayProfileReset() {
+        mWorkspaceAppController.resetProfileState();
+        mDesktopWorkspaceController.resetDisplayProfile();
     }
 
     void onMonitorProfileResolved(
             final int previousDpi, final int resolvedDpi) {
-        onWorkspaceProfileReset();
+        onDisplayProfileReset();
         renderApps();
         refreshDesktopFolder(true);
         updateConsoleControls();

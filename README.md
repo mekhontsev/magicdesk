@@ -35,8 +35,9 @@ The result is a familiar desktop model:
 - Android applications run in overlapping, resizable system windows with
   native WMShell decorations.
 - A persistent taskbar tracks real Android tasks and pinned applications.
-- Start, desktop shortcuts, a desktop folder, task switching, and Show Desktop
-  provide normal mouse-driven navigation.
+- Start, freely positioned desktop shortcuts, a global desktop folder, Android
+  widgets, task switching, and Show Desktop provide normal mouse-driven
+  navigation.
 - DeX-style global shortcuts manage windows without application-specific
   configuration.
 - The phone can remain available as REDMAGIC's touchpad and text-input panel.
@@ -61,10 +62,13 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Snap windows left or right, maximize them above the taskbar, or enter true
   fullscreen.
 - Pin applications to the taskbar or place shortcuts on the desktop.
-- Show files from a user-selected folder without copying or deleting them.
+- Use `/storage/emulated/0/Desktop` as the normal desktop filesystem: create,
+  open, rename, and delete files or folders directly from the desktop.
+- Add native Android widgets, move them on the desktop, and resize supported
+  providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
-- Store DPI, folder access, and window layout separately for each external
-  monitor while keeping pins, shortcuts, and recent applications global.
+- Keep desktop files, widgets, pins, shortcuts, and recent applications global
+  while storing DPI and desktop/window geometry separately for each monitor.
 - Use the phone's current static wallpaper, center-cropped for the active
   display.
 

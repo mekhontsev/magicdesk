@@ -6,7 +6,7 @@ import java.util.List;
 /** Owns the current task snapshot and serialized asynchronous refreshes. */
 final class DesktopTaskSnapshotController {
     private final DesktopShellActivity mActivity;
-    private final WorkspaceController mWorkspace;
+    private final WorkspaceAppController mWorkspace;
 
     private TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(
             java.util.Collections.<TaskRepository.TaskEntry>emptyList(),
@@ -16,7 +16,7 @@ final class DesktopTaskSnapshotController {
 
     DesktopTaskSnapshotController(
             final DesktopShellActivity activity,
-            final WorkspaceController workspace) {
+            final WorkspaceAppController workspace) {
         mActivity = activity;
         mWorkspace = workspace;
     }

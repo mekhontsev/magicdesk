@@ -51,4 +51,19 @@ public final class AppLaunchTargetTest {
             // Expected.
         }
     }
+
+    @Test
+    public void stableIdentityIncludesExplicitEntryPoint() {
+        final AppLaunchTarget first = AppLaunchTarget.explicit(
+                "com.example.app", "com.example.First", "example.OPEN");
+        final AppLaunchTarget same = AppLaunchTarget.explicit(
+                "com.example.app", "com.example.First", "example.OPEN");
+        final AppLaunchTarget second = AppLaunchTarget.explicit(
+                "com.example.app", "com.example.Second", "example.OPEN");
+
+        assertEquals(first, same);
+        assertEquals(first.hashCode(), same.hashCode());
+        assertFalse(first.equals(second));
+        assertFalse(first.stableKey().equals(second.stableKey()));
+    }
 }

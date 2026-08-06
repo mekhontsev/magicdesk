@@ -291,6 +291,169 @@ final class ShellAccess {
         }
     }
 
+    static DesktopFileInfo[] listDesktopFiles() throws IOException {
+        try {
+            final DesktopFileInfo[] files =
+                    requireService().listDesktopFiles();
+            return files == null ? new DesktopFileInfo[0] : files;
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop directory read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop directory read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static ParcelFileDescriptor openDesktopFile(final String relativePath)
+            throws IOException {
+        try {
+            final ParcelFileDescriptor descriptor =
+                    requireService().openDesktopFile(relativePath);
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no desktop file");
+            }
+            return descriptor;
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop file open failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop file open failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static DesktopFileInfo getDesktopFileInfo(final String relativePath)
+            throws IOException {
+        try {
+            final DesktopFileInfo file = requireService()
+                    .getDesktopFileInfo(relativePath);
+            if (file == null) {
+                throw new IOException(
+                        "Shizuku command service returned no desktop entry");
+            }
+            return file;
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop entry read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop entry read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static DesktopFileInfo createDesktopEntry(
+            final String name, final boolean directory) throws IOException {
+        try {
+            final DesktopFileInfo file = requireService()
+                    .createDesktopEntry(name, directory);
+            if (file == null) {
+                throw new IOException(
+                        "Shizuku command service returned no desktop entry");
+            }
+            return file;
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop entry creation failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop entry creation failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static DesktopFileInfo renameDesktopEntry(
+            final String relativePath, final String newName)
+            throws IOException {
+        try {
+            final DesktopFileInfo file = requireService()
+                    .renameDesktopEntry(relativePath, newName);
+            if (file == null) {
+                throw new IOException(
+                        "Shizuku command service returned no desktop entry");
+            }
+            return file;
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop entry rename failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop entry rename failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static void deleteDesktopEntry(final String relativePath)
+            throws IOException {
+        try {
+            requireService().deleteDesktopEntry(relativePath);
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop entry deletion failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop entry deletion failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static ShellDesktopFolderHandle openDesktopFolderObserver(
+            final IDesktopFolderObserverCallback callback,
+            final Runnable disconnected) throws IOException {
+        if (callback == null) {
+            throw new IOException("missing desktop folder callback");
+        }
+        final IShizukuCommandService service = requireService();
+        final ShellDesktopFolderHandle handle =
+                new ShellDesktopFolderHandle(
+                        service, callback, disconnected);
+        try {
+            handle.start();
+            return handle;
+        } catch (RemoteException error) {
+            handle.closeAfterStartFailure();
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop folder observer failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            handle.closeAfterStartFailure();
+            throw new IOException(
+                    "Shizuku desktop folder observer failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static ShellStreamHandle openOwnedStream(final String command)
             throws IOException {
         return openStream(command, false);

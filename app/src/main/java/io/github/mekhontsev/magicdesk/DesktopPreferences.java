@@ -4,69 +4,30 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 final class DesktopPreferences {
     static final int SYSTEM_DESKTOP_DPI = 0;
     static final int DEFAULT_DESKTOP_DPI = 192;
 
     private static final String PREFS = "magicdesk";
-    private static final String PREF_PINNED_PACKAGES = "pinned_packages";
-    private static final String PREF_DESKTOP_SHORTCUTS = "desktop_shortcuts";
+    private static final String PREF_TASKBAR_PACKAGES = "taskbar_packages_v2";
     private static final String PREF_RECENT_PACKAGES = "recent_packages";
     private static final int MAX_RECENT_PACKAGES = 24;
-    private static final List<String> FAVORITE_PACKAGES =
-            Collections.unmodifiableList(Arrays.asList(
-                    "com.termux",
-                    "com.android.chrome",
-                    "org.telegram.messenger",
-                    "com.google.android.gm",
-                    "com.openai.chatgpt"));
 
     private DesktopPreferences() {
     }
 
-    static List<String> favoritePackages() {
-        return FAVORITE_PACKAGES;
-    }
-
-    static Set<String> taskbarPackages(final Context context) {
-        final SharedPreferences preferences = preferences(context);
-        if (!preferences.contains(PREF_PINNED_PACKAGES)) {
-            return new LinkedHashSet<>(FAVORITE_PACKAGES);
-        }
-        final Set<String> stored = preferences.getStringSet(
-                PREF_PINNED_PACKAGES, Collections.<String>emptySet());
-        return stored == null
-                ? new LinkedHashSet<String>() : new LinkedHashSet<>(stored);
+    static List<String> taskbarPackages(final Context context) {
+        return decodePackages(preferences(context).getString(
+                PREF_TASKBAR_PACKAGES, ""));
     }
 
     static void saveTaskbarPackages(
-            final Context context, final Set<String> packages) {
+            final Context context, final Collection<String> packages) {
         preferences(context).edit()
-                .putStringSet(PREF_PINNED_PACKAGES, packages)
-                .apply();
-    }
-
-    static List<String> desktopShortcutPackages(final Context context) {
-        final SharedPreferences preferences = preferences(context);
-        if (!preferences.contains(PREF_DESKTOP_SHORTCUTS)) {
-            return new ArrayList<>(FAVORITE_PACKAGES);
-        }
-        return decodePackages(preferences.getString(
-                PREF_DESKTOP_SHORTCUTS, ""));
-    }
-
-    static void saveDesktopShortcutPackages(
-            final Context context,
-            final Collection<String> packages) {
-        preferences(context).edit()
-                .putString(PREF_DESKTOP_SHORTCUTS, encodePackages(packages))
+                .putString(PREF_TASKBAR_PACKAGES, encodePackages(packages))
                 .apply();
     }
 

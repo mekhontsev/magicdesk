@@ -1,102 +1,85 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ContentResolver;
-import android.database.Cursor;
+import android.content.Context;
 import android.graphics.Bitmap;
-import android.net.Uri;
-import android.provider.DocumentsContract;
-import android.util.Size;
+import android.graphics.BitmapFactory;
+import android.os.ParcelFileDescriptor;
 
 import java.io.IOException;
-
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
 final class DesktopFileRepository {
-    private final ContentResolver mContentResolver;
-    private final int mMaximumFiles;
+    private static final int THUMBNAIL_SIZE = 192;
 
-    DesktopFileRepository(
-            final ContentResolver contentResolver,
-            final int maximumFiles) {
-        mContentResolver = contentResolver;
-        mMaximumFiles = maximumFiles;
+    private final Context mContext;
+
+    DesktopFileRepository(final Context context) {
+        mContext = context.getApplicationContext();
     }
 
-    List<DesktopFile> load(final Uri treeUri) {
-        final String treeDocumentId =
-                DocumentsContract.getTreeDocumentId(treeUri);
-        final Uri childrenUri =
-                DocumentsContract.buildChildDocumentsUriUsingTree(
-                        treeUri, treeDocumentId);
-        final String[] projection = {
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE,
-                DocumentsContract.Document.COLUMN_LAST_MODIFIED
-        };
-        final List<DesktopFile> files = new ArrayList<>();
-        try (Cursor cursor = mContentResolver.query(
-                childrenUri, projection, null, null, null)) {
-            if (cursor == null) {
-                return files;
-            }
-            while (cursor.moveToNext()) {
-                final String documentId = cursor.getString(0);
-                final String name = cursor.getString(1);
-                final String mimeType = cursor.getString(2);
-                final long modified =
-                        cursor.isNull(3) ? 0L : cursor.getLong(3);
-                if (documentId == null || name == null) {
-                    continue;
-                }
-                final Uri documentUri =
-                        DocumentsContract.buildDocumentUriUsingTree(
-                                treeUri, documentId);
-                final boolean directory =
-                        DocumentsContract.Document.MIME_TYPE_DIR.equals(
-                                mimeType);
-                files.add(new DesktopFile(
-                        documentUri,
-                        name,
-                        mimeType,
-                        modified,
-                        directory,
-                        directory ? null
-                                : loadImageThumbnail(documentUri, mimeType)));
-            }
-        }
-        Collections.sort(files, new Comparator<DesktopFile>() {
+    List<DesktopFile> load(final int thumbnailLimit) throws IOException {
+        final DesktopFileInfo[] records = ShellAccess.listDesktopFiles();
+        Arrays.sort(records, new Comparator<DesktopFileInfo>() {
             @Override
             public int compare(
-                    final DesktopFile left, final DesktopFile right) {
+                    final DesktopFileInfo left,
+                    final DesktopFileInfo right) {
                 if (left.directory != right.directory) {
                     return left.directory ? -1 : 1;
-                }
-                if (left.modified != right.modified) {
-                    return Long.compare(right.modified, left.modified);
                 }
                 return left.name.compareToIgnoreCase(right.name);
             }
         });
-        if (files.size() > mMaximumFiles) {
-            return new ArrayList<>(files.subList(0, mMaximumFiles));
+        final List<DesktopFile> files = new ArrayList<>(records.length);
+        int previewsRemaining = Math.max(0, thumbnailLimit);
+        for (final DesktopFileInfo record : records) {
+            Bitmap thumbnail = null;
+            if (!record.directory
+                    && previewsRemaining > 0
+                    && record.mimeType.startsWith("image/")) {
+                thumbnail = loadImageThumbnail(record.relativePath);
+                previewsRemaining--;
+            }
+            files.add(new DesktopFile(
+                    record.relativePath,
+                    DesktopFileUri.create(mContext, record.relativePath),
+                    record.name,
+                    record.mimeType,
+                    record.modified,
+                    record.size,
+                    record.directory,
+                    thumbnail));
         }
         return files;
     }
 
-    private Bitmap loadImageThumbnail(
-            final Uri documentUri,
-            final String mimeType) {
-        if (mimeType == null || !mimeType.startsWith("image/")) {
+    private Bitmap loadImageThumbnail(final String relativePath) {
+        final BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (ParcelFileDescriptor descriptor =
+                     ShellAccess.openDesktopFile(relativePath)) {
+            BitmapFactory.decodeFileDescriptor(
+                    descriptor.getFileDescriptor(), null, bounds);
+        } catch (IOException | RuntimeException error) {
             return null;
         }
-        try {
-            return mContentResolver.loadThumbnail(
-                    documentUri, new Size(192, 192), null);
-        } catch (IOException | RuntimeException ignored) {
+        final int largest = Math.max(bounds.outWidth, bounds.outHeight);
+        if (largest <= 0) {
+            return null;
+        }
+        final BitmapFactory.Options decode = new BitmapFactory.Options();
+        decode.inSampleSize = 1;
+        while (largest / (decode.inSampleSize * 2) >= THUMBNAIL_SIZE) {
+            decode.inSampleSize *= 2;
+        }
+        try (ParcelFileDescriptor descriptor =
+                     ShellAccess.openDesktopFile(relativePath)) {
+            return BitmapFactory.decodeFileDescriptor(
+                    descriptor.getFileDescriptor(), null, decode);
+        } catch (IOException | RuntimeException error) {
             return null;
         }
     }

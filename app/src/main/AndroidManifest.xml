@@ -39,6 +39,12 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <provider
+            android:name=".DesktopFileProvider"
+            android:authorities="${applicationId}.desktop-files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <activity
             android:name=".DeviceSetupActivity"
             android:excludeFromRecents="true"

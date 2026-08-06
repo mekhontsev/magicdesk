@@ -143,6 +143,14 @@ retired prototypes are listed separately and are not current product modes.
   internal audio at 48 kHz, compensates the measured track-start offset, and
   leaves no `screenrecord` process or temporary track after finalization.
 
+## Completed: Desktop Content
+
+- [x] On the phone desktop, verify fixed `/storage/emulated/0/Desktop`
+  creation, file/folder creation, rename with preserved placement, recursive
+  delete confirmation, external file opening, system folder opening, and
+  immediate `FileObserver` refresh. A duplicate-name failure leaves the same
+  shell UserService connected and the next operation succeeds.
+
 ## Historical Experiments: Retired Paths
 
 The following experiments informed the current Shizuku-only design. They are
@@ -166,6 +174,10 @@ not supported runtime modes:
 
 ## Pending Hardware Validation
 
+- [ ] On an external desktop, verify the same global files, shortcuts, and
+  widgets appear while their placements remain monitor-specific. Confirm a
+  rename preserves placement on both display profiles and Delete removes stale
+  placement metadata from both.
 - [ ] Test first-run Shizuku onboarding on a compatible device that has never
   had root and whose desktop properties retain stock values.
 - [ ] Test another REDMAGIC/ZTE Android 16 firmware and record every changed

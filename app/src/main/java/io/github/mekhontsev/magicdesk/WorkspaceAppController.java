@@ -2,16 +2,17 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 
-import java.util.List;
-import java.util.Set;
-
-final class WorkspaceController {
+final class WorkspaceAppController {
     private final DesktopShellActivity mActivity;
+    private final DesktopContentStore mContent;
     private boolean mRestoreAttempted;
     private boolean mBoundsRestorePending;
 
-    WorkspaceController(final DesktopShellActivity activity) {
+    WorkspaceAppController(
+            final DesktopShellActivity activity,
+            final DesktopContentStore content) {
         mActivity = activity;
+        mContent = content;
     }
 
     void resetProfileState() {
@@ -28,71 +29,29 @@ final class WorkspaceController {
         updateBounds(snapshot);
     }
 
-    Set<String> getPinnedPackages() {
-        return DesktopPreferences.taskbarPackages(mActivity);
+    String getWorkspacePackage() {
+        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        return target == null ? null : target.packageName;
     }
 
-    void togglePinned(final AppItem app) {
-        final Set<String> pinned = getPinnedPackages();
-        final boolean nowPinned;
-        if (pinned.contains(app.packageName)) {
-            pinned.remove(app.packageName);
-            nowPinned = false;
-        } else {
-            pinned.add(app.packageName);
-            nowPinned = true;
-        }
-        DesktopPreferences.saveTaskbarPackages(mActivity, pinned);
-        mActivity.renderTaskbarPins(mActivity.getLauncherApps());
-        mActivity.renderStartMenuContent();
-        mActivity.setStatus(mActivity.getString(
-                nowPinned
-                        ? R.string.status_app_pinned
-                        : R.string.status_app_unpinned,
-                app.label));
-    }
-
-    boolean isDesktopShortcut(final String packageName) {
-        return getDesktopShortcutPackages().contains(packageName);
-    }
-
-    void toggleDesktopShortcut(final AppItem app) {
-        final List<String> shortcuts = getDesktopShortcutPackages();
-        final boolean added;
-        if (shortcuts.remove(app.packageName)) {
-            added = false;
-        } else {
-            shortcuts.add(app.packageName);
-            added = true;
-        }
-        saveDesktopShortcutPackages(shortcuts);
-        mActivity.renderDesktopIcons(mActivity.getLauncherApps());
-        mActivity.setStatus(mActivity.getString(
-                added
-                        ? R.string.status_desktop_shortcut_added
-                        : R.string.status_desktop_shortcut_removed,
-                app.label));
-    }
-
-    List<String> getDesktopShortcutPackages() {
-        return DesktopPreferences.desktopShortcutPackages(mActivity);
-    }
-
-    void saveDesktopShortcutPackages(final List<String> packages) {
-        DesktopPreferences.saveDesktopShortcutPackages(mActivity, packages);
+    boolean isWorkspaceApp(final String packageName) {
+        final String workspacePackage = getWorkspacePackage();
+        return packageName != null && packageName.equals(workspacePackage);
     }
 
     void setWorkspaceApp(
             final AppItem app,
             final TaskRepository.TaskEntry task,
             final boolean keep) {
-        final WorkspaceProfileStore.Profile profile =
-                mActivity.getWorkspaceProfile();
+        final DisplayProfileStore.Profile profile =
+                mActivity.getDisplayProfile();
         if (!keep) {
-            profile.workspacePackage = null;
+            mContent.get().workspaceTarget = null;
+            mContent.save();
             profile.workspaceBounds.setEmpty();
+            profile.workspaceBoundsTarget = null;
             mBoundsRestorePending = false;
-            mActivity.saveWorkspaceProfile();
+            mActivity.saveDisplayProfile();
             mActivity.renderDesktopIcons(mActivity.getLauncherApps());
             mActivity.renderTaskbarPins(mActivity.getLauncherApps());
             mActivity.setStatus(mActivity.getString(
@@ -101,14 +60,16 @@ final class WorkspaceController {
             return;
         }
 
-        profile.workspacePackage = app.packageName;
+        mContent.get().workspaceTarget = app.launchTarget;
+        mContent.save();
         profile.workspaceBounds.setEmpty();
+        profile.workspaceBoundsTarget = app.launchTarget.stableKey();
         if (task != null
                 && task.isFreeform()
                 && !task.bounds.isEmpty()) {
             profile.workspaceBounds.set(task.bounds);
         }
-        mActivity.saveWorkspaceProfile();
+        mActivity.saveDisplayProfile();
         mActivity.renderDesktopIcons(mActivity.getLauncherApps());
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
@@ -124,15 +85,16 @@ final class WorkspaceController {
     void restore(
             final TaskRepository.Snapshot snapshot,
             final boolean bringToFront) {
-        final WorkspaceProfileStore.Profile profile =
-                mActivity.getWorkspaceProfile();
-        if (profile.workspacePackage == null
-                || profile.workspacePackage.length() == 0) {
+        final DisplayProfileStore.Profile profile =
+                mActivity.getDisplayProfile();
+        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        if (target == null) {
             return;
         }
+        ensureBoundsBelongToTarget(profile, target);
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(),
-                profile.workspacePackage);
+                target);
         if (app == null) {
             return;
         }
@@ -165,8 +127,7 @@ final class WorkspaceController {
 
     private TaskRepository.TaskEntry findTask(
             final TaskRepository.Snapshot snapshot) {
-        final String workspacePackage =
-                mActivity.getWorkspaceProfile().workspacePackage;
+        final String workspacePackage = getWorkspacePackage();
         if (workspacePackage == null || snapshot == null) {
             return null;
         }
@@ -181,8 +142,13 @@ final class WorkspaceController {
 
     private void updateBounds(
             final TaskRepository.Snapshot snapshot) {
-        final WorkspaceProfileStore.Profile profile =
-                mActivity.getWorkspaceProfile();
+        final DisplayProfileStore.Profile profile =
+                mActivity.getDisplayProfile();
+        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        if (target == null) {
+            return;
+        }
+        ensureBoundsBelongToTarget(profile, target);
         final TaskRepository.TaskEntry task = findTask(snapshot);
         if (task == null
                 || !task.isFreeform()
@@ -205,7 +171,20 @@ final class WorkspaceController {
         }
         if (!profile.workspaceBounds.equals(task.bounds)) {
             profile.workspaceBounds.set(task.bounds);
-            mActivity.saveWorkspaceProfile();
+            mActivity.saveDisplayProfile();
         }
+    }
+
+    private void ensureBoundsBelongToTarget(
+            final DisplayProfileStore.Profile profile,
+            final AppLaunchTarget target) {
+        final String targetKey = target.stableKey();
+        if (targetKey.equals(profile.workspaceBoundsTarget)) {
+            return;
+        }
+        profile.workspaceBounds.setEmpty();
+        profile.workspaceBoundsTarget = targetKey;
+        mBoundsRestorePending = false;
+        mActivity.saveDisplayProfile();
     }
 }

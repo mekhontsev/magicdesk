@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,7 +28,7 @@ final class DisplayProfileController {
             this::resolveMonitorIdentityAsync;
 
     private DisplayManager.DisplayListener mDisplayListener;
-    private WorkspaceProfileStore.Profile mProfile;
+    private DisplayProfileStore.Profile mProfile;
     private String mProfileDisplayKey;
     private String mMonitorProfileKey;
     private boolean mMonitorIdentityRequested;
@@ -79,26 +78,26 @@ final class DisplayProfileController {
         mDisplayListener = null;
     }
 
-    WorkspaceProfileStore.Profile getProfile() {
+    DisplayProfileStore.Profile getProfile() {
         if (mProfile != null) {
             return mProfile;
         }
         final String displayKey = resolveProfileKey();
-        final String monitorKey = WorkspaceProfileStore.resolveMonitorAlias(
+        final String monitorKey = DisplayProfileStore.resolveMonitorAlias(
                 mActivity, displayKey);
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = monitorKey;
         final Display profileDisplay = getProfileDisplay();
-        mProfile = WorkspaceProfileStore.load(
+        mProfile = DisplayProfileStore.load(
                 mActivity,
                 monitorKey,
                 initialDpi(profileDisplay));
-        mActivity.onWorkspaceProfileReset();
+        mActivity.onDisplayProfileReset();
         return mProfile;
     }
 
     void save() {
-        WorkspaceProfileStore.save(mActivity, getProfile());
+        DisplayProfileStore.save(mActivity, getProfile());
     }
 
     void refreshForDisplay() {
@@ -211,10 +210,10 @@ final class DisplayProfileController {
         }
         final String monitorKey =
                 "edid:" + hash.toLowerCase(Locale.ROOT);
-        WorkspaceProfileStore.saveMonitorAlias(
+        DisplayProfileStore.saveMonitorAlias(
                 context, profileKey(display), monitorKey);
         final Integer storedDpi =
-                WorkspaceProfileStore.readStoredDpi(context, monitorKey);
+                DisplayProfileStore.readStoredDpi(context, monitorKey);
         return storedDpi == null
                 ? Integer.valueOf(initialDpi(display)) : storedDpi;
     }
@@ -321,23 +320,23 @@ final class DisplayProfileController {
                 || !requestedDisplayKey.equals(mProfileDisplayKey)) {
             return;
         }
-        final WorkspaceProfileStore.Profile previous = getProfile();
+        final DisplayProfileStore.Profile previous = getProfile();
         final boolean existed =
-                WorkspaceProfileStore.exists(mActivity, monitorKey);
-        final WorkspaceProfileStore.Profile resolved =
-                WorkspaceProfileStore.load(
+                DisplayProfileStore.exists(mActivity, monitorKey);
+        final DisplayProfileStore.Profile resolved =
+                DisplayProfileStore.load(
                         mActivity,
                         monitorKey,
                         previous.dpi);
         if (!existed) {
             resolved.dpiExplicit = previous.dpiExplicit;
-            resolved.folderUri = previous.folderUri;
-            resolved.workspacePackage = previous.workspacePackage;
-            resolved.workspaceBounds = new Rect(previous.workspaceBounds);
-            WorkspaceProfileStore.save(mActivity, resolved);
+            resolved.workspaceBounds.set(previous.workspaceBounds);
+            resolved.workspaceBoundsTarget = previous.workspaceBoundsTarget;
+            resolved.placements.putAll(previous.placements);
+            DisplayProfileStore.save(mActivity, resolved);
         }
         final int previousDpi = previous.dpi;
-        WorkspaceProfileStore.saveMonitorAlias(
+        DisplayProfileStore.saveMonitorAlias(
                 mActivity, requestedDisplayKey, monitorKey);
         mMonitorProfileKey = monitorKey;
         mProfile = resolved;
