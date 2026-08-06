@@ -5,11 +5,14 @@ import android.appwidget.AppWidgetHost;
 import android.appwidget.AppWidgetHostView;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.widget.FrameLayout;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 final class DesktopWidgetController {
-    static final int REQUEST_PICK = 1101;
+    static final int REQUEST_BIND = 1101;
     static final int REQUEST_CONFIGURE = 1102;
     private static final int HOST_ID = 0x4d44;
     private static final String TAG = "MagicDeskWidgets";
@@ -26,6 +29,7 @@ final class DesktopWidgetController {
     private final DesktopShellActivity mActivity;
     private final AppWidgetManager mManager;
     private final AppWidgetHost mHost;
+    private final DesktopWidgetPickerController mPicker;
     private final Runnable mChanged;
     private final Map<Integer, AppWidgetHostView> mViews = new HashMap<>();
     private int mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
@@ -34,10 +38,12 @@ final class DesktopWidgetController {
 
     DesktopWidgetController(
             final DesktopShellActivity activity,
+            final DesktopUiFactory ui,
             final Runnable changed) {
         mActivity = activity;
         mManager = AppWidgetManager.getInstance(activity);
-        mHost = new AppWidgetHost(activity, HOST_ID);
+        mHost = new DesktopAppWidgetHost(activity, HOST_ID);
+        mPicker = new DesktopWidgetPickerController(activity, ui);
         mChanged = changed;
     }
 
@@ -112,6 +118,10 @@ final class DesktopWidgetController {
 
     void addWidget() {
         mActivity.hideAllPanels();
+        mPicker.show(mManager.getInstalledProviders(), this::bindWidget);
+    }
+
+    private void bindWidget(final AppWidgetProviderInfo info) {
         final int appWidgetId;
         try {
             appWidgetId = mHost.allocateAppWidgetId();
@@ -121,15 +131,31 @@ final class DesktopWidgetController {
         }
         mPendingWidgetId = appWidgetId;
         mPendingNewWidget = true;
-        final Intent intent = new Intent(AppWidgetManager.ACTION_APPWIDGET_PICK)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
         try {
-            mActivity.startActivityForResult(intent, REQUEST_PICK);
+            if (mManager.bindAppWidgetIdIfAllowed(
+                    appWidgetId,
+                    info.getProfile(),
+                    info.provider,
+                    null)) {
+                finishInitialBinding(appWidgetId);
+                return;
+            }
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Direct widget binding was denied", error);
+        }
+        final Intent intent = new Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+                .putExtra(
+                        AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE,
+                        info.getProfile());
+        try {
+            mActivity.startActivityForResult(intent, REQUEST_BIND);
         } catch (RuntimeException error) {
             deleteWidgetId(appWidgetId);
             mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
             mPendingNewWidget = false;
-            reportUnavailable("No compatible widget picker", error);
+            reportUnavailable("The widget could not be bound", error);
         }
     }
 
@@ -137,7 +163,7 @@ final class DesktopWidgetController {
             final int requestCode,
             final int resultCode,
             final Intent data) {
-        if (requestCode != REQUEST_PICK
+        if (requestCode != REQUEST_BIND
                 && requestCode != REQUEST_CONFIGURE) {
             return false;
         }
@@ -153,40 +179,49 @@ final class DesktopWidgetController {
             mPendingNewWidget = false;
             return true;
         }
-        if (requestCode == REQUEST_PICK) {
-            final AppWidgetProviderInfo info =
-                    mManager.getAppWidgetInfo(appWidgetId);
-            if (info == null) {
-                deleteWidgetId(appWidgetId);
-                mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
-                mPendingNewWidget = false;
-                reportUnavailable("The selected widget was not bound", null);
-                return true;
-            }
-            if (info.configure != null) {
-                try {
-                    mHost.startAppWidgetConfigureActivityForResult(
-                            mActivity,
-                            appWidgetId,
-                            0,
-                            REQUEST_CONFIGURE,
-                            (Bundle) null);
-                    return true;
-                } catch (RuntimeException error) {
-                    deleteWidgetId(appWidgetId);
-                    mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
-                    mPendingNewWidget = false;
-                    reportUnavailable(
-                            "The widget configuration could not be opened",
-                            error);
-                    return true;
-                }
-            }
+        if (requestCode == REQUEST_BIND) {
+            finishInitialBinding(appWidgetId);
+            return true;
         }
+        completePendingWidget();
+        return true;
+    }
+
+    private void finishInitialBinding(final int appWidgetId) {
+        final AppWidgetProviderInfo info = mManager.getAppWidgetInfo(appWidgetId);
+        if (info == null) {
+            deleteWidgetId(appWidgetId);
+            clearPendingWidget();
+            reportUnavailable("The selected widget was not bound", null);
+            return;
+        }
+        if (info.configure == null) {
+            completePendingWidget();
+            return;
+        }
+        try {
+            mHost.startAppWidgetConfigureActivityForResult(
+                    mActivity,
+                    appWidgetId,
+                    0,
+                    REQUEST_CONFIGURE,
+                    (Bundle) null);
+        } catch (RuntimeException error) {
+            deleteWidgetId(appWidgetId);
+            clearPendingWidget();
+            reportUnavailable(
+                    "The widget configuration could not be opened", error);
+        }
+    }
+
+    private void completePendingWidget() {
+        clearPendingWidget();
+        mChanged.run();
+    }
+
+    private void clearPendingWidget() {
         mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
         mPendingNewWidget = false;
-        mChanged.run();
-        return true;
     }
 
     void configure(final int appWidgetId) {
@@ -288,6 +323,47 @@ final class DesktopWidgetController {
 
         String itemId() {
             return "widget:" + appWidgetId;
+        }
+    }
+
+    private static final class DesktopAppWidgetHost extends AppWidgetHost {
+        DesktopAppWidgetHost(final Context context, final int hostId) {
+            super(context, hostId);
+        }
+
+        @Override
+        protected AppWidgetHostView onCreateView(
+                final Context context,
+                final int appWidgetId,
+                final AppWidgetProviderInfo info) {
+            return new DesktopAppWidgetHostView(context);
+        }
+    }
+
+    private static final class DesktopAppWidgetHostView
+            extends AppWidgetHostView {
+        DesktopAppWidgetHostView(final Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void prepareView(final View view) {
+            super.prepareView(view);
+            final AppWidgetProviderInfo info = getAppWidgetInfo();
+            if (info == null) {
+                return;
+            }
+            final FrameLayout.LayoutParams params =
+                    (FrameLayout.LayoutParams) view.getLayoutParams();
+            if ((info.resizeMode & AppWidgetProviderInfo.RESIZE_HORIZONTAL) != 0
+                    && params.width == ViewGroup.LayoutParams.WRAP_CONTENT) {
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            }
+            if ((info.resizeMode & AppWidgetProviderInfo.RESIZE_VERTICAL) != 0
+                    && params.height == ViewGroup.LayoutParams.WRAP_CONTENT) {
+                params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            }
+            view.setLayoutParams(params);
         }
     }
 }

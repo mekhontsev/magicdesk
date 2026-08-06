@@ -51,7 +51,8 @@ final class DesktopWorkspaceController {
                 activity,
                 new DesktopFileRepository(activity),
                 this::onFilesChanged);
-        mWidgets = new DesktopWidgetController(activity, this::onWidgetsChanged);
+        mWidgets = new DesktopWidgetController(
+                activity, ui, this::onWidgetsChanged);
     }
 
     DesktopContentStore content() {
