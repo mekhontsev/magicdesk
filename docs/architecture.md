@@ -348,6 +348,28 @@ Requests are serialized and duplicate requests during transition are ignored.
 With no external display, the shortcut cannot accidentally create a second
 desktop on display 0.
 
+### Output timing and fill policy
+
+Before activation, the phone control panel reads Nubia's current and available
+DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. The selector
+shows the resolution and refresh rate advertised by the connected sink. A
+saved timing is used only while it remains in that list; otherwise MagicDesk
+chooses the highest native resolution, the highest refresh rate at that
+resolution, and avoids a cinema-aspect duplicate when a normal timing exists.
+
+Changing the physical timing uses Nubia's own sequence: write the selected
+EDID mode, ask DisplayManager to refresh its physical displays, pulse HDMI HPD,
+then wait for three stable observations of the requested mode. The physical
+display id is resolved again afterward because the firmware can recreate it
+during this transition. The operation runs before the virtual desktop is
+requested, so no MagicDesk task is attached to a disappearing display.
+
+**Fill display** maps to Nubia's projection-fit setting. MagicDesk temporarily
+enables the vendor fit bypass while preparing the session, writes the fit and
+resolution-class values consumed by the projection service, and restores the
+previous bypass property afterward. Output timing changes real HDMI/DisplayPort
+geometry; desktop DPI remains an independent per-monitor UI scale.
+
 ### Caption visibility
 
 REDMAGIC wired privacy mode calls:
@@ -460,6 +482,14 @@ Touch Panel remains a vendor activity on display 0. MagicDesk can launch it
 from the phone notification or desktop controls and repairs its pointer
 viewport after virtual-display geometry changes. It does not replace the
 vendor touchpad implementation.
+
+Nubia's separate `HostAssistPanel` is the small handle drawn over the external
+desktop. While MagicDesk owns the session it asks the existing vendor observer
+to remove that panel and immediately restores the observer's original
+`tp_type_for_games` value. The phone-side ProjectionIcon is intentionally left
+alone because it remains useful for switching projection modes. Pointer speed
+uses Android's standard `Settings.System.pointer_speed` range and is observed
+for changes made outside MagicDesk.
 
 ## External Display Recording
 

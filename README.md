@@ -82,6 +82,9 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Calendar panel, battery state, active keyboard-layout indicator,
   phone-screen control, screenshots, and configurable external-display
   recording with internal audio.
+- Connected-display identification, output resolution and refresh-rate
+  selection, and an optional **Fill display** mode for sinks that otherwise
+  add letterboxing.
 - Media-volume, connected audio-output, and REDMAGIC Touch Panel controls.
 - Stock REDMAGIC bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
@@ -185,8 +188,10 @@ display size, density, and scaling to the defaults supplied by nubia.
 1. Connect the phone to an external display.
 2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 3. Launch MagicDesk on the phone.
-4. Select **Start external desktop**, or press `Win+D`.
-5. To leave, select **Switch to screen mirroring**. Select **Exit MagicDesk**
+4. If needed, select an **Output mode** reported by the connected display and
+   enable **Fill display** to remove letterboxing.
+5. Select **Start external desktop**, or press `Win+D`.
+6. To leave, select **Switch to screen mirroring**. Select **Exit MagicDesk**
    instead to stop MagicDesk and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for

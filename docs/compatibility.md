@@ -93,7 +93,8 @@ with an unrelated window-decoration or XR-resolution problem. Include whether
 the same operation works in the stock ZTE/Nubia desktop or projection UI; that
 distinguishes a MagicDesk integration failure from a firmware limitation.
 
-For a display or input issue, include the monitor/glasses model and the keyboard
-or pointing-device model. For a window issue, include the affected Android
-package and whether the task was windowed, maximized, snapped, or true
-fullscreen.
+For a display issue, include the monitor/glasses model, selected **Output
+mode**, **Fill display** state, and whether the same timing works in Nubia's
+projection settings. For an input issue, include the keyboard or
+pointing-device model. For a window issue, include the affected Android package
+and whether the task was windowed, maximized, snapped, or true fullscreen.

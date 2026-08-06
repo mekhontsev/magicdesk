@@ -61,6 +61,10 @@ retired prototypes are listed separately and are not current product modes.
   reconnect, and reboot. No numeric display ID is persisted.
 - [x] Verify EDID-specific profiles and recommended density, including
   1920x1080 at 160 DPI.
+- [x] Read the sink-provided output timing list, select resolution and refresh
+  rate before desktop activation, and survive the resulting physical-display
+  id change. Validate normal output on a monitor, VITURE XR glasses, and a 4K
+  television; reproduce and remove letterboxing with **Fill display**.
 - [x] Reuse an exact running task across phone -> external -> phone without
   Activity recreation. The test application retained one task/process and its
   freeform bounds.
@@ -120,6 +124,9 @@ retired prototypes are listed separately and are not current product modes.
   entry remains.
 - [x] Launch and reopen REDMAGIC Touch Panel from the phone notification and
   correct its pointer viewport after display geometry changes.
+- [x] Hide Nubia's external `HostAssistPanel` without removing the phone-side
+  ProjectionIcon, restore the vendor observer value, and adjust Android pointer
+  speed without recreating the virtual mouse.
 
 ## Completed: Hardware And Notifications
 
