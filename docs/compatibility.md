@@ -25,7 +25,7 @@ change without an Android API-level change.
 
 Failures that can be isolated should not terminate the desktop. MagicDesk keeps
 the rest of the UI running, shows a short user-facing message with a stable
-error code such as `[NUBIA-CONSOLE-002]`, and records technical context for the
+error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
 diagnostics report. Repeated identical errors are coalesced for 30 seconds and
 the local event log is size-bounded.
 

@@ -26,7 +26,7 @@ boundary exists.
 
 | Interface | Ordinary app access | Finding | Production decision |
 | --- | --- | --- | --- |
-| `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Shizuku setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
+| `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Production routes the complete Console transition through Shizuku so display, task, and input ownership share one lifecycle. |
 | `SurfaceControl.setSFOption(1102, ...)` | Write verified | The app UID can change wired privacy/caption visibility. No corresponding getter was found. | Shizuku uses lifecycle ownership and restores Nubia's `Settings.Global.cast_privacy_model` value. |
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons. | Prefer the stock entry point where its lifecycle is understood. |
@@ -82,12 +82,12 @@ calls `enforceCallingPermission(android.permission.MANAGE_ACTIVITY_TASKS)`,
 including task conversion, showing desktop apps, and launch transitions.
 
 A controlled ordinary-app cold-launch probe ran from MagicDesk UID 10615 after
-Golly had been force-stopped. It requested a new task, explicit bounds, and
-`windowingMode=freeform`. ActivityTaskManager accepted the launch without a
-`SecurityException`, but normalized the new task to fullscreen and retained
-the requested rectangle only as `mLastNonFullscreenBounds`. Provisioning the
-desktop properties is therefore not enough to give an ordinary app native
-desktop task control.
+a resizable test application had been force-stopped. It requested a new task,
+explicit bounds, and `windowingMode=freeform`. ActivityTaskManager accepted the
+launch without a `SecurityException`, but normalized the new task to
+fullscreen. It retained the requested rectangle only as
+`mLastNonFullscreenBounds`. This confirms that provisioning the desktop
+properties is not enough to give an ordinary app native desktop task control.
 
 The firmware also contains the older Nubia `WindowReply` path. An intent
 identifier ending in `_WindowReply` selects that policy, but support is

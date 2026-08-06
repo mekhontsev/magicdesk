@@ -38,6 +38,8 @@ The main MagicDesk APK does not contain a kernel module or any code that
 discovers or launches the add-on. The optional, separately installed
 **MagicDesk Kernel Fixes** APK packages the tested module as
 [`kernel-fixes/src/main/res/raw/dp_mode_reset.ko`](../kernel-fixes/src/main/res/raw/dp_mode_reset.ko).
+Tagged MagicDesk releases do not publish this firmware-specific add-on; it is
+intended for source builds and controlled validation on the exact target.
 The user opens its independent launcher icon and presses **Activate**. The
 add-on then:
 

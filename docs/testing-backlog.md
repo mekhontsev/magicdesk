@@ -62,7 +62,8 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Verify EDID-specific profiles and recommended density, including
   1920x1080 at 160 DPI.
 - [x] Reuse an exact running task across phone -> external -> phone without
-  Activity recreation. Golly retained one task/process and its freeform bounds.
+  Activity recreation. The test application retained one task/process and its
+  freeform bounds.
 - [x] Verify overlapping windows, click-to-front, taskbar focus, Show Desktop,
   task restoration, snap, maximize, minimize, true fullscreen, and exact close.
 - [x] Verify native WMShell captions after one-time provisioning. Temporarily
@@ -82,6 +83,9 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Normalize a MagicDesk host into one force-translucent fullscreen standard
   task without a visible native caption. Verify that tasks minimized below it
   remain resumed while the desktop stays visually opaque.
+- [x] Verify phone-desktop recovery shares the task-command queue, revives a
+  missing Recent task before transitioning it, and cancels before mutation
+  when a newer local desktop supersedes cleanup.
 
 ## Completed: Physical Input
 
@@ -171,9 +175,6 @@ not supported runtime modes:
   Home and Recents gestures are unavailable while MagicDesk task switching
   still works. Exit the local desktop and verify both gestures return only
   after task cleanup, including after terminating the Shizuku UserService.
-- [x] Verify phone-desktop recovery shares the task-command queue, revives a
-  missing Recent task before transitioning it, and cancels before mutation
-  when a newer local desktop supersedes cleanup.
 - [ ] Validate VITURE Beast's 1200-line 3D EDID transition with the independent
   Kernel Fixes APK.
 - [ ] Repeat display-off failure tests after a REDMAGIC OTA because both
@@ -191,9 +192,3 @@ not supported runtime modes:
 - [ ] Add an instrumentation regression that opens one freeform task, performs
   fullscreen/restore through the shell task observer, and verifies the same
   task ID and Activity instance when CI device coverage becomes available.
-
-## Release 1.2
-
-- [x] Set the MagicDesk release to `1.2` (`versionCode` 120).
-- [x] Inspect the exact signed CI artifact before publishing.
-- [x] Push only after explicit maintainer approval.

@@ -50,6 +50,3 @@ when they are created or restored.
 - Do not stop the target application to refresh its window.
 - Do not replace the synchronous source updates with asynchronous add/remove
   transactions; Nubia can merge them and retain the old client frame.
-- `KeyboardShortcutWatcher` observes Linux input events but does not consume
-  Android's copy of the same event. Keyboard ownership is separate from the
-  fullscreen transition.

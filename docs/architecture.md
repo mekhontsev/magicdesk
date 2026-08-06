@@ -94,8 +94,8 @@ and the client-preserving refresh described in
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
 The main APK contains no `.ko`, kernel loader, root command path, or reference
-to the add-on package. The two applications share a repository and release
-process, but no runtime integration.
+to the add-on package. The two applications share a repository but have no
+runtime integration and are not distributed through the same release path.
 
 ## Main Application Boundaries
 
@@ -572,8 +572,11 @@ The kernel module itself is not compiled in normal Android CI. Rebuilding it
 requires the exact upstream kernel source, config, symbol versions, and guarded
 script documented in [VITURE XR resolution fix](xr-resolution-fix.md).
 
-Release signing is loaded from environment variables by
-`gradle/release-signing.gradle`. GitHub Actions receives the encrypted keystore
-and passwords from repository secrets, signs both release APKs, compares their
-certificates, runs `scripts/verify-apks.sh`, emits SHA-256 files, and publishes
-tagged artifacts. Local debug builds never require release secrets.
+Normal CI builds unsigned release variants of both applications and runs
+`scripts/verify-apks.sh` with both APKs to enforce their package boundaries.
+
+For a `v*` tag, the release workflow loads signing credentials through
+`gradle/release-signing.gradle`, signs only the main MagicDesk APK, verifies its
+certificate and package boundary, emits a SHA-256 file, and publishes that APK
+as the tagged release. The firmware-specific Kernel Fixes APK is not a tagged
+release artifact. Local debug builds never require release secrets.

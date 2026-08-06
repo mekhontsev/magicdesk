@@ -19,7 +19,7 @@ REDMAGIC firmware.
 > **Project status:** MagicDesk is under active development. The current
 > firmware verification is limited to the REDMAGIC 11 Pro profile listed below.
 
-![MagicDesk running Termux and Golly in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
+![MagicDesk running terminal and graphical applications in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
 
 ![MagicDesk running Termux and Firefox in overlapping native windows with the Hardware panel open](docs/images/magicdesk-multitasking.png)
 
@@ -63,8 +63,8 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 - Pin applications to the taskbar or place shortcuts on the desktop.
 - Show files from a user-selected folder without copying or deleting them.
 - Preserve the last visible freeform window layout across Show Desktop.
-- Store DPI, pins, shortcuts, folder access, and desktop settings separately
-  for each external monitor.
+- Store DPI, folder access, and window layout separately for each external
+  monitor while keeping pins, shortcuts, and recent applications global.
 - Use the phone's current static wallpaper, center-cropped for the active
   display.
 
@@ -102,9 +102,12 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 MagicDesk is intentionally REDMAGIC/ZTE-specific and requires:
 
 - a ZTE, nubia, or REDMAGIC device running Android 16 / API 36 or newer;
-- USB-C DisplayPort output and REDMAGIC external-display support;
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
+
+Using the desktop on an external display additionally requires USB-C
+DisplayPort output and REDMAGIC external-display support. **Open desktop here**
+can run the same desktop implementation on the device display without either.
 
 MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
 permission is denied. All privileged operations use the same Shizuku
@@ -138,7 +141,8 @@ device-specific failure.
    enter that code through the Shizuku notification, then press **Start** in
    Shizuku.
 4. Confirm that Shizuku reports a running server before opening MagicDesk.
-   Shizuku must be started again after every reboot.
+   Wireless-debugging and ADB startup must be repeated after every reboot;
+   root-started Shizuku follows its own startup configuration.
 
 Use the [official Shizuku setup guide](https://shizuku.rikka.app/guide/setup/)
 for device-specific pairing and startup details.
