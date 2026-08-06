@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 
@@ -11,7 +12,9 @@ final class LocalDesktopSessionState {
     private LocalDesktopSessionState() {
     }
 
+    @SuppressLint("ApplySharedPref")
     static void markCleanupPending(final Context context) {
+        // Persist before task mutation so recovery survives an immediate crash.
         preferences(context).edit()
                 .putBoolean(CLEANUP_PENDING, true)
                 .commit();

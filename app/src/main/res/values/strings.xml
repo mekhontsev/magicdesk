@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">MagicDesk</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
@@ -34,8 +34,8 @@
     <string name="action_add_to_desktop">Add to desktop</string>
     <string name="action_remove_from_desktop">Remove from desktop</string>
     <string name="action_open_desktop_folder">Open folder</string>
-    <string name="action_new_file">New file...</string>
-    <string name="action_new_folder">New folder...</string>
+    <string name="action_new_file">New file&#8230;</string>
+    <string name="action_new_folder">New folder&#8230;</string>
     <string name="action_create">Create</string>
     <string name="action_rename">Rename</string>
     <string name="action_delete">Delete</string>
@@ -53,7 +53,6 @@
     <string name="action_phone_screen_off">Turn phone screen off</string>
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
-    <string name="action_checking_external_display">Checking external display...</string>
     <string name="action_connect_external_display">Connect an external display</string>
     <string name="action_start_console_mode">Start external desktop</string>
     <string name="action_resume_external_desktop">Resume external desktop</string>
@@ -134,7 +133,7 @@
     <string name="density_status">DPI %1$d</string>
     <string name="dpi_label">Display DPI</string>
     <string name="dpi_value">%1$d</string>
-    <string name="dpi_range">%1$d - %2$d dpi</string>
+    <string name="dpi_range" tools:ignore="PluralsCandidate">%1$d - %2$d dpi</string>
     <string name="status_ready">Apps: %1$d | Display: %2$d</string>
     <string name="status_no_apps">No launcher apps found</string>
     <string name="recent_apps_empty">Recently used apps appear here</string>
@@ -146,7 +145,7 @@
     <string name="status_notification_action_failed">Notification action failed</string>
     <string name="status_switch_done">Switched to %1$s</string>
     <string name="status_switch_failed">Switch failed: %1$s</string>
-    <string name="status_moving_to_display">Moving %1$s to display %2$d...</string>
+    <string name="status_moving_to_display">Moving %1$s to display %2$d&#8230;</string>
     <string name="status_moved_to_display">%1$s moved to display %2$d</string>
     <string name="status_move_to_display_failed">Move failed: %1$s</string>
     <string name="status_app_pinned">%1$s pinned to taskbar</string>
@@ -175,38 +174,38 @@
     <string name="widget_default_name">Widget</string>
     <string name="desktop_more_files">+%1$d</string>
     <string name="status_desktop_file_failed">No application can open %1$s</string>
-    <string name="status_switching_to">Switching to %1$s...</string>
-    <string name="status_closing_window">Closing %1$s...</string>
+    <string name="status_switching_to">Switching to %1$s&#8230;</string>
+    <string name="status_closing_window">Closing %1$s&#8230;</string>
     <string name="status_window_closed">%1$s window closed</string>
     <string name="status_close_window_failed">Close failed: %1$s</string>
-    <string name="status_force_stopping">Force stopping %1$s...</string>
+    <string name="status_force_stopping">Force stopping %1$s&#8230;</string>
     <string name="status_app_force_stopped">%1$s stopped</string>
     <string name="status_force_stop_failed">Force stop failed: %1$s</string>
-    <string name="status_phone_screen_applying">Updating phone screen...</string>
+    <string name="status_phone_screen_applying">Updating phone screen&#8230;</string>
     <string name="status_phone_screen_off">Phone screen turned off</string>
     <string name="status_phone_screen_on">Phone screen turned on</string>
     <string name="status_phone_screen_failed">Phone screen command failed</string>
-    <string name="status_console_starting">Starting external desktop...</string>
-    <string name="status_external_display_checking">Checking external display...</string>
+    <string name="status_console_starting">Starting external desktop&#8230;</string>
+    <string name="status_external_display_checking">Checking external display&#8230;</string>
     <string name="status_external_display_unavailable">No external display detected</string>
-    <string name="status_desktop_opening">Opening desktop here...</string>
-    <string name="status_touchpad_opening">Opening Nubia touchpad...</string>
-    <string name="status_mirror_switching">Switching to screen mirroring...</string>
+    <string name="status_desktop_opening">Opening desktop here&#8230;</string>
+    <string name="status_touchpad_opening">Opening Nubia touchpad&#8230;</string>
+    <string name="status_mirror_switching">Switching to screen mirroring&#8230;</string>
     <string name="status_mirror_active">Screen mirroring active</string>
     <string name="status_mirror_failed">Could not switch to screen mirroring</string>
-    <string name="status_dpi_applying">Applying DPI %1$d on display %2$d...</string>
-    <string name="status_dpi_applied">DPI %1$d applied on display %2$d</string>
-    <string name="status_dpi_desktop_applying">Applying desktop DPI %1$d on display %2$d; current DPI is %3$d...</string>
-    <string name="status_dpi_desktop_applied">Desktop DPI %1$d applied on display %2$d</string>
+    <string name="status_dpi_applying">Applying DPI %1$d on display %2$d&#8230;</string>
+    <string name="status_dpi_applied" tools:ignore="PluralsCandidate">DPI %1$d applied on display %2$d</string>
+    <string name="status_dpi_desktop_applying">Applying desktop DPI %1$d on display %2$d; current DPI is %3$d&#8230;</string>
+    <string name="status_dpi_desktop_applied" tools:ignore="PluralsCandidate">Desktop DPI %1$d applied on display %2$d</string>
     <string name="status_dpi_desktop_failed">Desktop DPI failed: %1$s</string>
-    <string name="status_dpi_resetting">Resetting DPI on display %1$d...</string>
+    <string name="status_dpi_resetting">Resetting DPI on display %1$d&#8230;</string>
     <string name="status_dpi_reset">DPI reset on display %1$d</string>
     <string name="status_desktop_visible">Desktop</string>
-    <string name="status_restoring_windows">Restoring windows...</string>
+    <string name="status_restoring_windows">Restoring windows&#8230;</string>
     <string name="status_windows_restored">Windows restored</string>
     <string name="status_wallpaper_failed">Desktop wallpaper unavailable: %1$s</string>
     <string name="status_overlay_panel_unavailable">Overlay panel unavailable</string>
-    <string name="status_exiting">Stopping services and exiting...</string>
+    <string name="status_exiting">Stopping services and exiting&#8230;</string>
     <string name="status_exit_failed">Exit failed: %1$s</string>
     <string name="notification_channel">MagicDesk</string>
     <string name="notification_channel_description">Keeps MagicDesk desktop controls available.</string>
@@ -234,10 +233,13 @@
     <string name="status_calendar_open_failed">Calendar application is unavailable</string>
     <string name="notifications_empty">No notifications</string>
     <string name="notification_access_off">Notification access is off</string>
-    <string name="notification_listener_connecting">Connecting to notifications...</string>
+    <string name="notification_listener_connecting">Connecting to notifications&#8230;</string>
     <string name="notification_listener_reconnect_failed">Notification listener could not reconnect. Open Diagnostics and include [%1$s].</string>
     <string name="notification_listener_label">MagicDesk notification center</string>
-    <string name="notification_count_description">%1$d unread notifications</string>
+    <plurals name="notification_count_description">
+        <item quantity="one">%1$d unread notification</item>
+        <item quantity="other">%1$d unread notifications</item>
+    </plurals>
     <string name="notification_item_description">%1$s notification: %2$s</string>
     <string name="desktop_drag_label">Desktop shortcut</string>
     <string name="profile_default">Default display</string>
@@ -266,9 +268,9 @@
     <string name="action_capture">Capture</string>
     <string name="action_reset">Reset</string>
     <string name="action_record_screen">Record screen</string>
-    <string name="action_recording_starting">Starting...</string>
+    <string name="action_recording_starting">Starting&#8230;</string>
     <string name="action_stop_recording">Stop recording</string>
-    <string name="action_recording_finalizing">Finalizing...</string>
+    <string name="action_recording_finalizing">Finalizing&#8230;</string>
     <string name="shortcut_recording">Win + Shift + Print Screen</string>
     <string name="shortcut_recording_action">Start or stop external display recording</string>
     <string name="recording_resolution">Resolution</string>
@@ -301,7 +303,7 @@
     <string name="setup_item_reboot">Restart</string>
     <string name="setup_build_label">System build</string>
     <string name="setup_build_value">Android %1$s | %2$s</string>
-    <string name="setup_value_checking">Checking...</string>
+    <string name="setup_value_checking">Checking&#8230;</string>
     <string name="setup_value_supported">Verified: %1$s %2$s</string>
     <string name="setup_value_supported_unverified">Compatible baseline, unverified: %1$s %2$s</string>
     <string name="setup_value_unsupported">Unsupported: %1$s %2$s</string>
@@ -320,7 +322,7 @@
     <string name="setup_display_current">Current display</string>
     <string name="setup_display_external">External display</string>
     <string name="setup_choose_display_target">Desktop display</string>
-    <string name="setup_status_checking">Checking device...</string>
+    <string name="setup_status_checking">Checking device&#8230;</string>
     <string name="setup_status_unsupported">MagicDesk requires a ZTE/nubia device running Android 16 or newer.</string>
     <string name="setup_status_configuration_required">System configuration is required before MagicDesk can start.</string>
     <string name="setup_status_reboot_required">Restart Android to activate the new windowing configuration.</string>
@@ -331,10 +333,10 @@
     <string name="setup_status_shizuku_ready">Device is ready for MagicDesk (Shizuku service UID %1$d).</string>
     <string name="setup_status_ready">MagicDesk is ready to start.</string>
     <string name="setup_status_external_unavailable">No active external desktop display was found; opening on the current display.</string>
-    <string name="setup_status_applying">Applying system configuration...</string>
-    <string name="setup_status_restoring">Restoring nubia defaults...</string>
-    <string name="setup_status_rebooting">Restarting Android...</string>
-    <string name="setup_status_starting">Starting MagicDesk...</string>
+    <string name="setup_status_applying">Applying system configuration&#8230;</string>
+    <string name="setup_status_restoring">Restoring nubia defaults&#8230;</string>
+    <string name="setup_status_rebooting">Restarting Android&#8230;</string>
+    <string name="setup_status_starting">Starting MagicDesk&#8230;</string>
     <string name="setup_action_recheck">Check again</string>
     <string name="setup_action_configure">Prepare device</string>
     <string name="setup_action_reboot_now">Restart phone</string>
@@ -358,7 +360,7 @@
     <string name="setup_error_with_code">%1$s\n\nError code: %2$s. Open Diagnostics and attach the report to the issue.</string>
     <string name="diagnostics_title">Compatibility diagnostics</string>
     <string name="diagnostics_description">Review this report before sharing it. Attach the complete text when opening a compatibility issue.</string>
-    <string name="diagnostics_collecting">Checking firmware capabilities and recent MagicDesk errors...</string>
+    <string name="diagnostics_collecting">Checking firmware capabilities and recent MagicDesk errors&#8230;</string>
     <string name="diagnostics_ready">Report ready</string>
     <string name="diagnostics_refresh">Refresh</string>
     <string name="diagnostics_copy">Copy report</string>
@@ -376,8 +378,8 @@
     <string name="console_clear">Clear</string>
     <string name="console_copy_output">Copy output</string>
     <string name="console_idle">Not run</string>
-    <string name="console_running">Running...</string>
-    <string name="console_running_output">Waiting for output...</string>
+    <string name="console_running">Running&#8230;</string>
+    <string name="console_running_output">Waiting for output&#8230;</string>
     <string name="console_no_output">No output</string>
     <string name="console_result">Exit %1$d | %2$s</string>
     <string name="console_failed">Execution failed | %1$s</string>

@@ -1,11 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.DragEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
+/** Programmatic desktop grid whose constructor requires explicit cell geometry. */
+@SuppressLint("ViewConstructor")
 final class DesktopGridLayout extends ViewGroup {
     interface Listener {
         void onGridSizeChanged(int columns, int rows);

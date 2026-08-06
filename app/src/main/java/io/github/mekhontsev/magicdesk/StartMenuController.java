@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -57,6 +58,8 @@ final class StartMenuController {
         mUi = ui;
     }
 
+    // The touch observer only enables IME display; EditText retains click handling.
+    @SuppressLint("ClickableViewAccessibility")
     LinearLayout create() {
         final LinearLayout menu = new LinearLayout(mActivity) {
             @Override

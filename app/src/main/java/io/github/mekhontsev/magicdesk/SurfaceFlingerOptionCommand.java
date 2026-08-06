@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.util.Xml;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -13,6 +14,8 @@ import java.lang.reflect.Method;
 public final class SurfaceFlingerOptionCommand {
     private static final int WIRED_PRIVACY_MODE_OPTION = 1102;
     private static final int DEFAULT_WIRED_PRIVACY_MODE = 1;
+    // This shell-side command intentionally reads Nubia's fixed user-0 path.
+    @SuppressLint("SdCardPath")
     private static final String PROJECTION_PREFERENCES =
             "/data/user/0/cn.nubia.touping/shared_prefs/SCREEN_PROJECTION.xml";
     private static final String WIRED_PRIVACY_MODE_KEY = "PRIVATE_MODE_WIRED";

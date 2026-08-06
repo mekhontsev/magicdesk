@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- REDMAGIC launchers mask this full-bleed icon and also inspect roundIcon. -->
+    <issue id="IconLauncherShape">
+        <ignore path="src/main/res/mipmap-mdpi/ic_launcher.png" />
+        <ignore path="src/main/res/mipmap-hdpi/ic_launcher.png" />
+        <ignore path="src/main/res/mipmap-xhdpi/ic_launcher.png" />
+        <ignore path="src/main/res/mipmap-xxhdpi/ic_launcher.png" />
+        <ignore path="src/main/res/mipmap-xxxhdpi/ic_launcher.png" />
+    </issue>
+</lint>

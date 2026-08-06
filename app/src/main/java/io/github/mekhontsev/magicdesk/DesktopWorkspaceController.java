@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
@@ -518,6 +519,8 @@ final class DesktopWorkspaceController {
         mGrid.addItem(view, entry.itemId, placement);
     }
 
+    // This passive listener detects drag slop and leaves ordinary clicks to the view.
+    @SuppressLint("ClickableViewAccessibility")
     private void enableDrag(final View view, final String itemId) {
         final int touchSlop =
                 ViewConfiguration.get(mActivity).getScaledTouchSlop();

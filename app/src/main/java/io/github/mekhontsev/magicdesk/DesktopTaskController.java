@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -28,7 +29,8 @@ final class DesktopTaskController {
             DesktopWindowTransitionController.SHORTCUT_SNAP_RIGHT;
     static final int SHORTCUT_CLOSE =
             DesktopWindowTransitionController.SHORTCUT_CLOSE;
-    private static DesktopTaskController sActiveController;
+    private static WeakReference<DesktopTaskController> sActiveController =
+            new WeakReference<>(null);
 
     private final Context mApplicationContext;
     private final Handler mHandler;
@@ -240,7 +242,7 @@ final class DesktopTaskController {
     static synchronized void finishFullscreenTransition(final int displayId,
             final boolean success) {
         DesktopTaskStateStore.finishFullscreenTransition(displayId, success);
-        final DesktopTaskController controller = sActiveController;
+        final DesktopTaskController controller = sActiveController.get();
         if (controller != null && controller.mRunning
                 && controller.mDisplayId == displayId) {
             controller.scheduleRefresh(0);
@@ -480,18 +482,18 @@ final class DesktopTaskController {
     }
 
     private static synchronized DesktopTaskController getActiveController() {
-        return sActiveController;
+        return sActiveController.get();
     }
 
     private static synchronized void setActiveController(
             final DesktopTaskController controller) {
-        sActiveController = controller;
+        sActiveController = new WeakReference<>(controller);
     }
 
     private static synchronized void clearActiveController(
             final DesktopTaskController controller) {
-        if (sActiveController == controller) {
-            sActiveController = null;
+        if (sActiveController.get() == controller) {
+            sActiveController.clear();
         }
     }
 

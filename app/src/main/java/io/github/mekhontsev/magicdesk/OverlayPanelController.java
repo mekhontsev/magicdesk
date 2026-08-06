@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.app.AppOpsManager;
 import android.content.Context;
 import android.graphics.PixelFormat;
@@ -77,6 +78,8 @@ final class OverlayPanelController {
         }
     }
 
+    // The listener observes ACTION_OUTSIDE only and does not implement panel clicks.
+    @SuppressLint("ClickableViewAccessibility")
     boolean show(final View panel, final int left, final int top,
             final int width, final int height, final boolean focusable,
             final String title) {

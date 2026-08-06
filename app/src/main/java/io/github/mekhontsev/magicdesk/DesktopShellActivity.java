@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_AMBER;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
@@ -469,6 +470,8 @@ public abstract class DesktopShellActivity extends Activity
         mTaskSnapshots.sync(snapshot);
     }
 
+    // GestureDetector routes confirmed taps through performClick().
+    @SuppressLint("ClickableViewAccessibility")
     private View createDesktopContentView() {
         final FrameLayout root = new FrameLayout(this);
         mDesktopRoot = root;

@@ -76,14 +76,14 @@ final class RedmagicHardwareController {
 
     private static ScheduledExecutorService sExecutor;
     private static ScheduledFuture<?> sPollTask;
-    private static Context sContext;
+    private static SharedPreferences sPreferences;
     private static volatile RedmagicHardwareSnapshot sSnapshot =
             RedmagicHardwareSnapshot.UNAVAILABLE;
     private static volatile FanMode sFanMode = FanMode.SYSTEM;
     private static volatile PumpMode sPumpMode = PumpMode.SYSTEM;
     private static volatile boolean sStopping;
     // May be set while a previous executor is still completing asynchronous stop.
-    private static Context sRequestedContext;
+    private static SharedPreferences sRequestedPreferences;
 
     private RedmagicHardwareController() {
     }
@@ -92,7 +92,8 @@ final class RedmagicHardwareController {
         if (!ShellAccess.isReady()) {
             return;
         }
-        sRequestedContext = context.getApplicationContext();
+        sRequestedPreferences = context.getApplicationContext()
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (sStopping || sExecutor != null) {
             return;
         }
@@ -100,8 +101,8 @@ final class RedmagicHardwareController {
     }
 
     private static void startRequestedContextLocked() {
-        sContext = sRequestedContext;
-        if (sContext == null) {
+        sPreferences = sRequestedPreferences;
+        if (sPreferences == null) {
             return;
         }
         sStopping = false;
@@ -124,7 +125,7 @@ final class RedmagicHardwareController {
     }
 
     static synchronized void stop() {
-        sRequestedContext = null;
+        sRequestedPreferences = null;
         if (sStopping) {
             return;
         }
@@ -138,7 +139,7 @@ final class RedmagicHardwareController {
         }
         executor.execute(() -> {
             synchronized (CONTROL_LOCK) {
-                if (sContext != null && canControlHardware()
+                if (sPreferences != null && canControlHardware()
                         && hasOwnedState()
                         && !restoreBaselineIfOwned()) {
                     Log.w(TAG, "hardware state remains owned after runtime stop");
@@ -149,7 +150,7 @@ final class RedmagicHardwareController {
                     sExecutor = null;
                     clearStoppedState();
                     sStopping = false;
-                    if (sRequestedContext != null
+                    if (sRequestedPreferences != null
                             && ShellAccess.isReady()) {
                         startRequestedContextLocked();
                     }
@@ -164,7 +165,7 @@ final class RedmagicHardwareController {
         sPumpMode = PumpMode.SYSTEM;
         sSnapshot = RedmagicHardwareSnapshot.UNAVAILABLE;
         notifyListeners();
-        sContext = null;
+        sPreferences = null;
     }
 
     static void addListener(final Listener listener) {
@@ -664,10 +665,10 @@ final class RedmagicHardwareController {
     }
 
     private static SharedPreferences preferences() {
-        if (sContext == null) {
+        if (sPreferences == null) {
             throw new IllegalStateException("hardware controller is not started");
         }
-        return sContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        return sPreferences;
     }
 
     private static void notifyListeners() {

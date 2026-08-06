@@ -170,7 +170,9 @@ final class NotificationCenterController {
             return;
         }
         final String description = unread > 0
-                ? mActivity.getString(R.string.notification_count_description,
+                ? mActivity.getResources().getQuantityString(
+                        R.plurals.notification_count_description,
+                        unread,
                         Integer.valueOf(unread))
                 : mActivity.getString(R.string.action_notifications);
         mButton.setContentDescription(description);

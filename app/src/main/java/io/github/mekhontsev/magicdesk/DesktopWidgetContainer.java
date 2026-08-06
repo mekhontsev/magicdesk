@@ -1,11 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.widget.FrameLayout;
 
 /** Preserves widget input while reserving a stationary long press for the host. */
+@SuppressLint("ClickableViewAccessibility")
 final class DesktopWidgetContainer extends FrameLayout {
     private final GestureDetector mLongPressDetector;
     private boolean mLongPressTriggered;
