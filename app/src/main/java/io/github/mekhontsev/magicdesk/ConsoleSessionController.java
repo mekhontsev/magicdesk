@@ -48,6 +48,7 @@ final class ConsoleSessionController {
                     preparedMode = NubiaExternalDisplayModeController.prepare(
                             MagicDeskApplication.applicationContext(),
                             physicalDisplayId);
+                    physicalDisplayId = preparedMode.physicalDisplayId();
                 } catch (IOException | RuntimeException error) {
                     Log.w(TAG, "Cannot prepare Nubia external display mode", error);
                     CompatibilityDiagnostics.record(
@@ -55,6 +56,7 @@ final class ConsoleSessionController {
                             "Could not apply the external display launch settings",
                             error.getMessage(),
                             error);
+                    return;
                 }
                 if (!ConsoleDisplayController.requestConsoleMode(
                         physicalDisplayId)) {

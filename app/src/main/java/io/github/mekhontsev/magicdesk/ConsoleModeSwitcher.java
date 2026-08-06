@@ -42,6 +42,12 @@ final class ConsoleModeSwitcher {
         void onComplete(boolean touchpadMissing, boolean restored);
     }
 
+    interface ExternalDisplayProbeCallback {
+        void onComplete(
+                int displayId,
+                NubiaHdmiModeController.Selection modeSelection);
+    }
+
     static void setPhoneScreenOff(final boolean screenOff,
             final ResultCallback callback) {
         EXECUTOR.execute(new Runnable() {
@@ -97,12 +103,30 @@ final class ConsoleModeSwitcher {
         });
     }
 
-    static void probeExternalDisplay(final ResultCallback callback) {
+    static void probeExternalDisplay(
+            final ExternalDisplayProbeCallback callback) {
         EXECUTOR.execute(() -> {
-            final boolean connected =
-                    ConsoleDisplayController.findExternalDisplayId() > 0;
+            final int displayId =
+                    ConsoleDisplayController.findExternalDisplayId();
+            NubiaHdmiModeController.Selection selection = null;
+            if (displayId > 0) {
+                try {
+                    final ExternalDisplayLaunchSettings.Config config =
+                            ExternalDisplayLaunchSettings.load(
+                                    MagicDeskApplication.applicationContext());
+                    selection = NubiaHdmiModeController.readSelection(
+                            config.outputTiming);
+                } catch (IOException | RuntimeException error) {
+                    Log.w(TAG, "Could not read Nubia HDMI modes", error);
+                    CompatibilityDiagnostics.record(
+                            "NUBIA-DISPLAY-005",
+                            "Could not read the external display mode list",
+                            error.getMessage(),
+                            error);
+                }
+            }
             if (callback != null) {
-                callback.onComplete(connected);
+                callback.onComplete(displayId, selection);
             }
         });
     }
@@ -171,6 +195,17 @@ final class ConsoleModeSwitcher {
                         callback.onComplete(success);
                     }
                 }
+            }
+        });
+    }
+
+    static void switchToMirrorWithControlPanel(
+            final ResultCallback callback) {
+        ControlActivity.finishActiveForMirrorTransition();
+        switchToMirror(success -> {
+            PhoneControlPanelLauncher.openOnPhoneWithShell();
+            if (callback != null) {
+                callback.onComplete(success);
             }
         });
     }

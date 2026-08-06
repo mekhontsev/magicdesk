@@ -343,12 +343,8 @@ final class ConsoleControlsController {
             action.setEnabled(false);
         }
         mActivity.setStatus(R.string.status_mirror_switching);
-        ControlActivity.finishActiveForMirrorTransition();
-        ConsoleModeSwitcher.switchToMirror(
+        ConsoleModeSwitcher.switchToMirrorWithControlPanel(
                 success -> {
-                    if (success) {
-                        PhoneControlPanelLauncher.openOnPhoneWithShell();
-                    }
                     mActivity.runOnUiThread(() -> {
                         update();
                         final int result = success

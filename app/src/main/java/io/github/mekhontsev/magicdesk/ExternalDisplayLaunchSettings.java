@@ -11,23 +11,15 @@ final class ExternalDisplayLaunchSettings {
 
     private static final String PREFS = "magicdesk_external_display";
     private static final String PREF_FILL_DISPLAY = "fill_display";
-    private static final String PREF_OUTPUT_MODE = "output_mode";
-
-    enum OutputMode {
-        NATIVE,
-        SYSTEM,
-        P1080,
-        P1440,
-        P2160
-    }
+    private static final String PREF_OUTPUT_TIMING = "output_timing";
 
     static final class Config {
         final boolean fillDisplay;
-        final OutputMode outputMode;
+        final String outputTiming;
 
-        Config(final boolean fillDisplay, final OutputMode outputMode) {
+        Config(final boolean fillDisplay, final String outputTiming) {
             this.fillDisplay = fillDisplay;
-            this.outputMode = outputMode == null ? OutputMode.NATIVE : outputMode;
+            this.outputTiming = outputTiming;
         }
     }
 
@@ -38,8 +30,7 @@ final class ExternalDisplayLaunchSettings {
         final SharedPreferences preferences = preferences(context);
         return new Config(
                 preferences.getBoolean(PREF_FILL_DISPLAY, true),
-                parseOutputMode(preferences.getString(
-                        PREF_OUTPUT_MODE, OutputMode.NATIVE.name())));
+                preferences.getString(PREF_OUTPUT_TIMING, null));
     }
 
     static void setFillDisplay(final Context context, final boolean enabled) {
@@ -48,52 +39,27 @@ final class ExternalDisplayLaunchSettings {
                 .apply();
     }
 
-    static void setOutputMode(
-            final Context context, final OutputMode outputMode) {
+    static void setOutputTiming(
+            final Context context, final String outputTiming) {
         preferences(context).edit()
-                .putString(
-                        PREF_OUTPUT_MODE,
-                        (outputMode == null ? OutputMode.NATIVE : outputMode).name())
+                .putString(PREF_OUTPUT_TIMING, outputTiming)
                 .apply();
     }
 
     static int resolveVendorSizeType(
-            final OutputMode outputMode,
             final int physicalWidth,
             final int physicalHeight) {
-        final OutputMode safeMode = outputMode == null
-                ? OutputMode.NATIVE : outputMode;
-        switch (safeMode) {
-            case SYSTEM:
-                return VENDOR_SIZE_UNCHANGED;
-            case P1080:
-                return VENDOR_SIZE_1080;
-            case P1440:
-                return VENDOR_SIZE_1440;
-            case P2160:
-                return VENDOR_SIZE_2160;
-            case NATIVE:
-            default:
-                final int shortSide = Math.min(physicalWidth, physicalHeight);
-                if (shortSide == 1080) {
-                    return VENDOR_SIZE_1080;
-                }
-                if (shortSide == 1440) {
-                    return VENDOR_SIZE_1440;
-                }
-                if (shortSide == 2160) {
-                    return VENDOR_SIZE_2160;
-                }
-                return VENDOR_SIZE_UNCHANGED;
+        final int shortSide = Math.min(physicalWidth, physicalHeight);
+        if (shortSide <= 0) {
+            return VENDOR_SIZE_UNCHANGED;
         }
-    }
-
-    private static OutputMode parseOutputMode(final String stored) {
-        try {
-            return OutputMode.valueOf(stored);
-        } catch (IllegalArgumentException | NullPointerException ignored) {
-            return OutputMode.NATIVE;
+        if (shortSide >= 2160) {
+            return VENDOR_SIZE_2160;
         }
+        if (shortSide >= 1440) {
+            return VENDOR_SIZE_1440;
+        }
+        return VENDOR_SIZE_1080;
     }
 
     private static SharedPreferences preferences(final Context context) {

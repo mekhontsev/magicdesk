@@ -58,14 +58,8 @@
     <string name="action_resume_external_desktop">Resume external desktop</string>
     <string name="action_show_external_desktop">Show external desktop</string>
     <string name="external_display_fill">Fill display</string>
-    <string name="external_display_resolution">Output resolution</string>
-    <string-array name="external_display_output_modes">
-        <item>Native</item>
-        <item>System</item>
-        <item>1080p</item>
-        <item>1440p</item>
-        <item>2160p</item>
-    </string-array>
+    <string name="external_display_resolution">Output mode</string>
+    <string name="external_display_no_modes">No modes available</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="status_local_desktop_guard_failed">Local desktop could not start safely: %1$s</string>
     <string name="action_open_touchpad">Open touchpad</string>
@@ -227,6 +221,7 @@
     <string name="control_status_console_active">External desktop active</string>
     <string name="control_runtime_status">Shell access: %1$s</string>
     <string name="control_display_status">This display: %1$d | External desktop: %2$s</string>
+    <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps</string>
     <string name="search_no_results">No matching apps</string>
     <string name="taskbar_running_description">%1$s, task %2$d</string>

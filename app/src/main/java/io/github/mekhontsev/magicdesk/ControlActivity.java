@@ -6,6 +6,7 @@ import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
+import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -38,6 +39,8 @@ public final class ControlActivity extends Activity
     private boolean mStartupPrepared;
     private boolean mStartExternalDesktopAfterProbe;
     private int mDisplayProbeGeneration;
+    private NubiaHdmiModeController.Selection mExternalModeSelection;
+    private String mExternalDisplaySummary;
     private String mStatus;
 
     static Intent createLaunchIntent(final android.content.Context context) {
@@ -245,9 +248,12 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void setExternalOutputMode(
-            final ExternalDisplayLaunchSettings.OutputMode outputMode) {
-        ExternalDisplayLaunchSettings.setOutputMode(this, outputMode);
+    public void setExternalOutputTiming(final String outputTiming) {
+        ExternalDisplayLaunchSettings.setOutputTiming(this, outputTiming);
+        if (mExternalModeSelection != null) {
+            mExternalModeSelection =
+                    mExternalModeSelection.withPreferredTiming(outputTiming);
+        }
         refresh();
     }
 
@@ -259,7 +265,7 @@ public final class ControlActivity extends Activity
         }
         mStatus = getString(R.string.status_mirror_switching);
         refresh();
-        ConsoleModeSwitcher.switchToMirror(
+        ConsoleModeSwitcher.switchToMirrorWithControlPanel(
                 success -> runOnUiThread(() -> {
                     mStatus = getString(success
                             ? R.string.status_mirror_active
@@ -371,7 +377,8 @@ public final class ControlActivity extends Activity
                 ConsoleModeState.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
                 displayConfig.fillDisplay,
-                displayConfig.outputMode,
+                mExternalModeSelection,
+                mExternalDisplaySummary,
                 mExternalDisplayState,
                 mStatus,
                 ShellAccess.statusLabel(),
@@ -466,18 +473,23 @@ public final class ControlActivity extends Activity
 
     private void startExternalDisplayProbe() {
         final int generation = mDisplayProbeGeneration;
-        ConsoleModeSwitcher.probeExternalDisplay(connected ->
+        ConsoleModeSwitcher.probeExternalDisplay((displayId, selection) ->
                 runOnUiThread(() -> finishExternalDisplayProbe(
-                        generation, connected)));
+                        generation, displayId, selection)));
     }
 
     private void finishExternalDisplayProbe(
             final int generation,
-            final boolean connected) {
+            final int displayId,
+            final NubiaHdmiModeController.Selection selection) {
         if (generation != mDisplayProbeGeneration
                 || isActivityUnavailable()) {
             return;
         }
+        final boolean connected = displayId > Display.DEFAULT_DISPLAY;
+        mExternalModeSelection = connected ? selection : null;
+        mExternalDisplaySummary = connected
+                ? describeExternalDisplay(displayId, selection) : null;
         mExternalDisplayState = connected
                 ? PhoneControlPanelController.ExternalDisplayState.CONNECTED
                 : PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
@@ -491,6 +503,30 @@ public final class ControlActivity extends Activity
             mStatus = getString(R.string.status_external_display_unavailable);
         }
         refresh();
+    }
+
+    private String describeExternalDisplay(
+            final int displayId,
+            final NubiaHdmiModeController.Selection selection) {
+        String name = null;
+        final Display display = mDisplayManager == null
+                ? null : mDisplayManager.getDisplay(displayId);
+        if (display != null) {
+            final DeviceProductInfo productInfo =
+                    display.getDeviceProductInfo();
+            if (productInfo != null && productInfo.getName() != null) {
+                name = productInfo.getName().toString().trim();
+            }
+            if (name == null || name.isEmpty()) {
+                name = display.getName();
+            }
+        }
+        final NubiaHdmiModeController.Mode mode = selection == null
+                ? null : selection.current;
+        if (name == null || name.isEmpty()) {
+            return mode == null ? null : mode.displayLabel();
+        }
+        return mode == null ? name : name + " | " + mode.displayLabel();
     }
 
     private int currentDisplayId() {

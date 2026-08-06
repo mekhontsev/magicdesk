@@ -6,24 +6,16 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
-import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class NubiaExternalDisplayModeController {
     private static final String TAG = "MagicDeskDisplayMode";
     private static final String GETPROP = "/system/bin/getprop";
     private static final String SETPROP = "/system/bin/setprop";
     private static final String SETTINGS = "/system/bin/settings";
-    private static final String DISPLAY = "/system/bin/cmd display";
     private static final String FIT_ALL_PROPERTY =
             "debug.nubia.fitalltodisplay";
     private static final String FIT_SETTING = "app_mirror_fit_status";
     private static final String SIZE_SETTING = "app_mirror_size_type";
-    private static final Pattern DISPLAY_MODE_PATTERN = Pattern.compile(
-            "(?:Boot|User preferred) display mode:\\s+"
-                    + "(\\d+)\\s+(\\d+)\\s+([0-9]+(?:\\.[0-9]+)?)");
-
     private NubiaExternalDisplayModeController() {
     }
 
@@ -32,25 +24,38 @@ final class NubiaExternalDisplayModeController {
             final int physicalDisplayId) throws IOException {
         final ExternalDisplayLaunchSettings.Config config =
                 ExternalDisplayLaunchSettings.load(context);
-        final Display.Mode currentMode = physicalMode(context, physicalDisplayId);
-        final PhysicalMode nativeMode = config.outputMode
-                == ExternalDisplayLaunchSettings.OutputMode.NATIVE
-                ? nativeMode(physicalDisplayId) : null;
-        final int width = nativeMode != null
-                ? nativeMode.width
+        NubiaHdmiModeController.Selection selection = null;
+        try {
+            selection = NubiaHdmiModeController.readSelection(
+                    config.outputTiming);
+        } catch (IOException | RuntimeException error) {
+            Log.w(TAG, "Nubia HDMI mode list is unavailable", error);
+            CompatibilityDiagnostics.record(
+                    "NUBIA-DISPLAY-005",
+                    "Could not read the external display mode list",
+                    error.getMessage(),
+                    error);
+        }
+        final NubiaHdmiModeController.Mode requestedMode =
+                selection == null ? null : selection.target;
+        final int preparedDisplayId = NubiaHdmiModeController.applyIfNeeded(
+                context, physicalDisplayId, selection);
+        final Display.Mode currentMode =
+                physicalMode(context, preparedDisplayId);
+        final int width = requestedMode != null
+                ? requestedMode.width
                 : currentMode == null ? 0 : currentMode.getPhysicalWidth();
-        final int height = nativeMode != null
-                ? nativeMode.height
+        final int height = requestedMode != null
+                ? requestedMode.height
                 : currentMode == null ? 0 : currentMode.getPhysicalHeight();
         final int sizeType =
                 ExternalDisplayLaunchSettings.resolveVendorSizeType(
-                        config.outputMode, width, height);
+                        width, height);
         final String previousBypass = readBypass();
-        final PreparedMode prepared = new PreparedMode(previousBypass);
+        final PreparedMode prepared = new PreparedMode(
+                previousBypass, preparedDisplayId);
         try {
             writeBypass("1");
-            applyPhysicalMode(
-                    config.outputMode, physicalDisplayId, nativeMode);
             ShellAccess.run(
                     SETTINGS + " put global " + FIT_SETTING + " "
                             + (config.fillDisplay ? "1" : "0"));
@@ -60,10 +65,12 @@ final class NubiaExternalDisplayModeController {
                                 + sizeType);
             }
             Log.i(TAG, "prepared Nubia output mode display=" + physicalDisplayId
+                    + "->" + preparedDisplayId
                     + " physical=" + width + "x" + height
-                    + (nativeMode == null ? "" : "@" + nativeMode.refreshRate)
+                    + (requestedMode == null
+                            ? "" : "@" + requestedMode.refreshRate)
                     + " fill=" + config.fillDisplay
-                    + " output=" + config.outputMode
+                    + " output=" + config.outputTiming
                     + " vendorSize=" + sizeType);
             return prepared;
         } catch (IOException | RuntimeException error) {
@@ -82,78 +89,6 @@ final class NubiaExternalDisplayModeController {
         final Display display = manager == null
                 ? null : manager.getDisplay(displayId);
         return display == null ? null : display.getMode();
-    }
-
-    private static PhysicalMode nativeMode(final int displayId) {
-        try {
-            final String output = ShellAccess.run(
-                    DISPLAY + " get-active-display-mode-at-start " + displayId);
-            final PhysicalMode mode = parsePhysicalMode(output);
-            if (mode != null) {
-                return mode;
-            }
-            recordNativeModeFailure(
-                    "Unexpected display-mode response: " + output.trim());
-        } catch (IOException | RuntimeException error) {
-            recordNativeModeFailure(error.getMessage());
-        }
-        return null;
-    }
-
-    private static void applyPhysicalMode(
-            final ExternalDisplayLaunchSettings.OutputMode outputMode,
-            final int displayId,
-            final PhysicalMode nativeMode) throws IOException {
-        if (outputMode != ExternalDisplayLaunchSettings.OutputMode.NATIVE) {
-            ShellAccess.run(
-                    DISPLAY + " clear-user-preferred-display-mode " + displayId);
-            return;
-        }
-        if (nativeMode == null) {
-            return;
-        }
-        ShellAccess.run(
-                DISPLAY + " set-user-preferred-display-mode "
-                        + nativeMode.width + " "
-                        + nativeMode.height + " "
-                        + String.format(Locale.ROOT, "%.5f", nativeMode.refreshRate)
-                        + " " + displayId);
-        final PhysicalMode observed = parsePhysicalMode(ShellAccess.run(
-                DISPLAY + " get-user-preferred-display-mode " + displayId));
-        if (!nativeMode.sameMode(observed)) {
-            throw new IOException(
-                    "native display mode was not accepted: expected="
-                            + nativeMode + " observed=" + observed);
-        }
-    }
-
-    static PhysicalMode parsePhysicalMode(final String output) {
-        if (output == null) {
-            return null;
-        }
-        final Matcher matcher = DISPLAY_MODE_PATTERN.matcher(output);
-        if (!matcher.find()) {
-            return null;
-        }
-        try {
-            final int width = Integer.parseInt(matcher.group(1));
-            final int height = Integer.parseInt(matcher.group(2));
-            final float refreshRate = Float.parseFloat(matcher.group(3));
-            if (width <= 0 || height <= 0 || refreshRate <= 0f) {
-                return null;
-            }
-            return new PhysicalMode(width, height, refreshRate);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
-
-    private static void recordNativeModeFailure(final String detail) {
-        Log.w(TAG, "Cannot determine the native external display mode: " + detail);
-        CompatibilityDiagnostics.record(
-                "NUBIA-DISPLAY-004",
-                "Could not determine the native external display mode",
-                detail);
     }
 
     private static String readBypass() throws IOException {
@@ -197,10 +132,18 @@ final class NubiaExternalDisplayModeController {
 
     static final class PreparedMode implements AutoCloseable {
         private final String mPreviousBypass;
+        private final int mPhysicalDisplayId;
         private boolean mClosed;
 
-        PreparedMode(final String previousBypass) {
+        PreparedMode(
+                final String previousBypass,
+                final int physicalDisplayId) {
             mPreviousBypass = previousBypass;
+            mPhysicalDisplayId = physicalDisplayId;
+        }
+
+        int physicalDisplayId() {
+            return mPhysicalDisplayId;
         }
 
         @Override
@@ -219,33 +162,6 @@ final class NubiaExternalDisplayModeController {
                         error.getMessage(),
                         error);
             }
-        }
-    }
-
-    static final class PhysicalMode {
-        final int width;
-        final int height;
-        final float refreshRate;
-
-        PhysicalMode(
-                final int width,
-                final int height,
-                final float refreshRate) {
-            this.width = width;
-            this.height = height;
-            this.refreshRate = refreshRate;
-        }
-
-        boolean sameMode(final PhysicalMode other) {
-            return other != null
-                    && width == other.width
-                    && height == other.height
-                    && Math.abs(refreshRate - other.refreshRate) < 0.01f;
-        }
-
-        @Override
-        public String toString() {
-            return width + "x" + height + "@" + refreshRate;
         }
     }
 }

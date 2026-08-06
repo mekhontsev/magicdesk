@@ -24,6 +24,10 @@ import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 final class PhoneControlPanelController {
     enum ExternalDisplayState {
         CHECKING,
@@ -38,8 +42,7 @@ final class PhoneControlPanelController {
 
         void setFillExternalDisplay(boolean enabled);
 
-        void setExternalOutputMode(
-                ExternalDisplayLaunchSettings.OutputMode outputMode);
+        void setExternalOutputTiming(String outputTiming);
 
         void switchToMirror();
 
@@ -61,7 +64,8 @@ final class PhoneControlPanelController {
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
         final boolean fillExternalDisplay;
-        final ExternalDisplayLaunchSettings.OutputMode externalOutputMode;
+        final NubiaHdmiModeController.Selection externalModeSelection;
+        final String externalDisplaySummary;
         final ExternalDisplayState externalDisplayState;
         final String status;
         final String runtime;
@@ -75,7 +79,8 @@ final class PhoneControlPanelController {
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
                 final boolean fillExternalDisplay,
-                final ExternalDisplayLaunchSettings.OutputMode externalOutputMode,
+                final NubiaHdmiModeController.Selection externalModeSelection,
+                final String externalDisplaySummary,
                 final ExternalDisplayState externalDisplayState,
                 final String status,
                 final String runtime,
@@ -87,7 +92,8 @@ final class PhoneControlPanelController {
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
             this.fillExternalDisplay = fillExternalDisplay;
-            this.externalOutputMode = externalOutputMode;
+            this.externalModeSelection = externalModeSelection;
+            this.externalDisplaySummary = externalDisplaySummary;
             this.externalDisplayState = externalDisplayState;
             this.status = status;
             this.runtime = runtime;
@@ -105,12 +111,16 @@ final class PhoneControlPanelController {
     private TextView mStatus;
     private TextView mRuntime;
     private TextView mDisplay;
+    private TextView mExternalDisplay;
     private Button mExternalDesktop;
     private Button mMirror;
     private Button mTouchpad;
     private Button mPhoneScreen;
     private Switch mFillDisplay;
     private Spinner mOutputMode;
+    private ArrayAdapter<String> mOutputModeAdapter;
+    private List<NubiaHdmiModeController.Mode> mOutputModes =
+            Collections.emptyList();
     private boolean mRendering = true;
 
     PhoneControlPanelController(
@@ -181,6 +191,15 @@ final class PhoneControlPanelController {
                 R.string.control_display_status,
                 Integer.valueOf(state.currentDisplayId),
                 consoleDisplay));
+        if (state.externalDisplaySummary == null
+                || state.externalDisplaySummary.isEmpty()) {
+            mExternalDisplay.setVisibility(View.GONE);
+        } else {
+            mExternalDisplay.setText(mActivity.getString(
+                    R.string.control_external_display_status,
+                    state.externalDisplaySummary));
+            mExternalDisplay.setVisibility(View.VISIBLE);
+        }
 
         if (!state.consoleActive
                 && state.externalDisplayState
@@ -209,8 +228,8 @@ final class PhoneControlPanelController {
                                 == ExternalDisplayState.CONNECTED;
         mFillDisplay.setChecked(state.fillExternalDisplay);
         mFillDisplay.setEnabled(canConfigureOutput);
-        mOutputMode.setSelection(state.externalOutputMode.ordinal(), false);
-        mOutputMode.setEnabled(canConfigureOutput);
+        renderOutputModes(state.externalModeSelection);
+        mOutputMode.setEnabled(canConfigureOutput && !mOutputModes.isEmpty());
         mMirror.setEnabled(
                 state.consoleActive
                         && state.consoleControlAvailable);
@@ -279,6 +298,14 @@ final class PhoneControlPanelController {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         displayParams.setMargins(0, dp(3), 0, 0);
         parent.addView(mDisplay, displayParams);
+
+        mExternalDisplay = statusText(COLOR_MUTED, 13, false);
+        final LinearLayout.LayoutParams externalDisplayParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        externalDisplayParams.setMargins(0, dp(3), 0, 0);
+        parent.addView(mExternalDisplay, externalDisplayParams);
     }
 
     private void addDesktopActions(final LinearLayout parent) {
@@ -339,13 +366,13 @@ final class PhoneControlPanelController {
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1));
         mOutputMode = new Spinner(mActivity, Spinner.MODE_DROPDOWN);
-        final ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(
+        mOutputModeAdapter = new ArrayAdapter<>(
                 mActivity,
-                R.array.external_display_output_modes,
-                android.R.layout.simple_spinner_item);
-        adapter.setDropDownViewResource(
+                android.R.layout.simple_spinner_item,
+                new ArrayList<>());
+        mOutputModeAdapter.setDropDownViewResource(
                 android.R.layout.simple_spinner_dropdown_item);
-        mOutputMode.setAdapter(adapter);
+        mOutputMode.setAdapter(mOutputModeAdapter);
         mOutputMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(
@@ -356,10 +383,9 @@ final class PhoneControlPanelController {
                 if (mRendering) {
                     return;
                 }
-                final ExternalDisplayLaunchSettings.OutputMode[] modes =
-                        ExternalDisplayLaunchSettings.OutputMode.values();
-                if (position >= 0 && position < modes.length) {
-                    mActions.setExternalOutputMode(modes[position]);
+                if (position >= 0 && position < mOutputModes.size()) {
+                    mActions.setExternalOutputTiming(
+                            mOutputModes.get(position).timingKey());
                 }
             }
 
@@ -371,6 +397,54 @@ final class PhoneControlPanelController {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 dp(48)));
         parent.addView(resolutionRow);
+    }
+
+    private void renderOutputModes(
+            final NubiaHdmiModeController.Selection selection) {
+        final List<NubiaHdmiModeController.Mode> modes = selection == null
+                ? Collections.emptyList() : selection.availableModes;
+        if (!sameModes(mOutputModes, modes)) {
+            mOutputModes = modes;
+            mOutputModeAdapter.clear();
+            if (modes.isEmpty()) {
+                mOutputModeAdapter.add(
+                        mActivity.getString(R.string.external_display_no_modes));
+            } else {
+                for (final NubiaHdmiModeController.Mode mode : modes) {
+                    mOutputModeAdapter.add(mode.displayLabel());
+                }
+            }
+            mOutputModeAdapter.notifyDataSetChanged();
+        }
+        if (selection == null || selection.target == null) {
+            mOutputMode.setSelection(0, false);
+            return;
+        }
+        final String selectedTiming = selection.target.timingKey();
+        for (int index = 0; index < mOutputModes.size(); index++) {
+            if (selectedTiming.equals(mOutputModes.get(index).timingKey())) {
+                mOutputMode.setSelection(index, false);
+                return;
+            }
+        }
+    }
+
+    private static boolean sameModes(
+            final List<NubiaHdmiModeController.Mode> left,
+            final List<NubiaHdmiModeController.Mode> right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.size() != right.size()) {
+            return false;
+        }
+        for (int index = 0; index < left.size(); index++) {
+            if (!left.get(index).timingKey().equals(
+                    right.get(index).timingKey())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private LinearLayout optionRow() {

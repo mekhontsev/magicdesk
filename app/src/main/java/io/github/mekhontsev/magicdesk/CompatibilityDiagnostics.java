@@ -310,7 +310,8 @@ final class CompatibilityDiagnostics {
         report.append("External display launch: fill=")
                 .append(displayConfig.fillDisplay)
                 .append(", output=")
-                .append(displayConfig.outputMode)
+                .append(displayConfig.outputTiming == null
+                        ? "native" : displayConfig.outputTiming)
                 .append('\n')
                 .append("Nubia projection settings: fit=")
                 .append(Settings.Global.getString(
