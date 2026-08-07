@@ -18,8 +18,8 @@ final class ConsoleDisplayController {
     private static final String CONSOLE_DISPLAY_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
     private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
-    private static final Pattern EXTERNAL_PHYSICAL_DISPLAY_PATTERN =
-            Pattern.compile("type EXTERNAL,.*?uniqueId \"local:([0-9]+)\"");
+    private static final Pattern PHYSICAL_DISPLAY_PATTERN = Pattern.compile(
+            "Display id (\\d+):.*?uniqueId \"local:(\\d+)\"");
     private static final Pattern WM_SIZE_PATTERN =
             Pattern.compile("(?:Physical|Override) size: (\\d+)x(\\d+)");
     private static final Pattern WM_DENSITY_PATTERN =
@@ -169,18 +169,38 @@ final class ConsoleDisplayController {
                 WM + " user-rotation -d " + displayId + " lock 0");
     }
 
-    static String getExternalPhysicalDisplayId() throws IOException {
-        final String output = ShellAccess.run(
-                DISPLAY + " get-displays --type external");
-        final Matcher matcher =
-                EXTERNAL_PHYSICAL_DISPLAY_PATTERN.matcher(output);
-        return matcher.find() ? matcher.group(1) : null;
+    static String getPhysicalDisplayId(final int displayId)
+            throws IOException {
+        if (displayId < 0) {
+            throw new IllegalArgumentException("invalid logical display id");
+        }
+        final String output = ShellAccess.run(DISPLAY + " get-displays");
+        final String physicalDisplayId = parsePhysicalDisplayId(
+                output, displayId);
+        if (physicalDisplayId == null) {
+            throw new IOException(
+                    "physical display id unavailable for logical display "
+                            + displayId);
+        }
+        return physicalDisplayId;
     }
 
-    static DisplaySize getExternalDisplaySize() throws IOException {
-        final int displayId = findExternalDisplayId();
-        if (displayId <= 0) {
-            throw new IOException("no external logical display is connected");
+    static String parsePhysicalDisplayId(
+            final String output,
+            final int displayId) {
+        final Matcher matcher = PHYSICAL_DISPLAY_PATTERN.matcher(
+                output == null ? "" : output);
+        while (matcher.find()) {
+            if (Integer.parseInt(matcher.group(1)) == displayId) {
+                return matcher.group(2);
+            }
+        }
+        return null;
+    }
+
+    static DisplaySize getDisplaySize(final int displayId) throws IOException {
+        if (displayId < 0) {
+            throw new IllegalArgumentException("invalid logical display id");
         }
         final String output = ShellAccess.run(
                 WM + " size -d " + displayId);
@@ -193,7 +213,8 @@ final class ConsoleDisplayController {
         }
         if (width <= 0 || height <= 0) {
             throw new IOException(
-                    "could not read external display size: " + output.trim());
+                    "could not read display size for " + displayId + ": "
+                            + output.trim());
         }
         return new DisplaySize(width, height);
     }

@@ -351,8 +351,14 @@ final class ConsoleModeSwitcher {
     private static void captureScreenshotInternal() {
         String path = null;
         try {
-            final String physicalDisplayId =
-                    ConsoleDisplayController.getExternalPhysicalDisplayId();
+            final int displayId =
+                    DesktopRuntimeBridge.getActiveDesktopDisplayId();
+            if (displayId < 0) {
+                throw new IOException("no active desktop display");
+            }
+            final String physicalDisplayId = displayId == 0
+                    ? null
+                    : ConsoleDisplayController.getPhysicalDisplayId(displayId);
             final String fileName = "MagicDesk_"
                     + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
                             .format(new Date())

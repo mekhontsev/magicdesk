@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.util.DisplayMetrics;
-import android.view.Display;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.GridLayout;
@@ -389,9 +388,6 @@ final class DisplayCapturePanelController {
     }
 
     private DisplayRecordingSettings.Dimensions currentDisplayDimensions() {
-        if (mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
-            return null;
-        }
         final DisplayMetrics metrics = mActivity.getResources()
                 .getDisplayMetrics();
         return metrics.widthPixels > 0 && metrics.heightPixels > 0

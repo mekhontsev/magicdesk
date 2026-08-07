@@ -491,10 +491,11 @@ alone because it remains useful for switching projection modes. Pointer speed
 uses Android's standard `Settings.System.pointer_speed` range and is observed
 for changes made outside MagicDesk.
 
-## External Display Recording
+## Desktop Display Recording
 
-MagicDesk records the physical REDMAGIC output with Android's system
-`screenrecord --display-id` command. Internal audio uses the firmware's
+MagicDesk resolves the active desktop's logical display to its physical display
+ID and records either the phone or external REDMAGIC output with Android's
+system `screenrecord --display-id` command. Internal audio uses the firmware's
 `AUDIO_SOURCE_SYSTEM_RECORD` value `80`, the same source used by the stock ZTE
 screen recorder and Game Highlights. The source is accepted by
 `MediaRecorder`, but the audio HAL rejects it through `AudioRecord`; these APIs

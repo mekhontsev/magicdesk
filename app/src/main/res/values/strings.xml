@@ -283,11 +283,11 @@
     <string name="action_stop_recording">Stop recording</string>
     <string name="action_recording_finalizing">Finalizing&#8230;</string>
     <string name="shortcut_recording">Win + Shift + Print Screen</string>
-    <string name="shortcut_recording_action">Start or stop external display recording</string>
+    <string name="shortcut_recording_action">Start or stop desktop recording</string>
     <string name="recording_resolution">Resolution</string>
     <string name="recording_scale_value">%1$d%%</string>
     <string name="recording_output_size">%1$d x %2$d</string>
-    <string name="recording_display_unavailable">No external display</string>
+    <string name="recording_display_unavailable">Desktop display unavailable</string>
     <string name="recording_bitrate">Video bitrate</string>
     <string name="recording_bitrate_value">%1$d Mbps</string>
     <string name="action_bitrate_decrease">Decrease recording bitrate</string>

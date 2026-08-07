@@ -227,7 +227,7 @@ supports tablets and allows development without an external monitor.
 | `Win+N` | Toggle the notification center |
 | `Win+Q` | Toggle the System panel |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
-| `Win+Shift+Print Screen` | Start or stop external-display recording with internal audio; save under `Movies/MagicDesk` |
+| `Win+Shift+Print Screen` | Start or stop desktop recording with internal audio; save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |

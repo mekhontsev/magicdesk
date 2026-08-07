@@ -101,11 +101,13 @@ final class DisplayRecordingController {
         mExecutor.execute(() -> {
             String outputPath = null;
             try {
-                final String physicalDisplayId =
-                        ConsoleDisplayController.getExternalPhysicalDisplayId();
-                if (physicalDisplayId == null) {
-                    throw new IOException("no external physical display is connected");
+                final int displayId =
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                if (displayId < 0) {
+                    throw new IOException("no active desktop display");
                 }
+                final String physicalDisplayId =
+                        ConsoleDisplayController.getPhysicalDisplayId(displayId);
                 final DisplayRecordingSettings.Values settings =
                         DisplayRecordingSettings.load(
                                 MagicDeskApplication.applicationContext());
@@ -114,7 +116,7 @@ final class DisplayRecordingController {
                 if (settings.scalePercent
                         != DisplayRecordingSettings.DEFAULT_SCALE_PERCENT) {
                     final DisplayRecordingSettings.Dimensions source =
-                            externalDisplayDimensions();
+                            displayDimensions(displayId);
                     final DisplayRecordingSettings.Dimensions scaled =
                             DisplayRecordingSettings.scaledDimensions(
                                     source.width,
@@ -135,13 +137,13 @@ final class DisplayRecordingController {
                     throw new IOException(
                             "unexpected recording response: " + startedPath);
                 }
-                publish(State.RECORDING, "Recording external display");
+                publish(State.RECORDING, "Recording desktop display");
                 showStatus("Screen recording started", false);
             } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "recording start failed path=" + outputPath, error);
                 CompatibilityDiagnostics.record(
                         "RECORDING-001",
-                        "Could not start external display recording",
+                        "Could not start desktop display recording",
                         usefulMessage(error));
                 publish(State.IDLE, "Screen recording could not start");
                 showStatus("Screen recording could not start", true);
@@ -168,7 +170,7 @@ final class DisplayRecordingController {
                 Log.w(TAG, "recording finalization failed", error);
                 CompatibilityDiagnostics.record(
                         "RECORDING-002",
-                        "Could not finalize external display recording",
+                        "Could not finalize desktop display recording",
                         usefulMessage(error));
                 publish(State.IDLE, "Screen recording could not be saved");
                 showStatus("Screen recording could not be saved", true);
@@ -201,10 +203,10 @@ final class DisplayRecordingController {
         return OUTPUT_DIRECTORY + "/MagicDesk_" + timestamp + ".mp4";
     }
 
-    private static DisplayRecordingSettings.Dimensions
-            externalDisplayDimensions() throws IOException {
+    private static DisplayRecordingSettings.Dimensions displayDimensions(
+            final int displayId) throws IOException {
         final ConsoleDisplayController.DisplaySize size =
-                ConsoleDisplayController.getExternalDisplaySize();
+                ConsoleDisplayController.getDisplaySize(displayId);
         return new DisplayRecordingSettings.Dimensions(
                 size.width, size.height);
     }
