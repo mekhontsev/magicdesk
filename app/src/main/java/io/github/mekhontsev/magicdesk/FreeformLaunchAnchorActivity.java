@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -38,6 +39,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             "io.github.mekhontsev.magicdesk.extra.EXPLICIT_WINDOWED";
     private static final String EXTRA_DESKTOP_TASK_ID =
             "io.github.mekhontsev.magicdesk.extra.DESKTOP_TASK_ID";
+    private static final String EXTRA_EXPECTED_DISPLAY_ID =
+            "io.github.mekhontsev.magicdesk.extra.EXPECTED_DISPLAY_ID";
 
     private static final String TAG = "MagicDeskLaunchAnchor";
     private static final ExecutorService LAUNCH_EXECUTOR = Executors.newSingleThreadExecutor(
@@ -135,7 +138,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                .putExtra(EXTRA_DESKTOP_TASK_ID, desktopTaskId);
+                .putExtra(EXTRA_DESKTOP_TASK_ID, desktopTaskId)
+                .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId);
         putRequest(intent, request);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
@@ -153,6 +157,21 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mDisplayId = getDisplayId(this);
+        final int expectedDisplayId = getIntent().getIntExtra(
+                EXTRA_EXPECTED_DISPLAY_ID, mDisplayId);
+        final DisplayManager displayManager =
+                getSystemService(DisplayManager.class);
+        final boolean expectedDisplayExists = displayManager != null
+                && displayManager.getDisplay(expectedDisplayId) != null;
+        if (mDisplayId != expectedDisplayId || !expectedDisplayExists) {
+            Log.i(TAG, "discarding anchor moved from display="
+                    + expectedDisplayId + " to display=" + mDisplayId
+                    + " targetExists=" + expectedDisplayExists);
+            mClosing = true;
+            finishAndRemoveTask();
+            overridePendingTransition(0, 0);
+            return;
+        }
         final FreeformLaunchAnchorActivity previous = sAnchor.get();
         if (previous != null && previous != this) {
             previous.closeAnchor();
@@ -169,17 +188,21 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             mDesktopTaskId = getIntent().getIntExtra(EXTRA_DESKTOP_TASK_ID, -1);
             enqueueIntentRequest(getIntent());
         }
-        setIntent(new Intent(this, FreeformLaunchAnchorActivity.class)
-                .setAction(ACTION_PREPARE));
+        retainPrepareIntent();
         ensurePrepared();
     }
 
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        final int expectedDisplayId = intent.getIntExtra(
+                EXTRA_EXPECTED_DISPLAY_ID, mDisplayId);
+        if (expectedDisplayId != mDisplayId) {
+            closeAnchor();
+            return;
+        }
         enqueueIntentRequest(intent);
-        setIntent(new Intent(this, FreeformLaunchAnchorActivity.class)
-                .setAction(ACTION_PREPARE));
+        retainPrepareIntent();
     }
 
     @Override
@@ -231,6 +254,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (mPrepared) {
             launchNext();
         }
+    }
+
+    private void retainPrepareIntent() {
+        setIntent(new Intent(this, FreeformLaunchAnchorActivity.class)
+                .setAction(ACTION_PREPARE)
+                .putExtra(EXTRA_DESKTOP_TASK_ID, mDesktopTaskId)
+                .putExtra(EXTRA_EXPECTED_DISPLAY_ID, mDisplayId));
     }
 
     private void ensurePrepared() {

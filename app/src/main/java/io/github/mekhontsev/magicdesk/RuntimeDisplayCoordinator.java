@@ -6,7 +6,7 @@ import android.os.Handler;
 
 final class RuntimeDisplayCoordinator implements DisplayManager.DisplayListener {
     interface Listener {
-        void onDisplayStateChanged(boolean displayRemoved);
+        void onDisplayStateChanged(int displayId, boolean displayRemoved);
     }
 
     private final DisplayManager mDisplayManager;
@@ -42,16 +42,16 @@ final class RuntimeDisplayCoordinator implements DisplayManager.DisplayListener 
 
     @Override
     public void onDisplayAdded(final int displayId) {
-        mListener.onDisplayStateChanged(false);
+        mListener.onDisplayStateChanged(displayId, false);
     }
 
     @Override
     public void onDisplayRemoved(final int displayId) {
-        mListener.onDisplayStateChanged(true);
+        mListener.onDisplayStateChanged(displayId, true);
     }
 
     @Override
     public void onDisplayChanged(final int displayId) {
-        mListener.onDisplayStateChanged(false);
+        mListener.onDisplayStateChanged(displayId, false);
     }
 }

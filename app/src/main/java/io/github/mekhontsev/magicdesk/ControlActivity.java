@@ -38,7 +38,11 @@ public final class ControlActivity extends Activity
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
     private boolean mStartExternalDesktopAfterProbe;
+    private boolean mAwaitingWirelessDisplay;
+    private boolean mWirelessDisplayAvailable;
     private int mDisplayProbeGeneration;
+    private int mWiredDisplayId = Display.INVALID_DISPLAY;
+    private int mWirelessDisplayId = Display.INVALID_DISPLAY;
     private NubiaHdmiModeController.Selection mExternalModeSelection;
     private String mExternalDisplaySummary;
     private String mStatus;
@@ -150,7 +154,9 @@ public final class ControlActivity extends Activity
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         mPanel = new PhoneControlPanelController(this, ui, this);
         mSessionController = new MagicDeskSessionController(this);
-        mStatus = getString(ConsoleModeState.isActive(this)
+        mWirelessDisplayAvailable =
+                WirelessDisplayController.isAvailable(this);
+        mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
@@ -176,7 +182,7 @@ public final class ControlActivity extends Activity
     protected void onResume() {
         super.onResume();
         MagicDeskRuntimeService.refreshNotificationIfRunning();
-        mStatus = getString(ConsoleModeState.isActive(this)
+        mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
         if (mPanel != null) {
@@ -238,6 +244,40 @@ public final class ControlActivity extends Activity
             ConsoleModeSwitcher.showMagicDesk(consoleDisplayId);
             return;
         }
+        final int activeDesktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        if (activeDesktopDisplayId > Display.DEFAULT_DISPLAY) {
+            mStatus = getString(R.string.status_console_starting);
+            refresh();
+            ConsoleModeSwitcher.showDesktop(
+                    activeDesktopDisplayId == mWirelessDisplayId
+                            ? DesktopDisplayTarget.wireless(
+                                    activeDesktopDisplayId)
+                            : DesktopDisplayTarget.simulated(
+                                    activeDesktopDisplayId));
+            return;
+        }
+        if (mWiredDisplayId <= Display.DEFAULT_DISPLAY
+                && isDisplayConnected(mWirelessDisplayId)) {
+            mStatus = getString(R.string.status_wireless_desktop_starting);
+            refresh();
+            ConsoleModeSwitcher.showDesktop(
+                    DesktopDisplayTarget.wireless(mWirelessDisplayId));
+            return;
+        }
+        if (mWiredDisplayId <= Display.DEFAULT_DISPLAY) {
+            if (mWirelessDisplayAvailable
+                    && WirelessDisplayController.openPicker(this)) {
+                mAwaitingWirelessDisplay = true;
+                mStatus = getString(
+                        R.string.status_wireless_display_connecting);
+            } else {
+                mStatus = getString(
+                        R.string.status_external_display_unavailable);
+            }
+            refresh();
+            return;
+        }
         mStatus = getString(R.string.status_external_display_checking);
         scheduleExternalDisplayProbe(true, 0L);
     }
@@ -245,7 +285,12 @@ public final class ControlActivity extends Activity
     private void startExternalDesktopAfterProbe() {
         mStatus = getString(R.string.status_console_starting);
         refresh();
-        ConsoleModeSwitcher.showMagicDesk();
+        if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
+            ConsoleModeSwitcher.showMagicDesk();
+        } else if (mWirelessDisplayId > Display.DEFAULT_DISPLAY) {
+            ConsoleModeSwitcher.showDesktop(
+                    DesktopDisplayTarget.wireless(mWirelessDisplayId));
+        }
     }
 
     @Override
@@ -371,15 +416,23 @@ public final class ControlActivity extends Activity
         }
         final int consoleDisplayId =
                 ConsoleModeState.activeDisplayId(this);
-        final boolean consoleActive =
+        final boolean consoleModeActive =
                 consoleDisplayId > Display.DEFAULT_DISPLAY;
+        final int activeDesktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final boolean externalDesktopActive =
+                consoleModeActive
+                        || activeDesktopDisplayId > Display.DEFAULT_DISPLAY;
+        final int externalDesktopDisplayId = consoleModeActive
+                ? consoleDisplayId : activeDesktopDisplayId;
         final ExternalDisplayLaunchSettings.Config displayConfig =
                 ExternalDisplayLaunchSettings.load(this);
         mPanel.render(new PhoneControlPanelController.State(
-                consoleActive,
-                consoleActive
+                externalDesktopActive,
+                consoleModeActive,
+                activeDesktopDisplayId > Display.DEFAULT_DISPLAY
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
-                                consoleDisplayId),
+                                activeDesktopDisplayId),
                 ShellAccess.isReady(),
                 ConsoleModeState.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
@@ -387,10 +440,12 @@ public final class ControlActivity extends Activity
                 mExternalModeSelection,
                 mExternalDisplaySummary,
                 mExternalDisplayState,
+                mWiredDisplayId > Display.DEFAULT_DISPLAY,
+                mWirelessDisplayAvailable,
                 mStatus,
                 ShellAccess.statusLabel(),
                 currentDisplayId(),
-                consoleDisplayId));
+                externalDesktopDisplayId));
     }
 
     private void registerConsoleStateObserver() {
@@ -398,8 +453,7 @@ public final class ControlActivity extends Activity
                 mMainHandler) {
             @Override
             public void onChange(final boolean selfChange) {
-                mStatus = getString(ConsoleModeState.isActive(
-                        ControlActivity.this)
+                mStatus = getString(isExternalDesktopActive()
                         ? R.string.control_status_console_active
                         : R.string.control_status_ready);
                 scheduleExternalDisplayProbe(
@@ -480,28 +534,53 @@ public final class ControlActivity extends Activity
 
     private void startExternalDisplayProbe() {
         final int generation = mDisplayProbeGeneration;
-        ConsoleModeSwitcher.probeExternalDisplay((displayId, selection) ->
+        ConsoleModeSwitcher.probeExternalDisplay((
+                wiredDisplayId, wirelessDisplayId, selection) ->
                 runOnUiThread(() -> finishExternalDisplayProbe(
-                        generation, displayId, selection)));
+                        generation,
+                        wiredDisplayId,
+                        wirelessDisplayId,
+                        selection)));
     }
 
     private void finishExternalDisplayProbe(
             final int generation,
-            final int displayId,
+            final int wiredDisplayId,
+            final int wirelessDisplayId,
             final NubiaHdmiModeController.Selection selection) {
         if (generation != mDisplayProbeGeneration
                 || isActivityUnavailable()) {
             return;
         }
-        final boolean connected = displayId > Display.DEFAULT_DISPLAY;
-        mExternalModeSelection = connected ? selection : null;
+        mWiredDisplayId = wiredDisplayId;
+        mWirelessDisplayId = wirelessDisplayId;
+        final boolean wiredConnected =
+                wiredDisplayId > Display.DEFAULT_DISPLAY;
+        final boolean wirelessConnected =
+                wirelessDisplayId > Display.DEFAULT_DISPLAY;
+        final boolean connected = wiredConnected || wirelessConnected;
+        mExternalModeSelection = wiredConnected ? selection : null;
+        final int selectedDisplayId = wiredConnected
+                ? wiredDisplayId : wirelessDisplayId;
         mExternalDisplaySummary = connected
-                ? describeExternalDisplay(displayId, selection) : null;
+                ? describeExternalDisplay(
+                        selectedDisplayId, mExternalModeSelection)
+                : null;
         mExternalDisplayState = connected
                 ? PhoneControlPanelController.ExternalDisplayState.CONNECTED
                 : PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
         final boolean shouldStart = mStartExternalDesktopAfterProbe;
         mStartExternalDesktopAfterProbe = false;
+        final boolean shouldStartWireless =
+                mAwaitingWirelessDisplay && wirelessConnected;
+        if (shouldStartWireless) {
+            mAwaitingWirelessDisplay = false;
+            mStatus = getString(R.string.status_wireless_desktop_starting);
+            refresh();
+            ConsoleModeSwitcher.showDesktop(
+                    DesktopDisplayTarget.wireless(wirelessDisplayId));
+            return;
+        }
         if (shouldStart && connected) {
             startExternalDesktopAfterProbe();
             return;
@@ -510,6 +589,18 @@ public final class ControlActivity extends Activity
             mStatus = getString(R.string.status_external_display_unavailable);
         }
         refresh();
+    }
+
+    private boolean isDisplayConnected(final int displayId) {
+        return displayId > Display.DEFAULT_DISPLAY
+                && mDisplayManager != null
+                && mDisplayManager.getDisplay(displayId) != null;
+    }
+
+    private boolean isExternalDesktopActive() {
+        return ConsoleModeState.isActive(this)
+                || DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        > Display.DEFAULT_DISPLAY;
     }
 
     private String describeExternalDisplay(

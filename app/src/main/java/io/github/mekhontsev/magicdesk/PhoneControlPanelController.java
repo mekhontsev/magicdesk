@@ -58,7 +58,8 @@ final class PhoneControlPanelController {
     }
 
     static final class State {
-        final boolean consoleActive;
+        final boolean externalDesktopActive;
+        final boolean consoleModeActive;
         final boolean desktopReady;
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
@@ -67,13 +68,16 @@ final class PhoneControlPanelController {
         final NubiaHdmiModeController.Selection externalModeSelection;
         final String externalDisplaySummary;
         final ExternalDisplayState externalDisplayState;
+        final boolean wiredDisplayConnected;
+        final boolean wirelessDisplayAvailable;
         final String status;
         final String runtime;
         final int currentDisplayId;
-        final int consoleDisplayId;
+        final int externalDesktopDisplayId;
 
         State(
-                final boolean consoleActive,
+                final boolean externalDesktopActive,
+                final boolean consoleModeActive,
                 final boolean desktopReady,
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
@@ -82,11 +86,14 @@ final class PhoneControlPanelController {
                 final NubiaHdmiModeController.Selection externalModeSelection,
                 final String externalDisplaySummary,
                 final ExternalDisplayState externalDisplayState,
+                final boolean wiredDisplayConnected,
+                final boolean wirelessDisplayAvailable,
                 final String status,
                 final String runtime,
                 final int currentDisplayId,
-                final int consoleDisplayId) {
-            this.consoleActive = consoleActive;
+                final int externalDesktopDisplayId) {
+            this.externalDesktopActive = externalDesktopActive;
+            this.consoleModeActive = consoleModeActive;
             this.desktopReady = desktopReady;
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
@@ -95,10 +102,12 @@ final class PhoneControlPanelController {
             this.externalModeSelection = externalModeSelection;
             this.externalDisplaySummary = externalDisplaySummary;
             this.externalDisplayState = externalDisplayState;
+            this.wiredDisplayConnected = wiredDisplayConnected;
+            this.wirelessDisplayAvailable = wirelessDisplayAvailable;
             this.status = status;
             this.runtime = runtime;
             this.currentDisplayId = currentDisplayId;
-            this.consoleDisplayId = consoleDisplayId;
+            this.externalDesktopDisplayId = externalDesktopDisplayId;
         }
     }
 
@@ -184,13 +193,13 @@ final class PhoneControlPanelController {
         mStatus.setText(state.status);
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
-        final String consoleDisplay = state.consoleActive
-                ? Integer.toString(state.consoleDisplayId)
+        final String externalDesktopDisplay = state.externalDesktopActive
+                ? Integer.toString(state.externalDesktopDisplayId)
                 : mActivity.getString(R.string.state_off);
         mDisplay.setText(mActivity.getString(
                 R.string.control_display_status,
                 Integer.valueOf(state.currentDisplayId),
-                consoleDisplay));
+                externalDesktopDisplay));
         if (state.externalDisplaySummary == null
                 || state.externalDisplaySummary.isEmpty()) {
             mExternalDisplay.setVisibility(View.GONE);
@@ -201,12 +210,13 @@ final class PhoneControlPanelController {
             mExternalDisplay.setVisibility(View.VISIBLE);
         }
 
-        if (!state.consoleActive
+        if (!state.externalDesktopActive
                 && state.externalDisplayState
                         == ExternalDisplayState.DISCONNECTED) {
-            mExternalDesktop.setText(
-                    R.string.action_connect_external_display);
-        } else if (!state.consoleActive) {
+            mExternalDesktop.setText(state.wirelessDisplayAvailable
+                    ? R.string.action_connect_wireless_display
+                    : R.string.action_connect_external_display);
+        } else if (!state.externalDesktopActive) {
             mExternalDesktop.setText(
                     R.string.action_start_console_mode);
         } else if (!state.desktopReady) {
@@ -218,12 +228,14 @@ final class PhoneControlPanelController {
         }
         mExternalDesktop.setEnabled(
                 state.consoleControlAvailable
-                        && (state.consoleActive
+                        && (state.externalDesktopActive
+                                || state.wirelessDisplayAvailable
                                 || state.externalDisplayState
                                         == ExternalDisplayState.CONNECTED));
         final boolean canConfigureOutput =
-                !state.consoleActive
+                !state.externalDesktopActive
                         && state.consoleControlAvailable
+                        && state.wiredDisplayConnected
                         && state.externalDisplayState
                                 == ExternalDisplayState.CONNECTED;
         mFillDisplay.setChecked(state.fillExternalDisplay);
@@ -231,15 +243,15 @@ final class PhoneControlPanelController {
         renderOutputModes(state.externalModeSelection);
         mOutputMode.setEnabled(canConfigureOutput && !mOutputModes.isEmpty());
         mMirror.setEnabled(
-                state.consoleActive
+                state.consoleModeActive
                         && state.consoleControlAvailable);
         mTouchpad.setEnabled(
-                state.consoleActive && state.consoleControlAvailable);
+                state.consoleModeActive && state.consoleControlAvailable);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);
         mPhoneScreen.setEnabled(
-                state.consoleActive
+                state.consoleModeActive
                         && state.phoneScreenControlAvailable);
         mRendering = false;
     }

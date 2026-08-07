@@ -34,8 +34,19 @@ final class ConsoleDisplayController {
     }
 
     static int findExternalDisplayId() {
-        final String output = runCommand(
-                DISPLAY + " get-displays --ids-only --type external");
+        return findFirstDisplayId(runCommand(
+                DISPLAY + " get-displays --ids-only --type external"));
+    }
+
+    static int findWirelessDisplayId() {
+        return findFirstDisplayId(runCommand(
+                DISPLAY + " get-displays --ids-only --type wifi"));
+    }
+
+    static int findFirstDisplayId(final String output) {
+        if (output == null) {
+            return -1;
+        }
         for (final String line : output.split("\\r?\\n")) {
             try {
                 final int displayId = Integer.parseInt(line.trim());

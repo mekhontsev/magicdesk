@@ -1,23 +1,16 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class ConsoleSessionController {
     private static final String TAG = "MagicDeskConsoleSession";
-    private static final String AM = "/system/bin/am";
     private static final String SEED_COMPONENT =
             "io.github.mekhontsev.magicdesk/.ConsoleSeedActivity";
-    private static final String DESKTOP_COMPONENT =
-            "io.github.mekhontsev.magicdesk/.DesktopActivity";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
-    private static final Pattern DESKTOP_TASK_ID_PATTERN =
-            Pattern.compile("desktop-task-id=(-?\\d+)");
+    private static final String AM = "/system/bin/am";
 
     private ConsoleSessionController() {
     }
@@ -75,49 +68,9 @@ final class ConsoleSessionController {
                 prepareConsoleDisplayDensity(
                         consoleDisplayId, physicalDisplayId);
             }
-            final Boolean visibleTaskSnapshot =
-                    DesktopTaskController.hasVisibleAppTaskSnapshot(
-                            consoleDisplayId);
-            final boolean restoreWindows =
-                    visibleTaskSnapshot != null
-                            && !visibleTaskSnapshot.booleanValue();
-            final int desktopTaskId =
-                    findDesktopTask(consoleDisplayId);
-            if (desktopTaskId >= 0) {
-                final String focusOutput = ShellAccess.run(
-                        AM + " task focus " + desktopTaskId).trim();
-                Log.i(TAG, "Shell MagicDesk focus task=" + desktopTaskId
-                        + " output=" + focusOutput.replace('\n', ' '));
-                if (restoreWindows) {
-                    DesktopRuntimeBridge.restoreLastVisibleWindows();
-                }
-                if (startedConsoleMode) {
-                    NubiaTouchpadController.refreshOrOpen();
-                }
-                return;
-            }
-            final String output = ShellAccess.run(
-                    AM + " start -W --display " + consoleDisplayId
-                            + " --windowingMode 5"
-                            + " -f 0x18000000"
-                            + " -a android.intent.action.MAIN"
-                            + " -c android.intent.category.LAUNCHER"
-                            + (restoreWindows
-                                    ? " --es " + DesktopShellActivity.EXTRA_ACTION
-                                            + " "
-                                            + DesktopShellActivity.ACTION_RESTORE_WINDOWS
-                                    : "")
-                            + " -n " + DESKTOP_COMPONENT)
-                    .trim();
-            if (output.startsWith("Error:")
-                    || output.contains(
-                            "Exception occurred while executing")) {
-                throw new IOException(output);
-            }
-            Log.i(TAG, "Shell MagicDesk launch display=" + consoleDisplayId
-                    + " output=" + output.replace('\n', ' '));
-            if (startedConsoleMode
-                    && waitForDesktopReady(consoleDisplayId)) {
+            final boolean desktopReady = DesktopSessionController.show(
+                    DesktopDisplayTarget.wired(consoleDisplayId));
+            if (startedConsoleMode && desktopReady) {
                 NubiaTouchpadController.refreshOrOpen();
             }
         } catch (IOException error) {
@@ -139,21 +92,6 @@ final class ConsoleSessionController {
             return true;
         }
         return NubiaCaptionVisibilityManager.setEnabled(enabled);
-    }
-
-    private static int findDesktopTask(final int displayId)
-            throws IOException {
-        final String output = ShellAccess.run(
-                AppProcessCommand.run(
-                        TASK_CONTROL_COMMAND,
-                        "desktop-task-id " + displayId));
-        final Matcher matcher =
-                DESKTOP_TASK_ID_PATTERN.matcher(output);
-        if (!matcher.find()) {
-            throw new IOException(
-                    "could not query MagicDesk desktop task: " + output.trim());
-        }
-        return Integer.parseInt(matcher.group(1));
     }
 
     private static boolean hasVisibleAppTask(final int displayId)
@@ -188,22 +126,6 @@ final class ConsoleSessionController {
                 "NUBIA-CONSOLE-004",
                 "The external desktop needs a foreground application",
                 output);
-        return false;
-    }
-
-    private static boolean waitForDesktopReady(
-            final int displayId) throws IOException {
-        final long deadline = SystemClock.uptimeMillis()
-                + ConsoleDisplayController.START_TIMEOUT_MS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            if (!ConsoleDisplayController.displayExists(displayId)) {
-                return false;
-            }
-            if (findDesktopTask(displayId) >= 0) {
-                return true;
-            }
-            SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
-        }
         return false;
     }
 

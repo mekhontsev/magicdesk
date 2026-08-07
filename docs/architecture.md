@@ -226,6 +226,28 @@ exists only for compilation; it is not packaged in the APK.
 A `SessionProfile` stores only a display selection policy. Runtime display IDs
 are never persisted as constants.
 
+`DesktopDisplayTarget` describes a secondary display that is already ready for
+desktop content. `DesktopSessionController` then focuses or creates the same
+`DesktopActivity` task for wired, wireless, and simulated targets. The
+transport-specific code stops at that boundary. Local startup retains its
+launcher-navigation guard, then starts the same desktop host and controllers.
+
+- `ConsoleSessionController` asks REDMAGIC firmware to turn a physical USB-C
+  display into Nubia's virtual desktop display, applies its output profile, and
+  enables the stock touchpad and wired input-routing path.
+- Wireless startup opens the stock SmartCast/Miracast picker. Once Android
+  reports a Wi-Fi presentation display, MagicDesk passes that display ID to
+  the common desktop session without implementing a second discovery or
+  streaming stack.
+- An Android overlay display is used only by the contributor smoke test. It
+  exercises the standard desktop Activity and task placement without adding a
+  viewer, synthetic input path, or virtual-display feature to the APK.
+
+The runtime owns native caption visibility for any active secondary desktop.
+Nubia's mouse and keyboard port association remains limited to its wired
+Console display because Miracast and simulated displays do not expose the same
+physical display port contract.
+
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** uses a dedicated task excluded from Recents. The phone
   control panel remains MagicDesk's only Recents card, while the desktop uses
@@ -235,6 +257,11 @@ are never persisted as constants.
   visible windows from resumed minimized windows without replacing the phone
   launcher.
 - Phone control and external desktop are separate tasks and may coexist.
+
+Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
+The script temporarily sets `overlay_display_devices`, starts the real
+`DesktopActivity` on that display, verifies task placement, and restores the
+previous setting on exit.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external

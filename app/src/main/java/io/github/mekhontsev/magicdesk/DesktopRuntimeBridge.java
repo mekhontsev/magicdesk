@@ -81,11 +81,11 @@ final class DesktopRuntimeBridge {
         }
     }
 
-    static void closeExternalDesktopSession(final int consoleDisplayId) {
+    static void closeExternalDesktopSession(final int externalDisplayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
-                || consoleDisplayId <= Display.DEFAULT_DISPLAY
-                || sDesktopSessionDisplayId != consoleDisplayId) {
+                || externalDisplayId <= Display.DEFAULT_DISPLAY
+                || sDesktopSessionDisplayId != externalDisplayId) {
             return;
         }
         sDesktop.clear();

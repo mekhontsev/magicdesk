@@ -85,7 +85,8 @@ public final class DesktopActivity extends DesktopShellActivity {
                 options, WINDOWING_MODE_FREEFORM);
         source.startActivity(
                 createLaunchIntent(source).addFlags(
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK),
+                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                        .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId),
                 options.toBundle());
     }
 }

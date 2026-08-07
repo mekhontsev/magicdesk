@@ -44,7 +44,8 @@ final class ConsoleModeSwitcher {
 
     interface ExternalDisplayProbeCallback {
         void onComplete(
-                int displayId,
+                int wiredDisplayId,
+                int wirelessDisplayId,
                 NubiaHdmiModeController.Selection modeSelection);
     }
 
@@ -95,12 +96,68 @@ final class ConsoleModeSwitcher {
             @Override
             public void run() {
                 try {
-                    ConsoleSessionController.show(knownConsoleDisplayId);
+                    showPreferredDesktop(knownConsoleDisplayId);
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);
                 }
             }
         });
+    }
+
+    static void showDesktop(final DesktopDisplayTarget target) {
+        if (target == null
+                || target.displayId <= android.view.Display.DEFAULT_DISPLAY
+                || target.kind == DesktopDisplayTarget.Kind.WIRED) {
+            throw new IllegalArgumentException(
+                    "a prepared non-wired display target is required");
+        }
+        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
+            Log.i(TAG, "MagicDesk activation is already in progress");
+            return;
+        }
+        EXECUTOR.execute(() -> {
+            try {
+                showPreparedDesktop(target);
+            } finally {
+                DESKTOP_START_IN_PROGRESS.set(false);
+            }
+        });
+    }
+
+    private static void showPreferredDesktop(
+            final int knownConsoleDisplayId) {
+        if (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY
+                || ConsoleDisplayController.getActiveConsoleDisplayId()
+                        > android.view.Display.DEFAULT_DISPLAY
+                || ConsoleDisplayController.findExternalDisplayId()
+                        > android.view.Display.DEFAULT_DISPLAY) {
+            ConsoleSessionController.show(knownConsoleDisplayId);
+            return;
+        }
+        final int wirelessDisplayId =
+                ConsoleDisplayController.findWirelessDisplayId();
+        if (wirelessDisplayId > android.view.Display.DEFAULT_DISPLAY) {
+            showPreparedDesktop(
+                    DesktopDisplayTarget.wireless(wirelessDisplayId));
+            return;
+        }
+        ConsoleSessionController.show(knownConsoleDisplayId);
+    }
+
+    private static void showPreparedDesktop(
+            final DesktopDisplayTarget target) {
+        try {
+            DesktopSessionController.show(target);
+        } catch (IOException error) {
+            Log.w(TAG, "Secondary desktop launch failed", error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-LAUNCH-002",
+                    "Could not open MagicDesk on the selected display",
+                    "kind=" + target.kind
+                            + " display=" + target.displayId
+                            + " error=" + error.getMessage(),
+                    error);
+        }
     }
 
     static void toggleDesktopWorkspace() {
@@ -112,10 +169,12 @@ final class ConsoleModeSwitcher {
     static void probeExternalDisplay(
             final ExternalDisplayProbeCallback callback) {
         EXECUTOR.execute(() -> {
-            final int displayId =
+            final int wiredDisplayId =
                     ConsoleDisplayController.findExternalDisplayId();
+            final int wirelessDisplayId =
+                    ConsoleDisplayController.findWirelessDisplayId();
             NubiaHdmiModeController.Selection selection = null;
-            if (displayId > 0) {
+            if (wiredDisplayId > 0) {
                 try {
                     final ExternalDisplayLaunchSettings.Config config =
                             ExternalDisplayLaunchSettings.load(
@@ -132,7 +191,8 @@ final class ConsoleModeSwitcher {
                 }
             }
             if (callback != null) {
-                callback.onComplete(displayId, selection);
+                callback.onComplete(
+                        wiredDisplayId, wirelessDisplayId, selection);
             }
         });
     }

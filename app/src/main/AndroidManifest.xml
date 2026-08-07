@@ -11,6 +11,7 @@
         <package android:name="cn.nubia.redmagickyi" />
         <package android:name="cn.zte.chargeseparation" />
         <package android:name="com.zte.mifavor.launcher" />
+        <package android:name="cn.nubia.touping" />
         <provider android:authorities="cn.nubia.touping.TouPingProvider" />
         <intent>
             <action android:name="android.intent.action.MAIN" />

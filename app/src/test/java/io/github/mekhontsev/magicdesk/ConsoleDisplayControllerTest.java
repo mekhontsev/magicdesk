@@ -27,4 +27,19 @@ public final class ConsoleDisplayControllerTest {
         assertNull(ConsoleDisplayController.parsePhysicalDisplayId(DISPLAYS, 3));
         assertNull(ConsoleDisplayController.parsePhysicalDisplayId(null, 0));
     }
+
+    @Test
+    public void firstPositiveDisplayIdIgnoresDiagnostics() {
+        assertEquals(
+                23,
+                ConsoleDisplayController.findFirstDisplayId(
+                        "unsupported entry\n0\n23\n42\n"));
+        assertEquals(
+                -1,
+                ConsoleDisplayController.findFirstDisplayId(
+                        "unsupported entry\n0\n"));
+        assertEquals(
+                -1,
+                ConsoleDisplayController.findFirstDisplayId(null));
+    }
 }

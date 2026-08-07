@@ -46,7 +46,8 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mHasExternalMouse;
     private String mExternalInputDeviceSignature;
     private boolean mConsoleModeActive;
-    private boolean mOwnsConsoleDesktop;
+    private int mOwnedDesktopDisplayId = android.view.Display.INVALID_DISPLAY;
+    private boolean mOwnsNubiaConsoleDesktop;
     private int mConsoleDisplayId;
     private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
@@ -200,7 +201,7 @@ public final class MagicDeskRuntimeService extends Service {
         registerConsoleModeObserver();
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
-                    mOwnsConsoleDesktop);
+                    ownsExternalDesktop());
         } else {
             NubiaCaptionVisibilityManager.setEnabled(false);
         }
@@ -237,7 +238,8 @@ public final class MagicDeskRuntimeService extends Service {
                     startActivity(ControlActivity.createLaunchIntent(this));
                     Log.i(TAG, "focused phone control panel from notification");
                 } else if (ShellAccess.isReady()) {
-                    ConsoleModeSwitcher.showMagicDesk();
+                    startActivity(ControlActivity.createLaunchIntent(this));
+                    Log.i(TAG, "opened phone control panel from notification");
                 } else {
                     startActivity(DeviceSetupActivity.createLaunchIntent(this));
                 }
@@ -345,7 +347,11 @@ public final class MagicDeskRuntimeService extends Service {
         updateConsoleMouseBridge();
     }
 
-    private void handleDisplayStateChanged(final boolean displayRemoved) {
+    private void handleDisplayStateChanged(
+            final int displayId, final boolean displayRemoved) {
+        if (displayRemoved) {
+            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
+        }
         handleConsoleStateMaybeChanged();
         refreshDesktopOwnership();
         if (displayRemoved) {
@@ -504,7 +510,7 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private boolean shouldRunConsoleMouseBridge() {
-        return mOwnsConsoleDesktop
+        return ownsNubiaConsoleDesktop()
                 && (mHasExternalMouse
                         || (mConsoleMouseBridge != null
                                 && mConsoleMouseBridge.isRunning()))
@@ -512,7 +518,7 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void refreshConsoleInputSources() {
-        if (!mOwnsConsoleDesktop || !ShellAccess.isReady()) {
+        if (!ownsNubiaConsoleDesktop() || !ShellAccess.isReady()) {
             return;
         }
         final int generation = ++mInputSourceRefreshGeneration;
@@ -525,7 +531,7 @@ public final class MagicDeskRuntimeService extends Service {
                 final List<ConsoleMouseDevice> mice =
                         ConsoleInputDeviceDiscovery.findMice(inputDump);
                 mHandler.post(() -> {
-                    if (mDestroyed || !mOwnsConsoleDesktop
+                    if (mDestroyed || !ownsNubiaConsoleDesktop()
                             || generation != mInputSourceRefreshGeneration) {
                         return;
                     }
@@ -552,11 +558,11 @@ public final class MagicDeskRuntimeService extends Service {
         updateConsoleMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            if (mOwnsConsoleDesktop) {
+            if (ownsNubiaConsoleDesktop()) {
                 NubiaHostAssistPanelController.hideIfPresent();
             }
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
-                    mOwnsConsoleDesktop);
+                    ownsExternalDesktop());
             RedmagicHardwareController.start(this);
             maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
@@ -586,26 +592,40 @@ public final class MagicDeskRuntimeService extends Service {
     private void refreshDesktopOwnership() {
         final int desktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final boolean ownsConsoleDesktop = mConsoleModeActive
-                && desktopDisplayId == mConsoleDisplayId;
-        if (ownsConsoleDesktop == mOwnsConsoleDesktop) {
+        final boolean ownsNubiaConsoleDesktop =
+                desktopDisplayId > android.view.Display.DEFAULT_DISPLAY
+                        && mConsoleModeActive
+                        && desktopDisplayId == mConsoleDisplayId;
+        if (desktopDisplayId == mOwnedDesktopDisplayId
+                && ownsNubiaConsoleDesktop
+                        == mOwnsNubiaConsoleDesktop) {
             return;
         }
-        mOwnsConsoleDesktop = ownsConsoleDesktop;
-        Log.i(TAG, "ownsConsoleDesktop=" + mOwnsConsoleDesktop
+        mOwnedDesktopDisplayId = desktopDisplayId;
+        mOwnsNubiaConsoleDesktop = ownsNubiaConsoleDesktop;
+        Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
-        if (mOwnsConsoleDesktop) {
+        if (ownsNubiaConsoleDesktop()) {
             NubiaHostAssistPanelController.hideIfPresent();
         }
         updateConsoleMouseBridge();
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.setExternalTaskCaptionsEnabled(
-                    mOwnsConsoleDesktop);
+                    ownsExternalDesktop());
         }
-        if (mOwnsConsoleDesktop) {
+        if (ownsNubiaConsoleDesktop()) {
             refreshConsoleInputSources();
         }
+    }
+
+    private boolean ownsNubiaConsoleDesktop() {
+        return mOwnsNubiaConsoleDesktop;
+    }
+
+    private boolean ownsExternalDesktop() {
+        return mOwnedDesktopDisplayId
+                > android.view.Display.DEFAULT_DISPLAY;
     }
 
     private void updateDesktopTasks() {

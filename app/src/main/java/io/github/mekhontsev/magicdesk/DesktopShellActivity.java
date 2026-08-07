@@ -13,6 +13,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
@@ -34,7 +35,9 @@ import android.widget.Toast;
 
 import java.lang.reflect.Method;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public abstract class DesktopShellActivity extends Activity
         implements MagicDeskSessionHost {
@@ -46,9 +49,15 @@ public abstract class DesktopShellActivity extends Activity
     static final String HARDWARE_LAYOUT_NAME_STATE =
             "magicdesk_hardware_keyboard_layout_name";
     static final String EXTRA_ACTION = "magicdesk_action";
+    static final String EXTRA_EXPECTED_DISPLAY_ID =
+            "magicdesk_expected_display_id";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
+    private static final String STATE_EXPECTED_DISPLAY_ID =
+            "expected_display_id";
+    private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
+            new HashMap<>();
     static final int TASKBAR_HEIGHT_DP = 64;
     private static final int COMPACT_TASKBAR_HEIGHT_DP = 52;
     private FrameLayout mDesktopRoot;
@@ -79,10 +88,39 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
     private boolean mTaskbarVisible = true;
+    private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        final int displayId = getCurrentDisplayId();
+        final Integer retainedDisplayId =
+                EXPECTED_DISPLAY_BY_TASK.get(Integer.valueOf(getTaskId()));
+        mExpectedDisplayId = retainedDisplayId != null
+                ? retainedDisplayId.intValue()
+                : savedInstanceState == null
+                        ? getIntent().getIntExtra(
+                                EXTRA_EXPECTED_DISPLAY_ID, displayId)
+                        : savedInstanceState.getInt(
+                                STATE_EXPECTED_DISPLAY_ID, displayId);
+        EXPECTED_DISPLAY_BY_TASK.put(
+                Integer.valueOf(getTaskId()),
+                Integer.valueOf(mExpectedDisplayId));
+        final DisplayManager displayManager =
+                getSystemService(DisplayManager.class);
+        final boolean expectedDisplayExists = displayManager != null
+                && displayManager.getDisplay(mExpectedDisplayId) != null;
+        if (isFinishing()
+                || displayId != mExpectedDisplayId
+                || !expectedDisplayExists) {
+            Log.i(TAG, "discarding desktop moved from display="
+                    + mExpectedDisplayId + " to display=" + displayId
+                    + " finishing=" + isFinishing()
+                    + " targetExists=" + expectedDisplayExists);
+            finishAndRemoveTask();
+            overridePendingTransition(0, 0);
+            return;
+        }
         if (!DeviceSetupManager.isRuntimeAuthorized()) {
             final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
             final String action = getIntent().getStringExtra(EXTRA_ACTION);
@@ -179,6 +217,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onSaveInstanceState(final Bundle outState) {
+        outState.putInt(STATE_EXPECTED_DISPLAY_ID, mExpectedDisplayId);
         outState.putBoolean(
                 STATE_TOOLS_VISIBLE,
                 mStartMenuController != null
@@ -225,6 +264,9 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.unregister(this);
         if (mDesktopControls != null) {
             mDesktopControls.stop();
+        }
+        if (!isChangingConfigurations()) {
+            EXPECTED_DISPLAY_BY_TASK.remove(Integer.valueOf(getTaskId()));
         }
         super.onDestroy();
     }
