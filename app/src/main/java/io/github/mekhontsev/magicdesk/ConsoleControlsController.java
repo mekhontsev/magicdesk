@@ -19,10 +19,6 @@ import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
-import java.util.Collections;
-import java.util.Set;
-import java.util.WeakHashMap;
-
 final class ConsoleControlsController {
     private static final int ACTION_BUTTON_HEIGHT_DP = 48;
     private static final int DPI_MIN = DisplayDensityPolicy.MIN_DPI;
@@ -37,9 +33,6 @@ final class ConsoleControlsController {
     private final PointerSpeedPanelController mPointerSpeed;
     private final DisplayCapturePanelController mCapture;
     private final ChargeSeparationController mChargeSeparation;
-    private final Set<Button> mConsoleModeActions =
-            Collections.newSetFromMap(
-                    new WeakHashMap<Button, Boolean>());
     private Button mPhoneScreenAction;
     private Button mTouchpadAction;
     private SeekBar mDpiSlider;
@@ -53,7 +46,6 @@ final class ConsoleControlsController {
     private Intent mLastBatteryIntent;
     private String mLastStatusText;
     private boolean mUpdatingChargeSeparation;
-    private boolean mConsoleModeProbeInProgress;
     ConsoleControlsController(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
@@ -143,12 +135,12 @@ final class ConsoleControlsController {
                 togglePhoneScreen());
         addActionButton(actionGrid, mPhoneScreenAction);
 
-        final Button consoleMode = mUi.actionButton(
-                R.string.action_switch_to_mirror,
+        final Button closeDesktop = mUi.actionButton(
+                R.string.action_close_desktop,
                 DesktopUiFactory.COLOR_CYAN);
-        mConsoleModeActions.add(consoleMode);
-        consoleMode.setOnClickListener(view -> toggleConsoleMode());
-        addActionButton(actionGrid, consoleMode);
+        closeDesktop.setOnClickListener(view ->
+                mActivity.closeDesktop());
+        addActionButton(actionGrid, closeDesktop);
 
         mTouchpadAction = mUi.actionButton(
                 R.string.action_open_touchpad,
@@ -296,16 +288,9 @@ final class ConsoleControlsController {
                     mActivity.getMonitorProfileLabel()));
         }
         final boolean consoleModeActive = isConsoleModeActive();
-        final boolean consoleControl = ShellAccess.isReady();
         if (mTouchpadAction != null) {
-            mTouchpadAction.setEnabled(consoleModeActive && consoleControl);
-        }
-        for (final Button action : mConsoleModeActions) {
-            action.setText(consoleModeActive
-                    ? R.string.action_switch_to_mirror
-                    : R.string.action_start_console_mode);
-            action.setEnabled(consoleControl
-                    && !mConsoleModeProbeInProgress);
+            mTouchpadAction.setEnabled(
+                    consoleModeActive && ShellAccess.isReady());
         }
         mActivity.taskbar().updateSystemStatus(
                 consoleModeActive,
@@ -345,59 +330,6 @@ final class ConsoleControlsController {
                                 mActivity.getString(resultResId));
                     }
                 }));
-    }
-
-    private void toggleConsoleMode() {
-        if (!ShellAccess.isReady()) {
-            return;
-        }
-        if (!isConsoleModeActive()) {
-            mConsoleModeProbeInProgress = true;
-            update();
-            mActivity.setStatus(
-                    R.string.status_external_display_checking);
-            ConsoleModeSwitcher.probeExternalDisplay(
-                    (displayId, selection) ->
-                            mActivity.runOnUiThread(() -> {
-                                mConsoleModeProbeInProgress = false;
-                                if (mActivity.isFinishing()
-                                        || mActivity.isDestroyed()) {
-                                    return;
-                                }
-                                if (displayId <= 0) {
-                                    update();
-                                    mActivity.setStatus(
-                                            R.string.status_external_display_unavailable);
-                                    return;
-                                }
-                                mActivity.setStatus(
-                                        R.string.status_console_starting);
-                                ConsoleModeSwitcher.showMagicDesk(displayId);
-                                update();
-                            }));
-            return;
-        }
-
-        for (final Button action : mConsoleModeActions) {
-            action.setEnabled(false);
-        }
-        mActivity.setStatus(R.string.status_mirror_switching);
-        ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                success -> {
-                    mActivity.runOnUiThread(() -> {
-                        update();
-                        final int result = success
-                                ? R.string.status_mirror_active
-                                : R.string.status_mirror_failed;
-                        if (success) {
-                            mActivity.setStatus(result);
-                        } else {
-                            mActivity.setErrorStatus(
-                                    "NUBIA-CONSOLE-001",
-                                    mActivity.getString(result));
-                        }
-                    });
-                });
     }
 
     private boolean isPhoneScreenOff() {

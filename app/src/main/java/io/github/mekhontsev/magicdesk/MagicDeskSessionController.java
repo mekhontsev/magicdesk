@@ -4,13 +4,14 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Intent;
 import android.util.Log;
+import android.view.Display;
 
 final class MagicDeskSessionController {
     private static final String TAG = "MagicDesk";
 
     private final MagicDeskSessionHost mHost;
     private final Activity mActivity;
-    private boolean mExitInProgress;
+    private boolean mOperationInProgress;
 
     MagicDeskSessionController(final MagicDeskSessionHost host) {
         mHost = host;
@@ -18,10 +19,10 @@ final class MagicDeskSessionController {
     }
 
     void exit() {
-        if (mExitInProgress) {
+        if (mOperationInProgress) {
             return;
         }
-        mExitInProgress = true;
+        mOperationInProgress = true;
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
@@ -41,6 +42,30 @@ final class MagicDeskSessionController {
             return;
         }
         continueExit();
+    }
+
+    void closeDesktop() {
+        if (mOperationInProgress) {
+            return;
+        }
+        mOperationInProgress = true;
+        Log.i(TAG, "desktop close requested");
+        mHost.showSessionStatus(
+                mActivity.getString(R.string.status_desktop_closing));
+        final Display display = mActivity.getDisplay();
+        if (display == null
+                || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
+            mActivity.runOnUiThread(mActivity::finishAndRemoveTask);
+            return;
+        }
+        ConsoleModeSwitcher.switchToMirrorWithControlPanel(success -> {
+            if (!success) {
+                abort(
+                        "NUBIA-CONSOLE-001",
+                        mActivity.getString(R.string.status_mirror_failed),
+                        null);
+            }
+        });
     }
 
     private void continueExit() {
@@ -168,7 +193,7 @@ final class MagicDeskSessionController {
             final Throwable error) {
         Log.w(TAG, "MagicDesk exit aborted: " + message, error);
         mActivity.runOnUiThread(() -> {
-            mExitInProgress = false;
+            mOperationInProgress = false;
             mHost.showSessionError(code, message, error);
         });
     }

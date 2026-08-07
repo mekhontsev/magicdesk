@@ -54,6 +54,7 @@
     <string name="action_phone_screen_off">Turn phone screen off</string>
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
+    <string name="action_close_desktop">Close desktop</string>
     <string name="action_connect_external_display">Connect an external display</string>
     <string name="action_start_console_mode">Start external desktop</string>
     <string name="action_resume_external_desktop">Resume external desktop</string>
@@ -197,6 +198,7 @@
     <string name="status_external_display_checking">Checking external display&#8230;</string>
     <string name="status_external_display_unavailable">No external display detected</string>
     <string name="status_desktop_opening">Opening desktop here&#8230;</string>
+    <string name="status_desktop_closing">Closing desktop&#8230;</string>
     <string name="status_touchpad_opening">Opening Nubia touchpad&#8230;</string>
     <string name="status_mirror_switching">Switching to screen mirroring&#8230;</string>
     <string name="status_mirror_active">Screen mirroring active</string>

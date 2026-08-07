@@ -1188,6 +1188,10 @@ public abstract class DesktopShellActivity extends Activity
         mSessionController.exit();
     }
 
+    void closeDesktop() {
+        mSessionController.closeDesktop();
+    }
+
     void applyDensity(final int dpi) {
         mDisplayDensityController.apply(dpi);
     }
