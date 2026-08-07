@@ -145,7 +145,7 @@ final class PhoneDisplayGuard {
             return;
         }
         MagicDeskRuntimeService.refreshNotificationIfRunning();
-        DesktopRuntimeBridge.refreshConsoleControls();
+        DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     private static void closeQuietly(final Closeable closeable) {

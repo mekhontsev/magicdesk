@@ -71,7 +71,7 @@ public abstract class DesktopShellActivity extends Activity
     private AppTaskController mAppTasks;
     private DesktopTaskSnapshotController mTaskSnapshots;
     private DisplayDensityController mDisplayDensityController;
-    private ConsoleControlsController mConsoleControls;
+    private DesktopControlsController mDesktopControls;
     private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
     private DesktopInputController mInputController;
@@ -145,7 +145,7 @@ public abstract class DesktopShellActivity extends Activity
         mTaskSnapshots = new DesktopTaskSnapshotController(
                 this, mWorkspaceAppController);
         mDisplayDensityController = new DisplayDensityController(this);
-        mConsoleControls = new ConsoleControlsController(this, mUi);
+        mDesktopControls = new DesktopControlsController(this, mUi);
         mSystemPanelController = new SystemPanelController(this, mUi);
         mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
@@ -158,7 +158,7 @@ public abstract class DesktopShellActivity extends Activity
         FreeformLaunchAnchorActivity.prepare(this);
         mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
-        mConsoleControls.start();
+        mDesktopControls.start();
         mDisplayProfiles.start();
         MagicDeskRuntimeService.start(this);
         if (ShellAccess.isReady()) {
@@ -168,7 +168,7 @@ public abstract class DesktopShellActivity extends Activity
             KeyboardShortcutWatcher.stop();
         }
         renderApps();
-        updateConsoleControls();
+        updateDesktopControls();
         handleLaunchAction(getIntent());
         ensurePreferredConsoleDensity();
         if (savedInstanceState != null
@@ -223,8 +223,8 @@ public abstract class DesktopShellActivity extends Activity
         }
         releaseDesktopOverlays();
         DesktopRuntimeBridge.unregister(this);
-        if (mConsoleControls != null) {
-            mConsoleControls.stop();
+        if (mDesktopControls != null) {
+            mDesktopControls.stop();
         }
         super.onDestroy();
     }
@@ -359,7 +359,7 @@ public abstract class DesktopShellActivity extends Activity
             refreshTaskSnapshot();
         }
         refreshDesktopFolder(true);
-        updateConsoleControls();
+        updateDesktopControls();
         mNotifications.refresh();
         ensurePreferredConsoleDensity();
         if (mHostWindowController != null) {
@@ -1076,34 +1076,34 @@ public abstract class DesktopShellActivity extends Activity
         return mDesktopLayout.viewport();
     }
 
-    void updateConsoleControls() {
-        mConsoleControls.update();
+    void updateDesktopControls() {
+        mDesktopControls.update();
     }
 
     void setHardwarePanelVisible(final boolean visible) {
-        mConsoleControls.setHardwarePanelVisible(visible);
+        mDesktopControls.setHardwarePanelVisible(visible);
     }
 
     void togglePhoneScreen() {
-        mConsoleControls.togglePhoneScreen();
+        mDesktopControls.togglePhoneScreen();
     }
 
     void populateToolsControls(
             final LinearLayout parent,
             final int spacing) {
-        mConsoleControls.populateTools(parent, spacing);
+        mDesktopControls.populateTools(parent, spacing);
     }
 
     void populateSystemControls(
             final LinearLayout parent,
             final int spacing) {
-        mConsoleControls.populateSystem(parent, spacing);
+        mDesktopControls.populateSystem(parent, spacing);
     }
 
     void populateCaptureControls(
             final LinearLayout parent,
             final int spacing) {
-        mConsoleControls.populateCapture(parent, spacing);
+        mDesktopControls.populateCapture(parent, spacing);
     }
 
     void showCaptureControls() {
@@ -1151,7 +1151,7 @@ public abstract class DesktopShellActivity extends Activity
         onDisplayProfileReset();
         renderApps();
         refreshDesktopFolder(true);
-        updateConsoleControls();
+        updateDesktopControls();
         if (resolvedDpi != previousDpi) {
             mDisplayDensityController.resetApplyState();
             ensurePreferredConsoleDensity();
@@ -1274,8 +1274,8 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void setStatus(final String text) {
-        if (mConsoleControls != null) {
-            mConsoleControls.setActivityStatus(text);
+        if (mDesktopControls != null) {
+            mDesktopControls.setActivityStatus(text);
         }
     }
 

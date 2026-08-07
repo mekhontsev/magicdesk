@@ -393,7 +393,7 @@ final class KeyboardShortcutWatcher {
             return;
         }
         if ("META_D".equals(action)) {
-            ConsoleModeSwitcher.showMagicDesk();
+            ConsoleModeSwitcher.toggleDesktopWorkspace();
             return;
         }
         if ("META_PRINT_SCREEN".equals(action)) {
@@ -480,7 +480,7 @@ final class KeyboardShortcutWatcher {
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
                 break;
             case SHOW_DESKTOP:
-                ConsoleModeSwitcher.showMagicDesk();
+                ConsoleModeSwitcher.toggleDesktopWorkspace();
                 break;
             case SCREENSHOT:
                 ConsoleModeSwitcher.captureScreenshot();

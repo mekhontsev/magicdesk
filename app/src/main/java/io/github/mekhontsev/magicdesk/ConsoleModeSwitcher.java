@@ -103,6 +103,12 @@ final class ConsoleModeSwitcher {
         });
     }
 
+    static void toggleDesktopWorkspace() {
+        if (!DesktopRuntimeBridge.toggleDesktopWorkspace()) {
+            showMagicDesk();
+        }
+    }
+
     static void probeExternalDisplay(
             final ExternalDisplayProbeCallback callback) {
         EXECUTOR.execute(() -> {
@@ -389,7 +395,7 @@ final class ConsoleModeSwitcher {
             Log.w(TAG, "screenshot failed path=" + path, error);
             CompatibilityDiagnostics.record(
                     "SCREENSHOT-001",
-                    "Could not capture the external display",
+                    "Could not capture the desktop display",
                     error.getMessage());
         }
     }

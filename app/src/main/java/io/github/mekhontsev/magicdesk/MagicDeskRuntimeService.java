@@ -225,10 +225,9 @@ public final class MagicDeskRuntimeService extends Service {
             if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
                 final int desktopDisplayId =
                         DesktopRuntimeBridge.getActiveDesktopDisplayId();
-                if (desktopDisplayId >= 0
-                        && DesktopRuntimeBridge.focusDesktopOnDisplay(
-                                desktopDisplayId)) {
-                    Log.i(TAG, "focused existing desktop from notification"
+                if (desktopDisplayId >= 0) {
+                    ConsoleModeSwitcher.toggleDesktopWorkspace();
+                    Log.i(TAG, "toggled existing desktop from notification"
                             + " display=" + desktopDisplayId);
                 } else if (mConsoleModeActive) {
                     ConsoleModeSwitcher.showMagicDesk(mConsoleDisplayId);
@@ -566,7 +565,7 @@ public final class MagicDeskRuntimeService extends Service {
             RedmagicHardwareController.stop();
         }
         updateNotification();
-        DesktopRuntimeBridge.refreshConsoleControls();
+        DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     private int getConsoleDisplayId() {

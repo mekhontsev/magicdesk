@@ -157,12 +157,12 @@ final class DesktopRuntimeBridge {
         });
     }
 
-    static void refreshConsoleControls() {
+    static void refreshDesktopControls() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {
             return;
         }
-        activity.runOnUiThread(activity::updateConsoleControls);
+        activity.runOnUiThread(activity::updateDesktopControls);
     }
 
     static boolean restoreLastVisibleWindows() {
@@ -171,6 +171,35 @@ final class DesktopRuntimeBridge {
             return false;
         }
         activity.runOnUiThread(activity::restoreLastVisibleWindows);
+        return true;
+    }
+
+    static boolean toggleDesktopWorkspace() {
+        final DesktopShellActivity activity = usableDesktop(false);
+        final int displayId = activity == null
+                ? Display.INVALID_DISPLAY : activity.getCurrentDisplayId();
+        final DesktopScreenPolicy.WorkspaceAction action =
+                DesktopScreenPolicy.workspaceAction(
+                        displayId,
+                        displayId < 0 ? null
+                                : DesktopTaskController
+                                        .hasVisibleAppTaskSnapshot(displayId));
+        if (activity == null
+                || action == DesktopScreenPolicy.WorkspaceAction
+                        .START_EXTERNAL_DESKTOP) {
+            return false;
+        }
+        activity.runOnUiThread(() -> {
+            if (!isUsable(activity)) {
+                return;
+            }
+            activity.hideAllPanels();
+            if (action == DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS) {
+                activity.restoreLastVisibleWindows();
+            } else {
+                focusDesktopOnDisplay(displayId);
+            }
+        });
         return true;
     }
 

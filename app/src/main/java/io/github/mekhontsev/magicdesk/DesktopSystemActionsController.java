@@ -11,8 +11,7 @@ final class DesktopSystemActionsController {
     }
 
     void showDesktop() {
-        mActivity.hideAllPanels();
-        ConsoleModeSwitcher.showMagicDesk();
+        ConsoleModeSwitcher.toggleDesktopWorkspace();
     }
 
     void captureScreenshot() {

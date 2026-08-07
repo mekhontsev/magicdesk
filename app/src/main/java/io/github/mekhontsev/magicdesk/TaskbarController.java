@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Intent;
 import android.os.BatteryManager;
 import android.provider.Settings;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -31,7 +32,7 @@ final class TaskbarController {
     private TextView mKeyboardLayout;
     private final InputMethodMenuController mInputMethodMenu;
     private TextView mBatteryStatus;
-    private ImageButton mConsoleButton;
+    private ImageButton mSystemButton;
     private ImageButton mPhoneScreenButton;
     private Intent mLastBatteryIntent;
     private boolean mChargeSeparationEnabled;
@@ -200,18 +201,19 @@ final class TaskbarController {
                 R.string.tooltip_phone_screen);
         mPhoneScreenButton.setOnClickListener(view ->
                 mActivity.togglePhoneScreen());
-        mPhoneScreenButton.setEnabled(ShellAccess.isReady());
+        mPhoneScreenButton.setEnabled(false);
         addButton(taskbar, mPhoneScreenButton);
-        if (mActivity.isCompactDesktopPreview()) {
+        if (mActivity.isCompactDesktopPreview()
+                || mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
             mPhoneScreenButton.setVisibility(View.GONE);
         }
 
-        mConsoleButton = taskbarButton(
+        mSystemButton = taskbarButton(
                 android.R.drawable.ic_menu_manage,
                 R.string.section_system);
-        mConsoleButton.setOnClickListener(view ->
+        mSystemButton.setOnClickListener(view ->
                 mActivity.toggleSystemPanel());
-        addButton(taskbar, mConsoleButton);
+        addButton(taskbar, mSystemButton);
 
         mBatteryStatus = new TextView(mActivity);
         mBatteryStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -256,7 +258,7 @@ final class TaskbarController {
         mKeyboardLayout = null;
         mInputMethodMenu.release();
         mBatteryStatus = null;
-        mConsoleButton = null;
+        mSystemButton = null;
         mPhoneScreenButton = null;
     }
 
@@ -419,6 +421,7 @@ final class TaskbarController {
 
     void updatePhoneScreen(
             final boolean phoneScreenOff,
+            final boolean visible,
             final boolean phoneScreenControl) {
         if (mPhoneScreenButton == null) {
             return;
@@ -439,17 +442,18 @@ final class TaskbarController {
                 mActivity.getString(actionResId));
         mPhoneScreenButton.setEnabled(phoneScreenControl);
         mPhoneScreenButton.setAlpha(phoneScreenControl ? 1f : 0.45f);
+        mPhoneScreenButton.setVisibility(
+                visible && !mActivity.isCompactDesktopPreview()
+                        ? View.VISIBLE : View.GONE);
     }
 
-    void updateSystemStatus(
-            final boolean console,
-            final boolean bridge) {
-        if (mConsoleButton == null) {
+    void updateSystemStatus(final boolean shortcutsReady) {
+        if (mSystemButton == null) {
             return;
         }
         final boolean taskControl =
                 ShellAccess.isReady();
-        final int color = taskControl && console && bridge
+        final int color = taskControl && shortcutsReady
                 ? DesktopUiFactory.COLOR_CYAN
                 : (taskControl
                         ? DesktopUiFactory.COLOR_AMBER
@@ -457,15 +461,13 @@ final class TaskbarController {
         final String description = mActivity.getString(
                 R.string.system_status_description,
                 ShellAccess.statusLabel(),
-                mActivity.getString(console
-                        ? R.string.state_ready
-                        : R.string.state_unavailable),
-                mActivity.getString(bridge
+                mActivity.getString(R.string.state_ready),
+                mActivity.getString(shortcutsReady
                         ? R.string.state_ready
                         : R.string.state_unavailable));
-        mConsoleButton.setColorFilter(color);
-        mConsoleButton.setContentDescription(description);
-        mConsoleButton.setTooltipText(description);
+        mSystemButton.setColorFilter(color);
+        mSystemButton.setContentDescription(description);
+        mSystemButton.setTooltipText(description);
     }
 
     void updateBattery(final Intent battery) {

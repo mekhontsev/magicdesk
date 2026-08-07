@@ -19,7 +19,7 @@ import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
-final class ConsoleControlsController {
+final class DesktopControlsController {
     private static final int ACTION_BUTTON_HEIGHT_DP = 48;
     private static final int DPI_MIN = DisplayDensityPolicy.MIN_DPI;
     private static final int DPI_STEP = DisplayDensityPolicy.DPI_STEP;
@@ -46,7 +46,7 @@ final class ConsoleControlsController {
     private Intent mLastBatteryIntent;
     private String mLastStatusText;
     private boolean mUpdatingChargeSeparation;
-    ConsoleControlsController(
+    DesktopControlsController(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
         mActivity = activity;
@@ -128,12 +128,17 @@ final class ConsoleControlsController {
         final GridLayout actionGrid = new GridLayout(mActivity);
         actionGrid.setColumnCount(2);
 
-        mPhoneScreenAction = mUi.actionButton(
-                R.string.action_phone_screen_off,
-                DesktopUiFactory.COLOR_CYAN);
-        mPhoneScreenAction.setOnClickListener(view ->
-                togglePhoneScreen());
-        addActionButton(actionGrid, mPhoneScreenAction);
+        final boolean externalDesktop =
+                DesktopScreenPolicy.isExternalDesktop(
+                        mActivity.getCurrentDisplayId());
+        if (externalDesktop) {
+            mPhoneScreenAction = mUi.actionButton(
+                    R.string.action_phone_screen_off,
+                    DesktopUiFactory.COLOR_CYAN);
+            mPhoneScreenAction.setOnClickListener(view ->
+                    togglePhoneScreen());
+            addActionButton(actionGrid, mPhoneScreenAction);
+        }
 
         final Button closeDesktop = mUi.actionButton(
                 R.string.action_close_desktop,
@@ -142,14 +147,16 @@ final class ConsoleControlsController {
                 mActivity.closeDesktop());
         addActionButton(actionGrid, closeDesktop);
 
-        mTouchpadAction = mUi.actionButton(
-                R.string.action_open_touchpad,
-                DesktopUiFactory.COLOR_CYAN);
-        mTouchpadAction.setOnClickListener(view -> {
-            mActivity.hideAllPanels();
-            ConsoleModeSwitcher.openTouchpad();
-        });
-        addActionButton(actionGrid, mTouchpadAction);
+        if (externalDesktop) {
+            mTouchpadAction = mUi.actionButton(
+                    R.string.action_open_touchpad,
+                    DesktopUiFactory.COLOR_CYAN);
+            mTouchpadAction.setOnClickListener(view -> {
+                mActivity.hideAllPanels();
+                ConsoleModeSwitcher.openTouchpad();
+            });
+            addActionButton(actionGrid, mTouchpadAction);
+        }
 
         final Button deviceSetup = mUi.actionButton(
                 R.string.action_device_setup,
@@ -262,43 +269,62 @@ final class ConsoleControlsController {
         mActivity.taskbar().updateKeyboardLayout();
         mPointerSpeed.refresh();
 
+        final boolean consoleModeActive = isConsoleModeActive();
+        final boolean externalDesktop =
+                DesktopScreenPolicy.isExternalDesktop(
+                        mActivity.getCurrentDisplayId());
+        final boolean externalDesktopSession =
+                DesktopScreenPolicy.isExternalDesktopSession(
+                        mActivity.getCurrentDisplayId(), consoleModeActive);
         final boolean phoneScreenOff = isPhoneScreenOff();
-        final boolean phoneScreenControl = ShellAccess.isReady();
+        final boolean phoneScreenControl =
+                DesktopScreenPolicy.canControlPhoneScreen(
+                        mActivity.getCurrentDisplayId(),
+                        consoleModeActive,
+                        ShellAccess.isReady());
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off;
         mActivity.taskbar().updatePhoneScreen(
-                phoneScreenOff, phoneScreenControl);
+                phoneScreenOff, externalDesktop, phoneScreenControl);
         if (mPhoneScreenAction != null) {
             mPhoneScreenAction.setText(actionResId);
             mPhoneScreenAction.setEnabled(phoneScreenControl);
         }
         if (mToolsStatus != null) {
-            mToolsStatus.setText(mActivity.getString(
-                    R.string.tools_status_full,
-                    Integer.valueOf(mActivity.getCurrentDisplayId()),
-                    mActivity.getString(phoneScreenOff
-                            ? R.string.state_off
-                            : R.string.state_on),
-                    ShellAccess.statusLabel(),
-                    mActivity.getString(
-                            KeyboardShortcutWatcher.isFullShortcutMode()
-                                    ? R.string.state_ready
-                                    : R.string.state_unavailable),
-                    mActivity.getMonitorProfileLabel()));
+            final String shortcutsState = mActivity.getString(
+                    KeyboardShortcutWatcher.isFullShortcutMode()
+                            ? R.string.state_ready
+                            : R.string.state_unavailable);
+            mToolsStatus.setText(externalDesktopSession
+                    ? mActivity.getString(
+                            R.string.tools_status_full,
+                            Integer.valueOf(mActivity.getCurrentDisplayId()),
+                            mActivity.getString(phoneScreenOff
+                                    ? R.string.state_off
+                                    : R.string.state_on),
+                            ShellAccess.statusLabel(),
+                            shortcutsState,
+                            mActivity.getMonitorProfileLabel())
+                    : mActivity.getString(
+                            R.string.tools_status_local,
+                            Integer.valueOf(mActivity.getCurrentDisplayId()),
+                            ShellAccess.statusLabel(),
+                            shortcutsState));
         }
-        final boolean consoleModeActive = isConsoleModeActive();
         if (mTouchpadAction != null) {
             mTouchpadAction.setEnabled(
-                    consoleModeActive && ShellAccess.isReady());
+                    externalDesktopSession && ShellAccess.isReady());
         }
         mActivity.taskbar().updateSystemStatus(
-                consoleModeActive,
                 KeyboardShortcutWatcher.isFullShortcutMode());
     }
 
     void togglePhoneScreen() {
-        if (!ShellAccess.isReady()) {
+        if (!DesktopScreenPolicy.canControlPhoneScreen(
+                mActivity.getCurrentDisplayId(),
+                isConsoleModeActive(),
+                ShellAccess.isReady())) {
             return;
         }
         final boolean screenOff = !isPhoneScreenOff();

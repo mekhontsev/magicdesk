@@ -82,7 +82,7 @@ final class DesktopTaskSnapshotController {
                         mActivity.renderTaskbarPins(
                                 mActivity.getLauncherApps());
                     }
-                    mActivity.updateConsoleControls();
+                    mActivity.updateDesktopControls();
                 }));
     }
 

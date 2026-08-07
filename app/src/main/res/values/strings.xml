@@ -120,8 +120,9 @@
     <string name="status_charge_separation_failed">Could not change bypass charging</string>
     <string name="badge_window">Window</string>
     <string name="badge_fullscreen">Full screen</string>
-    <string name="tools_status_full">D%1$d | Phone %2$s | Shell %3$s | Bridge %4$s | %5$s</string>
-    <string name="system_status_description">Shell access %1$s, external desktop %2$s, bridge %3$s</string>
+    <string name="tools_status_full">D%1$d | Phone %2$s | Shell %3$s | Shortcuts %4$s | %5$s</string>
+    <string name="tools_status_local">D%1$d | Shell %2$s | Shortcuts %3$s</string>
+    <string name="system_status_description">Shell access %1$s, desktop %2$s, shortcuts %3$s</string>
     <string name="state_on">on</string>
     <string name="state_off">off</string>
     <string name="state_ready">ready</string>
