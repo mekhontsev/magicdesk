@@ -53,6 +53,7 @@ final class ConsoleControlsController {
     private Intent mLastBatteryIntent;
     private String mLastStatusText;
     private boolean mUpdatingChargeSeparation;
+    private boolean mConsoleModeProbeInProgress;
     ConsoleControlsController(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {
@@ -303,7 +304,8 @@ final class ConsoleControlsController {
             action.setText(consoleModeActive
                     ? R.string.action_switch_to_mirror
                     : R.string.action_start_console_mode);
-            action.setEnabled(consoleControl);
+            action.setEnabled(consoleControl
+                    && !mConsoleModeProbeInProgress);
         }
         mActivity.taskbar().updateSystemStatus(
                 consoleModeActive,
@@ -350,8 +352,29 @@ final class ConsoleControlsController {
             return;
         }
         if (!isConsoleModeActive()) {
-            mActivity.setStatus(R.string.status_console_starting);
-            ConsoleModeSwitcher.showMagicDesk();
+            mConsoleModeProbeInProgress = true;
+            update();
+            mActivity.setStatus(
+                    R.string.status_external_display_checking);
+            ConsoleModeSwitcher.probeExternalDisplay(
+                    (displayId, selection) ->
+                            mActivity.runOnUiThread(() -> {
+                                mConsoleModeProbeInProgress = false;
+                                if (mActivity.isFinishing()
+                                        || mActivity.isDestroyed()) {
+                                    return;
+                                }
+                                if (displayId <= 0) {
+                                    update();
+                                    mActivity.setStatus(
+                                            R.string.status_external_display_unavailable);
+                                    return;
+                                }
+                                mActivity.setStatus(
+                                        R.string.status_console_starting);
+                                ConsoleModeSwitcher.showMagicDesk(displayId);
+                                update();
+                            }));
             return;
         }
 
