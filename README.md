@@ -48,6 +48,42 @@ MagicDesk does not emulate Android applications, host them inside custom views,
 or replace Android's task organizer. Applications remain ordinary Android
 tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 
+## MagicDesk And Samsung DeX
+
+This comparison is deliberately scoped. The MagicDesk column describes
+behavior verified on a REDMAGIC 11 Pro (`NX809J`) running Android 16 and the
+firmware build listed under **Requirements**. Other REDMAGIC devices and OTA
+versions may behave differently. Samsung DeX capabilities also vary by Galaxy
+device and One UI version.
+
+| Capability | MagicDesk on the verified REDMAGIC 11 Pro | Samsung DeX |
+| --- | --- | --- |
+| Wired external desktop | Verified through USB-C DisplayPort and REDMAGIC Console Mode | Built into supported Galaxy devices |
+| Wireless desktop | Uses the stock SmartCast/Miracast picker and the common desktop session; validation with a real wireless receiver is still pending | Supported on compatible Miracast displays |
+| Desktop on the device display | Runs the same desktop implementation directly on the phone or a tablet | Standalone DeX is limited to selected Galaxy tablets and Z TriFold devices |
+| Native overlapping windows | Android freeform tasks with system WMShell captions | Native DeX windows |
+| Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, and exact task switching | Resize, arrange, minimize, maximize, fullscreen, and task switching |
+| Application launch policy | Explicit Auto, Windowed, and Fullscreen modes | Resizable or fixed-size mode according to application compatibility |
+| Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
+| Phone touchpad | Uses REDMAGIC Touch Panel and its text-input surface | Integrated DeX touchpad |
+| Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
+| Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
+| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
+| Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
+| Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
+| Device controls | REDMAGIC bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent REDMAGIC hardware controls |
+| Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
+| Setup and support | Open source; requires Shizuku, Device Setup, and one reboot; currently experimental and firmware-specific | Proprietary, built into supported Galaxy firmware, and product-supported by Samsung |
+
+Samsung documents its current [wired, wireless, and standalone DeX
+modes](https://www.samsung.com/us/support/answer/ANS10010217/), [keyboard and
+mouse shortcuts](https://www.samsung.com/us/support/answer/ANS10003477/), and
+[desktop widget limitation](https://www.samsung.com/us/support/answer/ANS10001972/).
+MagicDesk aims for the same everyday Android desktop workflow, not a claim of
+complete product parity: DeX remains more mature and deeply integrated, while
+MagicDesk adds REDMAGIC-specific controls, desktop files, widgets, diagnostics,
+and selected-display recording.
+
 ## Highlights
 
 ### Desktop workspace
