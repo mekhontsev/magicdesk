@@ -308,6 +308,12 @@ final class ConsoleModeSwitcher {
         }
     }
 
+    static void toggleSystemPanel() {
+        if (!DesktopRuntimeBridge.toggleSystemPanel()) {
+            Log.w(TAG, "MagicDesk desktop is unavailable for system controls");
+        }
+    }
+
     static void captureScreenshot() {
         if (!ShellAccess.isReady()) {
             Log.w(TAG, "screenshot unavailable; shizuku="

@@ -109,8 +109,6 @@ final class ConsoleControlsController {
     }
 
     void populateTools(final LinearLayout parent, final int spacing) {
-        addDpiControls(parent);
-
         mToolsStatus = new TextView(mActivity);
         mToolsStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mToolsStatus.setTextSize(13);
@@ -203,16 +201,28 @@ final class ConsoleControlsController {
         update();
     }
 
-    void populateHardware(
+    void populateSystem(
             final LinearLayout parent,
             final int spacing) {
-        final TextView powerTitle = mUi.sectionTitle(
-                R.string.hardware_power_section);
+        final TextView displayTitle = mUi.sectionTitle(
+                R.string.system_display_section);
         parent.addView(
-                powerTitle,
+                displayTitle,
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT));
+        addDpiControls(parent);
+
+        final TextView powerTitle = mUi.sectionTitle(
+                R.string.hardware_power_section);
+        final LinearLayout.LayoutParams powerTitleParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        powerTitleParams.setMargins(0, spacing, 0, 0);
+        parent.addView(
+                powerTitle,
+                powerTitleParams);
 
         mHardwareBatteryStatus = new TextView(mActivity);
         mHardwareBatteryStatus.setTextColor(DesktopUiFactory.COLOR_TEXT);

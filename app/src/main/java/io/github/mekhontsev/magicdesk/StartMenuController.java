@@ -26,9 +26,8 @@ import java.util.Locale;
 final class StartMenuController {
     static final int MENU_RECENT = 0;
     static final int MENU_APPS = 1;
-    static final int MENU_HARDWARE = 2;
-    static final int MENU_TOOLS = 3;
-    static final int MENU_CAPTURE = 4;
+    static final int MENU_TOOLS = 2;
+    static final int MENU_CAPTURE = 3;
 
     private static final int LAUNCH_AUTO = 0;
     private static final int LAUNCH_WINDOWED = 1;
@@ -77,19 +76,6 @@ final class StartMenuController {
                 dp(18),
                 DesktopUiFactory.COLOR_CYAN));
         menu.setVisibility(View.GONE);
-        menu.addOnAttachStateChangeListener(
-                new View.OnAttachStateChangeListener() {
-                    @Override
-                    public void onViewAttachedToWindow(final View view) {
-                        syncHardwareMonitoring();
-                    }
-
-                    @Override
-                    public void onViewDetachedFromWindow(final View view) {
-                        mActivity.setHardwarePanelVisible(false);
-                    }
-                });
-
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -174,7 +160,6 @@ final class StartMenuController {
         if (mContent == null) {
             return;
         }
-        syncHardwareMonitoring();
         mContent.removeAllViews();
         mBody = null;
 
@@ -190,14 +175,7 @@ final class StartMenuController {
         appsTabParams.setMargins(dp(5), 0, dp(5), 0);
         tabs.addView(createTab(R.string.section_apps, MENU_APPS),
                 appsTabParams);
-        final LinearLayout.LayoutParams toolsTabParams =
-                new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        toolsTabParams.setMargins(0, 0, dp(5), 0);
-        tabs.addView(createTab(R.string.section_tools, MENU_TOOLS), toolsTabParams);
-        tabs.addView(createTab(
-                        R.string.section_hardware,
-                        MENU_HARDWARE),
+        tabs.addView(createTab(R.string.section_tools, MENU_TOOLS),
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         mContent.addView(tabs, new LinearLayout.LayoutParams(
@@ -206,10 +184,6 @@ final class StartMenuController {
 
         if (mMode == MENU_TOOLS) {
             addTools();
-            return;
-        }
-        if (mMode == MENU_HARDWARE) {
-            addHardware();
             return;
         }
         if (mMode == MENU_CAPTURE) {
@@ -274,17 +248,6 @@ final class StartMenuController {
         return overlays != null
                 && overlays.isVisible(mPanel)
                 && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE);
-    }
-
-    void toggleHardware() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null
-                && overlays.isVisible(mPanel)
-                && mMode == MENU_HARDWARE) {
-            setVisible(false);
-            return;
-        }
-        showSection(MENU_HARDWARE, false);
     }
 
     void showCapture() {
@@ -447,21 +410,6 @@ final class StartMenuController {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
-    private void addHardware() {
-        final LinearLayout hardware = new LinearLayout(mActivity);
-        hardware.setOrientation(LinearLayout.VERTICAL);
-        hardware.setPadding(0, dp(14), 0, 0);
-        mActivity.populateHardwareControls(hardware, dp(10));
-
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(true);
-        scroll.addView(hardware, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        mContent.addView(scroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-    }
-
     private void addCapture() {
         final LinearLayout capture = new LinearLayout(mActivity);
         capture.setOrientation(LinearLayout.VERTICAL);
@@ -484,15 +432,7 @@ final class StartMenuController {
 
     private static boolean isUtilityMode(final int mode) {
         return mode == MENU_TOOLS
-                || mode == MENU_HARDWARE
                 || mode == MENU_CAPTURE;
-    }
-
-    private void syncHardwareMonitoring() {
-        mActivity.setHardwarePanelVisible(
-                mMode == MENU_HARDWARE
-                        && mPanel != null
-                        && mPanel.isAttachedToWindow());
     }
 
     private View createAppTile(final AppItem app, final boolean selected) {

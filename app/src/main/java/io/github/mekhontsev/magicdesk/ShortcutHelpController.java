@@ -12,6 +12,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 final class ShortcutHelpController {
@@ -60,36 +61,47 @@ final class ShortcutHelpController {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        addRow(panel, R.string.shortcut_maximize,
+        final LinearLayout shortcuts = new LinearLayout(mContext);
+        shortcuts.setOrientation(LinearLayout.VERTICAL);
+        addRow(shortcuts, R.string.shortcut_maximize,
                 R.string.shortcut_maximize_action);
-        addRow(panel, R.string.shortcut_restore,
+        addRow(shortcuts, R.string.shortcut_restore,
                 R.string.shortcut_restore_action);
-        addRow(panel, R.string.shortcut_snap_left,
+        addRow(shortcuts, R.string.shortcut_snap_left,
                 R.string.shortcut_snap_left_action);
-        addRow(panel, R.string.shortcut_snap_right,
+        addRow(shortcuts, R.string.shortcut_snap_right,
                 R.string.shortcut_snap_right_action);
-        addRow(panel, R.string.shortcut_close,
+        addRow(shortcuts, R.string.shortcut_close,
                 R.string.shortcut_close_action);
-        addRow(panel, R.string.shortcut_back,
+        addRow(shortcuts, R.string.shortcut_back,
                 R.string.shortcut_back_action);
-        addRow(panel, R.string.shortcut_lock,
+        addRow(shortcuts, R.string.shortcut_lock,
                 R.string.shortcut_lock_action);
-        addRow(panel, R.string.shortcut_notifications,
+        addRow(shortcuts, R.string.shortcut_notifications,
                 R.string.shortcut_notifications_action);
-        addRow(panel, R.string.shortcut_screenshot,
+        addRow(shortcuts, R.string.shortcut_system,
+                R.string.shortcut_system_action);
+        addRow(shortcuts, R.string.shortcut_screenshot,
                 R.string.shortcut_screenshot_action);
-        addRow(panel, R.string.shortcut_recording,
+        addRow(shortcuts, R.string.shortcut_recording,
                 R.string.shortcut_recording_action);
-        addRow(panel, R.string.shortcut_desktop,
+        addRow(shortcuts, R.string.shortcut_desktop,
                 R.string.shortcut_desktop_action);
-        addRow(panel, R.string.shortcut_help,
+        addRow(shortcuts, R.string.shortcut_help,
                 R.string.shortcut_help_action);
-        addRow(panel, R.string.shortcut_layout,
+        addRow(shortcuts, R.string.shortcut_layout,
                 R.string.shortcut_layout_action);
-        addRow(panel, R.string.shortcut_previous,
+        addRow(shortcuts, R.string.shortcut_previous,
                 R.string.shortcut_previous_action);
-        addRow(panel, R.string.shortcut_next,
+        addRow(shortcuts, R.string.shortcut_next,
                 R.string.shortcut_next_action);
+
+        final ScrollView scroll = new ScrollView(mContext);
+        scroll.addView(shortcuts, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        panel.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         mPanel = panel;
         return panel;
     }

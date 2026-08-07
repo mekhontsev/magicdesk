@@ -196,8 +196,9 @@ display size, density, and scaling to the defaults supplied by nubia.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
-under **Start > Tools** and is remembered per monitor. **System** removes the
-MagicDesk density override.
+in the **System** panel, opened from the taskbar battery indicator or with
+`Win+Q`, and is remembered per monitor. **Reset** removes the MagicDesk density
+override.
 
 ### Phone notification
 
@@ -224,6 +225,7 @@ supports tablets and allows development without an external monitor.
 | `Win+Backspace` | Send Android Back to the active display |
 | `Win+L` | Lock the phone |
 | `Win+N` | Toggle the notification center |
+| `Win+Q` | Toggle the System panel |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
 | `Win+Shift+Print Screen` | Start or stop external-display recording with internal audio; save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |

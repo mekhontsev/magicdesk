@@ -195,6 +195,8 @@ static const char *shortcut_action(
             return "META_L";
         case KEY_N:
             return "META_N";
+        case KEY_Q:
+            return "META_Q";
         case KEY_UP:
             return "META_UP";
         case KEY_DOWN:

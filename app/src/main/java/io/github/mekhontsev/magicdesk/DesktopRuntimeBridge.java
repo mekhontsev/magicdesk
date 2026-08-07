@@ -232,6 +232,15 @@ final class DesktopRuntimeBridge {
         return true;
     }
 
+    static boolean toggleSystemPanel() {
+        final DesktopShellActivity activity = usableDesktop(true);
+        if (activity == null) {
+            return false;
+        }
+        activity.runOnUiThread(activity::toggleSystemPanel);
+        return true;
+    }
+
     static boolean isDesktopReadyOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null

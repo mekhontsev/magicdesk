@@ -368,6 +368,10 @@ final class KeyboardShortcutWatcher {
             ConsoleModeSwitcher.toggleNotificationCenter();
             return;
         }
+        if ("META_Q".equals(action)) {
+            ConsoleModeSwitcher.toggleSystemPanel();
+            return;
+        }
         if ("META_UP".equals(action)) {
             ConsoleModeSwitcher.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_FULLSCREEN);
@@ -455,6 +459,9 @@ final class KeyboardShortcutWatcher {
                 break;
             case NOTIFICATIONS:
                 ConsoleModeSwitcher.toggleNotificationCenter();
+                break;
+            case SYSTEM:
+                ConsoleModeSwitcher.toggleSystemPanel();
                 break;
             case FULLSCREEN:
                 ConsoleModeSwitcher.manageActiveWindow(

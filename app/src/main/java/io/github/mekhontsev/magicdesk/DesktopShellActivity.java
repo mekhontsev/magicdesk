@@ -59,6 +59,7 @@ public abstract class DesktopShellActivity extends Activity
     private CalendarPanelController mCalendarController;
     private ShortcutHelpController mShortcutHelpController;
     private NotificationCenterController mNotifications;
+    private SystemPanelController mSystemPanelController;
     private DisplayProfileController mDisplayProfiles;
     private StartMenuController mStartMenuController;
     private TaskOverviewController mTaskOverviewController;
@@ -145,6 +146,7 @@ public abstract class DesktopShellActivity extends Activity
                 this, mWorkspaceAppController);
         mDisplayDensityController = new DisplayDensityController(this);
         mConsoleControls = new ConsoleControlsController(this, mUi);
+        mSystemPanelController = new SystemPanelController(this, mUi);
         mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mInputController = new DesktopInputController(this);
@@ -554,6 +556,7 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.create();
         mTaskOverviewController.create();
         mNotifications.createPanel();
+        mSystemPanelController.createPanel();
         mCalendarController.createPanel();
         mShortcutHelpController.createPanel();
         return root;
@@ -1024,8 +1027,8 @@ public abstract class DesktopShellActivity extends Activity
         mStartMenuController.toggleTools();
     }
 
-    void toggleHardwareMenu() {
-        mStartMenuController.toggleHardware();
+    void toggleSystemPanel() {
+        mSystemPanelController.toggle();
     }
 
     void openDeviceSetup() {
@@ -1091,10 +1094,10 @@ public abstract class DesktopShellActivity extends Activity
         mConsoleControls.populateTools(parent, spacing);
     }
 
-    void populateHardwareControls(
+    void populateSystemControls(
             final LinearLayout parent,
             final int spacing) {
-        mConsoleControls.populateHardware(parent, spacing);
+        mConsoleControls.populateSystem(parent, spacing);
     }
 
     void populateCaptureControls(

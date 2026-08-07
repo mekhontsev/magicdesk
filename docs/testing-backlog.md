@@ -189,7 +189,7 @@ not supported runtime modes:
   had root and whose desktop properties retain stock values.
 - [ ] Test another REDMAGIC/ZTE Android 16 firmware and record every changed
   Binder service, component, setting, and diagnostic code.
-- [ ] Validate Tools audio output across HDMI, USB, Bluetooth, and phone speaker.
+- [ ] Validate System audio output across HDMI, USB, Bluetooth, and phone speaker.
 - [ ] On display 0, leave multiple freeform tasks open and verify the system
   Home and Recents gestures are unavailable while MagicDesk task switching
   still works. Exit the local desktop and verify both gestures return only

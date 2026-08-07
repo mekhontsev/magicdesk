@@ -2,10 +2,9 @@
     <string name="app_name">MagicDesk</string>
     <string name="section_apps">Apps</string>
     <string name="section_tools">Tools</string>
-    <string name="section_hardware">Hardware</string>
+    <string name="section_system">System</string>
     <string name="section_capture">Capture</string>
     <string name="control_section_desktop">Desktop session</string>
-    <string name="control_section_system">System</string>
     <string name="launch_mode_auto">Auto</string>
     <string name="launch_mode_windowed">Windowed</string>
     <string name="launch_mode_fullscreen">Fullscreen</string>
@@ -104,6 +103,7 @@
     <string name="hardware_write_failed">The hardware control did not accept the requested value.</string>
     <string name="hardware_restore_failed">Could not restore the hardware state that existed before MagicDesk changed it.</string>
     <string name="hardware_power_section">Power</string>
+    <string name="system_display_section">Display</string>
     <string name="hardware_input_section">Input</string>
     <string name="pointer_speed">Pointer speed</string>
     <string name="pointer_speed_value">%1$d</string>
@@ -126,7 +126,6 @@
     <string name="state_ready">ready</string>
     <string name="state_unavailable">unavailable</string>
     <string name="tooltip_phone_screen">Phone screen</string>
-    <string name="tooltip_tools">Tools</string>
     <string name="keyboard_layout_description">Keyboard layout %1$s; activate to switch</string>
     <string name="battery_compact">%1$d%%</string>
     <string name="battery_compact_unknown" formatted="false">--%</string>
@@ -272,6 +271,8 @@
     <string name="shortcut_lock_action">Lock device</string>
     <string name="shortcut_notifications">Win + N</string>
     <string name="shortcut_notifications_action">Show notifications</string>
+    <string name="shortcut_system">Win + Q</string>
+    <string name="shortcut_system_action">Show system controls</string>
     <string name="shortcut_screenshot">Win + Print Screen</string>
     <string name="shortcut_screenshot_action">Save screenshot to Pictures</string>
     <string name="action_screenshot">Screenshot</string>

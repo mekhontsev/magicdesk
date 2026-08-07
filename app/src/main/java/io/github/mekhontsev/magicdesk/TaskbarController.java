@@ -145,9 +145,6 @@ final class TaskbarController {
         pinsParams.setMargins(
                 desktopDp(10, 4), 0, desktopDp(10, 4), 0);
         taskbar.addView(taskScroll, pinsParams);
-        if (mActivity.isCompactDesktopPreview()) {
-            taskScroll.setVisibility(View.GONE);
-        }
 
         final ImageButton showDesktop = taskbarButton(
                 R.drawable.ic_show_desktop,
@@ -211,9 +208,9 @@ final class TaskbarController {
 
         mConsoleButton = taskbarButton(
                 android.R.drawable.ic_menu_manage,
-                R.string.tooltip_tools);
+                R.string.section_system);
         mConsoleButton.setOnClickListener(view ->
-                mActivity.toggleToolsMenu());
+                mActivity.toggleSystemPanel());
         addButton(taskbar, mConsoleButton);
 
         mBatteryStatus = new TextView(mActivity);
@@ -225,7 +222,7 @@ final class TaskbarController {
         mBatteryStatus.setClickable(true);
         mBatteryStatus.setFocusable(true);
         mBatteryStatus.setOnClickListener(view ->
-                mActivity.toggleHardwareMenu());
+                mActivity.toggleSystemPanel());
         taskbar.addView(mBatteryStatus, new LinearLayout.LayoutParams(
                 desktopDp(58, 44),
                 LinearLayout.LayoutParams.MATCH_PARENT));

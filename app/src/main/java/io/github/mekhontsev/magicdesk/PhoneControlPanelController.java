@@ -465,7 +465,7 @@ final class PhoneControlPanelController {
     }
 
     private void addSystemActions(final LinearLayout parent) {
-        addSectionTitle(parent, R.string.control_section_system, dp(20));
+        addSectionTitle(parent, R.string.section_system, dp(20));
         final GridLayout actions = actionGrid();
 
         final Button setup = actionButton(

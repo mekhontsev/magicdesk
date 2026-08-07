@@ -533,7 +533,7 @@ value before its first write and restores only state it owns on System, exit,
 or interrupted-session recovery.
 
 The runtime takes one initial hardware snapshot. Repeated thermal and vendor
-state reads run only while the Hardware panel is visible; closing or switching
+state reads run only while the System panel is visible; closing or switching
 away from that panel cancels the polling task without disabling controls or
 discarding owned fan and pump state.
 

@@ -12,6 +12,7 @@ final class KeyboardShortcutStateMachine {
         BACK,
         LOCK,
         NOTIFICATIONS,
+        SYSTEM,
         FULLSCREEN,
         RESTORE,
         SNAP_LEFT,
@@ -99,6 +100,8 @@ final class KeyboardShortcutStateMachine {
                 return Action.LOCK;
             case "KEY_N":
                 return Action.NOTIFICATIONS;
+            case "KEY_Q":
+                return Action.SYSTEM;
             case "KEY_UP":
                 return Action.FULLSCREEN;
             case "KEY_DOWN":
