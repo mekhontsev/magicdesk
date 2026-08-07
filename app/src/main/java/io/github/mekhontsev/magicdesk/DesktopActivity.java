@@ -11,7 +11,7 @@ import android.widget.Toast;
 /** Dedicated component used to host the MagicDesk desktop on one display. */
 public final class DesktopActivity extends DesktopShellActivity {
     private static final String TAG = "MagicDesk";
-    private static final int WINDOWING_MODE_FREEFORM = 5;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     static Intent createLaunchIntent(final Context context) {
         return new Intent(context, DesktopActivity.class)
@@ -82,7 +82,7 @@ public final class DesktopActivity extends DesktopShellActivity {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         DesktopShellActivity.setLaunchWindowingMode(
-                options, WINDOWING_MODE_FREEFORM);
+                options, WINDOWING_MODE_FULLSCREEN);
         source.startActivity(
                 createLaunchIntent(source).addFlags(
                         Intent.FLAG_ACTIVITY_MULTIPLE_TASK)

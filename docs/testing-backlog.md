@@ -71,8 +71,9 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Verify overlapping windows, click-to-front, taskbar focus, Show Desktop,
   task restoration, snap, maximize, minimize, true fullscreen, and exact close.
 - [x] Verify native WMShell captions after one-time provisioning. Temporarily
-  reveal caption layers through SurfaceFlinger option `1102`, then restore
-  Nubia's latest wired-privacy value on mirror, exit, and interrupted-session
+  reveal caption layers through SurfaceFlinger option `1100` for wireless or
+  `1102` for wired projection, then restore the corresponding Nubia privacy
+  preference on mirror, exit, transport change, and interrupted-session
   recovery.
 - [x] Validate client-preserving freeform/fullscreen transitions by
   synchronously clearing the exact stale task-local caption source. No density

@@ -20,7 +20,9 @@ final class SystemUiDesktopRepositoryParser {
     private SystemUiDesktopRepositoryParser() {
     }
 
-    static Set<Integer> parsePhoneTaskIds(final String output) {
+    static Set<Integer> parseTaskIds(
+            final String output,
+            final int targetDisplayId) {
         final Set<Integer> taskIds = new LinkedHashSet<>();
         if (output == null || output.isEmpty()) {
             return taskIds;
@@ -28,14 +30,14 @@ final class SystemUiDesktopRepositoryParser {
 
         boolean inRepositories = false;
         boolean inCurrentUserRepository = false;
-        boolean inPhoneDisplay = false;
+        boolean inTargetDisplay = false;
         int currentUserId = -1;
         for (final String rawLine : output.split("\\R")) {
             final String line = rawLine.trim();
             if (REPOSITORIES.equals(line)) {
                 inRepositories = true;
                 inCurrentUserRepository = false;
-                inPhoneDisplay = false;
+                inTargetDisplay = false;
                 continue;
             }
             if (!inRepositories || line.isEmpty()) {
@@ -47,7 +49,7 @@ final class SystemUiDesktopRepositoryParser {
             }
             if (REPOSITORY.equals(line)) {
                 inCurrentUserRepository = false;
-                inPhoneDisplay = false;
+                inTargetDisplay = false;
                 continue;
             }
             if (line.startsWith(USER)) {
@@ -55,17 +57,18 @@ final class SystemUiDesktopRepositoryParser {
                         parseInteger(line.substring(USER.length()));
                 inCurrentUserRepository = currentUserId >= 0
                         && repositoryUserId == currentUserId;
-                inPhoneDisplay = false;
+                inTargetDisplay = false;
                 continue;
             }
             if (line.startsWith(DISPLAY)) {
                 final int separator = line.indexOf(':', DISPLAY.length());
                 final int displayId = parseInteger(line.substring(
                         DISPLAY.length(), separator < 0 ? line.length() : separator));
-                inPhoneDisplay = inCurrentUserRepository && displayId == 0;
+                inTargetDisplay = inCurrentUserRepository
+                        && displayId == targetDisplayId;
                 continue;
             }
-            if (!inPhoneDisplay) {
+            if (!inTargetDisplay) {
                 continue;
             }
             for (final String prefix : TASK_LISTS) {

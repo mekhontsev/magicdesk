@@ -273,6 +273,22 @@ final class ShellAccess {
         }
     }
 
+    static boolean injectTouchTap(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.injectTouchTap(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return false;
+        }
+    }
+
     static ParcelFileDescriptor openSystemWallpaper() throws IOException {
         try {
             final ParcelFileDescriptor descriptor =
@@ -493,15 +509,21 @@ final class ShellAccess {
     }
 
     static ShellInputRoutingHandle openInputRouting(
+            final int displayId,
             final int expectedVirtualKeyboardCount) throws IOException {
-        if (expectedVirtualKeyboardCount <= 0) {
-            throw new IOException("virtual keyboard count must be positive");
+        if (displayId <= 0) {
+            throw new IOException(
+                    "input routing requires a secondary display");
+        }
+        if (expectedVirtualKeyboardCount < 0) {
+            throw new IOException(
+                    "virtual keyboard count must not be negative");
         }
         final IShizukuCommandService service = requireService();
         final IBinder ownerToken = new Binder();
         try {
             final int[] state = service.startInputRouting(
-                    expectedVirtualKeyboardCount, ownerToken);
+                    displayId, expectedVirtualKeyboardCount, ownerToken);
             if (state == null || state.length != 4) {
                 service.stopInputRouting(ownerToken);
                 throw new IOException("invalid input routing state");

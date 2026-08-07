@@ -15,7 +15,7 @@ public final class SystemUiDesktopRepositoryParserTest {
                         Integer.valueOf(3516),
                         Integer.valueOf(3520),
                         Integer.valueOf(3521))),
-                SystemUiDesktopRepositoryParser.parsePhoneTaskIds(
+                SystemUiDesktopRepositoryParser.parseTaskIds(
                         "DesktopUserRepositories:\n"
                                 + "  currentUserId=0\n"
                                 + "  DesktopRepository\n"
@@ -28,14 +28,15 @@ public final class SystemUiDesktopRepositoryParserTest {
                                 + "      freeformTasksInZOrder=[3516, 3521]\n"
                                 + "      minimizedTasks=[]\n"
                                 + "    Display #17:\n"
-                                + "      activeTasks=[77]\n"));
+                                + "      activeTasks=[77]\n",
+                        0));
     }
 
     @Test
     public void ignoresAnotherUserAndUnrelatedTaskLists() {
         assertEquals(
                 new LinkedHashSet<>(Arrays.asList(Integer.valueOf(42))),
-                SystemUiDesktopRepositoryParser.parsePhoneTaskIds(
+                SystemUiDesktopRepositoryParser.parseTaskIds(
                         "activeTasks=[7]\n"
                                 + "DesktopUserRepositories:\n"
                                 + "  currentUserId=10\n"
@@ -46,6 +47,25 @@ public final class SystemUiDesktopRepositoryParserTest {
                                 + "  DesktopRepository\n"
                                 + "    userId=10\n"
                                 + "    Display #0:\n"
-                                + "      activeTasks=[42, invalid, -1]\n"));
+                                + "      activeTasks=[42, invalid, -1]\n",
+                        0));
+    }
+
+    @Test
+    public void readsRemovedDisplayWithoutMixingPhoneTasks() {
+        assertEquals(
+                new LinkedHashSet<>(Arrays.asList(
+                        Integer.valueOf(77), Integer.valueOf(78))),
+                SystemUiDesktopRepositoryParser.parseTaskIds(
+                        "DesktopUserRepositories:\n"
+                                + "  currentUserId=0\n"
+                                + "  DesktopRepository\n"
+                                + "    userId=0\n"
+                                + "    Display #0:\n"
+                                + "      activeTasks=[42]\n"
+                                + "    Display #95:\n"
+                                + "      activeTasks=[77]\n"
+                                + "      freeformTasksInZOrder=[78]\n",
+                        95));
     }
 }

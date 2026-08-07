@@ -25,6 +25,7 @@ final class DesktopHostWindowController {
     private int mAttempts;
     private boolean mPending;
     private boolean mReady;
+    private boolean mConfigurationApplied;
 
     DesktopHostWindowController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -63,7 +64,8 @@ final class DesktopHostWindowController {
                                         + ": " + snapshot.error);
                         return;
                     }
-                    if (task.isFullscreen()
+                    if (mConfigurationApplied
+                            && task.isFullscreen()
                             && hostBounds.equals(task.bounds)) {
                         mReady = true;
                         resetAttempts();
@@ -84,6 +86,7 @@ final class DesktopHostWindowController {
                                                     + result.message);
                                     return;
                                 }
+                                mConfigurationApplied = true;
                                 mActivity.refreshTaskSnapshot();
                                 mMainHandler.removeCallbacks(mRetry);
                                 mMainHandler.postDelayed(
@@ -93,7 +96,11 @@ final class DesktopHostWindowController {
     }
 
     void onMultiWindowModeChanged(final boolean inMultiWindowMode) {
+        if (mPending) {
+            return;
+        }
         mReady = false;
+        mConfigurationApplied = false;
         mGeneration++;
         resetAttempts();
         ensureConfigured();
@@ -106,6 +113,7 @@ final class DesktopHostWindowController {
     void release() {
         mGeneration++;
         mReady = false;
+        mConfigurationApplied = false;
         resetAttempts();
     }
 

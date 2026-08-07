@@ -29,7 +29,7 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
     private final Listener mListener;
     private final InputManager mInputManager;
     private final Runnable mRefresh = this::refresh;
-    private Snapshot mSnapshot = new Snapshot(false, false, "");
+    private Snapshot mSnapshot = new Snapshot(false, false, false, "");
 
     RuntimeInputCoordinator(
             final Context context,
@@ -101,7 +101,9 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
                 current.hardwareKeyboard != mSnapshot.hardwareKeyboard;
         final boolean mouseChanged = current.externalMouse != mSnapshot.externalMouse;
         final boolean inventoryChanged =
-                !current.deviceSignature.equals(mSnapshot.deviceSignature);
+                current.magicDeskMouse != mSnapshot.magicDeskMouse
+                        || !current.deviceSignature.equals(
+                                mSnapshot.deviceSignature);
         if (!keyboardChanged && !mouseChanged && !inventoryChanged) {
             return;
         }
@@ -113,10 +115,18 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
     private Snapshot inspect() {
         boolean keyboard = hasConfiguredHardKeyboard();
         boolean mouse = false;
+        boolean magicDeskMouse = false;
         final List<String> devices = new ArrayList<>();
         for (final int deviceId : InputDevice.getDeviceIds()) {
             final InputDevice device = InputDevice.getDevice(deviceId);
-            if (device == null || isMagicDeskDevice(device)
+            if (device == null) {
+                continue;
+            }
+            if (MOUSE_NAME.equals(device.getName())) {
+                magicDeskMouse = true;
+                continue;
+            }
+            if (isMagicDeskDevice(device)
                     || device.isVirtual() || !device.isExternal()) {
                 continue;
             }
@@ -130,7 +140,8 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
                     + ":" + device.getKeyboardType());
         }
         Collections.sort(devices);
-        return new Snapshot(keyboard, mouse, devices.toString());
+        return new Snapshot(
+                keyboard, mouse, magicDeskMouse, devices.toString());
     }
 
     private boolean hasConfiguredHardKeyboard() {
@@ -156,14 +167,17 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
     static final class Snapshot {
         final boolean hardwareKeyboard;
         final boolean externalMouse;
+        final boolean magicDeskMouse;
         final String deviceSignature;
 
         Snapshot(
                 final boolean hardwareKeyboard,
                 final boolean externalMouse,
+                final boolean magicDeskMouse,
                 final String deviceSignature) {
             this.hardwareKeyboard = hardwareKeyboard;
             this.externalMouse = externalMouse;
+            this.magicDeskMouse = magicDeskMouse;
             this.deviceSignature = deviceSignature;
         }
     }

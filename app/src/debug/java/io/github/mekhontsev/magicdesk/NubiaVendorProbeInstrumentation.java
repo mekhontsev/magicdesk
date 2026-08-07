@@ -217,13 +217,20 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
 
     private static String probeCaptionVisibilityMutation()
             throws IOException {
-        if (!NubiaCaptionVisibilityManager.setEnabled(true)) {
-            throw new IOException("could not enable external captions");
+        if (!NubiaCaptionVisibilityManager.setTransport(
+                NubiaCaptionVisibilityManager.Transport.WIRELESS)) {
+            throw new IOException("could not enable wireless captions");
         }
-        if (!NubiaCaptionVisibilityManager.setEnabled(false)) {
+        if (!NubiaCaptionVisibilityManager.setTransport(
+                NubiaCaptionVisibilityManager.Transport.WIRED)) {
+            throw new IOException(
+                    "could not restore wireless privacy or enable wired captions");
+        }
+        if (!NubiaCaptionVisibilityManager.setTransport(
+                NubiaCaptionVisibilityManager.Transport.NONE)) {
             throw new IOException("could not restore wired privacy");
         }
-        return "changed=visible restored=wired-privacy";
+        return "changed=wireless,wired restored=vendor-privacy";
     }
 
     private static String probeDisplayRead()

@@ -221,7 +221,7 @@ final class PhoneControlPanelController {
                     R.string.action_start_console_mode);
         } else if (!state.desktopReady) {
             mExternalDesktop.setText(
-                    R.string.action_resume_external_desktop);
+                    R.string.action_start_console_mode);
         } else {
             mExternalDesktop.setText(
                     R.string.action_show_external_desktop);
@@ -246,7 +246,8 @@ final class PhoneControlPanelController {
                 state.consoleModeActive
                         && state.consoleControlAvailable);
         mTouchpad.setEnabled(
-                state.consoleModeActive && state.consoleControlAvailable);
+                state.externalDesktopActive
+                        && state.consoleControlAvailable);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);

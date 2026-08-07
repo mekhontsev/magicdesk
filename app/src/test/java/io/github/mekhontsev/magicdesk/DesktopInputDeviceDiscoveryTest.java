@@ -6,7 +6,7 @@ import java.util.List;
 
 import org.junit.Test;
 
-public final class ConsoleInputDeviceDiscoveryTest {
+public final class DesktopInputDeviceDiscoveryTest {
     @Test
     public void findsOnlyExternalCursorEventNodes() throws Exception {
         final String dump =
@@ -14,7 +14,7 @@ public final class ConsoleInputDeviceDiscoveryTest {
                         + "Event Hub State:\n"
                         + "  Devices:\n"
                         + "    15: MagicDesk Mouse\n"
-                        + "      Classes: CURSOR | EXTERNAL\n"
+                        + "      Classes: CURSOR\n"
                         + "      Path: /dev/input/event13\n"
                         + "      Location: magicdesk-mouse\n"
                         + "      Identifier: bus=0x0005, vendor=0x4d44, "
@@ -27,10 +27,10 @@ public final class ConsoleInputDeviceDiscoveryTest {
                         + "product=0xf605, version=0x0101\n"
                         + "Input Reader State (Nums of device: 2):\n";
 
-        final List<ConsoleMouseDevice> mice =
-                ConsoleInputDeviceDiscovery.findMice(dump);
-        final List<ConsoleMouseDevice> routable =
-                ConsoleInputDeviceDiscovery.findRoutableMice(dump);
+        final List<DesktopMouseDevice> mice =
+                DesktopInputDeviceDiscovery.findMice(dump);
+        final List<DesktopMouseDevice> routable =
+                DesktopInputDeviceDiscovery.findRoutableMice(dump);
 
         assertEquals(1, mice.size());
         assertEquals("/dev/input/event12", mice.get(0).path);
@@ -64,10 +64,10 @@ public final class ConsoleInputDeviceDiscoveryTest {
                         + "product=0xf603, version=0x0101\n"
                         + "Input Reader State (Nums of device: 2):\n";
 
-        final List<ConsoleKeyboardDevice> physical =
-                ConsoleInputDeviceDiscovery.findKeyboards(dump);
-        final List<ConsoleKeyboardDevice> routable =
-                ConsoleInputDeviceDiscovery.findRoutableKeyboards(dump);
+        final List<DesktopKeyboardDevice> physical =
+                DesktopInputDeviceDiscovery.findKeyboards(dump);
+        final List<DesktopKeyboardDevice> routable =
+                DesktopInputDeviceDiscovery.findRoutableKeyboards(dump);
 
         assertEquals(1, physical.size());
         assertEquals("/dev/input/event10", physical.get(0).path);

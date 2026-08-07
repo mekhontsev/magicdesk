@@ -1,12 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
-abstract class ConsoleInputDevice {
+abstract class DesktopInputDevice {
     final String path;
     final String location;
     final int vendorId;
     final int productId;
 
-    ConsoleInputDevice(
+    DesktopInputDevice(
             final String path,
             final String location,
             final int vendorId,
@@ -18,8 +18,8 @@ abstract class ConsoleInputDevice {
     }
 }
 
-final class ConsoleMouseDevice extends ConsoleInputDevice {
-    ConsoleMouseDevice(
+final class DesktopMouseDevice extends DesktopInputDevice {
+    DesktopMouseDevice(
             final String path,
             final String location,
             final int vendorId,
@@ -28,8 +28,8 @@ final class ConsoleMouseDevice extends ConsoleInputDevice {
     }
 }
 
-final class ConsoleKeyboardDevice extends ConsoleInputDevice {
-    ConsoleKeyboardDevice(
+final class DesktopKeyboardDevice extends DesktopInputDevice {
+    DesktopKeyboardDevice(
             final String path,
             final String location,
             final int vendorId,

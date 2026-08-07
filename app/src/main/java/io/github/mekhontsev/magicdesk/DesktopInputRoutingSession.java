@@ -13,7 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-final class ConsoleInputRoutingSession implements AutoCloseable {
+final class DesktopInputRoutingSession implements AutoCloseable {
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
@@ -21,43 +21,49 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             "magicdesk-keyboard-";
     private static final String DUMPSYS = "/system/bin/dumpsys";
     private static final String SETTINGS = "/system/bin/settings";
-    private static final String CONSOLE_DISPLAY_SETTING =
+    private static final String NUBIA_CONSOLE_DISPLAY_SETTING =
             "app_mirror_displayid";
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
 
     private Object mInputManager;
-    private Method mAddPortAssociation;
-    private Method mRemovePortAssociation;
+    private Method mAddAssociation;
+    private Method mRemoveAssociation;
+    private Object mAssociationTarget;
     private Object mDisplayManager;
     private Method mNotePanelStatus;
     private Binder mPanelToken;
+    private boolean mUsesNubiaConsoleHooks;
     private boolean mMouseInputSourceOverride;
-    private int mConsoleDisplayId = -1;
-    private int mDisplayPort = -1;
+    private int mDisplayId = -1;
     private int mKeyboardAssociationCount;
     private int mVirtualKeyboardCount;
     private boolean mClosed;
 
-    private ConsoleInputRoutingSession() {
+    private DesktopInputRoutingSession() {
     }
 
-    static ConsoleInputRoutingSession open(
+    static DesktopInputRoutingSession open(
+            final int displayId,
             final int expectedVirtualKeyboardCount) throws Exception {
-        if (expectedVirtualKeyboardCount <= 0) {
+        if (displayId <= 0) {
             throw new IllegalArgumentException(
-                    "virtual keyboard count must be positive");
+                    "input routing requires a secondary display");
         }
-        final List<ConsoleKeyboardDevice> keyboards =
+        if (expectedVirtualKeyboardCount < 0) {
+            throw new IllegalArgumentException(
+                    "virtual keyboard count must not be negative");
+        }
+        final List<DesktopKeyboardDevice> keyboards =
                 waitForVirtualKeyboards(expectedVirtualKeyboardCount);
-        final List<ConsoleMouseDevice> mice =
-                ConsoleInputDeviceDiscovery.findRoutableMice();
+        final List<DesktopMouseDevice> mice =
+                DesktopInputDeviceDiscovery.findRoutableMice();
         cleanupStaleAssociations();
-        final ConsoleInputRoutingSession session =
-                new ConsoleInputRoutingSession();
+        final DesktopInputRoutingSession session =
+                new DesktopInputRoutingSession();
         try {
-            session.start(keyboards, mice);
+            session.start(displayId, keyboards, mice);
             session.mVirtualKeyboardCount =
                     countVirtualKeyboards(keyboards);
             return session;
@@ -67,8 +73,8 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
     }
 
-    int consoleDisplayId() {
-        return mConsoleDisplayId;
+    int displayId() {
+        return mDisplayId;
     }
 
     int associationCount() {
@@ -85,7 +91,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
 
     static int cleanupStaleAssociations() throws Exception {
         final Set<String> ownedPorts =
-                ConsoleInputRoutingOwnership.read();
+                DesktopInputRoutingOwnership.read();
         if (ownedPorts.isEmpty()) {
             return 0;
         }
@@ -97,11 +103,16 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         final Method removePortAssociation =
                 inputManagerInterface.getMethod(
                         "removePortAssociation", String.class);
+        final Method removeUniqueIdAssociation =
+                inputManagerInterface.getMethod(
+                        "removeUniqueIdAssociationByPort", String.class);
         removeAssociations(
                 inputManager, removePortAssociation, ownedPorts);
+        removeAssociations(
+                inputManager, removeUniqueIdAssociation, ownedPorts);
 
         final Set<String> remaining =
-                ConsoleInputRoutingOwnership.findRuntimeAssociations(
+                DesktopInputRoutingOwnership.findActiveAssociations(
                         readInputDump());
         remaining.retainAll(ownedPorts);
         if (!remaining.isEmpty()) {
@@ -109,109 +120,106 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                     "input associations remain after cleanup: "
                             + remaining);
         }
-        ConsoleInputRoutingOwnership.clear();
+        DesktopInputRoutingOwnership.clear();
         return ownedPorts.size();
     }
 
     private void start(
-            final List<ConsoleKeyboardDevice> keyboards,
-            final List<ConsoleMouseDevice> mice) throws Exception {
-        mDisplayPort = findExternalDisplayPort();
-        if (mDisplayPort < 0) {
-            throw new IllegalStateException(
-                    "external physical display port not found");
-        }
-        mConsoleDisplayId = findConsoleDisplayId();
-
+            final int displayId,
+            final List<DesktopKeyboardDevice> keyboards,
+            final List<DesktopMouseDevice> mice) throws Exception {
         mInputManager = getService(
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
-        mAddPortAssociation = inputManagerInterface.getMethod(
-                "addPortAssociation", String.class, int.class);
-        mRemovePortAssociation = inputManagerInterface.getMethod(
-                "removePortAssociation", String.class);
+        final RoutingTarget target = findRoutingTarget(displayId);
+        mDisplayId = displayId;
+        mAssociationTarget = target.associationTarget;
+        if (target.physicalPort) {
+            mAddAssociation = inputManagerInterface.getMethod(
+                    "addPortAssociation", String.class, int.class);
+            mRemoveAssociation = inputManagerInterface.getMethod(
+                    "removePortAssociation", String.class);
+        } else {
+            mAddAssociation = inputManagerInterface.getMethod(
+                    "addUniqueIdAssociationByPort",
+                    String.class,
+                    String.class);
+            mRemoveAssociation = inputManagerInterface.getMethod(
+                    "removeUniqueIdAssociationByPort", String.class);
+        }
+        mUsesNubiaConsoleHooks = target.nubiaConsole;
 
         final Set<String> requestedPorts = new LinkedHashSet<>();
-        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
             addRequestedPort(requestedPorts, keyboard.location);
         }
-        for (final ConsoleMouseDevice mouse : mice) {
+        for (final DesktopMouseDevice mouse : mice) {
             addRequestedPort(requestedPorts, mouse.location);
         }
-        ConsoleInputRoutingOwnership.record(requestedPorts);
+        DesktopInputRoutingOwnership.record(requestedPorts);
 
         int keyboardAssociations = 0;
-        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
             if (associatePort(
-                    mAddPortAssociation, keyboard.location, mDisplayPort)) {
+                    keyboard.location)) {
                 keyboardAssociations++;
             }
         }
-        if (keyboardAssociations == 0) {
-            throw new IllegalStateException(
-                    "external alphabetic keyboard input port not found");
-        }
         mKeyboardAssociationCount = keyboardAssociations;
-        for (final ConsoleMouseDevice mouse : mice) {
-            associatePort(
-                    mAddPortAssociation, mouse.location, mDisplayPort);
+        for (final DesktopMouseDevice mouse : mice) {
+            associatePort(mouse.location);
         }
 
-        mDisplayManager = getService(
-                "display", "android.hardware.display.IDisplayManager");
-        final Class<?> displayManagerInterface =
-                Class.forName("android.hardware.display.IDisplayManager");
-        mNotePanelStatus = displayManagerInterface.getMethod(
-                "noteMirrorInputPanelStatus", IBinder.class);
-        mPanelToken = new Binder();
-        mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
-        setMouseInputSourceOverride(true);
+        if (mUsesNubiaConsoleHooks) {
+            mDisplayManager = getService(
+                    "display", "android.hardware.display.IDisplayManager");
+            final Class<?> displayManagerInterface =
+                    Class.forName("android.hardware.display.IDisplayManager");
+            mNotePanelStatus = displayManagerInterface.getMethod(
+                    "noteMirrorInputPanelStatus", IBinder.class);
+            mPanelToken = new Binder();
+            mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
+            setMouseInputSourceOverride(true);
+        }
     }
 
     synchronized int refreshAssociations() throws Exception {
         if (mClosed || mInputManager == null
-                || mAddPortAssociation == null || mDisplayPort < 0) {
+                || mAddAssociation == null || mAssociationTarget == null) {
             return 0;
         }
         int added = 0;
-        for (final ConsoleKeyboardDevice keyboard
-                : ConsoleInputDeviceDiscovery.findRoutableKeyboards()) {
+        for (final DesktopKeyboardDevice keyboard
+                : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
             if (associatePort(
-                    mAddPortAssociation,
-                    keyboard.location,
-                    mDisplayPort)) {
+                    keyboard.location)) {
                 mKeyboardAssociationCount++;
                 added++;
             }
         }
-        for (final ConsoleMouseDevice mouse
-                : ConsoleInputDeviceDiscovery.findRoutableMice()) {
-            if (associatePort(
-                    mAddPortAssociation,
-                    mouse.location,
-                    mDisplayPort)) {
+        for (final DesktopMouseDevice mouse
+                : DesktopInputDeviceDiscovery.findRoutableMice()) {
+            if (associatePort(mouse.location)) {
                 added++;
             }
         }
         if (added > 0) {
-            ConsoleInputRoutingOwnership.record(mAssociatedInputPorts);
+            DesktopInputRoutingOwnership.record(mAssociatedInputPorts);
         }
         return added;
     }
 
-    private boolean associatePort(
-            final Method addPortAssociation,
-            final String location,
-            final int displayPort) throws ReflectiveOperationException {
+    private boolean associatePort(final String location)
+            throws ReflectiveOperationException {
         if (location == null
                 || location.isEmpty()
                 || !mAssociatedInputPorts.add(location)) {
             return false;
         }
         try {
-            addPortAssociation.invoke(
-                    mInputManager, location, displayPort);
+            mAddAssociation.invoke(
+                    mInputManager, location, mAssociationTarget);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             mAssociatedInputPorts.remove(location);
@@ -254,20 +262,62 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
     }
 
-    private int findExternalDisplayPort() throws Exception {
+    private static RoutingTarget findRoutingTarget(final int displayId)
+            throws Exception {
         final Object displayManager = getService(
                 "display", "android.hardware.display.IDisplayManager");
         final Class<?> displayManagerInterface =
                 Class.forName("android.hardware.display.IDisplayManager");
+        if (displayId == findNubiaConsoleDisplayId()) {
+            final int physicalPort = findExternalDisplayPort(
+                    displayManager, displayManagerInterface);
+            if (physicalPort >= 0) {
+                return RoutingTarget.nubiaConsole(physicalPort);
+            }
+        }
+        final Method getDisplayInfo = displayManagerInterface.getMethod(
+                "getDisplayInfo", int.class);
+        final Object info = getDisplayInfo.invoke(displayManager, displayId);
+        if (info == null) {
+            throw new IllegalStateException(
+                    "target display is unavailable: " + displayId);
+        }
+        if (getIntField(info, "type") == DISPLAY_TYPE_EXTERNAL) {
+            final Object address = getField(info, "address");
+            try {
+                final Object port = address.getClass()
+                        .getMethod("getPort").invoke(address);
+                if (port instanceof Number) {
+                    return RoutingTarget.physical(
+                            ((Number) port).intValue());
+                }
+            } catch (NullPointerException
+                    | ReflectiveOperationException ignored) {
+                // Non-physical display addresses do not expose a port.
+            }
+        }
+        final Object uniqueIdValue = getField(info, "uniqueId");
+        final String uniqueId = uniqueIdValue == null
+                ? "" : uniqueIdValue.toString().trim();
+        if (uniqueId.isEmpty()) {
+            throw new IllegalStateException(
+                    "target display has no routable identity: " + displayId);
+        }
+        return RoutingTarget.uniqueId(uniqueId);
+    }
+
+    private static int findExternalDisplayPort(
+            final Object displayManager,
+            final Class<?> displayManagerInterface) throws Exception {
         final Method getDisplayIds = displayManagerInterface.getMethod(
                 "getDisplayIds", boolean.class);
         final Method getDisplayInfo = displayManagerInterface.getMethod(
                 "getDisplayInfo", int.class);
-        final int[] displayIds =
-                (int[]) getDisplayIds.invoke(displayManager, true);
-        for (final int displayId : displayIds) {
-            final Object info =
-                    getDisplayInfo.invoke(displayManager, displayId);
+        final int[] displayIds = (int[]) getDisplayIds.invoke(
+                displayManager, true);
+        for (final int candidateDisplayId : displayIds) {
+            final Object info = getDisplayInfo.invoke(
+                    displayManager, candidateDisplayId);
             if (info == null
                     || getIntField(info, "type")
                             != DISPLAY_TYPE_EXTERNAL) {
@@ -284,16 +334,16 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
                     return ((Number) port).intValue();
                 }
             } catch (ReflectiveOperationException ignored) {
-                // Non-physical display addresses do not expose a port.
+                // Wireless display addresses do not expose a physical port.
             }
         }
         return -1;
     }
 
-    private int findConsoleDisplayId()
+    private static int findNubiaConsoleDisplayId()
             throws IOException, InterruptedException {
         final Process process = new ProcessBuilder(
-                SETTINGS, "get", "global", CONSOLE_DISPLAY_SETTING)
+                SETTINGS, "get", "global", NUBIA_CONSOLE_DISPLAY_SETTING)
                 .redirectErrorStream(true)
                 .start();
         final String value;
@@ -303,21 +353,14 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
         final int exitCode = process.waitFor();
         if (exitCode != 0) {
-            throw new IOException(
-                    "failed to read Console display setting: "
-                            + exitCode);
+            return -1;
         }
         try {
             final int displayId =
                     Integer.parseInt(value == null ? "" : value.trim());
-            if (displayId <= 0) {
-                throw new NumberFormatException(
-                        "display id must be positive");
-            }
-            return displayId;
+            return displayId > 0 ? displayId : -1;
         } catch (NumberFormatException error) {
-            throw new IOException(
-                    "invalid Console display id: " + value, error);
+            return -1;
         }
     }
 
@@ -349,11 +392,11 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             }
         }
         boolean associationsRemoved = mAssociatedInputPorts.isEmpty();
-        if (mRemovePortAssociation != null && mInputManager != null) {
+        if (mRemoveAssociation != null && mInputManager != null) {
             try {
                 removeAssociations(
                         mInputManager,
-                        mRemovePortAssociation,
+                        mRemoveAssociation,
                         mAssociatedInputPorts);
                 associationsRemoved = true;
             } catch (ReflectiveOperationException
@@ -365,7 +408,7 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
         if (associationsRemoved) {
             try {
-                ConsoleInputRoutingOwnership.clear();
+                DesktopInputRoutingOwnership.clear();
             } catch (IOException error) {
                 System.err.println(
                         "MAGICDESK_INPUT_ROUTING_CLEANUP ownership="
@@ -374,20 +417,21 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
         }
         mAssociatedInputPorts.clear();
         mPanelToken = null;
-        mConsoleDisplayId = -1;
-        mDisplayPort = -1;
+        mDisplayId = -1;
+        mAssociationTarget = null;
+        mUsesNubiaConsoleHooks = false;
         mKeyboardAssociationCount = 0;
         mVirtualKeyboardCount = 0;
     }
 
-    private static List<ConsoleKeyboardDevice> waitForVirtualKeyboards(
+    private static List<DesktopKeyboardDevice> waitForVirtualKeyboards(
             final int expectedCount)
             throws IOException, InterruptedException {
         final long deadline = SystemClock.uptimeMillis()
                 + VIRTUAL_KEYBOARD_TIMEOUT_MILLIS;
-        List<ConsoleKeyboardDevice> keyboards;
+        List<DesktopKeyboardDevice> keyboards;
         do {
-            keyboards = ConsoleInputDeviceDiscovery.findRoutableKeyboards();
+            keyboards = DesktopInputDeviceDiscovery.findRoutableKeyboards();
             if (countVirtualKeyboards(keyboards) == expectedCount) {
                 return keyboards;
             }
@@ -399,9 +443,9 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
     }
 
     private static int countVirtualKeyboards(
-            final List<ConsoleKeyboardDevice> keyboards) {
+            final List<DesktopKeyboardDevice> keyboards) {
         int count = 0;
-        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
             if (keyboard.location.startsWith(
                     VIRTUAL_KEYBOARD_LOCATION_PREFIX)) {
                 count++;
@@ -467,5 +511,34 @@ final class ConsoleInputRoutingSession implements AutoCloseable {
             final String fieldName) throws ReflectiveOperationException {
         final Field field = target.getClass().getField(fieldName);
         return field.getInt(target);
+    }
+
+    private static final class RoutingTarget {
+        final boolean physicalPort;
+        final boolean nubiaConsole;
+        final Object associationTarget;
+
+        private RoutingTarget(
+                final boolean physicalPort,
+                final boolean nubiaConsole,
+                final Object associationTarget) {
+            this.physicalPort = physicalPort;
+            this.nubiaConsole = nubiaConsole;
+            this.associationTarget = associationTarget;
+        }
+
+        static RoutingTarget physical(final int displayPort) {
+            return new RoutingTarget(
+                    true, false, Integer.valueOf(displayPort));
+        }
+
+        static RoutingTarget nubiaConsole(final int displayPort) {
+            return new RoutingTarget(
+                    true, true, Integer.valueOf(displayPort));
+        }
+
+        static RoutingTarget uniqueId(final String displayUniqueId) {
+            return new RoutingTarget(false, false, displayUniqueId);
+        }
     }
 }

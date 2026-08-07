@@ -28,7 +28,7 @@ boundary exists.
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Production routes the complete Console transition through Shizuku so display, task, and input ownership share one lifecycle. |
-| `SurfaceControl.setSFOption(1102, ...)` | Write verified | The app UID can change wired privacy/caption visibility. No corresponding getter was found. | Shizuku uses lifecycle ownership and restores Nubia's `Settings.Global.cast_privacy_model` value. |
+| `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons. | Prefer the stock entry point where its lifecycle is understood. |
 | `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Retained as research and possible diagnostics, not a task source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
@@ -151,16 +151,16 @@ Values 4-7 and 11-12 are internal state-machine operations, not independent
 public commands. MagicDesk must not call them without reproducing and
 validating their complete surrounding transition.
 
-The firmware's wired privacy path uses SurfaceFlinger option `1102`. Value `1`
-hides external layers whose names include `Task=`, including native WMShell
-captions; value `0` reveals them. An ordinary app-process invocation of
-`SurfaceControl.setSFOption(1102, 1)` succeeded. No SurfaceFlinger getter was
-found, but Nubia's `WiredSettingsActivity` mirrors every user change to
-`Settings.Global.cast_privacy_model`; an absent value corresponds to the
-firmware's default `true`. Firmware inspection confirmed a private preference,
-but the production app does not read another package's data. Shizuku records
-ownership, temporarily writes `0`, and restores the current global value on
-mirror transition, normal teardown, or interrupted-session recovery.
+The firmware uses SurfaceFlinger option `1100` for wireless privacy and `1102`
+for wired privacy. Value `1` hides external layers whose names include `Task=`,
+including native WMShell captions; value `0` reveals them. Ordinary app-process
+invocations of these options succeed, but no SurfaceFlinger getter was found.
+The exported `cn.nubia.touping.TouPingProvider` reports the independent current
+preferences through `CALL_4_KEY12` (`CALL_4`, wireless) and `CALL_5_KEY3`
+(`CALL_5`, wired). MagicDesk records transport ownership, temporarily writes
+`0` only for the active transport, and restores the provider value on transport
+change, mirror transition, normal teardown, or interrupted-session recovery.
+It does not read another package's private files.
 
 ## Task-State Hints
 
@@ -316,7 +316,7 @@ am instrument -w --user 0 \
 That test accepts only the hardcoded
 `desktop_mode_enforce_device_restrictions` property, reads and validates its
 original boolean value, writes the opposite value, restores in `finally`, and
-verifies the restored value. It also reveals caption layers through option
-`1102` and immediately restores Nubia's wired-privacy state through the same
-lifecycle-owned production wrapper. It must not be expanded into a generic
-mutation tool.
+verifies the restored value. It also reveals caption layers through wireless
+option `1100` and wired option `1102`, restoring each Nubia privacy preference
+through the same lifecycle-owned production wrapper. It must not be expanded
+into a generic mutation tool.

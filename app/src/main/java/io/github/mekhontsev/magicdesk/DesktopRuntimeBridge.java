@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityManager;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,7 +19,9 @@ final class DesktopRuntimeBridge {
     private static WeakReference<DesktopShellActivity> sDesktop =
             new WeakReference<>(null);
     // WMS may move the task to display 0 before reporting the external display removal.
-    private static int sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+    private static volatile int sDesktopSessionDisplayId =
+            Display.INVALID_DISPLAY;
+    private static volatile DesktopDisplayTarget.Kind sDesktopSessionKind;
 
     private DesktopRuntimeBridge() {
     }
@@ -52,6 +53,9 @@ final class DesktopRuntimeBridge {
         sDesktop = new WeakReference<>(activity);
         final int displayId = activity.getCurrentDisplayId();
         if (!replacingSameTask || displayId != Display.DEFAULT_DISPLAY) {
+            if (sDesktopSessionDisplayId != displayId) {
+                sDesktopSessionKind = null;
+            }
             sDesktopSessionDisplayId = displayId;
         }
         if (displayId == Display.DEFAULT_DISPLAY
@@ -73,7 +77,11 @@ final class DesktopRuntimeBridge {
             final int displayId = activity.getCurrentDisplayId();
             FreeformLaunchAnchorActivity.release();
             sDesktop.clear();
-            sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+            if (displayId == sDesktopSessionDisplayId
+                    || sDesktopSessionDisplayId == Display.DEFAULT_DISPLAY) {
+                sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+                sDesktopSessionKind = null;
+            }
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
             if (displayId == Display.DEFAULT_DISPLAY) {
                 MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
@@ -93,6 +101,7 @@ final class DesktopRuntimeBridge {
             sShell.clear();
         }
         sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+        sDesktopSessionKind = null;
         final Runnable close = () -> {
             FreeformLaunchAnchorActivity.release();
             activity.releaseDesktopOverlays();
@@ -111,6 +120,19 @@ final class DesktopRuntimeBridge {
     static int getActiveDesktopDisplayId() {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity == null ? -1 : activity.getCurrentDisplayId();
+    }
+
+    static void noteDesktopTarget(final DesktopDisplayTarget target) {
+        if (target == null) {
+            return;
+        }
+        sDesktopSessionDisplayId = target.displayId;
+        sDesktopSessionKind = target.kind;
+    }
+
+    static DesktopDisplayTarget.Kind getDesktopTargetKind(final int displayId) {
+        return sDesktopSessionDisplayId == displayId
+                ? sDesktopSessionKind : null;
     }
 
     static DesktopViewport getDesktopViewport(final int displayId) {
@@ -283,23 +305,18 @@ final class DesktopRuntimeBridge {
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
-        final ActivityManager manager =
-                activity.getSystemService(ActivityManager.class);
-        if (manager == null) {
-            return false;
-        }
-        for (final ActivityManager.AppTask task : manager.getAppTasks()) {
-            try {
-                final ActivityManager.RecentTaskInfo info = task.getTaskInfo();
-                if (info != null && info.taskId == activity.getTaskId()) {
-                    task.moveToFront();
-                    return true;
-                }
-            } catch (RuntimeException error) {
-                Log.w(TAG, "Could not focus the desktop task", error);
-            }
-        }
-        return false;
+        final int taskId = activity.getTaskId();
+        DesktopTaskController.focusDesktopTask(
+                displayId,
+                taskId,
+                result -> {
+                    if (!result.success) {
+                        Log.w(TAG, "Could not focus desktop task=" + taskId
+                                + " display=" + displayId
+                                + " result=" + result.message);
+                    }
+                });
+        return true;
     }
 
     static void syncTaskbarWithSnapshot(

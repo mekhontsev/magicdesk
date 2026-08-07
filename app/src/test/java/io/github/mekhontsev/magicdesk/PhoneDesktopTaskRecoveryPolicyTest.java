@@ -41,8 +41,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         assertTrue(result.success);
         assertTrue(result.cancelled);
         assertEquals(2, environment.commands.size());
-        assertFalse(environment.hasFocusCommand());
-        assertFalse(environment.hasFullscreenGesture());
+        assertFalse(environment.hasFullscreenTransition());
     }
 
     @Test
@@ -55,8 +54,8 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         assertTrue(result.success);
         assertFalse(result.cancelled);
-        assertTrue(environment.hasFocusCommand());
-        assertTrue(environment.hasFullscreenGesture());
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.hasInputKeyCombination());
         assertFalse(environment.freeform);
     }
 
@@ -70,10 +69,26 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         assertTrue(result.success);
         assertTrue(environment.hasReviveCommand());
-        assertTrue(environment.hasFocusCommand());
-        assertTrue(environment.hasFullscreenGesture());
+        assertTrue(environment.hasFullscreenTransition());
         assertTrue(environment.indexOfRevive()
-                < environment.indexOfFocus());
+                < environment.indexOfFullscreenTransition());
+    }
+
+    @Test
+    public void taskMigratedFromRemovedDisplayIsReconciled() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                        95, () -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasMoveToDeskCommand());
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.removedRepositoryContainsTask);
     }
 
     private static final class FakeEnvironment
@@ -82,6 +97,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean taskPresent;
         boolean freeform = true;
         boolean repositoryContainsTask = true;
+        boolean removedRepositoryContainsTask;
 
         FakeEnvironment(final boolean taskPresent) {
             this.taskPresent = taskPresent;
@@ -110,9 +126,15 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 return PhoneDesktopTaskRecovery.CommandResult.success(
                         "phone-desktop-recovery revived=1");
             }
-            if (command.contains("keycombination")) {
+            if (command.contains(
+                    "TaskClientPreservingFullscreenTransitionCommand")) {
                 freeform = false;
                 repositoryContainsTask = false;
+                removedRepositoryContainsTask = false;
+                return PhoneDesktopTaskRecovery.CommandResult.success("");
+            }
+            if (command.contains("desktopmode moveTaskToDesk")) {
+                freeform = true;
                 return PhoneDesktopTaskRecovery.CommandResult.success("");
             }
             return PhoneDesktopTaskRecovery.CommandResult.success("");
@@ -122,20 +144,25 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
             return indexOfRevive() >= 0;
         }
 
-        boolean hasFocusCommand() {
-            return indexOfFocus() >= 0;
+        boolean hasFullscreenTransition() {
+            return indexOfFullscreenTransition() >= 0;
         }
 
-        boolean hasFullscreenGesture() {
+        boolean hasInputKeyCombination() {
             return findCommand("keycombination") >= 0;
+        }
+
+        boolean hasMoveToDeskCommand() {
+            return findCommand("desktopmode moveTaskToDesk") >= 0;
         }
 
         int indexOfRevive() {
             return findCommand("PhoneDesktopTaskRecoveryCommand");
         }
 
-        int indexOfFocus() {
-            return findCommand("task focus 42");
+        int indexOfFullscreenTransition() {
+            return findCommand(
+                    "TaskClientPreservingFullscreenTransitionCommand");
         }
 
         private int findCommand(final String text) {
@@ -166,6 +193,10 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                     + "    Display #0:\n"
                     + "      activeTasks="
                     + (repositoryContainsTask ? "[42]" : "[]")
+                    + "\n"
+                    + "    Display #95:\n"
+                    + "      activeTasks="
+                    + (removedRepositoryContainsTask ? "[42]" : "[]")
                     + "\n";
         }
     }

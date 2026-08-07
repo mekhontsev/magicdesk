@@ -254,21 +254,18 @@ final class CompatibilityDiagnostics {
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
                 shellRightClick
-                        && Settings.Global.getInt(
-                                context.getContentResolver(),
-                                "app_mirror_displayid",
-                                -1) > 0
-                        && hasExternalMouse();
+                        && DesktopRuntimeBridge
+                                .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
                 MagicDeskRuntimeService
-                        .isConsoleMouseBridgeReadyIfRunning();
+                        .isDesktopMouseBridgeReadyIfRunning();
         final String mouseBridgeDetail;
         if (!shellRightClick) {
             mouseBridgeDetail =
                     "Shizuku runtime unavailable";
         } else if (!mouseBridgeExpected) {
             mouseBridgeDetail =
-                    "idle; Console Mode and an external mouse are required";
+                    "idle; an external desktop is required";
         } else {
             mouseBridgeDetail =
                     mouseBridgeReady ? "running" : "not running";
@@ -410,20 +407,6 @@ final class CompatibilityDiagnostics {
             report.append("None reported\n");
         }
         report.append('\n');
-    }
-
-    private static boolean hasExternalMouse() {
-        for (final int id : InputDevice.getDeviceIds()) {
-            final InputDevice device = InputDevice.getDevice(id);
-            if (device != null
-                    && !device.isVirtual()
-                    && device.isExternal()
-                    && (device.getSources() & InputDevice.SOURCE_MOUSE)
-                            == InputDevice.SOURCE_MOUSE) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void appendEvents(final StringBuilder report, final Context context) {

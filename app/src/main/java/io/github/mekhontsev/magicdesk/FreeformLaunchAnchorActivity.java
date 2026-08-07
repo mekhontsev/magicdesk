@@ -278,7 +278,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         final int taskId = getTaskId();
         final int displayId = mDisplayId;
         final Rect bounds = tinyAnchorBounds();
-        final boolean restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
+        final boolean restoreTouchpad =
+                ConsoleModeSwitcher.isTouchpadVisible();
         if (restoreTouchpad) {
             DesktopTaskController.expectTouchpadDisplacement();
         }
@@ -334,7 +335,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         launchIntent.addFlags(getLaunchFlags());
         launchIntent.putExtra("start_from_heartservice_app_lock", true);
         mLaunching = true;
-        final boolean restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
+        final boolean restoreTouchpad =
+                ConsoleModeSwitcher.isTouchpadVisible();
         if (restoreTouchpad) {
             DesktopTaskController.expectTouchpadDisplacement();
         }

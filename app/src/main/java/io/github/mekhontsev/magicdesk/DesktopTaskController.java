@@ -9,6 +9,7 @@ import android.view.Display;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -294,6 +295,23 @@ final class DesktopTaskController {
                 controller.mDisplayId,
                 new ArrayList<>(orderedTaskIds),
                 trackedCallback);
+    }
+
+    static void focusDesktopTask(
+            final int displayId,
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskController controller = getActiveController();
+        if (controller == null || !controller.mRunning
+                || !controller.mTaskWatcherReady
+                || controller.mDisplayId != displayId) {
+            TaskRepository.bringTaskToFront(taskId, callback);
+            return;
+        }
+        controller.mTaskWatcher.sendFocusStack(
+                displayId,
+                Collections.singletonList(Integer.valueOf(taskId)),
+                callback);
     }
 
     static boolean handleActiveTaskShortcut(final int shortcut) {
@@ -602,6 +620,7 @@ final class DesktopTaskController {
         final int focusingTaskId = mFocusingTaskId;
         if (mDisplayId != Display.DEFAULT_DISPLAY) {
             mPhoneUiReconciler.reconcile(
+                    mDisplayId,
                     snapshot.phoneTasks,
                     visibleAppTaskIds,
                     focusingTaskId >= 0);

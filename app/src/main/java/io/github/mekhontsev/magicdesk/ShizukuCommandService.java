@@ -35,7 +35,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final Object mInputRoutingLock = new Object();
-    private ConsoleInputRoutingSession mInputRoutingSession;
+    private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
 
@@ -233,14 +233,26 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void injectSecondaryClick(final int displayId) {
         try {
-            SecondaryClickInjector.inject(displayId);
+            DesktopPointerInjector.injectSecondaryClick(displayId);
         } catch (RuntimeException error) {
             Log.e(TAG, "secondary click injection failed", error);
         }
     }
 
     @Override
+    public boolean injectTouchTap(final int displayId) {
+        try {
+            DesktopPointerInjector.injectTouchTap(displayId);
+            return true;
+        } catch (RuntimeException error) {
+            Log.e(TAG, "touchscreen tap injection failed", error);
+            return false;
+        }
+    }
+
+    @Override
     public int[] startInputRouting(
+            final int displayId,
             final int expectedVirtualKeyboardCount,
             final IBinder ownerToken) {
         if (ownerToken == null) {
@@ -249,12 +261,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
-            ConsoleInputRoutingSession session = null;
+            DesktopInputRoutingSession session = null;
             IBinder.DeathRecipient ownerDeath = null;
             boolean ownerLinked = false;
             try {
-                session = ConsoleInputRoutingSession.open(
-                        expectedVirtualKeyboardCount);
+                session = DesktopInputRoutingSession.open(
+                        displayId, expectedVirtualKeyboardCount);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -262,7 +274,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mInputRoutingOwner = ownerToken;
                 mInputRoutingOwnerDeath = ownerDeath;
                 return new int[] {
-                        session.consoleDisplayId(),
+                        session.displayId(),
                         session.associationCount(),
                         session.keyboardAssociationCount(),
                         session.virtualKeyboardCount()
@@ -313,7 +325,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 return 0;
             }
             try {
-                return ConsoleInputRoutingSession
+                return DesktopInputRoutingSession
                         .cleanupStaleAssociations();
             } catch (Exception error) {
                 throw new IllegalStateException(
@@ -524,7 +536,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         || !mInputRoutingOwner.equals(expectedOwner))) {
             return;
         }
-        final ConsoleInputRoutingSession session = mInputRoutingSession;
+        final DesktopInputRoutingSession session = mInputRoutingSession;
         final IBinder owner = mInputRoutingOwner;
         final IBinder.DeathRecipient ownerDeath =
                 mInputRoutingOwnerDeath;

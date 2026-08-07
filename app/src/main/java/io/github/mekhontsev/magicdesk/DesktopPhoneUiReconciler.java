@@ -15,6 +15,8 @@ final class DesktopPhoneUiReconciler {
     private static final String TAG = "MagicDeskTasks";
     private static final String TOUCHPAD_ACTIVITY =
             "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
+    private static final String MAGICDESK_TOUCHPAD_ACTIVITY =
+            "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
     private static final String SECONDARY_HOME_ACTIVITY =
             "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
 
@@ -51,6 +53,7 @@ final class DesktopPhoneUiReconciler {
     }
 
     void reconcile(
+            final int displayId,
             final List<TaskRepository.TaskEntry> phoneTasks,
             final Set<Integer> visibleAppTaskIds,
             final boolean focusingExternalTask) {
@@ -60,18 +63,24 @@ final class DesktopPhoneUiReconciler {
             if (task == null || !task.visible || task.componentName == null) {
                 continue;
             }
-            if (task.componentName.endsWith(TOUCHPAD_ACTIVITY)) {
+            if (task.componentName.endsWith(TOUCHPAD_ACTIVITY)
+                    || task.componentName.endsWith(
+                            MAGICDESK_TOUCHPAD_ACTIVITY)) {
                 touchpadVisible = true;
             } else if (task.componentName.endsWith(SECONDARY_HOME_ACTIVITY)) {
                 secondaryHomeVisible = true;
             }
         }
 
-        if (mTouchpadPreservationArmed && !touchpadVisible) {
+        if (!touchpadVisible
+                && (mTouchpadPreservationArmed
+                        || (Boolean.TRUE.equals(mLastTouchpadVisible)
+                                && PhoneTouchpadController
+                                        .shouldRemainVisible(displayId)))) {
             mTouchpadPreservationArmed = false;
             mTouchpadRestorePending = true;
             Log.i(TAG,
-                    "Nubia touchpad displaced by desktop window transition");
+                    "phone touchpad displaced by desktop window transition");
         }
 
         boolean externalTaskMinimized = false;
@@ -85,7 +94,7 @@ final class DesktopPhoneUiReconciler {
                 && secondaryHomeVisible && !touchpadVisible
                 && mLastTouchpadVisible != null) {
             if (mLastTouchpadVisible.booleanValue()) {
-                Log.i(TAG, "Nubia touchpad displaced by external task minimize");
+                Log.i(TAG, "phone touchpad displaced by external task minimize");
                 mTouchpadRestorePending = true;
             } else {
                 Log.i(TAG, "restore phone Home displaced by external task minimize");

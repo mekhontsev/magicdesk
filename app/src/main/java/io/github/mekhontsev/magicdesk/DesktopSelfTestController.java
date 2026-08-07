@@ -94,7 +94,7 @@ final class DesktopSelfTestController {
             final int targetDisplayId = displayId;
             require(result, "DESKTOP-001", "Launch desktop session", () -> {
                 if (!DesktopSessionController.show(
-                        DesktopDisplayTarget.simulated(targetDisplayId))) {
+                        DesktopDisplayTarget.simulated(targetDisplayId)).ready) {
                     throw new IOException("desktop did not become ready");
                 }
                 final TaskStackParser.Entry desktop = waitForTask(

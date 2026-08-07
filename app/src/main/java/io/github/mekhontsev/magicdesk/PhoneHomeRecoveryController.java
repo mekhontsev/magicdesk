@@ -54,6 +54,7 @@ final class PhoneHomeRecoveryController {
 
     static void restoreIfNeeded(
             final boolean includeStrandedDesktop,
+            final int removedDisplayId,
             final ResultCallback callback) {
         if (!ShellAccess.isReady()) {
             complete(callback, true);
@@ -61,7 +62,10 @@ final class PhoneHomeRecoveryController {
         }
         TaskRepository.load(Display.DEFAULT_DISPLAY, snapshot ->
                 restoreSnapshot(
-                        snapshot, includeStrandedDesktop, callback));
+                        snapshot,
+                        includeStrandedDesktop,
+                        removedDisplayId,
+                        callback));
     }
 
     static String primaryHomeCommand() {
@@ -106,6 +110,7 @@ final class PhoneHomeRecoveryController {
     private static void restoreSnapshot(
             final TaskRepository.Snapshot snapshot,
             final boolean includeStrandedDesktop,
+            final int removedDisplayId,
             final ResultCallback callback) {
         if (!snapshot.available) {
             complete(callback, false);
@@ -113,8 +118,8 @@ final class PhoneHomeRecoveryController {
         }
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
                 snapshot.tasks, includeStrandedDesktop);
-        if (includeStrandedDesktop) {
-            PhoneDesktopTaskRecovery.recover(result -> {
+        if (includeStrandedDesktop || removedDisplayId > 0) {
+            final PhoneDesktopTaskRecovery.Callback recoveryComplete = result -> {
                 if (!result.success) {
                     Log.w(TAG, "phone desktop cleanup failed before Home: "
                             + result.message);
@@ -123,7 +128,7 @@ final class PhoneHomeRecoveryController {
                             "Could not clean phone desktop tasks before"
                                     + " restoring the launcher",
                             result.message);
-                    complete(callback, false);
+                    restorePrimaryHome(callback);
                     return;
                 }
                 if (needsPrimaryHome
@@ -132,7 +137,13 @@ final class PhoneHomeRecoveryController {
                 } else {
                     complete(callback, true);
                 }
-            });
+            };
+            if (removedDisplayId > 0) {
+                PhoneDesktopTaskRecovery.recoverRemovedDisplay(
+                        removedDisplayId, recoveryComplete);
+            } else {
+                PhoneDesktopTaskRecovery.recover(recoveryComplete);
+            }
             return;
         }
         if (!needsPrimaryHome) {

@@ -10,13 +10,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Reconciles Nubia's display-0 desktop repository before returning to Home. */
+/** Reconciles Nubia's desktop repository before returning to Home. */
 final class PhoneDesktopTaskRecovery {
     private static final String TAG = "MagicDeskPhoneRecovery";
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
     private static final String CMD = "/system/bin/cmd";
-    private static final String AM = "/system/bin/am";
     private static final String RECOVERY_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDesktopTaskRecoveryCommand";
     private static final String REPOSITORY_DUMP =
@@ -30,9 +29,9 @@ final class PhoneDesktopTaskRecovery {
                     + "{ found=1; base=indent } "
                     + "else if (found && stripped != \"\" && indent <= base) "
                     + "{ found=0; done=1 } if (found) print line }'";
-    private static final String FULLSCREEN_GESTURE =
-            "/system/bin/input -d 0 keycombination -t 60"
-                    + " KEYCODE_META_LEFT KEYCODE_CTRL_LEFT KEYCODE_DPAD_UP";
+    private static final String FULLSCREEN_COMMAND =
+            "io.github.mekhontsev.magicdesk."
+                    + "TaskClientPreservingFullscreenTransitionCommand";
     private static final Continuation ALWAYS_CONTINUE = () -> true;
     private static final Environment SYSTEM_ENVIRONMENT = new Environment() {
         @Override
@@ -57,22 +56,37 @@ final class PhoneDesktopTaskRecovery {
     }
 
     static void recover(final Callback callback) {
-        recover(-1, ALWAYS_CONTINUE, callback);
+        recover(-1, -1, ALWAYS_CONTINUE, callback);
     }
 
     static void recover(
             final int releasedAnchorTaskId,
             final Callback callback) {
-        recover(releasedAnchorTaskId, ALWAYS_CONTINUE, callback);
+        recover(releasedAnchorTaskId, -1, ALWAYS_CONTINUE, callback);
+    }
+
+    static void recoverRemovedDisplay(
+            final int removedDisplayId,
+            final Callback callback) {
+        recover(-1, removedDisplayId, ALWAYS_CONTINUE, callback);
     }
 
     static void recover(
             final int releasedAnchorTaskId,
             final Continuation continuation,
             final Callback callback) {
+        recover(releasedAnchorTaskId, -1, continuation, callback);
+    }
+
+    private static void recover(
+            final int releasedAnchorTaskId,
+            final int removedDisplayId,
+            final Continuation continuation,
+            final Callback callback) {
         TaskCommandQueue.execute(() -> {
             final Result result = recoverNow(
                     releasedAnchorTaskId,
+                    removedDisplayId,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT);
             if (callback != null) {
@@ -89,6 +103,7 @@ final class PhoneDesktopTaskRecovery {
         try {
             return TaskCommandQueue.call(() -> recoverNow(
                     -1,
+                    -1,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT));
         } catch (RuntimeException error) {
@@ -101,11 +116,20 @@ final class PhoneDesktopTaskRecovery {
             final int releasedAnchorTaskId,
             final Continuation continuation,
             final Environment environment) {
-        return recoverNow(releasedAnchorTaskId, continuation, environment);
+        return recoverNow(
+                releasedAnchorTaskId, -1, continuation, environment);
+    }
+
+    static Result recoverRemovedDisplayForTest(
+            final int removedDisplayId,
+            final Continuation continuation,
+            final Environment environment) {
+        return recoverNow(-1, removedDisplayId, continuation, environment);
     }
 
     private static Result recoverNow(
             final int releasedAnchorTaskId,
+            final int removedDisplayId,
             final Continuation continuation,
             final Environment environment) {
         if (!environment.isReady()) {
@@ -141,14 +165,14 @@ final class PhoneDesktopTaskRecovery {
             return Result.failure(repository.output.trim());
         }
 
-        final Set<Integer> repositoryTaskIds = new LinkedHashSet<>(
-                SystemUiDesktopRepositoryParser.parsePhoneTaskIds(
-                        repository.output));
-        repositoryTaskIds.remove(Integer.valueOf(releasedAnchorTaskId));
         Map<Integer, PhoneTask> liveTasks = indexPhoneTasks(stack.output);
-        excludeMagicDeskTasks(repositoryTaskIds, liveTasks);
+        final Set<Integer> phoneRepositoryTaskIds = new LinkedHashSet<>(
+                SystemUiDesktopRepositoryParser.parseTaskIds(
+                        repository.output, 0));
+        phoneRepositoryTaskIds.remove(Integer.valueOf(releasedAnchorTaskId));
+        excludeMagicDeskTasks(phoneRepositoryTaskIds, liveTasks);
         final Set<Integer> missingTaskIds = new LinkedHashSet<>(
-                repositoryTaskIds);
+                phoneRepositoryTaskIds);
         missingTaskIds.removeAll(liveTasks.keySet());
         if (!missingTaskIds.isEmpty()) {
             final CommandResult revived = runMutation(
@@ -174,7 +198,16 @@ final class PhoneDesktopTaskRecovery {
             }
         }
 
-        final Set<Integer> taskIds = new LinkedHashSet<>(repositoryTaskIds);
+        final Set<Integer> taskIds = new LinkedHashSet<>(
+                phoneRepositoryTaskIds);
+        if (removedDisplayId > 0) {
+            final Set<Integer> removedDisplayTaskIds = new LinkedHashSet<>(
+                    SystemUiDesktopRepositoryParser.parseTaskIds(
+                            repository.output, removedDisplayId));
+            removedDisplayTaskIds.retainAll(liveTasks.keySet());
+            excludeMagicDeskTasks(removedDisplayTaskIds, liveTasks);
+            taskIds.addAll(removedDisplayTaskIds);
+        }
         for (final PhoneTask task : liveTasks.values()) {
             if (task.freeform && !task.home) {
                 taskIds.add(Integer.valueOf(task.taskId));
@@ -214,25 +247,10 @@ final class PhoneDesktopTaskRecovery {
                 }
             }
 
-            final CommandResult focused = runMutation(
-                    AM + " task focus " + taskId.intValue(),
+            final CommandResult fullscreen = runMutation(
+                    createFullscreenCommand(taskId.intValue()),
                     continuation,
                     environment);
-            if (focused.cancelled) {
-                return Result.cancelled();
-            }
-            if (!focused.success
-                    || !waitForFocusedTask(
-                            taskId.intValue(), continuation, environment)) {
-                return cancelled(continuation)
-                        ? Result.cancelled()
-                        : Result.failure(
-                                "could not focus phone desktop task " + taskId
-                                        + ": " + focused.output.trim());
-            }
-
-            final CommandResult fullscreen = runMutation(
-                    FULLSCREEN_GESTURE, continuation, environment);
             if (fullscreen.cancelled) {
                 return Result.cancelled();
             }
@@ -265,12 +283,22 @@ final class PhoneDesktopTaskRecovery {
                         : currentRepository.output.trim());
             }
             final Set<Integer> remaining = new LinkedHashSet<>(
-                    SystemUiDesktopRepositoryParser.parsePhoneTaskIds(
-                            currentRepository.output));
+                    SystemUiDesktopRepositoryParser.parseTaskIds(
+                            currentRepository.output, 0));
             remaining.remove(Integer.valueOf(releasedAnchorTaskId));
             final Map<Integer, PhoneTask> currentTasks =
                     indexPhoneTasks(currentStack.output);
             excludeMagicDeskTasks(remaining, currentTasks);
+            if (removedDisplayId > 0) {
+                final Set<Integer> removedDisplayTaskIds =
+                        new LinkedHashSet<>(
+                                SystemUiDesktopRepositoryParser.parseTaskIds(
+                                        currentRepository.output,
+                                        removedDisplayId));
+                removedDisplayTaskIds.retainAll(currentTasks.keySet());
+                excludeMagicDeskTasks(removedDisplayTaskIds, currentTasks);
+                remaining.addAll(removedDisplayTaskIds);
+            }
             for (final PhoneTask task : currentTasks.values()) {
                 if (task.freeform && isRecoverable(task)) {
                     remaining.add(Integer.valueOf(task.taskId));
@@ -318,6 +346,11 @@ final class PhoneDesktopTaskRecovery {
         return AppProcessCommand.run(RECOVERY_COMMAND, arguments.toString());
     }
 
+    private static String createFullscreenCommand(final int taskId) {
+        return AppProcessCommand.run(
+                FULLSCREEN_COMMAND, "0 " + taskId);
+    }
+
     private static Map<Integer, PhoneTask> waitForPhoneTasks(
             final Set<Integer> taskIds,
             final Continuation continuation,
@@ -338,28 +371,6 @@ final class PhoneDesktopTaskRecovery {
             }
         }
         return tasks;
-    }
-
-    private static boolean waitForFocusedTask(
-            final int taskId,
-            final Continuation continuation,
-            final Environment environment) {
-        for (int attempt = 0; attempt < 20; attempt++) {
-            final CommandResult stack = runRead(
-                    CMD + " activity stack list", continuation, environment);
-            if (!stack.success) {
-                return false;
-            }
-            final PhoneTask task = indexPhoneTasks(stack.output).get(
-                    Integer.valueOf(taskId));
-            if (task != null && task.active) {
-                return true;
-            }
-            if (!sleepForStatePoll(continuation)) {
-                return false;
-            }
-        }
-        return false;
     }
 
     private static boolean waitForTaskMode(
@@ -424,7 +435,6 @@ final class PhoneDesktopTaskRecovery {
     private static Map<Integer, PhoneTask> indexPhoneTasks(
             final String stackOutput) {
         final Map<Integer, PhoneTask> result = new LinkedHashMap<>();
-        boolean activeAssigned = false;
         final List<TaskStackParser.Entry> tasks =
                 TaskStackParser.parse(stackOutput);
         for (final TaskStackParser.Entry task : tasks) {
@@ -432,17 +442,12 @@ final class PhoneDesktopTaskRecovery {
                 continue;
             }
             final boolean home = task.isHome();
-            final boolean active = task.visible && !home && !activeAssigned;
-            if (active) {
-                activeAssigned = true;
-            }
             result.put(Integer.valueOf(task.taskId), new PhoneTask(
                     task.taskId,
                     task.packageName,
                     home,
                     "freeform".equals(task.windowingMode),
-                    "fullscreen".equals(task.windowingMode),
-                    active));
+                    "fullscreen".equals(task.windowingMode)));
         }
         return result;
     }
@@ -558,21 +563,18 @@ final class PhoneDesktopTaskRecovery {
         final boolean home;
         final boolean freeform;
         final boolean fullscreen;
-        final boolean active;
 
         PhoneTask(
                 final int taskId,
                 final String packageName,
                 final boolean home,
                 final boolean freeform,
-                final boolean fullscreen,
-                final boolean active) {
+                final boolean fullscreen) {
             this.taskId = taskId;
             this.packageName = packageName;
             this.home = home;
             this.freeform = freeform;
             this.fullscreen = fullscreen;
-            this.active = active;
         }
     }
 }

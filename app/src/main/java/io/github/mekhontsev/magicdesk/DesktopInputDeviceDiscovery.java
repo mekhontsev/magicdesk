@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class ConsoleInputDeviceDiscovery {
+final class DesktopInputDeviceDiscovery {
     private static final String DUMPSYS = "/system/bin/dumpsys";
     private static final int MAGICDESK_VENDOR_ID = 0x4d44;
     private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
@@ -18,22 +18,22 @@ final class ConsoleInputDeviceDiscovery {
     private static final Pattern INPUT_IDENTIFIER = Pattern.compile(
             ".*vendor=0x([0-9a-fA-F]+), product=0x([0-9a-fA-F]+).*");
 
-    private ConsoleInputDeviceDiscovery() {
+    private DesktopInputDeviceDiscovery() {
     }
 
-    static List<ConsoleKeyboardDevice> findKeyboards()
+    static List<DesktopKeyboardDevice> findKeyboards()
             throws IOException, InterruptedException {
         final List<DeviceRecord> records = readEventHubDevices();
         return findKeyboards(records, false);
     }
 
-    static List<ConsoleKeyboardDevice> findRoutableKeyboards()
+    static List<DesktopKeyboardDevice> findRoutableKeyboards()
             throws IOException, InterruptedException {
         final List<DeviceRecord> records = readEventHubDevices();
         return findKeyboards(records, true);
     }
 
-    static List<ConsoleKeyboardDevice> findKeyboards(
+    static List<DesktopKeyboardDevice> findKeyboards(
             final String inputDump) throws IOException {
         try (BufferedReader reader =
                 new BufferedReader(new StringReader(inputDump))) {
@@ -41,7 +41,7 @@ final class ConsoleInputDeviceDiscovery {
         }
     }
 
-    static List<ConsoleKeyboardDevice> findRoutableKeyboards(
+    static List<DesktopKeyboardDevice> findRoutableKeyboards(
             final String inputDump) throws IOException {
         try (BufferedReader reader =
                 new BufferedReader(new StringReader(inputDump))) {
@@ -49,19 +49,19 @@ final class ConsoleInputDeviceDiscovery {
         }
     }
 
-    static List<ConsoleMouseDevice> findMice()
+    static List<DesktopMouseDevice> findMice()
             throws IOException, InterruptedException {
         final List<DeviceRecord> records = readEventHubDevices();
         return findMice(records, false);
     }
 
-    static List<ConsoleMouseDevice> findRoutableMice()
+    static List<DesktopMouseDevice> findRoutableMice()
             throws IOException, InterruptedException {
         final List<DeviceRecord> records = readEventHubDevices();
         return findMice(records, true);
     }
 
-    static List<ConsoleMouseDevice> findMice(final String inputDump)
+    static List<DesktopMouseDevice> findMice(final String inputDump)
             throws IOException {
         try (BufferedReader reader =
                 new BufferedReader(new StringReader(inputDump))) {
@@ -69,7 +69,7 @@ final class ConsoleInputDeviceDiscovery {
         }
     }
 
-    static List<ConsoleMouseDevice> findRoutableMice(
+    static List<DesktopMouseDevice> findRoutableMice(
             final String inputDump) throws IOException {
         try (BufferedReader reader =
                 new BufferedReader(new StringReader(inputDump))) {
@@ -77,16 +77,17 @@ final class ConsoleInputDeviceDiscovery {
         }
     }
 
-    private static List<ConsoleMouseDevice> findMice(
+    private static List<DesktopMouseDevice> findMice(
             final List<DeviceRecord> records,
             final boolean includeMagicDeskMouse) {
-        final List<ConsoleMouseDevice> result = new ArrayList<>();
+        final List<DesktopMouseDevice> result = new ArrayList<>();
         for (final DeviceRecord record : records) {
+            final boolean magicDeskMouse = isMagicDeskMouse(record);
             if (record.classes.contains("CURSOR")
-                    && record.classes.contains("EXTERNAL")
-                    && (includeMagicDeskMouse
-                            || !isMagicDeskMouse(record))) {
-                result.add(new ConsoleMouseDevice(
+                    && (record.classes.contains("EXTERNAL")
+                            || (includeMagicDeskMouse && magicDeskMouse))
+                    && (includeMagicDeskMouse || !magicDeskMouse)) {
+                result.add(new DesktopMouseDevice(
                         record.path,
                         record.location,
                         record.vendorId,
@@ -101,10 +102,10 @@ final class ConsoleInputDeviceDiscovery {
                 && record.productId == MAGICDESK_MOUSE_PRODUCT_ID;
     }
 
-    private static List<ConsoleKeyboardDevice> findKeyboards(
+    private static List<DesktopKeyboardDevice> findKeyboards(
             final List<DeviceRecord> records,
             final boolean includeMagicDeskKeyboard) {
-        final List<ConsoleKeyboardDevice> result = new ArrayList<>();
+        final List<DesktopKeyboardDevice> result = new ArrayList<>();
         for (final DeviceRecord record : records) {
             if (record.classes.contains("KEYBOARD")
                     && record.classes.contains("ALPHAKEY")
@@ -112,7 +113,7 @@ final class ConsoleInputDeviceDiscovery {
                     && (includeMagicDeskKeyboard
                             || !record.name.startsWith(
                                     "MagicDesk Keyboard"))) {
-                result.add(new ConsoleKeyboardDevice(
+                result.add(new DesktopKeyboardDevice(
                         record.path,
                         record.location,
                         record.vendorId,

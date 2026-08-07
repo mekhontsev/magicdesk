@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.util.Log;
+import android.view.MotionEvent;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
@@ -10,7 +11,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 
-final class ConsoleMouseBridge {
+final class DesktopMouseBridge {
     private static final String TAG = "MagicDeskMouse";
     private static final String HELPER_NAME =
             "libmagicdesk_uinput_bridge.so";
@@ -26,8 +27,12 @@ final class ConsoleMouseBridge {
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
+    private float mMoveRemainderX;
+    private float mMoveRemainderY;
+    private float mScrollRemainder;
+    private boolean mPrimaryButtonPressed;
 
-    ConsoleMouseBridge(final Context context) {
+    DesktopMouseBridge(final Context context) {
         mContext = context.getApplicationContext();
     }
 
@@ -58,6 +63,10 @@ final class ConsoleMouseBridge {
             mRequested = false;
             mReady = false;
             mPointerRestoreArmed = false;
+            mMoveRemainderX = 0.0f;
+            mMoveRemainderY = 0.0f;
+            mScrollRemainder = 0.0f;
+            mPrimaryButtonPressed = false;
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
@@ -82,7 +91,7 @@ final class ConsoleMouseBridge {
         }
     }
 
-    void refreshSources(final List<ConsoleMouseDevice> mice) {
+    void refreshSources(final List<DesktopMouseDevice> mice) {
         final ShellStreamHandle stream;
         synchronized (mLock) {
             if (!mRequested) {
@@ -94,7 +103,7 @@ final class ConsoleMouseBridge {
             return;
         }
         final StringBuilder command = new StringBuilder("sources");
-        for (final ConsoleMouseDevice mouse : mice) {
+        for (final DesktopMouseDevice mouse : mice) {
             command.append(' ').append(mouse.path);
         }
         try {
@@ -115,6 +124,82 @@ final class ConsoleMouseBridge {
         }
         if (stream != null) {
             writeControl(stream, "restore-pointer-on-motion");
+        }
+    }
+
+    boolean movePointer(final float deltaX, final float deltaY) {
+        final ShellStreamHandle stream;
+        final int moveX;
+        final int moveY;
+        synchronized (mLock) {
+            if (!mRequested || !mReady || mStream == null) {
+                return false;
+            }
+            mMoveRemainderX += deltaX;
+            mMoveRemainderY += deltaY;
+            moveX = (int) mMoveRemainderX;
+            moveY = (int) mMoveRemainderY;
+            mMoveRemainderX -= moveX;
+            mMoveRemainderY -= moveY;
+            stream = mStream;
+        }
+        return moveX == 0 && moveY == 0
+                || writePointerControl(
+                        stream, "move " + moveX + " " + moveY);
+    }
+
+    boolean clickPointer(final int button) {
+        if (button != MotionEvent.BUTTON_PRIMARY) {
+            return false;
+        }
+        final ShellStreamHandle stream = readyStream();
+        return stream != null
+                && writePointerControl(stream, "click-primary");
+    }
+
+    boolean setPrimaryButtonPressed(final boolean pressed) {
+        final ShellStreamHandle stream;
+        synchronized (mLock) {
+            if (!mRequested || !mReady || mStream == null) {
+                return false;
+            }
+            if (mPrimaryButtonPressed == pressed) {
+                return true;
+            }
+            stream = mStream;
+        }
+        if (!writePointerControl(
+                stream, pressed ? "primary-down" : "primary-up")) {
+            return false;
+        }
+        synchronized (mLock) {
+            if (mRequested && mReady && mStream == stream) {
+                mPrimaryButtonPressed = pressed;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    boolean scrollPointer(final float amount) {
+        final ShellStreamHandle stream;
+        final int steps;
+        synchronized (mLock) {
+            if (!mRequested || !mReady || mStream == null) {
+                return false;
+            }
+            mScrollRemainder += amount;
+            steps = (int) mScrollRemainder;
+            mScrollRemainder -= steps;
+            stream = mStream;
+        }
+        return steps == 0
+                || writePointerControl(stream, "scroll " + steps);
+    }
+
+    private ShellStreamHandle readyStream() {
+        synchronized (mLock) {
+            return mRequested && mReady ? mStream : null;
         }
     }
 
@@ -151,12 +236,8 @@ final class ConsoleMouseBridge {
 
     private void runOnce(final int generation) throws IOException {
         final String inputDump = ShellAccess.run(DUMPSYS_INPUT);
-        final List<ConsoleMouseDevice> mice =
-                ConsoleInputDeviceDiscovery.findMice(inputDump);
-        if (mice.isEmpty()) {
-            throw new IOException("no external cursor device was found");
-        }
-
+        final List<DesktopMouseDevice> mice =
+                DesktopInputDeviceDiscovery.findMice(inputDump);
         final File helper = new File(
                 mContext.getApplicationInfo().nativeLibraryDir,
                 HELPER_NAME);
@@ -168,7 +249,7 @@ final class ConsoleMouseBridge {
         final StringBuilder command =
                 new StringBuilder("exec ").append(shellQuote(
                         helper.getAbsolutePath()));
-        for (final ConsoleMouseDevice mouse : mice) {
+        for (final DesktopMouseDevice mouse : mice) {
             command.append(' ').append(shellQuote(mouse.path));
         }
 
@@ -198,6 +279,7 @@ final class ConsoleMouseBridge {
                 if (mStream == stream) {
                     mStream = null;
                     mReady = false;
+                    mPrimaryButtonPressed = false;
                 }
             }
             closeQuietly(stream);
@@ -234,8 +316,8 @@ final class ConsoleMouseBridge {
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
-            final int displayId = ConsoleDisplayController
-                    .getActiveConsoleDisplayId();
+            final int displayId = DesktopRuntimeBridge
+                    .getActiveDesktopDisplayId();
             if (displayId > 0) {
                 ShellAccess.injectSecondaryClick(displayId);
             }
@@ -269,6 +351,18 @@ final class ConsoleMouseBridge {
             stream.writeLine(command);
         } catch (IOException error) {
             Log.w(TAG, "Could not configure mouse bridge", error);
+        }
+    }
+
+    private static boolean writePointerControl(
+            final ShellStreamHandle stream,
+            final String command) {
+        try {
+            stream.writeLine(command);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "Could not send pointer input", error);
+            return false;
         }
     }
 

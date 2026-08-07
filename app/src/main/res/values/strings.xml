@@ -58,7 +58,6 @@
     <string name="action_connect_external_display">Connect an external display</string>
     <string name="action_connect_wireless_display">Connect a wireless display</string>
     <string name="action_start_console_mode">Start external desktop</string>
-    <string name="action_resume_external_desktop">Resume external desktop</string>
     <string name="action_show_external_desktop">Show external desktop</string>
     <string name="external_display_fill">Fill display</string>
     <string name="external_display_resolution">Output mode</string>
@@ -203,7 +202,9 @@
     <string name="status_wireless_desktop_starting">Starting wireless desktop&#8230;</string>
     <string name="status_desktop_opening">Opening desktop here&#8230;</string>
     <string name="status_desktop_closing">Closing desktop&#8230;</string>
-    <string name="status_touchpad_opening">Opening Nubia touchpad&#8230;</string>
+    <string name="status_touchpad_opening">Opening touchpad&#8230;</string>
+    <string name="touchpad_title">Touchpad</string>
+    <string name="touchpad_show_keyboard">Show keyboard</string>
     <string name="status_mirror_switching">Switching to screen mirroring&#8230;</string>
     <string name="status_mirror_active">Screen mirroring active</string>
     <string name="status_mirror_failed">Could not switch to screen mirroring</string>

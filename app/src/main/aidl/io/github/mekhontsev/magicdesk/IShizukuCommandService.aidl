@@ -59,6 +59,7 @@ interface IShizukuCommandService {
     void injectSecondaryClick(int displayId) = 17;
 
     int[] startInputRouting(
+        int displayId,
         int expectedVirtualKeyboardCount,
         IBinder ownerToken) = 18;
 
@@ -100,4 +101,6 @@ interface IShizukuCommandService {
         IDesktopFolderObserverCallback callback) = 32;
 
     DesktopFileInfo getDesktopFileInfo(String relativePath) = 33;
+
+    boolean injectTouchTap(int displayId) = 34;
 }

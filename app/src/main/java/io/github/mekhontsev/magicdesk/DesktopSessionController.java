@@ -21,7 +21,17 @@ final class DesktopSessionController {
     private DesktopSessionController() {
     }
 
-    static boolean show(final DesktopDisplayTarget target)
+    static final class ShowResult {
+        final boolean ready;
+        final boolean created;
+
+        ShowResult(final boolean ready, final boolean created) {
+            this.ready = ready;
+            this.created = created;
+        }
+    }
+
+    static ShowResult show(final DesktopDisplayTarget target)
             throws IOException {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
@@ -47,12 +57,13 @@ final class DesktopSessionController {
             if (restoreWindows) {
                 DesktopRuntimeBridge.restoreLastVisibleWindows();
             }
-            return true;
+            DesktopRuntimeBridge.noteDesktopTarget(target);
+            return new ShowResult(true, false);
         }
 
         final String output = ShellAccess.run(
                 AM + " start -W --display " + target.displayId
-                        + " --windowingMode 5"
+                        + " --windowingMode 1"
                         + " -f 0x18000000"
                         + " -a android.intent.action.MAIN"
                         + " -c android.intent.category.LAUNCHER"
@@ -75,7 +86,11 @@ final class DesktopSessionController {
         Log.i(TAG, "launched desktop kind=" + target.kind
                 + " display=" + target.displayId
                 + " output=" + output.replace('\n', ' '));
-        return waitForDesktopReady(target.displayId);
+        final boolean ready = waitForDesktopReady(target.displayId);
+        if (ready) {
+            DesktopRuntimeBridge.noteDesktopTarget(target);
+        }
+        return new ShowResult(ready, true);
     }
 
     private static int findDesktopTask(final int displayId)

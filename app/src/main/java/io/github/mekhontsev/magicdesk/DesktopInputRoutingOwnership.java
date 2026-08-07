@@ -14,15 +14,17 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class ConsoleInputRoutingOwnership {
+final class DesktopInputRoutingOwnership {
     private static final File OWNERSHIP_FILE = new File(
             "/data/local/tmp/magicdesk-input-routing-ports");
     private static final Pattern RUNTIME_ASSOCIATION = Pattern.compile(
             "^\\s*port:\\s+(.+?)\\s+display:\\s+\\d+\\s*$");
+    private static final Pattern UNIQUE_ID_ASSOCIATION = Pattern.compile(
+            "^\\s*port:\\s+(.+?)\\s+uniqueId:\\s+.+?\\s*$");
     private static final int MAX_PORTS = 32;
     private static final int MAX_PORT_LENGTH = 256;
 
-    private ConsoleInputRoutingOwnership() {
+    private DesktopInputRoutingOwnership() {
     }
 
     static void record(final Set<String> ports) throws IOException {
@@ -79,30 +81,38 @@ final class ConsoleInputRoutingOwnership {
         }
     }
 
-    static Set<String> findRuntimeAssociations(final String inputDump)
+    static Set<String> findActiveAssociations(final String inputDump)
             throws IOException {
         final Set<String> ports = new LinkedHashSet<>();
-        boolean inRuntimeAssociations = false;
+        boolean inOwnedAssociations = false;
         try (BufferedReader reader = new BufferedReader(
                 new StringReader(inputDump))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 final String trimmed = line.trim();
-                if ("Runtime Associations:".equals(trimmed)) {
-                    inRuntimeAssociations = true;
+                if ("Runtime Associations:".equals(trimmed)
+                        || "Unique Id Associations:".equals(trimmed)) {
+                    inOwnedAssociations = true;
                     continue;
                 }
-                if (!inRuntimeAssociations) {
+                if (!inOwnedAssociations) {
                     continue;
                 }
                 if (trimmed.endsWith(":")
                         && !trimmed.startsWith("port:")) {
-                    break;
+                    inOwnedAssociations = false;
+                    continue;
                 }
                 final Matcher association =
                         RUNTIME_ASSOCIATION.matcher(line);
                 if (association.matches()) {
                     ports.add(association.group(1));
+                    continue;
+                }
+                final Matcher uniqueIdAssociation =
+                        UNIQUE_ID_ASSOCIATION.matcher(line);
+                if (uniqueIdAssociation.matches()) {
+                    ports.add(uniqueIdAssociation.group(1));
                 }
             }
         }

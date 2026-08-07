@@ -55,15 +55,25 @@ application receives it. Shell UID 2000 cannot change the physical keymap, but
 it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
 a `BUS_VIRTUAL` pointer through `/dev/uinput`.
 
-`ConsoleMouseBridge` discovers only EventHub devices marked
-`CURSOR | EXTERNAL`. One native helper unions their capabilities, creates one
-virtual pointer, grabs the sources, and forwards the complete stream unchanged.
+`DesktopMouseBridge` creates one virtual pointer for every external desktop.
+When physical EventHub devices marked `CURSOR | EXTERNAL` are present, the
+same native helper grabs them and forwards their complete streams unchanged.
 REDMAGIC does not apply its Back conversion to the virtual device, so normal
 Android secondary click reaches applications.
 
 The keyboard bridge follows the same ownership model. Forwarding the complete
 stream preserves key repeat, modifier state, hot-plug behavior, and the first
 key after a layout change more reliably than synthetic one-key injection.
+`DesktopInputRoutingSession` associates those virtual devices with a physical
+display port for USB-C desktops or with the display unique ID for wireless and
+virtual desktops. Only the USB-C path enables Nubia's Console-specific input
+hooks.
+
+Nubia's Touch Panel reads `app_mirror_displayid`, so it cannot target a
+Miracast display without corrupting projection state. `NubiaTouchpadController`
+therefore remains the USB-C implementation. Other external displays use the
+phone-side `MagicDeskTouchpadActivity`, which sends relative pointer events to
+the active display through the same Shizuku UserService.
 
 ### Do not draw replacement application captions
 
@@ -168,9 +178,10 @@ runtime integration and are not distributed through the same release path.
 - `ConsoleModeSwitcher` serializes public session transitions.
 - `ConsoleSessionController` owns activation and teardown.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
-- `KeyboardShortcutWatcher`, `ConsoleMouseBridge`, and
+- `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
-- `NubiaTouchpadController` starts and repairs REDMAGIC Touch Panel routing.
+- `NubiaTouchpadController` starts and repairs REDMAGIC Touch Panel routing;
+  `MagicDeskTouchpadActivity` covers non-Nubia external displays.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,
   monitoring, and baseline restoration.
 - `DesktopNotificationListenerService` owns Android notification-listener state;
@@ -237,16 +248,19 @@ launcher-navigation guard, then starts the same desktop host and controllers.
   enables the stock touchpad and wired input-routing path.
 - Wireless startup opens the stock SmartCast/Miracast picker. Once Android
   reports a Wi-Fi presentation display, MagicDesk passes that display ID to
-  the common desktop session without implementing a second discovery or
+  the common desktop session and opens the phone-side MagicDesk touchpad after
+  the new desktop task is ready. It does not implement a second discovery or
   streaming stack.
 - An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.
 
-The runtime owns native caption visibility for any active secondary desktop.
-Nubia's mouse and keyboard port association remains limited to its wired
-Console display because Miracast and simulated displays do not expose the same
-physical display port contract.
+The runtime owns native caption visibility for wired and wireless external
+desktops. It selects the matching Nubia privacy filter for the active transport;
+simulated displays do not modify vendor SurfaceFlinger state. Nubia's mouse and
+keyboard port association remains limited to its wired Console display because
+Miracast and simulated displays do not expose the same physical display port
+contract.
 
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** uses a dedicated task excluded from Recents. The phone
@@ -410,18 +424,21 @@ geometry; desktop DPI remains an independent per-monitor UI scale.
 
 ### Caption visibility
 
-REDMAGIC wired privacy mode calls:
+REDMAGIC uses separate privacy filters for wireless and wired projection:
 
 ```text
-SurfaceControl.setSFOption(1102, 1)
+SurfaceControl.setSFOption(1100, wirelessPrivacy)
+SurfaceControl.setSFOption(1102, wiredPrivacy)
 ```
 
 The firmware filters external layers whose names contain `Task=`. AOSP caption
 layers are named `Caption of Task=<id>`, so captions can remain interactive but
-become visually black or absent. During an external session MagicDesk sets
-option `1102` to visible, records lifecycle ownership, and restores the latest
-value mirrored by Nubia in `Settings.Global.cast_privacy_model` on mirror,
-exit, or next-start recovery.
+become visually black or absent. Nubia's exported projection provider reports
+the current wireless and wired privacy preferences independently. During an
+external session MagicDesk sets only the active transport's filter to visible,
+records lifecycle ownership, and restores that transport's latest preference on
+mirror, exit, transport change, or next-start recovery. Simulated displays do
+not acquire this vendor state.
 
 ### Teardown
 
@@ -432,9 +449,11 @@ one cleanup path:
 - stop keyboard, mouse, and phone-display streams;
 - restore caption privacy and display geometry ownership;
 - restore vendor hardware settings changed by MagicDesk;
-- normalize live freeform tasks on display 0 and remove dead Recent entries
-  still retained by the current user's WMShell desktop repository, including
-  entries left by earlier MagicDesk runs or restored after a reboot;
+- remember the owned display before Nubia can move its desktop host to display
+  0, then normalize user tasks that WMShell still indexes under the removed
+  wired or Miracast display;
+- remove dead Recent entries retained by the current user's desktop repository
+  and restore the phone control panel only after task cleanup completes;
 - recover Quickstep/Home when Nubia reparents its secondary launcher to
   display 0;
 - stop the foreground runtime on explicit exit.
@@ -491,6 +510,11 @@ first character in the previous language.
 The mouse helper forwards movement, wheels, buttons, and multitouch-derived
 pointer events. It exists specifically because REDMAGIC consumes physical
 `BTN_RIGHT` as Back. `Win+Backspace` remains the explicit system Back shortcut.
+For a wireless display the same virtual pointer accepts relative movement,
+clicks, and scrolling from a phone-side touchpad Activity. Physical keyboards
+and pointing devices may be connected or removed while the session is active;
+the runtime updates their routes without recreating the desktop, launch anchor,
+or phone touchpad for keyboard-only configuration changes.
 
 Both helpers keep their virtual devices alive for the complete Console session.
 InputManager inventory changes replace only the physical source descriptors,

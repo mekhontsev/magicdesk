@@ -91,6 +91,7 @@
 
         <activity
             android:name=".DesktopActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation"
             android:excludeFromRecents="true"
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
@@ -126,8 +127,17 @@
             android:resizeableActivity="true" />
 
         <activity
+            android:name=".MagicDeskTouchpadActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:taskAffinity="${applicationId}.touchpad" />
+
+        <activity
             android:name=".FreeformLaunchAnchorActivity"
-            android:configChanges="density|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"
             android:exported="false"
             android:launchMode="singleTop"

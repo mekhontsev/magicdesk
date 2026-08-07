@@ -30,24 +30,24 @@ final class KeyboardShortcutWatcher {
     private static Thread sThread;
     private static long sGeneration;
     private static boolean sFullShortcutMode;
-    private static boolean sConsoleMode;
+    private static int sRoutingDisplayId = -1;
 
     private KeyboardShortcutWatcher() {
     }
 
-    static void start(final boolean consoleMode) {
+    static void start(final int routingDisplayId) {
         final long generation;
         synchronized (LOCK) {
             if (sRunning) {
                 return;
             }
             sRunning = true;
-            sConsoleMode = consoleMode;
+            sRoutingDisplayId = routingDisplayId;
             generation = ++sGeneration;
             sThread = new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    runLoop(consoleMode, generation);
+                    runLoop(routingDisplayId, generation);
                 }
             }, "MagicDeskKeyWatcher");
             sThread.setDaemon(true);
@@ -71,7 +71,8 @@ final class KeyboardShortcutWatcher {
             sInputRouting = null;
             sThread = null;
             sFullShortcutMode = false;
-            sConsoleMode = false;
+            sRoutingDisplayId = -1;
+            LOCK.notifyAll();
         }
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
@@ -96,12 +97,12 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    static void refreshConsoleInputSources(
-            final List<ConsoleKeyboardDevice> keyboards) {
+    static void refreshDesktopInputSources(
+            final List<DesktopKeyboardDevice> keyboards) {
         final ShellStreamHandle inputStream;
         final ShellInputRoutingHandle inputRouting;
         synchronized (LOCK) {
-            if (!sRunning || !sConsoleMode) {
+            if (!sRunning || sRoutingDisplayId <= 0) {
                 return;
             }
             inputStream = sInputStream;
@@ -115,18 +116,38 @@ final class KeyboardShortcutWatcher {
                 inputRouting.refresh();
             }
         } catch (IOException error) {
-            Log.w(TAG, "Could not refresh console input sources", error);
+            Log.w(TAG, "Could not refresh desktop input sources", error);
         }
     }
 
-    private static void runLoop(final boolean consoleMode, final long generation) {
+    static void refreshDesktopInputRouting() {
+        final ShellInputRoutingHandle inputRouting;
+        synchronized (LOCK) {
+            if (!sRunning || sRoutingDisplayId <= 0) {
+                return;
+            }
+            inputRouting = sInputRouting;
+        }
+        if (inputRouting == null) {
+            return;
+        }
+        try {
+            inputRouting.refresh();
+        } catch (IOException error) {
+            Log.w(TAG, "Could not refresh desktop input routing", error);
+        }
+    }
+
+    private static void runLoop(
+            final int routingDisplayId,
+            final long generation) {
         while (isRunning(generation)) {
             ShellStreamHandle inputStream = null;
             BufferedReader reader = null;
             try {
                 ShellAccess.cleanupInputRouting();
-                if (consoleMode) {
-                    runConsoleSession(generation);
+                if (routingDisplayId > 0) {
+                    runDesktopSession(routingDisplayId, generation);
                     continue;
                 }
 
@@ -139,7 +160,7 @@ final class KeyboardShortcutWatcher {
                 Log.i(TAG, "input watcher started shell="
                         + ShellAccess.statusLabel()
                         + " full=" + fullShortcutMode
-                        + " console=" + consoleMode);
+                        + " routingDisplay=" + routingDisplayId);
 
                 reader = new BufferedReader(new InputStreamReader(input));
                 String line;
@@ -153,7 +174,7 @@ final class KeyboardShortcutWatcher {
                             "INPUT-BRIDGE-001",
                             "The keyboard shortcut watcher stopped",
                             "shell=" + ShellAccess.statusLabel()
-                                    + " consoleMode=" + consoleMode,
+                                    + " routingDisplay=" + routingDisplayId,
                             e);
                 }
             } finally {
@@ -170,19 +191,21 @@ final class KeyboardShortcutWatcher {
         Log.i(TAG, "input watcher stopped");
     }
 
-    private static void runConsoleSession(final long generation)
+    private static void runDesktopSession(
+            final int routingDisplayId,
+            final long generation)
             throws IOException {
         ShellStreamHandle keyboardStream = null;
         ShellInputRoutingHandle inputRouting = null;
         BufferedReader keyboardReader = null;
         HardwareKeyboardLayoutController.LayoutSink layoutSink = null;
         try {
-            final List<ConsoleKeyboardDevice> keyboards =
-                    ConsoleInputDeviceDiscovery.findKeyboards(
+            final List<DesktopKeyboardDevice> keyboards =
+                    DesktopInputDeviceDiscovery.findKeyboards(
                             ShellAccess.run(DUMPSYS_INPUT));
             if (keyboards.isEmpty()) {
-                throw new IOException(
-                        "no external alphabetic keyboard was found");
+                runPointerOnlySession(routingDisplayId, generation);
+                return;
             }
             final int layoutCount =
                     HardwareKeyboardLayoutController.catalogLayoutCount();
@@ -199,7 +222,8 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_KEYBOARD_READY",
                     "keyboard bridge");
 
-            inputRouting = ShellAccess.openInputRouting(layoutCount);
+            inputRouting = ShellAccess.openInputRouting(
+                    routingDisplayId, layoutCount);
             setInputRouting(inputRouting, generation);
             if (inputRouting.virtualKeyboardCount() != layoutCount) {
                 throw new IOException(
@@ -221,7 +245,7 @@ final class KeyboardShortcutWatcher {
             setFullShortcutMode(true, generation);
             Log.i(TAG, "input watcher started shell="
                     + ShellAccess.statusLabel()
-                    + " full=true console=true"
+                    + " full=true routingDisplay=" + routingDisplayId
                     + " keyboards="
                     + inputRouting.keyboardAssociationCount()
                     + " associations="
@@ -253,8 +277,41 @@ final class KeyboardShortcutWatcher {
         }
     }
 
+    private static void runPointerOnlySession(
+            final int routingDisplayId,
+            final long generation) throws IOException {
+        ShellInputRoutingHandle inputRouting = null;
+        try {
+            inputRouting = ShellAccess.openInputRouting(routingDisplayId, 0);
+            setInputRouting(inputRouting, generation);
+            Log.i(TAG, "input watcher started shell="
+                    + ShellAccess.statusLabel()
+                    + " full=false routingDisplay=" + routingDisplayId
+                    + " keyboards=0 associations="
+                    + inputRouting.associationCount()
+                    + " layouts=0");
+            waitUntilStopped(generation);
+        } finally {
+            closeQuietly(inputRouting);
+            clearInputRouting(inputRouting);
+        }
+    }
+
+    private static void waitUntilStopped(final long generation) {
+        synchronized (LOCK) {
+            while (sRunning && sGeneration == generation) {
+                try {
+                    LOCK.wait();
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
     private static String buildKeyboardCommand(
-            final List<ConsoleKeyboardDevice> keyboards,
+            final List<DesktopKeyboardDevice> keyboards,
             final int layoutCount)
             throws IOException {
         final File helper = new File(
@@ -270,16 +327,16 @@ final class KeyboardShortcutWatcher {
                         .append(shellQuote(helper.getAbsolutePath()))
                         .append(" --layouts ")
                         .append(layoutCount);
-        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
             command.append(' ').append(shellQuote(keyboard.path));
         }
         return command.toString();
     }
 
     private static String buildSourcesCommand(
-            final List<ConsoleKeyboardDevice> keyboards) {
+            final List<DesktopKeyboardDevice> keyboards) {
         final StringBuilder command = new StringBuilder("sources");
-        for (final ConsoleKeyboardDevice keyboard : keyboards) {
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
             command.append(' ').append(keyboard.path);
         }
         return command.toString();

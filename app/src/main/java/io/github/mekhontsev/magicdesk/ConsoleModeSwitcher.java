@@ -147,7 +147,14 @@ final class ConsoleModeSwitcher {
     private static void showPreparedDesktop(
             final DesktopDisplayTarget target) {
         try {
-            DesktopSessionController.show(target);
+            final DesktopSessionController.ShowResult result =
+                    DesktopSessionController.show(target);
+            if (result.ready && result.created
+                    && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
+                MagicDeskTouchpadActivity.open(
+                        MagicDeskApplication.applicationContext(),
+                        target.displayId);
+            }
         } catch (IOException error) {
             Log.w(TAG, "Secondary desktop launch failed", error);
             CompatibilityDiagnostics.record(
@@ -198,11 +205,11 @@ final class ConsoleModeSwitcher {
     }
 
     static void openTouchpad() {
-        NubiaTouchpadController.open();
+        PhoneTouchpadController.open();
     }
 
     static boolean isTouchpadVisible() {
-        return NubiaTouchpadController.isVisible();
+        return PhoneTouchpadController.isVisible();
     }
 
     static void restoreTouchpadIfMissing() {
@@ -211,19 +218,39 @@ final class ConsoleModeSwitcher {
 
     static void restoreTouchpadIfMissing(
             final TouchpadRestoreCallback callback) {
-        NubiaTouchpadController.restoreIfMissing(callback);
+        PhoneTouchpadController.restoreIfMissing(callback);
+    }
+
+    static void restorePhoneAfterExternalDesktop() {
+        EXECUTOR.execute(() -> {
+            PhoneDisplayGuard.disable();
+            PhoneControlPanelLauncher.openOnPhoneWithShell();
+        });
     }
 
     static void restorePrimaryPhoneHome() {
         NubiaTouchpadController.restorePrimaryPhoneHome();
     }
 
-    static void setExternalTaskCaptionsEnabled(final boolean enabled) {
+    static void updateExternalTaskCaptionTarget(
+            final int displayId,
+            final boolean nubiaWiredDesktop) {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
+                final NubiaCaptionVisibilityManager.Transport transport;
+                if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
+                    transport = NubiaCaptionVisibilityManager.Transport.NONE;
+                } else if (nubiaWiredDesktop) {
+                    transport = NubiaCaptionVisibilityManager.Transport.WIRED;
+                } else if (ConsoleDisplayController.findWirelessDisplayId()
+                        == displayId) {
+                    transport = NubiaCaptionVisibilityManager.Transport.WIRELESS;
+                } else {
+                    transport = NubiaCaptionVisibilityManager.Transport.NONE;
+                }
                 ConsoleSessionController
-                        .setExternalTaskCaptionsEnabled(enabled);
+                        .setExternalTaskCaptionTransport(transport);
             }
         });
     }
@@ -253,7 +280,8 @@ final class ConsoleModeSwitcher {
                     }
                     if (success && ShellAccess.isReady()) {
                         ConsoleSessionController
-                                .setExternalTaskCaptionsEnabled(false);
+                                .setExternalTaskCaptionTransport(
+                                        NubiaCaptionVisibilityManager.Transport.NONE);
                     }
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);

@@ -68,9 +68,10 @@ final class ConsoleSessionController {
                 prepareConsoleDisplayDensity(
                         consoleDisplayId, physicalDisplayId);
             }
-            final boolean desktopReady = DesktopSessionController.show(
-                    DesktopDisplayTarget.wired(consoleDisplayId));
-            if (startedConsoleMode && desktopReady) {
+            final DesktopSessionController.ShowResult desktopResult =
+                    DesktopSessionController.show(
+                            DesktopDisplayTarget.wired(consoleDisplayId));
+            if (startedConsoleMode && desktopResult.ready) {
                 NubiaTouchpadController.refreshOrOpen();
             }
         } catch (IOException error) {
@@ -87,11 +88,12 @@ final class ConsoleSessionController {
         }
     }
 
-    static boolean setExternalTaskCaptionsEnabled(final boolean enabled) {
+    static boolean setExternalTaskCaptionTransport(
+            final NubiaCaptionVisibilityManager.Transport transport) {
         if (!ShellAccess.isReady()) {
             return true;
         }
-        return NubiaCaptionVisibilityManager.setEnabled(enabled);
+        return NubiaCaptionVisibilityManager.setTransport(transport);
     }
 
     private static boolean hasVisibleAppTask(final int displayId)

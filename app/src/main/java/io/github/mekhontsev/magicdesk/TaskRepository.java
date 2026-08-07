@@ -61,8 +61,18 @@ final class TaskRepository {
             complete(callback, false, "invalid task");
             return;
         }
+        bringTaskToFront(task.taskId, callback);
+    }
+
+    static void bringTaskToFront(
+            final int taskId,
+            final ActionCallback callback) {
+        if (taskId < 0) {
+            complete(callback, false, "invalid task");
+            return;
+        }
         runAction(TaskFocusCommands.createShellCommand(
-                Collections.singletonList(task.taskId)), callback);
+                Collections.singletonList(Integer.valueOf(taskId))), callback);
     }
 
     static void bringStackToFront(final List<TaskEntry> topFirstTasks,
