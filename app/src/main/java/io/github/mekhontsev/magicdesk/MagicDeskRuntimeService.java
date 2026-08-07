@@ -230,6 +230,13 @@ public final class MagicDeskRuntimeService extends Service {
                                 desktopDisplayId)) {
                     Log.i(TAG, "focused existing desktop from notification"
                             + " display=" + desktopDisplayId);
+                } else if (mConsoleModeActive) {
+                    ConsoleModeSwitcher.showMagicDesk(mConsoleDisplayId);
+                    Log.i(TAG, "restored console desktop from notification"
+                            + " display=" + mConsoleDisplayId);
+                } else if (ControlActivity.hasActiveInstance()) {
+                    startActivity(ControlActivity.createLaunchIntent(this));
+                    Log.i(TAG, "focused phone control panel from notification");
                 } else if (ShellAccess.isReady()) {
                     ConsoleModeSwitcher.showMagicDesk();
                 } else {
