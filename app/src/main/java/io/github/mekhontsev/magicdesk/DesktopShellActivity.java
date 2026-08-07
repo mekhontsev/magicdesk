@@ -74,6 +74,7 @@ public abstract class DesktopShellActivity extends Activity
     private TaskOverviewController mTaskOverviewController;
     private DesktopContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
+    private DesktopTaskbarRevealController mTaskbarRevealController;
     private AltTabController mAltTabController;
     private WorkspaceAppController mWorkspaceAppController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
@@ -149,6 +150,9 @@ public abstract class DesktopShellActivity extends Activity
                     @Override
                     public void onViewportChanged() {
                         hideAllPanels();
+                        if (mTaskbarRevealController != null) {
+                            mTaskbarRevealController.updateViewport();
+                        }
                         MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
                     }
                 });
@@ -174,6 +178,8 @@ public abstract class DesktopShellActivity extends Activity
         mTaskOverviewController = new TaskOverviewController(this, mUi);
         mContextMenuController = new DesktopContextMenuController(this, mUi);
         mTaskbarController = new TaskbarController(this, mUi);
+        mTaskbarRevealController =
+                new DesktopTaskbarRevealController(this);
         mAltTabController = new AltTabController(this);
         mDesktopWorkspaceController =
                 new DesktopWorkspaceController(this, mUi);
@@ -193,6 +199,7 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        mTaskbarRevealController.start();
         FreeformLaunchAnchorActivity.prepare(this);
         mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
@@ -226,6 +233,10 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopOverlays() {
+        if (mTaskbarRevealController != null) {
+            mTaskbarRevealController.release();
+            mTaskbarRevealController = null;
+        }
         if (mDesktopLayout != null) {
             mDesktopLayout.release();
         }
@@ -1219,7 +1230,11 @@ public abstract class DesktopShellActivity extends Activity
 
     void setTaskbarVisible(final boolean visible) {
         mTaskbarVisible = visible;
-        mTaskbarController.setVisible(visible);
+        if (mTaskbarRevealController != null) {
+            mTaskbarRevealController.setPolicyVisible(visible);
+        } else {
+            mTaskbarController.setVisible(visible);
+        }
     }
 
     boolean isTaskbarVisible() {

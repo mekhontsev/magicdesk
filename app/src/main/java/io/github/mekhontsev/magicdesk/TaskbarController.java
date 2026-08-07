@@ -24,6 +24,10 @@ import java.util.List;
 import java.util.Set;
 
 final class TaskbarController {
+    interface EdgeHoverListener {
+        void onHoverEvent(MotionEvent event);
+    }
+
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
 
@@ -37,6 +41,7 @@ final class TaskbarController {
     private Intent mLastBatteryIntent;
     private boolean mChargeSeparationEnabled;
     private final List<Integer> mTaskOrder = new ArrayList<>();
+    private EdgeHoverListener mEdgeHoverListener;
 
     TaskbarController(
             final DesktopShellActivity activity,
@@ -64,6 +69,7 @@ final class TaskbarController {
 
             @Override
             public boolean dispatchTouchEvent(final MotionEvent event) {
+                notifyEdgeHover(event);
                 if (mActivity.handleDesktopMouseTouchEvent(event, true)) {
                     cancelBlankLongPress();
                     return true;
@@ -101,6 +107,19 @@ final class TaskbarController {
                     return true;
                 }
                 return super.dispatchGenericMotionEvent(event);
+            }
+
+            @Override
+            public boolean dispatchHoverEvent(final MotionEvent event) {
+                notifyEdgeHover(event);
+                return super.dispatchHoverEvent(event);
+            }
+
+            private void notifyEdgeHover(final MotionEvent event) {
+                final EdgeHoverListener listener = mEdgeHoverListener;
+                if (listener != null) {
+                    listener.onHoverEvent(event);
+                }
             }
 
             private void cancelBlankLongPress() {
@@ -253,6 +272,7 @@ final class TaskbarController {
     }
 
     void release() {
+        mEdgeHoverListener = null;
         mTaskbar = null;
         mPins = null;
         mKeyboardLayout = null;
@@ -266,6 +286,16 @@ final class TaskbarController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (overlays != null && mTaskbar != null) {
             overlays.setPersistentVisible(visible);
+        }
+    }
+
+    void setEdgeHoverListener(final EdgeHoverListener listener) {
+        mEdgeHoverListener = listener;
+    }
+
+    void setEdgeHidden(final boolean hidden) {
+        if (mTaskbar != null) {
+            mTaskbar.setAlpha(hidden ? 0f : 1f);
         }
     }
 
