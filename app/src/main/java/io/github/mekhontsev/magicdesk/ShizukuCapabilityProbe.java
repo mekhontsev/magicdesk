@@ -97,6 +97,10 @@ final class ShizukuCapabilityProbe {
                 "com.redmagic.os.RedMagicAppManager$Trigger",
                 "openScreenOffTP",
                 boolean.class);
+        appendService(
+                report,
+                "vendor.redmagic_app_manager",
+                "redmagic.app.manager");
         appendService(report, "vendor.color_light", "ColorfulLightService");
         appendService(report, "vendor.power", "VendorPowerManagerService");
         appendHardwareNodes(report);

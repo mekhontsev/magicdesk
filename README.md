@@ -318,6 +318,17 @@ settings, capability probes, recent structured MagicDesk errors, and
 MagicDesk-only logcat entries. It excludes user files, accounts, notification
 contents, and the installed-application list.
 
+**Run desktop self-test** is a manual black-box check for contributors and
+compatibility reports. With all desktop sessions closed, it temporarily creates
+a simulated 1920x1080 display and exercises the production desktop, freeform,
+fullscreen, minimize/restore, taskbar geometry, native caption structure, and
+targeted-input paths. It
+also checks the hidden Android and REDMAGIC APIs that can be inspected without
+connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
+mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
+devices are present. The simulated-display setting is owned by a lifecycle-bound
+Shizuku stream and restored when the test finishes or its process disconnects.
+
 **Diagnostics > Console** runs one-off shell commands through the authorized
 Shizuku service. It shows the effective UID, requires confirmation before its
 first command, and does not retain command history.

@@ -31,8 +31,11 @@ public final class DiagnosticsActivity extends Activity {
     private Button mRefresh;
     private Button mCopy;
     private Button mShare;
+    private Button mConsole;
+    private Button mSelfTest;
     private String mReport = "";
     private boolean mLoading;
+    private boolean mSelfTestRunning;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, DiagnosticsActivity.class);
@@ -117,14 +120,23 @@ public final class DiagnosticsActivity extends Activity {
         page.addView(actions, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
 
-        final Button console = createButton(R.string.console_title, COLOR_CYAN);
-        console.setOnClickListener(view ->
+        mConsole = createButton(R.string.console_title, COLOR_CYAN);
+        mConsole.setOnClickListener(view ->
                 startActivity(CommandConsoleActivity.createIntent(this)));
         final LinearLayout.LayoutParams consoleParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
         consoleParams.setMargins(0, dp(8), 0, 0);
-        page.addView(console, consoleParams);
+        page.addView(mConsole, consoleParams);
+
+        mSelfTest = createButton(
+                R.string.diagnostics_self_test, COLOR_AMBER);
+        mSelfTest.setOnClickListener(view -> runDesktopSelfTest());
+        final LinearLayout.LayoutParams selfTestParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        selfTestParams.setMargins(0, dp(8), 0, 0);
+        page.addView(mSelfTest, selfTestParams);
         return page;
     }
 
@@ -136,7 +148,7 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void refreshReport() {
-        if (mLoading) {
+        if (mLoading || mSelfTestRunning) {
             return;
         }
         mLoading = true;
@@ -156,6 +168,34 @@ public final class DiagnosticsActivity extends Activity {
                 setActionsEnabled(true);
             });
         }, "MagicDeskDiagnostics").start();
+    }
+
+    private void runDesktopSelfTest() {
+        if (mLoading || mSelfTestRunning
+                || DesktopSelfTestController.isRunning()) {
+            return;
+        }
+        mSelfTestRunning = true;
+        setActionsEnabled(false);
+        mStatus.setText(R.string.diagnostics_self_test_running);
+        new Thread(() -> {
+            final DesktopSelfTestResult result =
+                    DesktopSelfTestController.run(getApplicationContext());
+            final String report =
+                    CompatibilityDiagnostics.buildReport(getApplicationContext());
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                mReport = report;
+                mReportView.setText(report);
+                mStatus.setText(getString(
+                        R.string.diagnostics_self_test_complete,
+                        result.summary()));
+                mSelfTestRunning = false;
+                setActionsEnabled(true);
+            });
+        }, "MagicDeskDesktopSelfTest").start();
     }
 
     private void copyReport() {
@@ -188,6 +228,8 @@ public final class DiagnosticsActivity extends Activity {
         mRefresh.setEnabled(enabled);
         mCopy.setEnabled(enabled);
         mShare.setEnabled(enabled);
+        mConsole.setEnabled(enabled);
+        mSelfTest.setEnabled(enabled && ShellAccess.isReady());
     }
 
     private Button createButton(final int textResId, final int accentColor) {

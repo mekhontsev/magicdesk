@@ -11,13 +11,20 @@ final class TaskLocalInsetsSourceParser {
             "^\\s*\\* Task\\{.*#(\\d+)\\b.*$");
     private static final Pattern CAPTION_SOURCE = Pattern.compile(
             "\\bInsetsSource id=([0-9a-fA-F]+) type=captionBar\\b");
+    private static final Pattern FRAME = Pattern.compile(
+            "\\bframe=\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]");
 
     private TaskLocalInsetsSourceParser() {
     }
 
     static int findCaptionSourceId(final String dump, final int taskId) {
+        final CaptionSource source = findCaptionSource(dump, taskId);
+        return source == null ? NO_SOURCE_ID : source.sourceId;
+    }
+
+    static CaptionSource findCaptionSource(final String dump, final int taskId) {
         if (dump == null || dump.isEmpty() || taskId < 0) {
-            return NO_SOURCE_ID;
+            return null;
         }
         boolean targetTask = false;
         for (final String line : dump.split("\\R")) {
@@ -31,10 +38,23 @@ final class TaskLocalInsetsSourceParser {
             }
             final Matcher source = CAPTION_SOURCE.matcher(line);
             if (source.find()) {
-                return parseSourceId(source.group(1));
+                final int sourceId = parseSourceId(source.group(1));
+                if (sourceId == NO_SOURCE_ID) {
+                    return null;
+                }
+                final Matcher frame = FRAME.matcher(line);
+                return new CaptionSource(
+                        sourceId,
+                        frame.find()
+                                ? new Frame(
+                                        parseCoordinate(frame.group(1)),
+                                        parseCoordinate(frame.group(2)),
+                                        parseCoordinate(frame.group(3)),
+                                        parseCoordinate(frame.group(4)))
+                                : null);
             }
         }
-        return NO_SOURCE_ID;
+        return null;
     }
 
     private static int parseTaskId(final String value) {
@@ -52,6 +72,51 @@ final class TaskLocalInsetsSourceParser {
                     ? (int) sourceId : NO_SOURCE_ID;
         } catch (NumberFormatException ignored) {
             return NO_SOURCE_ID;
+        }
+    }
+
+    private static int parseCoordinate(final String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    static final class CaptionSource {
+        final int sourceId;
+        final Frame frame;
+
+        CaptionSource(final int sourceId, final Frame frame) {
+            this.sourceId = sourceId;
+            this.frame = frame;
+        }
+    }
+
+    static final class Frame {
+        final int left;
+        final int top;
+        final int right;
+        final int bottom;
+
+        Frame(final int left, final int top, final int right, final int bottom) {
+            this.left = left;
+            this.top = top;
+            this.right = right;
+            this.bottom = bottom;
+        }
+
+        int width() {
+            return right - left;
+        }
+
+        int height() {
+            return bottom - top;
+        }
+
+        String shortString() {
+            return "[" + left + "," + top + "]["
+                    + right + "," + bottom + "]";
         }
     }
 }

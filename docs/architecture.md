@@ -239,9 +239,9 @@ launcher-navigation guard, then starts the same desktop host and controllers.
   reports a Wi-Fi presentation display, MagicDesk passes that display ID to
   the common desktop session without implementing a second discovery or
   streaming stack.
-- An Android overlay display is used only by the contributor smoke test. It
+- An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
-  viewer, synthetic input path, or virtual-display feature to the APK.
+  viewer or virtual-display product mode.
 
 The runtime owns native caption visibility for any active secondary desktop.
 Nubia's mouse and keyboard port association remains limited to its wired
@@ -262,6 +262,17 @@ Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
 The script temporarily sets `overlay_display_devices`, starts the real
 `DesktopActivity` on that display, verifies task placement, and restores the
 previous setting on exit.
+
+The built-in **Diagnostics > Run desktop self-test** follows the same display
+model without requiring a host. A Binder-owned Shizuku stream holds the
+temporary setting; closing the stream or losing its owner closes stdin, runs a
+shell `trap`, and restores the prior value. The test then uses production
+session and task controllers to verify the desktop viewport, a deterministic
+freeform Activity, task-local native caption source and geometry,
+display-targeted input, true fullscreen, restore, minimize, and cleanup. It
+rechecks the caption after the fullscreen round trip and closes the desktop
+task before removing the display so WMS
+cannot migrate that task onto the phone launcher.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external
@@ -621,6 +632,14 @@ the installed-app catalog.
 Compatibility probes are non-destructive: they inspect permissions and reject
 invalid/null mutations after framework permission checks rather than changing
 real input, display, or hardware state.
+
+The manual desktop self-test combines those probes with reversible black-box
+operations. APIs that can be checked without peripherals are reported as
+PASS/WARN/FAIL. Transport and hardware behavior that cannot be inferred from
+class, Binder-service, permission, or device-node presence is reported as
+NOT TESTED rather than guessed. The last bounded result is included in the
+normal compatibility report; no periodic self-test or diagnostic polling runs
+in the background.
 
 `CommandConsoleActivity` is an unexported, one-shot interface over the existing
 `ShellAccess` connection. It displays the effective Shizuku UID, requires an

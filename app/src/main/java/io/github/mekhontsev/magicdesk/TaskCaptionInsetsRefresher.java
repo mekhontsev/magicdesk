@@ -20,29 +20,38 @@ final class TaskCaptionInsetsRefresher {
     }
 
     static int captureCaptionSourceId(final int taskId) {
+        final TaskLocalInsetsSourceParser.CaptionSource source =
+                captureCaptionSource(taskId);
+        return source == null
+                ? TaskLocalInsetsSourceParser.NO_SOURCE_ID
+                : source.sourceId;
+    }
+
+    static TaskLocalInsetsSourceParser.CaptionSource captureCaptionSource(
+            final int taskId) {
         try {
             final Process process = new ProcessBuilder(DUMPSYS, "window")
                     .redirectErrorStream(true)
                     .start();
             final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
                     process, DUMP_TIMEOUT_MILLIS, DUMP_LIMIT_BYTES);
-            final int sourceId = TaskLocalInsetsSourceParser.findCaptionSourceId(
-                    result.output, taskId);
+            final TaskLocalInsetsSourceParser.CaptionSource source =
+                    TaskLocalInsetsSourceParser.findCaptionSource(
+                            result.output, taskId);
             if (result.exitCode != 0) {
                 System.err.println("caption source capture failed: dumpsys exit="
                         + result.exitCode);
-            } else if (sourceId == TaskLocalInsetsSourceParser.NO_SOURCE_ID
-                    && result.truncated) {
+            } else if (source == null && result.truncated) {
                 System.err.println("caption source capture failed: window dump truncated");
             }
-            return sourceId;
+            return source;
         } catch (IOException e) {
             System.err.println("caption source capture failed: " + e.getMessage());
-            return TaskLocalInsetsSourceParser.NO_SOURCE_ID;
+            return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.err.println("caption source capture interrupted");
-            return TaskLocalInsetsSourceParser.NO_SOURCE_ID;
+            return null;
         }
     }
 

@@ -110,6 +110,15 @@
             android:resizeableActivity="true" />
 
         <activity
+            android:name=".DesktopSelfTestActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/self_test_window_target"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.selftest" />
+
+        <activity
             android:name=".CommandConsoleActivity"
             android:exported="false"
             android:label="@string/console_title"

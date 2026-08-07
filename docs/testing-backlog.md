@@ -208,6 +208,11 @@ not supported runtime modes:
   textual event protocol remains.
 - [x] Android lint, debug assembly, unit tests, APK boundary verification, and
   certificate checks run in the release workflow.
+- [x] A manually requested built-in self-test creates a lifecycle-owned overlay
+  display, exercises the production desktop/window/input paths, audits hidden
+  and REDMAGIC API availability, verifies native caption structure before and
+  after fullscreen, restores the prior setting, and includes its bounded result
+  in Diagnostics without background polling.
 - [ ] Add an instrumentation regression that opens one freeform task, performs
   fullscreen/restore through the shell task observer, and verifies the same
   task ID and Activity instance when CI device coverage becomes available.

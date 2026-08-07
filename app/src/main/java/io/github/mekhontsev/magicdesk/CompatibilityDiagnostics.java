@@ -124,6 +124,7 @@ final class CompatibilityDiagnostics {
         appendDevice(report);
         appendCompatibility(report, appContext, audit);
         appendShizukuProbe(report, audit);
+        DesktopSelfTestResult.appendLastResult(report, appContext);
         appendDisplays(report, appContext);
         appendInputDevices(report);
         appendEvents(report, appContext);

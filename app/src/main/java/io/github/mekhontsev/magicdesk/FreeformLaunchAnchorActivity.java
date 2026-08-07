@@ -55,7 +55,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     private static final ArrayDeque<LaunchRequest> STARTUP_REQUESTS = new ArrayDeque<>();
 
-    private static WeakReference<FreeformLaunchAnchorActivity> sAnchor =
+    private static volatile WeakReference<FreeformLaunchAnchorActivity> sAnchor =
             new WeakReference<>(null);
     private static int sStartingDisplayId = -1;
     private static int sStartingDesktopTaskId = -1;
@@ -64,9 +64,9 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private int mDisplayId = -1;
     private int mDesktopTaskId = -1;
     private boolean mPreparing;
-    private boolean mPrepared;
+    private volatile boolean mPrepared;
     private boolean mLaunching;
-    private boolean mClosing;
+    private volatile boolean mClosing;
 
     static void prepare(final Activity desktop) {
         requestAnchor(desktop, null);
@@ -86,6 +86,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
 
     static void release() {
         releaseForCleanup();
+    }
+
+    static boolean isPreparedForDisplay(final int displayId) {
+        final FreeformLaunchAnchorActivity anchor = sAnchor.get();
+        return anchor != null
+                && anchor.mPrepared
+                && anchor.canServe(displayId);
     }
 
     static int releaseForCleanup() {

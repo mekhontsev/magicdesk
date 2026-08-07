@@ -384,6 +384,10 @@
     <string name="diagnostics_share">Share report</string>
     <string name="diagnostics_copied">Diagnostics report copied</string>
     <string name="diagnostics_copy_failed">Clipboard unavailable</string>
+    <string name="diagnostics_self_test">Run desktop self-test</string>
+    <string name="diagnostics_self_test_running">Running desktop and API self-test&#8230;</string>
+    <string name="diagnostics_self_test_complete">Self-test complete: %1$s</string>
+    <string name="self_test_window_target">MagicDesk self-test window</string>
     <string name="console_title">Console</string>
     <string name="console_description">Run a one-time Android shell command or script. Standard output and errors are shown together.</string>
     <string name="console_warning">Commands receive all privileges of the shell shown below.</string>
