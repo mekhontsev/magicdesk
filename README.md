@@ -1,8 +1,8 @@
 # MagicDesk
 
 MagicDesk is an open-source, DeX-style desktop environment for REDMAGIC
-devices. It turns REDMAGIC external-display support into a practical desktop
-workspace with native Android windows, a taskbar, Start menu, desktop
+devices. It turns REDMAGIC wired and wireless display output into a practical
+desktop workspace with native Android windows, a taskbar, Start menu, desktop
 shortcuts, global keyboard controls, notifications, and phone-based touchpad
 support.
 
@@ -40,7 +40,7 @@ The result is a familiar desktop model:
   navigation.
 - DeX-style global shortcuts manage windows without application-specific
   configuration.
-- The phone can remain available as REDMAGIC's touchpad and text-input panel.
+- The phone can remain available as a touchpad and text-input panel.
 - Fullscreen applications and in-app fullscreen video use the entire external
   display.
 
@@ -59,13 +59,13 @@ device and One UI version.
 | Capability | MagicDesk on the verified REDMAGIC 11 Pro | Samsung DeX |
 | --- | --- | --- |
 | Wired external desktop | Verified through USB-C DisplayPort and REDMAGIC Console Mode | Built into supported Galaxy devices |
-| Wireless desktop | Uses the stock SmartCast/Miracast picker and the common desktop session; validation with a real wireless receiver is still pending | Supported on compatible Miracast displays |
+| Wireless desktop | Verified through the stock SmartCast/Miracast picker and the common MagicDesk desktop session | Supported on compatible Miracast displays |
 | Desktop on the device display | Runs the same desktop implementation directly on the phone or a tablet | Standalone DeX is limited to selected Galaxy tablets and Z TriFold devices |
 | Native overlapping windows | Android freeform tasks with system WMShell captions | Native DeX windows |
 | Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, and exact task switching | Resize, arrange, minimize, maximize, fullscreen, and task switching |
 | Application launch policy | Explicit Auto, Windowed, and Fullscreen modes | Resizable or fixed-size mode according to application compatibility |
 | Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
-| Phone touchpad | Uses REDMAGIC Touch Panel and its text-input surface | Integrated DeX touchpad |
+| Phone touchpad | Uses REDMAGIC Touch Panel for wired sessions and a MagicDesk fallback touchpad for wireless sessions | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
@@ -148,9 +148,16 @@ MagicDesk is intentionally REDMAGIC/ZTE-specific and requires:
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
-Using the desktop on an external display additionally requires USB-C
-DisplayPort output and REDMAGIC external-display support. **Open desktop here**
-can run the same desktop implementation on the device display without either.
+An external desktop requires either:
+
+- USB-C DisplayPort output and REDMAGIC external-display support; or
+- the stock REDMAGIC SmartCast/Miracast interface and a compatible wireless
+  display receiver.
+
+USB-C DisplayPort output is therefore not mandatory. Availability of wired and
+wireless projection depends on the phone model and firmware. **Open desktop
+here** runs the same desktop implementation on the device display without an
+external display.
 
 MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
 permission is denied. All privileged operations use the same Shizuku
@@ -221,14 +228,17 @@ display size, density, and scaling to the defaults supplied by nubia.
 
 ### Typical workflow
 
-1. Connect the phone to an external display.
-2. Optionally connect a physical keyboard, mouse, or combined touchpad device.
-3. Launch MagicDesk on the phone.
-4. If needed, select an **Output mode** reported by the connected display and
-   enable **Fill display** to remove letterboxing.
-5. Select **Start external desktop**, or press `Win+D`.
-6. To leave, select **Switch to screen mirroring**. Select **Exit MagicDesk**
-   instead to stop MagicDesk and its background services completely.
+1. Optionally connect a physical keyboard, mouse, or combined touchpad device.
+2. Launch MagicDesk on the phone.
+3. For a wired session, connect a USB-C display. If needed, select an **Output
+   mode** reported by the display and enable **Fill display** to remove
+   letterboxing, then select **Start external desktop** or press `Win+D`.
+4. For a wireless session, select **Connect a wireless display**, then choose a
+   Miracast receiver in the stock SmartCast interface. MagicDesk starts the
+   desktop when Android reports the wireless display.
+5. To leave a wired session, select **Switch to screen mirroring**. To leave a
+   wireless session, disconnect it through the stock casting interface. Select
+   **Exit MagicDesk** to stop MagicDesk and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
@@ -243,7 +253,9 @@ when no physical keyboard or mouse is connected:
 
 - Tap the notification itself to perform the same context-sensitive action as
   `Win+D`: start the external desktop, show it, or restore the previous layout.
-- Tap **Open touchpad** to launch or reopen REDMAGIC Touch Panel on the phone.
+- Tap **Open touchpad** to launch or reopen the appropriate phone-side
+  touchpad: REDMAGIC Touch Panel for a wired session or the MagicDesk fallback
+  touchpad for a wireless session.
 
 The full desktop can also run on display 0 through **Open desktop here**, which
 supports tablets and allows development without an external monitor.
