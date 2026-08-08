@@ -28,8 +28,11 @@ boundary exists.
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Production routes the complete Console transition through Shizuku so display, task, and input ownership share one lifecycle. |
+| `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition`, `setMousePosition`, and `sendMouseCmd` expose the firmware cursor viewport used by wired and wireless projection. | Production resolves the methods inside the Shizuku UserService and combines absolute position updates with display-targeted events from MagicDesk's virtual pointer. |
+| `IDisplayManager` mirror-input extensions | Shell command verified | `noteMirrorInputPanelStatus` registers an input owner; `getFocusMirrorWindow` returns the currently focused projected window. | Registration is lifecycle-bound to input routing. The focused window is retained only for an explicit software-keyboard session. |
+| `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
-| `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons. | Prefer the stock entry point where its lifecycle is understood. |
+| `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons; its `MirrorInputActivity` can automatically replace another phone input panel. | MagicDesk does not disable the package. While its own touchpad is active, it removes only the automatically created activity task and reclaims its existing panel. |
 | `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Retained as research and possible diagnostics, not a task source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply REDMAGIC lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
@@ -291,8 +294,16 @@ Nubia's key reinjection only while the stock input panel reports text input.
 It does not associate the physical keyboard with the external display.
 MagicDesk's input-port association plus keyboard bridge is therefore still
 required for correct target display, layout switching, shortcuts, and repeat.
-The mouse bridge remains required to deliver `BTN_RIGHT` to applications
-instead of Back.
+The mouse bridge remains required to keep physical motion and buttons on the
+target display. It consumes `BTN_RIGHT` and asks the UserService to inject one
+secondary click at the vendor-reported cursor position, preventing the
+firmware from translating either edge of the physical sequence into Back.
+
+For phone-side text input, `IDisplayManager.getFocusMirrorWindow()` returns an
+`IDisplayMirrorWindow` Binder. Its text, composing-region, deletion, and key
+methods are sufficient to mirror a standard Android `InputConnection` without
+changing the selected IME. MagicDesk captures that Binder only after the user
+requests the software keyboard and discards it when the keyboard closes.
 
 ## Debug Probe
 

@@ -55,15 +55,21 @@ application receives it. Shell UID 2000 cannot change the physical keymap, but
 it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
 a `BUS_VIRTUAL` pointer through `/dev/uinput`.
 
-`DesktopMouseBridge` creates one virtual pointer for every external desktop.
-When physical EventHub devices marked `CURSOR | EXTERNAL` are present, the
-same native helper grabs them and forwards their complete streams unchanged.
-REDMAGIC does not apply its Back conversion to the virtual device, so normal
-Android secondary click reaches applications.
+`DesktopMouseBridge` creates one stable virtual pointer for the external
+desktop. When physical EventHub devices marked `CURSOR | EXTERNAL` are
+present, the native helper grabs them and forwards motion, wheel, and button
+state through that pointer. `BTN_RIGHT` is the deliberate exception: the
+helper consumes the physical sequence and requests one display-targeted
+Android secondary click, bypassing REDMAGIC's conversion to Back.
 
 The keyboard bridge follows the same ownership model. Forwarding the complete
 stream preserves key repeat, modifier state, hot-plug behavior, and the first
-key after a layout change more reliably than synthetic one-key injection.
+key after a layout change more reliably than synthetic one-key injection. It
+creates one stable virtual keyboard per Android layout and switches the active
+device only after the native stream is paused, the system layout is applied,
+and the bridge is resumed. Newly connected sources are acquired only after
+their keys and buttons return to a neutral state, so a wake press is never
+split between the physical and virtual devices.
 `DesktopInputRoutingSession` associates those virtual devices with a physical
 display port for USB-C desktops or with the display unique ID for wireless and
 virtual desktops. Only the USB-C path enables Nubia's Console-specific input
@@ -73,8 +79,58 @@ Nubia's Touch Panel reads `app_mirror_displayid`, so it cannot target a
 Miracast display without corrupting projection state. MagicDesk therefore uses
 one phone-side `MagicDeskTouchpadActivity` for every external transport. Touch
 motion is converted from a stable gesture origin into an absolute cursor
-position through Nubia's input service; clicks and scrolling continue through
-the common virtual pointer.
+position through Nubia's input service. Android `VelocityTracker` selects
+bounded acceleration steps without changing the gesture origin. MagicDesk
+then injects hover or drag events with the common virtual pointer's device ID;
+clicks and high-resolution scrolling use the same pointer. The cursor is shown
+only after its first accepted position update, which avoids a stale image at a
+firmware-selected startup coordinate.
+
+A long press remains undecided until the finger either moves or is released.
+Movement starts a primary-button drag; release without movement becomes a
+secondary click. Two-finger movement scrolls, while a stationary two-finger
+tap also becomes a secondary click. These decisions stay in the phone UI;
+display-targeted event injection stays inside the Shizuku UserService.
+
+The software keyboard is a separate path. An invisible phone-side
+`InputConnection` receives normal IME operations, including composing text,
+commits, deletion, and key events. For desktop applications those operations
+are forwarded to the focused vendor `IDisplayMirrorWindow`; MagicDesk-owned
+overlay fields are handled locally. The focused mirror window is captured for
+one explicit keyboard session and released when the keyboard closes, so text
+input does not depend on polling or changing the user's selected IME.
+While an external desktop is owned, the runtime temporarily enables Android's
+`show_ime_with_hard_keyboard` setting so the user can explicitly open the
+phone keyboard even when a physical keyboard is connected. It remembers the
+previous value and restores it on normal desktop teardown; no persistent
+keyboard preference is imposed during setup.
+
+When MagicDesk's touchpad owns phone input, the task observer removes only an
+automatically launched `cn.nubia.keymapcenter` `MirrorInputActivity` and then
+reclaims the existing MagicDesk panel. It never disables, suspends, or
+force-stops the vendor package, so the stock Touch Panel remains available
+outside that session and devices without the component continue normally.
+
+### Keep vendor input APIs behind a capability boundary
+
+MagicDesk does not package or link a Nubia binary library. The vendor surface
+used for desktop input consists of private Binder methods added to framework
+interfaces on REDMAGIC firmware:
+
+- `IInputManager.getMousePosition`, `setMousePosition`, and `sendMouseCmd`;
+- `IDisplayManager.noteMirrorInputPanelStatus` and `getFocusMirrorWindow`;
+- `IDisplayMirrorWindow` composing, text, deletion, and key dispatch methods;
+- the wired-only `dumpsys display dmctrl inputSource` control.
+
+These signatures are resolved reflectively inside the Shizuku UserService and
+are never exposed as a generic command surface. Diagnostics and the self-test
+probe absolute pointer support and relevant vendor packages; the remaining
+methods are resolved when their bounded input session starts. A missing
+optional package or method disables the corresponding operation rather than
+changing unrelated device state. In contrast,
+`libmagicdesk_keyboard_bridge.so` and `libmagicdesk_uinput_bridge.so` are
+MagicDesk-owned native helpers compiled from repository C sources by every
+local and CI build.
 
 ### Do not draw replacement application captions
 
