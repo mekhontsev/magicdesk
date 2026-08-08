@@ -26,8 +26,10 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsAnimation;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
@@ -55,6 +57,9 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private int mPointerY;
     private long mPointerDragDownTime;
     private MirrorInputEditText mMirrorInput;
+    private FrameLayout mContentContainer;
+    private ImageButton mHelpButton;
+    private ScrollView mHelpView;
     private OnBackInvokedCallback mBackCallback;
 
     static void open(final Context context, final int displayId) {
@@ -159,7 +164,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         updateTargetDisplay(getIntent());
         setTextInputFocusEnabled(false);
         setContentView(createContent());
-        mBackCallback = this::dismissFromUser;
+        mBackCallback = this::handleBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                 mBackCallback);
@@ -260,6 +265,20 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
+        mHelpButton = new ImageButton(this);
+        mHelpButton.setImageResource(android.R.drawable.ic_menu_help);
+        mHelpButton.setColorFilter(DesktopUiFactory.COLOR_TEXT);
+        mHelpButton.setBackgroundColor(Color.TRANSPARENT);
+        mHelpButton.setContentDescription(
+                getString(R.string.touchpad_help));
+        mHelpButton.setTooltipText(getString(R.string.touchpad_help));
+        mHelpButton.setOnClickListener(view -> {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+            toggleHelp();
+        });
+        header.addView(mHelpButton, new LinearLayout.LayoutParams(
+                ui.dp(48), ui.dp(48)));
+
         final ImageButton keyboard = new ImageButton(this);
         keyboard.setImageResource(R.drawable.ic_keyboard);
         keyboard.setColorFilter(DesktopUiFactory.COLOR_TEXT);
@@ -270,6 +289,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 getString(R.string.touchpad_show_keyboard));
         keyboard.setOnClickListener(view -> {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+            hideHelp();
             toggleKeyboard();
         });
         header.addView(keyboard, new LinearLayout.LayoutParams(
@@ -306,15 +326,59 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 DesktopUiFactory.COLOR_PANEL,
                 ui.dp(8),
                 DesktopUiFactory.COLOR_PANEL_ALT));
-        final LinearLayout.LayoutParams surfaceParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        0,
-                        1);
+        mContentContainer = new FrameLayout(this);
+        final FrameLayout.LayoutParams surfaceParams =
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT);
         surfaceParams.setMargins(
                 ui.dp(12), 0, ui.dp(12), ui.dp(12));
-        root.addView(touchSurface, surfaceParams);
+        mContentContainer.addView(touchSurface, surfaceParams);
+        root.addView(mContentContainer, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1));
         return root;
+    }
+
+    private void toggleHelp() {
+        if (mHelpView != null) {
+            hideHelp();
+            return;
+        }
+        if (mContentContainer == null) {
+            return;
+        }
+        hideKeyboard();
+        final DesktopUiFactory ui = new DesktopUiFactory(this);
+        mHelpView = TouchpadHelpContent.create(this, ui);
+        final FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT);
+        params.setMargins(ui.dp(12), 0, ui.dp(12), ui.dp(12));
+        mContentContainer.addView(mHelpView, params);
+        mHelpButton.setColorFilter(DesktopUiFactory.COLOR_CYAN);
+    }
+
+    private void hideHelp() {
+        if (mHelpView == null) {
+            return;
+        }
+        if (mContentContainer != null) {
+            mContentContainer.removeView(mHelpView);
+        }
+        mHelpView = null;
+        if (mHelpButton != null) {
+            mHelpButton.setColorFilter(DesktopUiFactory.COLOR_TEXT);
+        }
+    }
+
+    private void handleBack() {
+        if (mHelpView != null) {
+            hideHelp();
+            return;
+        }
+        dismissFromUser();
     }
 
     private void showKeyboard() {

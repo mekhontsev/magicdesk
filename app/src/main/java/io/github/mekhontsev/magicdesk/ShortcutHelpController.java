@@ -63,38 +63,9 @@ final class ShortcutHelpController {
 
         final LinearLayout shortcuts = new LinearLayout(mContext);
         shortcuts.setOrientation(LinearLayout.VERTICAL);
-        addRow(shortcuts, R.string.shortcut_maximize,
-                R.string.shortcut_maximize_action);
-        addRow(shortcuts, R.string.shortcut_restore,
-                R.string.shortcut_restore_action);
-        addRow(shortcuts, R.string.shortcut_snap_left,
-                R.string.shortcut_snap_left_action);
-        addRow(shortcuts, R.string.shortcut_snap_right,
-                R.string.shortcut_snap_right_action);
-        addRow(shortcuts, R.string.shortcut_close,
-                R.string.shortcut_close_action);
-        addRow(shortcuts, R.string.shortcut_back,
-                R.string.shortcut_back_action);
-        addRow(shortcuts, R.string.shortcut_lock,
-                R.string.shortcut_lock_action);
-        addRow(shortcuts, R.string.shortcut_notifications,
-                R.string.shortcut_notifications_action);
-        addRow(shortcuts, R.string.shortcut_system,
-                R.string.shortcut_system_action);
-        addRow(shortcuts, R.string.shortcut_screenshot,
-                R.string.shortcut_screenshot_action);
-        addRow(shortcuts, R.string.shortcut_recording,
-                R.string.shortcut_recording_action);
-        addRow(shortcuts, R.string.shortcut_desktop,
-                R.string.shortcut_desktop_action);
-        addRow(shortcuts, R.string.shortcut_help,
-                R.string.shortcut_help_action);
-        addRow(shortcuts, R.string.shortcut_layout,
-                R.string.shortcut_layout_action);
-        addRow(shortcuts, R.string.shortcut_previous,
-                R.string.shortcut_previous_action);
-        addRow(shortcuts, R.string.shortcut_next,
-                R.string.shortcut_next_action);
+        for (final ShortcutCatalog.Entry entry : ShortcutCatalog.ENTRIES) {
+            addRow(shortcuts, entry.keysResId, entry.actionResId);
+        }
 
         final ScrollView scroll = new ScrollView(mContext);
         scroll.addView(shortcuts, new ScrollView.LayoutParams(
