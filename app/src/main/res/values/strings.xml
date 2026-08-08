@@ -336,7 +336,8 @@
     <string name="setup_build_label">System build</string>
     <string name="setup_build_value">Android %1$s | %2$s</string>
     <string name="setup_value_checking">Checking&#8230;</string>
-    <string name="setup_value_supported">Verified: %1$s %2$s</string>
+    <string name="setup_value_supported">Maintainer-verified: %1$s %2$s</string>
+    <string name="setup_value_supported_community">Community-tested: %1$s %2$s</string>
     <string name="setup_value_supported_unverified">Compatible baseline, unverified: %1$s %2$s</string>
     <string name="setup_value_unsupported">Unsupported: %1$s %2$s</string>
     <string name="setup_value_available">Available</string>

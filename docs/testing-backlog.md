@@ -11,6 +11,13 @@ retired prototypes are listed separately and are not current product modes.
 - Firmware build `20260204.221845`
 - Shizuku UserService running as `uid=2000`, `u:r:shell:s0`
 
+## Community-Tested Platform
+
+- REDMAGIC 11 Pro (`NX809J-UN` variant)
+- Android 16 / API 36, firmware build `20260625.022314`
+- User diagnostics and follow-up confirmation cover desktop startup, external
+  sizing, launcher recovery, Mora discovery, output modes, and display recording
+
 ## Completed: Setup And Runtime
 
 - [x] Verify strict Shizuku admission. A stopped server, denied permission,

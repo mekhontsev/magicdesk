@@ -22,6 +22,22 @@ runtime access. The production application performs privileged work only
 through its Shizuku UserService; ordinary-UID results below explain why that
 boundary exists.
 
+## Community-Tested Firmware
+
+- Model: `NX809J` / `NX809J-UN` variant
+- Android: 16 / API 36
+- Firmware build: `20260625.022314`
+- Fingerprint:
+  `REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys`
+
+The user diagnostics report confirms the required windowing configuration,
+shell UID 2000, task APIs, WMShell passthrough, and the relevant Nubia packages
+and display signatures. Follow-up testing confirmed desktop startup,
+external-display sizing without the reported black bars, launcher recovery,
+Mora discovery, output-mode selection, and external-display recording. This is
+a compatibility result, not a substitute for the maintainer's complete vendor
+interface audit below.
+
 ## Confirmed Interfaces
 
 | Interface | Ordinary app access | Finding | Production decision |

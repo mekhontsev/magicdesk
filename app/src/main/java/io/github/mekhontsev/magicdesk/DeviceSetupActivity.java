@@ -173,11 +173,8 @@ public final class DeviceSetupActivity extends Activity {
         renderProfileSelection();
         setStatusValue(mSetupView.deviceValue(),
                 audit.compatibleDevice
-                        ? getString(audit.verifiedDevice
-                                        ? R.string.setup_value_supported
-                                        : R.string.setup_value_supported_unverified,
-                                audit.manufacturer,
-                                audit.model)
+                        ? getString(deviceSupportLabel(audit.firmwareSupport),
+                                audit.manufacturer, audit.model)
                         : getString(R.string.setup_value_unsupported,
                                 audit.manufacturer, audit.model),
                 audit.compatibleDevice);
@@ -308,6 +305,19 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.displayTargetValue().setText(displayTargetLabel(
                     mSessionProfile.displayTarget));
             mSetupView.displayTargetValue().setTextColor(COLOR_CYAN);
+        }
+    }
+
+    private static int deviceSupportLabel(
+            final DeviceSetupManager.FirmwareSupport support) {
+        switch (support) {
+            case MAINTAINER_VERIFIED:
+                return R.string.setup_value_supported;
+            case COMMUNITY_TESTED:
+                return R.string.setup_value_supported_community;
+            case UNVERIFIED:
+            default:
+                return R.string.setup_value_supported_unverified;
         }
     }
 

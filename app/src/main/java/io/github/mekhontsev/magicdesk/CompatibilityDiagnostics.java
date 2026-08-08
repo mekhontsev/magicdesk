@@ -174,10 +174,11 @@ final class CompatibilityDiagnostics {
         appendCheck(report, "PLATFORM-001", audit.compatibleDevice,
                 "ZTE/nubia device running Android 16 or newer",
                 audit.manufacturer + " " + audit.model);
-        appendCheck(report, "PROFILE-001", audit.verifiedDevice,
-                "Firmware profile verified by maintainers",
-                audit.verifiedDevice ? "REDMAGIC 11 Pro / NX809J / 20260204.221845"
-                        : "Unverified model or firmware; capability probing is required");
+        appendCheck(report, "PROFILE-001",
+                audit.firmwareSupport
+                        != DeviceSetupManager.FirmwareSupport.UNVERIFIED,
+                "Firmware compatibility profile",
+                firmwareSupportDetail(audit.firmwareSupport));
         final boolean shellReady = audit.shellReady;
         appendCheck(report, "SHIZUKU-001",
                 shellReady,
@@ -471,6 +472,21 @@ final class CompatibilityDiagnostics {
     private static String expectedValue(final String expected, final String actual) {
         return "expected=" + expected + ", actual="
                 + (TextUtils.isEmpty(actual) ? "<empty>" : actual);
+    }
+
+    private static String firmwareSupportDetail(
+            final DeviceSetupManager.FirmwareSupport support) {
+        switch (support) {
+            case MAINTAINER_VERIFIED:
+                return "maintainer-verified REDMAGIC 11 Pro / NX809J / "
+                        + "20260204.221845";
+            case COMMUNITY_TESTED:
+                return "community-tested REDMAGIC 11 Pro / NX809J-UN / "
+                        + "20260625.022314";
+            case UNVERIFIED:
+            default:
+                return "unverified model or firmware; capability probing is required";
+        }
     }
 
     private static boolean hasPackage(final Context context, final String packageName) {

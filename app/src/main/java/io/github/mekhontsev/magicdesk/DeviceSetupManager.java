@@ -27,10 +27,14 @@ final class DeviceSetupManager {
             NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
     private static final String ROUNDED_CORNERS_PROPERTY =
             NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS.key;
-    private static final String VERIFIED_NX809J_FINGERPRINT =
+    private static final String MAINTAINER_VERIFIED_NX809J_FINGERPRINT =
             "REDMAGIC/NX809J-EEA/NX809J:16/"
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20260204.221845:user/release-keys";
+    private static final String COMMUNITY_TESTED_NX809J_FINGERPRINT =
+            "REDMAGIC/NX809J-UN/NX809J:16/"
+                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
+                    + "20260625.022314:user/release-keys";
 
     private DeviceSetupManager() {
     }
@@ -41,10 +45,8 @@ final class DeviceSetupManager {
 
     static Audit audit(final Context context, final SessionProfile sessionProfile) {
         final boolean compatibleDevice = isZteFamilyDevice();
-        final boolean verifiedDevice =
-                ("NX809J".equalsIgnoreCase(Build.MODEL)
-                        || "NX809J".equalsIgnoreCase(Build.DEVICE))
-                && VERIFIED_NX809J_FINGERPRINT.equals(Build.FINGERPRINT);
+        final FirmwareSupport firmwareSupport = classifyFirmware(
+                Build.MODEL, Build.DEVICE, Build.FINGERPRINT);
         final SharedPreferences preferences = preferences(context);
 
         Map<String, String> values = readUnprivilegedValues(context);
@@ -112,7 +114,7 @@ final class DeviceSetupManager {
                 sessionProfile,
                 shellReady,
                 compatibleDevice,
-                verifiedDevice,
+                firmwareSupport,
                 Build.MANUFACTURER,
                 Build.MODEL,
                 Build.VERSION.RELEASE,
@@ -432,7 +434,7 @@ final class DeviceSetupManager {
         final SessionProfile sessionProfile;
         final boolean shellReady;
         final boolean compatibleDevice;
-        final boolean verifiedDevice;
+        final FirmwareSupport firmwareSupport;
         final String manufacturer;
         final String model;
         final String androidRelease;
@@ -455,7 +457,7 @@ final class DeviceSetupManager {
                 final SessionProfile sessionProfile,
                 final boolean shellReady,
                 final boolean compatibleDevice,
-                final boolean verifiedDevice,
+                final FirmwareSupport firmwareSupport,
                 final String manufacturer,
                 final String model,
                 final String androidRelease,
@@ -476,7 +478,7 @@ final class DeviceSetupManager {
             this.sessionProfile = sessionProfile;
             this.shellReady = shellReady;
             this.compatibleDevice = compatibleDevice;
-            this.verifiedDevice = verifiedDevice;
+            this.firmwareSupport = firmwareSupport;
             this.manufacturer = manufacturer;
             this.model = model;
             this.androidRelease = androidRelease;
@@ -501,6 +503,30 @@ final class DeviceSetupManager {
                     && configurationReady;
         }
 
+    }
+
+    enum FirmwareSupport {
+        MAINTAINER_VERIFIED,
+        COMMUNITY_TESTED,
+        UNVERIFIED
+    }
+
+    static FirmwareSupport classifyFirmware(
+            final String model,
+            final String device,
+            final String fingerprint) {
+        final boolean nx809j = "NX809J".equalsIgnoreCase(model)
+                || "NX809J".equalsIgnoreCase(device);
+        if (!nx809j) {
+            return FirmwareSupport.UNVERIFIED;
+        }
+        if (MAINTAINER_VERIFIED_NX809J_FINGERPRINT.equals(fingerprint)) {
+            return FirmwareSupport.MAINTAINER_VERIFIED;
+        }
+        if (COMMUNITY_TESTED_NX809J_FINGERPRINT.equals(fingerprint)) {
+            return FirmwareSupport.COMMUNITY_TESTED;
+        }
+        return FirmwareSupport.UNVERIFIED;
     }
 
     static boolean hasRequiredWindowingSettings(

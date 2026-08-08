@@ -9,15 +9,20 @@ behavior.
 
 ## Support levels
 
-- **Verified** means the complete build fingerprint is in the tested profile
-  list and the core desktop, window, input, and Console Mode paths were tested.
+- **Maintainer-verified** means the complete build fingerprint is in the tested
+  profile list and the core desktop, window, input, and Console Mode paths were
+  tested directly by the maintainer.
+- **Community-tested** means a user supplied a complete diagnostics report and
+  confirmed the relevant fixes and desktop workflows on that exact firmware.
+  It is known compatible, but has not received the complete maintainer test
+  matrix.
 - **Compatible baseline, unverified** means the device identifies as ZTE,
   nubia, or REDMAGIC and runs API 36 or newer. MagicDesk allows startup, probes
   capabilities, and reports unavailable features individually.
 - **Unsupported platform** means the vendor-family or Android-version baseline
   is not met. Device Setup does not apply persistent windowing values.
 
-An OTA changes the fingerprint. A previously verified model therefore becomes
+An OTA changes the fingerprint. A previously tested model therefore becomes
 unverified until that firmware has been tested. This is intentional: private
 Binder methods, component names, shell commands, and framework behavior can
 change without an Android API-level change.
