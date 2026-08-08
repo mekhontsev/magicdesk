@@ -239,6 +239,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void setPhoneTouchpadPreservation(
+            final ITaskObserverCallback callback,
+            final boolean enabled) {
+        mTaskObserverManager.setPhoneTouchpadPreservation(
+                callback, enabled);
+    }
+
+    @Override
     public boolean capturePointerPosition() {
         return mPointerPositionGuard.capture();
     }

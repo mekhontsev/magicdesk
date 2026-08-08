@@ -72,6 +72,12 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, sequence, displayId, taskIds));
     }
 
+    void setPhoneTouchpadPreservation(final boolean enabled)
+            throws IOException {
+        callService(() -> mService.setPhoneTouchpadPreservation(
+                mCallback, enabled));
+    }
+
     boolean isClosed() {
         return mClosed.get();
     }

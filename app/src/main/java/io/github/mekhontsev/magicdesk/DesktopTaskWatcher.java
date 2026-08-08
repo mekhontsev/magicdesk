@@ -121,6 +121,22 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean setPhoneTouchpadPreservation(
+            final boolean enabled) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            mHandle.setPhoneTouchpadPreservation(enabled);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "failed to "
+                    + (enabled ? "start" : "finish")
+                    + " phone touchpad preservation", error);
+            return false;
+        }
+    }
+
     private void open(final int generation) {
         final TaskObserverCallback callback =
                 new TaskObserverCallback(this, generation);

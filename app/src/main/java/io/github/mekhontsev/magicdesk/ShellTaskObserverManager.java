@@ -73,6 +73,13 @@ final class ShellTaskObserverManager implements Closeable {
                 sequence, displayId, taskIds);
     }
 
+    void setPhoneTouchpadPreservation(
+            final ITaskObserverCallback callback,
+            final boolean enabled) {
+        requireSession(callback).observer
+                .setPhoneTouchpadPreservation(enabled);
+    }
+
     void stop(final ITaskObserverCallback callback) {
         final Session session;
         synchronized (mLock) {

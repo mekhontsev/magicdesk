@@ -8,6 +8,7 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.os.RemoteException;
 import android.util.Log;
+import android.view.Display;
 
 import java.io.Closeable;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,6 +16,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private static final String TAG = "MagicDeskTasks";
+    private static final ComponentName PHONE_TOUCHPAD_ACTIVITY =
+            new ComponentName(
+                    "io.github.mekhontsev.magicdesk",
+                    "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity");
 
     private final Object mService;
     private final ITaskObserverCallback mCallback;
@@ -27,6 +32,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private volatile boolean mClosed;
     private boolean mRegistered;
+    private boolean mPreservePhoneTouchpad;
+    private boolean mRestoringPhoneTouchpad;
+    private int mPhoneTouchpadTaskId = -1;
 
     ShellTaskObserver(
             final Context context,
@@ -148,6 +156,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    synchronized void setPhoneTouchpadPreservation(
+            final boolean enabled) {
+        mPreservePhoneTouchpad = enabled;
+        if (enabled && mPhoneTouchpadTaskId < 0) {
+            mPhoneTouchpadTaskId = findPhoneTouchpadTaskId();
+        }
+    }
+
     @Override
     public void onTaskStackChanged() {
         signalChange();
@@ -157,6 +173,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskCreated(
             final int taskId,
             final ComponentName componentName) {
+        if (PHONE_TOUCHPAD_ACTIVITY.equals(componentName)) {
+            synchronized (this) {
+                mPhoneTouchpadTaskId = taskId;
+            }
+        }
         mInputPanelGuard.onTaskAppeared(taskId, componentName);
         signalChange();
     }
@@ -164,6 +185,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
+            synchronized (this) {
+                if (mPhoneTouchpadTaskId == taskId) {
+                    mPhoneTouchpadTaskId = -1;
+                }
+            }
             mInputPanelGuard.onTaskRemoved(taskId);
             mTransientBounds.forget(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
@@ -175,6 +201,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
+            if (isPhoneTouchpadTask(taskInfo)) {
+                synchronized (this) {
+                    mPhoneTouchpadTaskId = taskInfo.taskId;
+                }
+            } else if (HiddenTaskApi.getTaskDisplayId(taskInfo)
+                    == Display.DEFAULT_DISPLAY) {
+                preservePhoneTouchpad();
+            }
             mInputPanelGuard.onTaskAppeared(
                     taskInfo.taskId, taskInfo.topActivity);
         }
@@ -207,6 +241,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        synchronized (this) {
+            mPreservePhoneTouchpad = false;
+        }
         mInputPanelGuard.close();
         mFreeformCleanup.close();
         mTransientBounds.close();
@@ -224,6 +261,53 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "failed to unregister task observer", error);
         }
+    }
+
+    private void preservePhoneTouchpad() {
+        final int taskId;
+        synchronized (this) {
+            if (mClosed
+                    || !mPreservePhoneTouchpad
+                    || mRestoringPhoneTouchpad
+                    || mPhoneTouchpadTaskId < 0) {
+                return;
+            }
+            mRestoringPhoneTouchpad = true;
+            taskId = mPhoneTouchpadTaskId;
+        }
+        try {
+            TaskControlCommand.moveTaskToFront(
+                    mService, taskId);
+            Log.i(TAG, "preserved phone touchpad inside task transition");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not preserve phone touchpad", error);
+        } finally {
+            synchronized (this) {
+                mRestoringPhoneTouchpad = false;
+            }
+        }
+    }
+
+    private int findPhoneTouchpadTaskId() {
+        try {
+            for (final Object task : HiddenTaskApi.getTasks(
+                    mService, Display.DEFAULT_DISPLAY)) {
+                if (task instanceof ActivityManager.RunningTaskInfo
+                        && isPhoneTouchpadTask(
+                                (ActivityManager.RunningTaskInfo) task)) {
+                    return ((ActivityManager.RunningTaskInfo) task).taskId;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not find phone touchpad task", error);
+        }
+        return -1;
+    }
+
+    private static boolean isPhoneTouchpadTask(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+        return PHONE_TOUCHPAD_ACTIVITY.equals(taskInfo.topActivity)
+                || PHONE_TOUCHPAD_ACTIVITY.equals(taskInfo.baseActivity);
     }
 
     private void signalChange() {

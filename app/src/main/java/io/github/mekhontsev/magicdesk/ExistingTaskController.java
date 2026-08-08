@@ -14,8 +14,6 @@ import java.util.Set;
 final class ExistingTaskController {
     private static final String TAG = "MagicDeskTaskReuse";
     private static final String CMD = "/system/bin/cmd";
-    private static final String TASK_CONTROL_COMMAND =
-            "io.github.mekhontsev.magicdesk.TaskControlCommand";
     private static final String TASK_WINDOWING_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
     private static final String MODE_FULLSCREEN = "fullscreen";
@@ -166,15 +164,8 @@ final class ExistingTaskController {
             final boolean taskIsFullscreen =
                     MODE_FULLSCREEN.equals(task.windowingMode);
             if (task.displayId != targetDisplayId) {
-                final String command = restoreTouchpad
-                        ? createAppProcessCommand(
-                                TASK_CONTROL_COMMAND,
-                                "move-display-keep-touchpad "
-                                        + task.rootTaskId + " "
-                                        + targetDisplayId)
-                        : CMD + " activity display move-stack "
-                                + task.rootTaskId + " "
-                                + targetDisplayId;
+                final String command = CMD + " activity display move-stack "
+                        + task.rootTaskId + " " + targetDisplayId;
                 Log.i(TAG, "move display: " + command);
                 runCommand(command);
                 waitForTaskDisplay(task.taskId, targetDisplayId);
@@ -183,12 +174,6 @@ final class ExistingTaskController {
             if (nativeDesktop) {
                 if (!taskIsFreeform) {
                     NativeDesktopController.moveTaskToDesktop(task.taskId);
-                    if (restoreTouchpad
-                            && !PhoneTouchpadController
-                                    .bringRequestedTaskToFront(targetDisplayId)) {
-                        Log.w(TAG, "phone touchpad task unavailable after "
-                                + "native desktop transition");
-                    }
                     waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
                 }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
@@ -303,11 +288,6 @@ final class ExistingTaskController {
             final boolean excluded) throws IOException {
         runCommand(TaskRepository.createCaptionInsetsCommand(
                 displayId, taskId, excluded));
-    }
-
-    private static String createAppProcessCommand(final String className,
-            final String arguments) {
-        return AppProcessCommand.run(className, arguments);
     }
 
     private static TaskInfo findBestTask(final String packageName, final int targetDisplayId,

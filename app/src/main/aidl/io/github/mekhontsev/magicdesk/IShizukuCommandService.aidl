@@ -116,4 +116,7 @@ interface IShizukuCommandService {
     boolean beginMirrorTextInput(int displayId) = 39;
 
     void endMirrorTextInput(int displayId) = 40;
+
+    void setPhoneTouchpadPreservation(
+        ITaskObserverCallback callback, boolean enabled) = 41;
 }

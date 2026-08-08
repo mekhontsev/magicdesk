@@ -347,12 +347,14 @@ final class DesktopTaskController {
         final DesktopTaskController controller = getActiveController();
         if (controller != null && controller.mRunning) {
             controller.mPhoneUiReconciler.expectTouchpadDisplacement();
+            controller.mTaskWatcher.setPhoneTouchpadPreservation(true);
         }
     }
 
     static void finishTouchpadPreservation() {
         final DesktopTaskController controller = getActiveController();
         if (controller != null && controller.mRunning) {
+            controller.mTaskWatcher.setPhoneTouchpadPreservation(false);
             controller.mPhoneUiReconciler.finishTouchpadPreservation();
         }
     }

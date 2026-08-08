@@ -13,10 +13,6 @@ public final class TaskControlCommand {
     private static final String SHELL_PACKAGE_NAME = "com.android.shell";
     private static final int SHELL_UID = 2000;
     private static final int ACTIVITY_TYPE_HOME = 2;
-    private static final ComponentName TOUCHPAD_ACTIVITY = new ComponentName(
-            PACKAGE_NAME,
-            PACKAGE_NAME + ".MagicDeskTouchpadActivity");
-
     private TaskControlCommand() {
     }
 
@@ -26,17 +22,14 @@ public final class TaskControlCommand {
                 args.length == 2 && "has-visible-app".equals(args[0]);
         final boolean queryDesktopTaskId =
                 args.length == 2 && "desktop-task-id".equals(args[0]);
-        final boolean moveDisplayKeepingTouchpad = args.length == 3
-                && "move-display-keep-touchpad".equals(args[0]);
         final boolean singleTaskAction = args.length == 2
                 && ("focus".equals(args[0]) || "remove".equals(args[0]));
         if (!focusStack && !queryVisibleApp && !queryDesktopTaskId
-                && !moveDisplayKeepingTouchpad && !singleTaskAction) {
+                && !singleTaskAction) {
             System.err.println("usage: TaskControlCommand "
                     + "<focus|remove> <task-id> | focus-stack <task-id>... "
                     + "| has-visible-app <display-id>"
-                    + "| desktop-task-id <display-id>"
-                    + "| move-display-keep-touchpad <root-task-id> <display-id>");
+                    + "| desktop-task-id <display-id>");
             System.exit(64);
             return;
         }
@@ -63,16 +56,6 @@ public final class TaskControlCommand {
             } else if (queryVisibleApp) {
                 System.out.println("visible-app-task="
                         + hasVisibleAppTask(service, taskIds[0]));
-            } else if (moveDisplayKeepingTouchpad) {
-                final int touchpadTaskId = findTouchpadTaskId(service);
-                if (touchpadTaskId >= 0) {
-                    moveTaskToFront(service, touchpadTaskId);
-                }
-                moveRootTaskToDisplay(
-                        service, taskIds[0], taskIds[1]);
-                System.out.println("root-task-moved=" + taskIds[0]
-                        + " display=" + taskIds[1]
-                        + " phone-touchpad=" + touchpadTaskId);
             } else if (focusStack) {
                 for (int index = 0; index < taskIds.length; index++) {
                     try {
@@ -168,18 +151,6 @@ public final class TaskControlCommand {
                 .invoke(service, Integer.valueOf(taskId));
     }
 
-    private static void moveRootTaskToDisplay(
-            final Object service,
-            final int rootTaskId,
-            final int displayId) throws ReflectiveOperationException {
-        service.getClass().getMethod(
-                "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                .invoke(
-                        service,
-                        Integer.valueOf(rootTaskId),
-                        Integer.valueOf(displayId));
-    }
-
     static String callingPackageForUid(final int uid) {
         return uid == SHELL_UID ? SHELL_PACKAGE_NAME : PACKAGE_NAME;
     }
@@ -219,21 +190,6 @@ public final class TaskControlCommand {
                 continue;
             }
             return HiddenTaskApi.getIntField(task, "taskId");
-        }
-        return -1;
-    }
-
-    private static int findTouchpadTaskId(final Object service)
-            throws ReflectiveOperationException {
-        for (final Object task : HiddenTaskApi.getTasks(service, 0)) {
-            final ComponentName topActivity = (ComponentName)
-                    HiddenTaskApi.getField(task, "topActivity");
-            final ComponentName baseActivity = (ComponentName)
-                    HiddenTaskApi.getField(task, "baseActivity");
-            if (TOUCHPAD_ACTIVITY.equals(topActivity)
-                    || TOUCHPAD_ACTIVITY.equals(baseActivity)) {
-                return HiddenTaskApi.getIntField(task, "taskId");
-            }
         }
         return -1;
     }
