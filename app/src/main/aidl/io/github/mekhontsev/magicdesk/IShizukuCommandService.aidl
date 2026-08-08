@@ -107,8 +107,6 @@ interface IShizukuCommandService {
     boolean updateMousePosition(
         int displayId, int x, int y, int action, long downTime) = 36;
 
-    boolean showMousePointer(int displayId) = 37;
-
     boolean updateMirrorTextInput(
         int displayId, int action, String text,
         int arg1, int arg2, int arg3) = 38;

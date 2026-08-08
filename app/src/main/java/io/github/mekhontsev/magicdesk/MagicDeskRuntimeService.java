@@ -189,14 +189,6 @@ public final class MagicDeskRuntimeService extends Service {
                         displayId, x, y, action, downTime);
     }
 
-    static boolean showDesktopPointerIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && displayId == service.mOwnedDesktopDisplayId
-                && ShellAccess.showMousePointer(displayId);
-    }
-
     static boolean activateDesktopPointerIfRunning(final int displayId) {
         final MagicDeskRuntimeService service = sInstance.get();
         return service != null
@@ -204,15 +196,6 @@ public final class MagicDeskRuntimeService extends Service {
                 && displayId == service.mOwnedDesktopDisplayId
                 && service.mDesktopMouseBridge != null
                 && service.mDesktopMouseBridge.activatePointer();
-    }
-
-    static void onDesktopInputRoutingReadyIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null) {
-            return;
-        }
-        service.mHandler.post(() ->
-                MagicDeskTouchpadActivity.showPointerIfVisible(displayId));
     }
 
     static boolean clickDesktopPointerIfRunning(

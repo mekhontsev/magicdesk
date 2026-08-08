@@ -175,6 +175,14 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         registerPanelToken();
         if (mUsesNubiaConsoleHooks) {
             setMouseInputSourceOverride(true);
+        } else {
+            try {
+                NubiaMouseController.createOrUpdateViewport();
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                System.err.println(
+                        "MAGICDESK_INPUT_ROUTING_MOUSE_VIEWPORT unavailable="
+                                + error);
+            }
         }
     }
 

@@ -152,22 +152,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
     }
 
-    static void showPointerIfVisible(final int displayId) {
-        final MagicDeskTouchpadActivity activity;
-        synchronized (STATE_LOCK) {
-            activity = sVisibleActivity.get();
-        }
-        if (activity == null
-                || activity.isFinishing()
-                || activity.isDestroyed()
-                || activity.mTargetDisplayId != displayId) {
-            return;
-        }
-        activity.runOnUiThread(() ->
-                MagicDeskRuntimeService.showDesktopPointerIfRunning(
-                        displayId));
-    }
-
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -196,13 +180,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
         registerDisplayListener();
         finishIfTargetUnavailable();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        MagicDeskRuntimeService.showDesktopPointerIfRunning(
-                mTargetDisplayId);
     }
 
     @Override
@@ -546,6 +523,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         private boolean mUsedTwoFingers;
         private boolean mScrolling;
         private boolean mLongPressHandled;
+        private boolean mPointerNeedsActivation;
         private boolean mInputResultLogged;
 
         TouchSurface(final Context context) {
@@ -688,6 +666,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                                 mPointerY,
                                 DesktopPointerInjector.TOUCHPAD_DRAG_START,
                                 mPointerDragDownTime);
+                activatePointerAfterPositionUpdate(mPointerDragActive);
                 reportInputResult("drag", mPointerDragActive);
                 mPendingDragX = 0.0f;
                 mPendingDragY = 0.0f;
@@ -724,6 +703,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                                             .TOUCHPAD_DRAG_MOVE
                                     : DesktopPointerInjector.TOUCHPAD_HOVER,
                             mPointerDragDownTime);
+            activatePointerAfterPositionUpdate(accepted);
             reportInputResult("move", accepted);
             if (!accepted) {
                 stopPointerMotion();
@@ -760,9 +740,18 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     dragging);
             mPointerX = mPointerMotion.outputX();
             mPointerY = mPointerMotion.outputY();
+            mPointerNeedsActivation = true;
+            return true;
+        }
+
+        private void activatePointerAfterPositionUpdate(
+                final boolean positionUpdated) {
+            if (!positionUpdated || !mPointerNeedsActivation) {
+                return;
+            }
+            mPointerNeedsActivation = false;
             MagicDeskRuntimeService.activateDesktopPointerIfRunning(
                     mTargetDisplayId);
-            return true;
         }
 
         @SuppressWarnings("deprecation")
@@ -806,6 +795,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
         private void stopPointerMotion() {
             mPointerMotion.stop();
+            mPointerNeedsActivation = false;
             recycleVelocityTracker();
         }
 

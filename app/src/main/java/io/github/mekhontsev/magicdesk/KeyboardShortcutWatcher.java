@@ -581,16 +581,10 @@ final class KeyboardShortcutWatcher {
     private static void setInputRouting(
             final ShellInputRoutingHandle inputRouting,
             final long generation) {
-        boolean accepted = false;
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
                 sInputRouting = inputRouting;
-                accepted = true;
             }
-        }
-        if (accepted) {
-            MagicDeskRuntimeService.onDesktopInputRoutingReadyIfRunning(
-                    inputRouting.displayId());
         }
     }
 

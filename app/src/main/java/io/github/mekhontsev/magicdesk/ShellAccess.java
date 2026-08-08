@@ -317,22 +317,6 @@ final class ShellAccess {
         }
     }
 
-    static boolean showMousePointer(final int displayId) {
-        if (!isReady() || displayId <= 0) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            return service.showMousePointer(displayId);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
-            return false;
-        }
-    }
-
     static boolean updateMirrorTextInput(
             final int displayId,
             final int action,

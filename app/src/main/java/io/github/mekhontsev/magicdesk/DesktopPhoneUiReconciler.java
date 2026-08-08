@@ -69,7 +69,6 @@ final class DesktopPhoneUiReconciler {
             mTouchpadRestorePending = true;
         } else if (!nubiaPanelVisible && mAwaitingNubiaPanelRemoval) {
             mAwaitingNubiaPanelRemoval = false;
-            MagicDeskTouchpadActivity.showPointerIfVisible(displayId);
             attemptPendingTouchpadRestore(displayId);
         }
 

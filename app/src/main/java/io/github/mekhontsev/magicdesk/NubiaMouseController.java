@@ -9,6 +9,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 final class NubiaMouseController {
+    private static final int MOUSE_CMD_CREATE_OR_UPDATE = 0;
     private static final int MOUSE_CMD_SHOW = 2;
     private static final String INPUT_MANAGER_DESCRIPTOR =
             "android.hardware.input.IInputManager";
@@ -73,6 +74,14 @@ final class NubiaMouseController {
                 access.inputManager, Integer.valueOf(MOUSE_CMD_SHOW));
     }
 
+    static void createOrUpdateViewport()
+            throws ReflectiveOperationException {
+        final MousePositionAccess access = mousePositionAccess();
+        access.sendMouseCommand.invoke(
+                access.inputManager,
+                Integer.valueOf(MOUSE_CMD_CREATE_OR_UPDATE));
+    }
+
     static Point getPosition() throws ReflectiveOperationException {
         final Point position = queryPosition();
         if (position == null) {
@@ -99,12 +108,9 @@ final class NubiaMouseController {
             position = new Point(
                     (displaySize.x - 1) / 2,
                     (displaySize.y - 1) / 2);
-        } else {
-            position.x = clamp(position.x, displaySize.x - 1);
-            position.y = clamp(position.y, displaySize.y - 1);
         }
-        showMouse();
-        setMousePosition(displayId, position);
+        position.x = clamp(position.x, displaySize.x - 1);
+        position.y = clamp(position.y, displaySize.y - 1);
         return position;
     }
 
@@ -121,8 +127,9 @@ final class NubiaMouseController {
         final Point displaySize = getLogicalDisplaySize(displayId);
         position.x = clamp(position.x, displaySize.x - 1);
         position.y = clamp(position.y, displaySize.y - 1);
-        showMouse();
+        createOrUpdateViewport();
         setMousePosition(displayId, position);
+        showMouse();
         return position;
     }
 

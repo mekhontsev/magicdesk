@@ -301,25 +301,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public boolean showMousePointer(final int displayId) {
-        if (displayId <= 0) {
-            return false;
-        }
-        try {
-            final Point position = NubiaMouseController.getPosition(displayId);
-            DesktopPointerInjector.injectTouchpadMotion(
-                    displayId,
-                    position,
-                    DesktopPointerInjector.TOUCHPAD_HOVER,
-                    0L);
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "could not show mouse pointer", error);
-            return false;
-        }
-    }
-
-    @Override
     public boolean updateMirrorTextInput(
             final int displayId,
             final int action,
