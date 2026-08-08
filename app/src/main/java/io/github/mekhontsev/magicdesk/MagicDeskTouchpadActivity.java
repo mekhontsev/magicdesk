@@ -1,12 +1,17 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.ActivityOptions;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Insets;
+import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
@@ -16,13 +21,21 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.VelocityTracker;
+import android.view.WindowInsets;
+import android.view.WindowInsetsAnimation;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import java.lang.ref.WeakReference;
+import java.util.List;
 
-/** Phone-side touch surface used when Nubia has no touchpad for the display. */
+/** Phone-side touch surface for every external MagicDesk display. */
 public final class MagicDeskTouchpadActivity extends Activity {
     private static final String TAG = "MagicDeskTouchpad";
     private static final String EXTRA_TARGET_DISPLAY_ID =
@@ -37,7 +50,12 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mDisplayListener;
     private int mTargetDisplayId = Display.INVALID_DISPLAY;
-    private boolean mPrimaryButtonPressed;
+    private boolean mPointerDragActive;
+    private int mPointerX;
+    private int mPointerY;
+    private long mPointerDragDownTime;
+    private MirrorInputEditText mMirrorInput;
+    private OnBackInvokedCallback mBackCallback;
 
     static void open(final Context context, final int displayId) {
         if (context == null || displayId <= Display.DEFAULT_DISPLAY) {
@@ -85,6 +103,42 @@ public final class MagicDeskTouchpadActivity extends Activity {
         return true;
     }
 
+    static boolean restoreObservedMissing(
+            final Context context,
+            final int displayId) {
+        if (!isRequested(displayId)) {
+            return false;
+        }
+        open(context, displayId);
+        return true;
+    }
+
+    static boolean bringRequestedTaskToFront(
+            final Context context,
+            final int displayId) {
+        if (context == null || !isRequested(displayId)) {
+            return false;
+        }
+        final ActivityManager activityManager =
+                context.getSystemService(ActivityManager.class);
+        if (activityManager == null) {
+            return false;
+        }
+        final ComponentName expected = new ComponentName(
+                context, MagicDeskTouchpadActivity.class);
+        for (final ActivityManager.AppTask appTask
+                : activityManager.getAppTasks()) {
+            final ActivityManager.RecentTaskInfo taskInfo =
+                    appTask.getTaskInfo();
+            if (!expected.equals(taskInfo.topActivity)) {
+                continue;
+            }
+            appTask.moveToFront();
+            return true;
+        }
+        return false;
+    }
+
     static void release(final int displayId) {
         final MagicDeskTouchpadActivity activity;
         synchronized (STATE_LOCK) {
@@ -98,12 +152,33 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
     }
 
+    static void showPointerIfVisible(final int displayId) {
+        final MagicDeskTouchpadActivity activity;
+        synchronized (STATE_LOCK) {
+            activity = sVisibleActivity.get();
+        }
+        if (activity == null
+                || activity.isFinishing()
+                || activity.isDestroyed()
+                || activity.mTargetDisplayId != displayId) {
+            return;
+        }
+        activity.runOnUiThread(() ->
+                MagicDeskRuntimeService.showDesktopPointerIfRunning(
+                        displayId));
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mDisplayManager = getSystemService(DisplayManager.class);
         updateTargetDisplay(getIntent());
+        setTextInputFocusEnabled(false);
         setContentView(createContent());
+        mBackCallback = this::dismissFromUser;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                mBackCallback);
     }
 
     @Override
@@ -124,8 +199,23 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        MagicDeskRuntimeService.showDesktopPointerIfRunning(
+                mTargetDisplayId);
+    }
+
+    @Override
+    public void onWindowFocusChanged(final boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && hasTextInputProxy()) {
+            showKeyboardIfReady();
+        }
+    }
+
+    @Override
     protected void onStop() {
-        releasePrimaryButton();
+        finishPointerDrag();
         synchronized (STATE_LOCK) {
             if (sVisibleActivity.get() == this) {
                 sVisibleActivity.clear();
@@ -135,12 +225,52 @@ public final class MagicDeskTouchpadActivity extends Activity {
         super.onStop();
     }
 
+    @Override
+    protected void onDestroy() {
+        hideKeyboard();
+        if (mBackCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                    mBackCallback);
+            mBackCallback = null;
+        }
+        super.onDestroy();
+    }
+
     private View createContent() {
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setMotionEventSplittingEnabled(true);
         root.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
+        root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            final Insets bars = windowInsets.getInsets(
+                    WindowInsets.Type.systemBars());
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return windowInsets;
+        });
+        root.setWindowInsetsAnimationCallback(
+                new WindowInsetsAnimation.Callback(
+                        WindowInsetsAnimation.Callback
+                                .DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                    @Override
+                    public WindowInsets onProgress(
+                            final WindowInsets insets,
+                            final List<WindowInsetsAnimation>
+                                    runningAnimations) {
+                        return insets;
+                    }
+
+                    @Override
+                    public void onEnd(
+                            final WindowInsetsAnimation animation) {
+                        if ((animation.getTypeMask()
+                                & WindowInsets.Type.ime()) != 0
+                                && !isKeyboardVisible()
+                                && hasTextInputProxy()) {
+                            clearTextInputProxy();
+                        }
+                    }
+                });
 
         final LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -163,8 +293,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 getString(R.string.touchpad_show_keyboard));
         keyboard.setOnClickListener(view -> {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
-            MagicDeskRuntimeService.requestDesktopKeyboardIfRunning(
-                    mTargetDisplayId);
+            toggleKeyboard();
         });
         header.addView(keyboard, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
@@ -182,6 +311,19 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        mMirrorInput = new MirrorInputEditText(
+                this,
+                (action, text, arg1, arg2, arg3) ->
+                        MagicDeskRuntimeService
+                                .updateDesktopTextInputIfRunning(
+                                        mTargetDisplayId,
+                                        action,
+                                        text,
+                                        arg1,
+                                        arg2,
+                                        arg3));
+        root.addView(mMirrorInput, new LinearLayout.LayoutParams(1, 1));
+
         final TouchSurface touchSurface = new TouchSurface(this);
         touchSurface.setBackground(ui.rounded(
                 DesktopUiFactory.COLOR_PANEL,
@@ -198,13 +340,131 @@ public final class MagicDeskTouchpadActivity extends Activity {
         return root;
     }
 
-    private void releasePrimaryButton() {
-        if (!mPrimaryButtonPressed) {
+    private void showKeyboard() {
+        if (mMirrorInput == null) {
             return;
         }
-        mPrimaryButtonPressed = false;
-        MagicDeskRuntimeService.setDesktopPrimaryButtonPressedIfRunning(
-                mTargetDisplayId, false);
+        MagicDeskRuntimeService.endDesktopTextInputIfRunning(
+                mTargetDisplayId);
+        final boolean inputCaptured = MagicDeskRuntimeService
+                .beginDesktopTextInputIfRunning(mTargetDisplayId);
+        Log.i(TAG, "keyboard requested display=" + mTargetDisplayId
+                + " inputCaptured=" + inputCaptured
+                + " windowFocus=" + hasWindowFocus());
+        if (!inputCaptured) {
+            final boolean clickInjected = MagicDeskRuntimeService
+                    .clickDesktopPointerIfRunning(
+                            mTargetDisplayId,
+                            MotionEvent.BUTTON_PRIMARY);
+            Log.i(TAG, "keyboard native request display="
+                    + mTargetDisplayId
+                    + " clickInjected=" + clickInjected);
+            return;
+        }
+        bringTaskToFront();
+        setTextInputFocusEnabled(true);
+        mMirrorInput.setKeyboardRequested(true);
+        if (!mMirrorInput.requestFocus()) {
+            clearTextInputProxy();
+            return;
+        }
+        final InputMethodManager inputMethodManager =
+                getSystemService(InputMethodManager.class);
+        if (inputMethodManager == null) {
+            clearTextInputProxy();
+            return;
+        }
+        inputMethodManager.restartInput(mMirrorInput);
+        showKeyboardIfReady();
+    }
+
+    private void bringTaskToFront() {
+        try {
+            if (!bringRequestedTaskToFront(this, mTargetDisplayId)) {
+                Log.w(TAG, "touchpad task is unavailable");
+            }
+        } catch (SecurityException error) {
+            Log.w(TAG, "cannot focus touchpad task", error);
+        }
+    }
+
+    private void showKeyboardIfReady() {
+        if (!hasTextInputProxy()
+                || !hasWindowFocus()) {
+            return;
+        }
+        Log.i(TAG, "show keyboard display=" + mTargetDisplayId);
+        getWindow().getInsetsController().show(WindowInsets.Type.ime());
+    }
+
+    private void toggleKeyboard() {
+        if (isKeyboardVisible()) {
+            hideKeyboard();
+            return;
+        }
+        showKeyboard();
+    }
+
+    private void hideKeyboard() {
+        Log.i(TAG, "hide keyboard display=" + mTargetDisplayId);
+        getWindow().getInsetsController().hide(WindowInsets.Type.ime());
+        if (hasTextInputProxy()) {
+            final InputMethodManager inputMethodManager =
+                    getSystemService(InputMethodManager.class);
+            if (inputMethodManager != null) {
+                inputMethodManager.hideSoftInputFromWindow(
+                        mMirrorInput.getWindowToken(), 0);
+            }
+        }
+        clearTextInputProxy();
+    }
+
+    private void clearTextInputProxy() {
+        if (mMirrorInput != null) {
+            mMirrorInput.setKeyboardRequested(false);
+        }
+        setTextInputFocusEnabled(false);
+        MagicDeskRuntimeService.endDesktopTextInputIfRunning(
+                mTargetDisplayId);
+    }
+
+    private boolean hasTextInputProxy() {
+        return mMirrorInput != null && mMirrorInput.hasFocus();
+    }
+
+    private boolean isKeyboardVisible() {
+        final WindowInsets insets = getWindow().getDecorView()
+                .getRootWindowInsets();
+        return insets != null
+                && insets.isVisible(WindowInsets.Type.ime());
+    }
+
+    private void setTextInputFocusEnabled(final boolean enabled) {
+        if (enabled) {
+            getWindow().clearFlags(
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams
+                                    .FLAG_ALT_FOCUSABLE_IM);
+        } else {
+            getWindow().addFlags(
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams
+                                    .FLAG_ALT_FOCUSABLE_IM);
+        }
+    }
+
+    private void finishPointerDrag() {
+        if (!mPointerDragActive) {
+            return;
+        }
+        mPointerDragActive = false;
+        MagicDeskRuntimeService.updateDesktopPointerPositionIfRunning(
+                mTargetDisplayId,
+                mPointerX,
+                mPointerY,
+                DesktopPointerInjector.TOUCHPAD_DRAG_END,
+                mPointerDragDownTime);
+        mPointerDragDownTime = 0L;
     }
 
     private void updateTargetDisplay(final Intent intent) {
@@ -273,7 +533,10 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     private final class TouchSurface extends View {
         private final GestureDetector mGestureDetector;
+        private final TouchpadPointerMotion mPointerMotion =
+                new TouchpadPointerMotion();
         private final float mTouchSlop;
+        private VelocityTracker mVelocityTracker;
         private float mLastX;
         private float mLastY;
         private float mTravel;
@@ -327,6 +590,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     return true;
                 case MotionEvent.ACTION_POINTER_DOWN:
                     if (event.getPointerCount() >= 2) {
+                        finishPointerDrag();
+                        stopPointerMotion();
                         mUsedTwoFingers = true;
                         mLastX = averageX(event);
                         mLastY = averageY(event);
@@ -342,8 +607,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     return true;
                 case MotionEvent.ACTION_UP:
                     mGestureDetector.onTouchEvent(event);
-                    if (mPrimaryButtonPressed) {
-                        releasePrimaryButton();
+                    if (mPointerDragActive) {
+                        finishPointerDrag();
                     } else if (mUsedTwoFingers) {
                         if (!mScrolling) {
                             click(MotionEvent.BUTTON_SECONDARY);
@@ -357,7 +622,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     return true;
                 case MotionEvent.ACTION_CANCEL:
                     mGestureDetector.onTouchEvent(event);
-                    releasePrimaryButton();
+                    finishPointerDrag();
                     resetGesture();
                     return true;
                 default:
@@ -405,31 +670,106 @@ public final class MagicDeskTouchpadActivity extends Activity {
             mTravel += (float) Math.hypot(deltaX, deltaY);
             mLastX = currentX;
             mLastY = currentY;
-            float moveX = deltaX;
-            float moveY = deltaY;
-            if (mLongPressHandled && !mPrimaryButtonPressed) {
+            if (mLongPressHandled && !mPointerDragActive) {
                 mPendingDragX += deltaX;
                 mPendingDragY += deltaY;
                 if (Math.hypot(mPendingDragX, mPendingDragY)
                         <= mTouchSlop) {
                     return;
                 }
-                mPrimaryButtonPressed = MagicDeskRuntimeService
-                        .setDesktopPrimaryButtonPressedIfRunning(
-                                mTargetDisplayId, true);
-                reportInputResult("drag", mPrimaryButtonPressed);
-                moveX = mPendingDragX;
-                moveY = mPendingDragY;
+                if (!startPointerMotion(event, true)) {
+                    return;
+                }
+                mPointerDragDownTime = SystemClock.uptimeMillis();
+                mPointerDragActive = MagicDeskRuntimeService
+                        .updateDesktopPointerPositionIfRunning(
+                                mTargetDisplayId,
+                                mPointerX,
+                                mPointerY,
+                                DesktopPointerInjector.TOUCHPAD_DRAG_START,
+                                mPointerDragDownTime);
+                reportInputResult("drag", mPointerDragActive);
                 mPendingDragX = 0.0f;
                 mPendingDragY = 0.0f;
+                if (!mPointerDragActive) {
+                    stopPointerMotion();
+                    return;
+                }
+                return;
             }
-            final float scale = pointerScale();
-            reportInputResult(
-                    "move",
-                    MagicDeskRuntimeService.moveDesktopPointerIfRunning(
+            if (!mPointerMotion.isActive()) {
+                if (mTravel <= mTouchSlop
+                        || !startPointerMotion(event, false)) {
+                    return;
+                }
+                return;
+            }
+            mVelocityTracker.addMovement(event);
+            mVelocityTracker.computeCurrentVelocity(1_000);
+            final double velocity = Math.hypot(
+                    mVelocityTracker.getXVelocity(),
+                    mVelocityTracker.getYVelocity());
+            if (!mPointerMotion.move(currentX, currentY, velocity)) {
+                return;
+            }
+            mPointerX = mPointerMotion.outputX();
+            mPointerY = mPointerMotion.outputY();
+            final boolean accepted = MagicDeskRuntimeService
+                    .updateDesktopPointerPositionIfRunning(
                             mTargetDisplayId,
-                            moveX * scale,
-                            moveY * scale));
+                            mPointerX,
+                            mPointerY,
+                            mPointerDragActive
+                                    ? DesktopPointerInjector
+                                            .TOUCHPAD_DRAG_MOVE
+                                    : DesktopPointerInjector.TOUCHPAD_HOVER,
+                            mPointerDragDownTime);
+            reportInputResult("move", accepted);
+            if (!accepted) {
+                stopPointerMotion();
+            }
+        }
+
+        private boolean startPointerMotion(
+                final MotionEvent event,
+                final boolean dragging) {
+            final Point pointer = MagicDeskRuntimeService
+                    .getDesktopPointerPositionIfRunning(mTargetDisplayId);
+            final Display display = mDisplayManager == null
+                    ? null : mDisplayManager.getDisplay(mTargetDisplayId);
+            if (pointer == null || display == null) {
+                reportInputResult("move", false);
+                return false;
+            }
+            final Point displaySize = realDisplaySize(display);
+            if (displaySize.x <= 0 || displaySize.y <= 0) {
+                reportInputResult("move", false);
+                return false;
+            }
+            recycleVelocityTracker();
+            mVelocityTracker = VelocityTracker.obtain();
+            mVelocityTracker.addMovement(event);
+            mPointerMotion.start(
+                    event.getX(),
+                    event.getY(),
+                    pointer.x,
+                    pointer.y,
+                    displaySize.x - 1,
+                    displaySize.y - 1,
+                    pointerScale(),
+                    dragging);
+            mPointerX = mPointerMotion.outputX();
+            mPointerY = mPointerMotion.outputY();
+            MagicDeskRuntimeService.activateDesktopPointerIfRunning(
+                    mTargetDisplayId);
+            return true;
+        }
+
+        @SuppressWarnings("deprecation")
+        private Point realDisplaySize(final Display display) {
+            final Point size = new Point();
+            display.getRealSize(size);
+            return size;
         }
 
         private void click(final int button) {
@@ -453,6 +793,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
 
         private void resetGesture() {
+            stopPointerMotion();
             mUsedTwoFingers = false;
             mScrolling = false;
             mLongPressHandled = false;
@@ -460,6 +801,19 @@ public final class MagicDeskTouchpadActivity extends Activity {
             mPendingScroll = 0.0f;
             mPendingDragX = 0.0f;
             mPendingDragY = 0.0f;
+            mPointerDragDownTime = 0L;
+        }
+
+        private void stopPointerMotion() {
+            mPointerMotion.stop();
+            recycleVelocityTracker();
+        }
+
+        private void recycleVelocityTracker() {
+            if (mVelocityTracker != null) {
+                mVelocityTracker.recycle();
+                mVelocityTracker = null;
+            }
         }
 
         private float pointerScale() {

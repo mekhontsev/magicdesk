@@ -25,6 +25,8 @@ final class DesktopControlsController {
     private static final int DPI_STEP = DisplayDensityPolicy.DPI_STEP;
     private static final int DPI_BUTTON_STEP = 8;
     private static final int DPI_BUTTON_SIZE_DP = 40;
+    private static final String SELECTED_INPUT_METHOD_SUBTYPE =
+            "selected_input_method_subtype";
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
@@ -42,6 +44,7 @@ final class DesktopControlsController {
     private TextView mToolsStatus;
     private TextView mToolsActivityStatus;
     private ContentObserver mSettingsObserver;
+    private ContentObserver mInputMethodSubtypeObserver;
     private BroadcastReceiver mBatteryReceiver;
     private Intent mLastBatteryIntent;
     private String mLastStatusText;
@@ -74,6 +77,11 @@ final class DesktopControlsController {
             mActivity.getContentResolver().unregisterContentObserver(
                     mSettingsObserver);
             mSettingsObserver = null;
+        }
+        if (mInputMethodSubtypeObserver != null) {
+            mActivity.getContentResolver().unregisterContentObserver(
+                    mInputMethodSubtypeObserver);
+            mInputMethodSubtypeObserver = null;
         }
         if (mBatteryReceiver != null) {
             try {
@@ -502,6 +510,19 @@ final class DesktopControlsController {
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_NAME_STATE);
         registerSetting(ConsoleModeState.PHONE_SCREEN_OFF_SETTING);
         registerSetting(ConsoleModeState.DISPLAY_ID_SETTING);
+
+        mInputMethodSubtypeObserver = new ContentObserver(
+                new Handler(Looper.getMainLooper())) {
+            @Override
+            public void onChange(final boolean selfChange) {
+                HardwareKeyboardLayoutController.syncWithInputMethod();
+            }
+        };
+        mActivity.getContentResolver().registerContentObserver(
+                Settings.Secure.getUriFor(
+                        SELECTED_INPUT_METHOD_SUBTYPE),
+                false,
+                mInputMethodSubtypeObserver);
     }
 
     private void registerSetting(final String key) {

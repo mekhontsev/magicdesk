@@ -13,11 +13,15 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
+    private final NubiaMirrorInputPanelGuard.InputOwner mInputOwner;
 
     private Session mSession;
 
-    ShellTaskObserverManager(final Context context) {
+    ShellTaskObserverManager(
+            final Context context,
+            final NubiaMirrorInputPanelGuard.InputOwner inputOwner) {
         mContext = context;
+        mInputOwner = inputOwner;
     }
 
     void start(final ITaskObserverCallback callback) {
@@ -144,7 +148,10 @@ final class ShellTaskObserverManager implements Closeable {
             ownerToken = callback.asBinder();
             ownerDeathRecipient = this::ownerDisconnected;
             observer = new ShellTaskObserver(
-                    mContext, callback, this::ownerDisconnected);
+                    mContext,
+                    callback,
+                    this::ownerDisconnected,
+                    mInputOwner);
         }
 
         synchronized void start()

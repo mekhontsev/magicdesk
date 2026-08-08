@@ -11,6 +11,8 @@ struct source_device {
     int fd;
     char path[SOURCE_PATH_SIZE];
     bool grabbed;
+    bool repeat_overridden;
+    unsigned int original_repeat[2];
     bool key_down[KEY_MAX + 1];
     bool consumed[KEY_MAX + 1];
 };
@@ -29,6 +31,11 @@ int magicdesk_grab_sources(
         const char *component);
 
 int magicdesk_try_grab_source(struct source_device *source);
+
+int magicdesk_override_source_repeat(
+        struct source_device *source,
+        unsigned int delay_ms,
+        unsigned int period_ms);
 
 void magicdesk_release_sources(
         struct source_device *sources,

@@ -56,7 +56,7 @@ interface IShizukuCommandService {
 
     void restorePointerPositionIfDisplaced() = 16;
 
-    void injectSecondaryClick(int displayId) = 17;
+    boolean injectPointerClick(int displayId, int button) = 17;
 
     int[] startInputRouting(
         int displayId,
@@ -102,5 +102,18 @@ interface IShizukuCommandService {
 
     DesktopFileInfo getDesktopFileInfo(String relativePath) = 33;
 
-    boolean injectTouchTap(int displayId) = 34;
+    int[] getMousePosition(int displayId) = 35;
+
+    boolean updateMousePosition(
+        int displayId, int x, int y, int action, long downTime) = 36;
+
+    boolean showMousePointer(int displayId) = 37;
+
+    boolean updateMirrorTextInput(
+        int displayId, int action, String text,
+        int arg1, int arg2, int arg3) = 38;
+
+    boolean beginMirrorTextInput(int displayId) = 39;
+
+    void endMirrorTextInput(int displayId) = 40;
 }

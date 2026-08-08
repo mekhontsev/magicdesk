@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.util.Log;
-import android.view.MotionEvent;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
@@ -27,10 +26,7 @@ final class DesktopMouseBridge {
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
-    private float mMoveRemainderX;
-    private float mMoveRemainderY;
     private float mScrollRemainder;
-    private boolean mPrimaryButtonPressed;
 
     DesktopMouseBridge(final Context context) {
         mContext = context.getApplicationContext();
@@ -63,10 +59,7 @@ final class DesktopMouseBridge {
             mRequested = false;
             mReady = false;
             mPointerRestoreArmed = false;
-            mMoveRemainderX = 0.0f;
-            mMoveRemainderY = 0.0f;
             mScrollRemainder = 0.0f;
-            mPrimaryButtonPressed = false;
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
@@ -127,60 +120,6 @@ final class DesktopMouseBridge {
         }
     }
 
-    boolean movePointer(final float deltaX, final float deltaY) {
-        final ShellStreamHandle stream;
-        final int moveX;
-        final int moveY;
-        synchronized (mLock) {
-            if (!mRequested || !mReady || mStream == null) {
-                return false;
-            }
-            mMoveRemainderX += deltaX;
-            mMoveRemainderY += deltaY;
-            moveX = (int) mMoveRemainderX;
-            moveY = (int) mMoveRemainderY;
-            mMoveRemainderX -= moveX;
-            mMoveRemainderY -= moveY;
-            stream = mStream;
-        }
-        return moveX == 0 && moveY == 0
-                || writePointerControl(
-                        stream, "move " + moveX + " " + moveY);
-    }
-
-    boolean clickPointer(final int button) {
-        if (button != MotionEvent.BUTTON_PRIMARY) {
-            return false;
-        }
-        final ShellStreamHandle stream = readyStream();
-        return stream != null
-                && writePointerControl(stream, "click-primary");
-    }
-
-    boolean setPrimaryButtonPressed(final boolean pressed) {
-        final ShellStreamHandle stream;
-        synchronized (mLock) {
-            if (!mRequested || !mReady || mStream == null) {
-                return false;
-            }
-            if (mPrimaryButtonPressed == pressed) {
-                return true;
-            }
-            stream = mStream;
-        }
-        if (!writePointerControl(
-                stream, pressed ? "primary-down" : "primary-up")) {
-            return false;
-        }
-        synchronized (mLock) {
-            if (mRequested && mReady && mStream == stream) {
-                mPrimaryButtonPressed = pressed;
-                return true;
-            }
-        }
-        return false;
-    }
-
     boolean scrollPointer(final float amount) {
         final ShellStreamHandle stream;
         final int steps;
@@ -195,6 +134,12 @@ final class DesktopMouseBridge {
         }
         return steps == 0
                 || writePointerControl(stream, "scroll " + steps);
+    }
+
+    boolean activatePointer() {
+        final ShellStreamHandle stream = readyStream();
+        return stream != null
+                && writePointerControl(stream, "activate-pointer");
     }
 
     private ShellStreamHandle readyStream() {
@@ -279,7 +224,6 @@ final class DesktopMouseBridge {
                 if (mStream == stream) {
                     mStream = null;
                     mReady = false;
-                    mPrimaryButtonPressed = false;
                 }
             }
             closeQuietly(stream);
@@ -319,7 +263,9 @@ final class DesktopMouseBridge {
             final int displayId = DesktopRuntimeBridge
                     .getActiveDesktopDisplayId();
             if (displayId > 0) {
-                ShellAccess.injectSecondaryClick(displayId);
+                ShellAccess.injectPointerClick(
+                        displayId,
+                        android.view.MotionEvent.BUTTON_SECONDARY);
             }
             return;
         }

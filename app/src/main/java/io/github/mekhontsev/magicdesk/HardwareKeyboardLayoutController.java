@@ -63,6 +63,10 @@ final class HardwareKeyboardLayoutController {
         runRefresh("sync", completion);
     }
 
+    static void syncWithInputMethod() {
+        runRefresh("ime", null);
+    }
+
     private static void runRefresh(
             final String mode,
             final Runnable completion) {

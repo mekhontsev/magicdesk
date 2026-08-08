@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -35,9 +36,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final Object mInputRoutingLock = new Object();
+    private final Object mMirrorTextInputLock = new Object();
     private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
+    private DesktopMirrorTextInput.Session mMirrorTextInputSession;
+    private int mMirrorTextInputDisplayId = -1;
 
     public ShizukuCommandService() {
         this(null);
@@ -45,7 +49,21 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     public ShizukuCommandService(final Context context) {
         mContext = context;
-        mTaskObserverManager = new ShellTaskObserverManager(context);
+        mTaskObserverManager = new ShellTaskObserverManager(
+                context,
+                new NubiaMirrorInputPanelGuard.InputOwner() {
+                    @Override
+                    public boolean isActive() {
+                        synchronized (mInputRoutingLock) {
+                            return mInputRoutingSession != null;
+                        }
+                    }
+
+                    @Override
+                    public void reclaimInput() {
+                        reclaimInputAfterNubiaPanel();
+                    }
+                });
         mPointerPositionGuard = new NubiaPointerPositionGuard();
         mSystemNavigationGuard = new SystemNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
@@ -231,22 +249,138 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void injectSecondaryClick(final int displayId) {
+    public boolean injectPointerClick(
+            final int displayId,
+            final int button) {
         try {
-            DesktopPointerInjector.injectSecondaryClick(displayId);
+            DesktopPointerInjector.injectClick(displayId, button);
+            return true;
         } catch (RuntimeException error) {
-            Log.e(TAG, "secondary click injection failed", error);
+            Log.e(TAG, "pointer click injection failed", error);
+            return false;
         }
     }
 
     @Override
-    public boolean injectTouchTap(final int displayId) {
+    public int[] getMousePosition(final int displayId) {
         try {
-            DesktopPointerInjector.injectTouchTap(displayId);
+            NubiaMouseController.prepareMousePositionControl();
+            final Point position = NubiaMouseController.getPosition(displayId);
+            return new int[] {position.x, position.y};
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "absolute mouse position is unavailable", error);
+        }
+    }
+
+    @Override
+    public boolean updateMousePosition(
+            final int displayId,
+            final int x,
+            final int y,
+            final int action,
+            final long downTime) {
+        try {
+            final Point position = new Point(x, y);
+            NubiaMouseController.setMousePosition(displayId, position);
+            DesktopPointerInjector.injectTouchpadMotion(
+                    displayId, position, action, downTime);
             return true;
-        } catch (RuntimeException error) {
-            Log.e(TAG, "touchscreen tap injection failed", error);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "absolute mouse movement failed", error);
             return false;
+        }
+    }
+
+    @Override
+    public boolean showMousePointer(final int displayId) {
+        if (displayId <= 0) {
+            return false;
+        }
+        try {
+            final Point position = NubiaMouseController.getPosition(displayId);
+            DesktopPointerInjector.injectTouchpadMotion(
+                    displayId,
+                    position,
+                    DesktopPointerInjector.TOUCHPAD_HOVER,
+                    0L);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "could not show mouse pointer", error);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean updateMirrorTextInput(
+            final int displayId,
+            final int action,
+            final String text,
+            final int arg1,
+            final int arg2,
+            final int arg3) {
+        if (displayId <= 0) {
+            return false;
+        }
+        final DesktopMirrorTextInput.Session session;
+        synchronized (mMirrorTextInputLock) {
+            session = displayId == mMirrorTextInputDisplayId
+                    ? mMirrorTextInputSession : null;
+        }
+        if (session == null) {
+            return false;
+        }
+        try {
+            return session.dispatch(
+                    action, text, arg1, arg2, arg3);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "mirror text input failed", error);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean beginMirrorTextInput(final int displayId) {
+        if (displayId <= 0) {
+            return false;
+        }
+        synchronized (mMirrorTextInputLock) {
+            if (displayId == mMirrorTextInputDisplayId
+                    && mMirrorTextInputSession != null) {
+                return true;
+            }
+        }
+        synchronized (mInputRoutingLock) {
+            if (mInputRoutingSession == null
+                    || mInputRoutingSession.displayId() != displayId) {
+                return false;
+            }
+        }
+        try {
+            final DesktopMirrorTextInput.Session session =
+                    DesktopMirrorTextInput.capture();
+            if (session == null) {
+                return false;
+            }
+            synchronized (mMirrorTextInputLock) {
+                mMirrorTextInputSession = session;
+                mMirrorTextInputDisplayId = displayId;
+            }
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "mirror text input capture failed", error);
+            return false;
+        }
+    }
+
+    @Override
+    public void endMirrorTextInput(final int displayId) {
+        synchronized (mMirrorTextInputLock) {
+            if (displayId != mMirrorTextInputDisplayId) {
+                return;
+            }
+            mMirrorTextInputSession = null;
+            mMirrorTextInputDisplayId = -1;
         }
     }
 
@@ -530,6 +664,40 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
     }
 
+    private void reclaimInputAfterNubiaPanel() {
+        final int displayId;
+        synchronized (mInputRoutingLock) {
+            if (mInputRoutingSession == null) {
+                return;
+            }
+            displayId = mInputRoutingSession.displayId();
+            try {
+                mInputRoutingSession.refreshAssociations();
+            } catch (Exception error) {
+                Log.w(TAG,
+                        "could not reclaim input routing after Nubia panel",
+                        error);
+                return;
+            }
+        }
+        try {
+            final Point position =
+                    NubiaMouseController.restoreKnownPosition(displayId);
+            if (position != null) {
+                DesktopPointerInjector.injectTouchpadMotion(
+                        displayId,
+                        position,
+                        DesktopPointerInjector.TOUCHPAD_HOVER,
+                        0L);
+            }
+            Log.i(TAG, "input reclaimed after Nubia panel task removal");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG,
+                    "could not restore pointer after Nubia panel",
+                    error);
+        }
+    }
+
     private void stopInputRoutingLocked(final IBinder expectedOwner) {
         if (expectedOwner != null
                 && (mInputRoutingOwner == null
@@ -540,6 +708,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final IBinder owner = mInputRoutingOwner;
         final IBinder.DeathRecipient ownerDeath =
                 mInputRoutingOwnerDeath;
+        synchronized (mMirrorTextInputLock) {
+            mMirrorTextInputSession = null;
+            mMirrorTextInputDisplayId = -1;
+        }
         mInputRoutingSession = null;
         mInputRoutingOwner = null;
         mInputRoutingOwnerDeath = null;

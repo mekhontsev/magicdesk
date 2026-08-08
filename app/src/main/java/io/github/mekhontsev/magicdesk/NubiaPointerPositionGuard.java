@@ -14,7 +14,7 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
 
     boolean capture() {
         try {
-            NubiaMouseController.preparePositionControl();
+            NubiaMouseController.preparePointerPositionControl();
             final Point position = NubiaMouseController.getPosition();
             synchronized (this) {
                 mCapturedPosition = position;

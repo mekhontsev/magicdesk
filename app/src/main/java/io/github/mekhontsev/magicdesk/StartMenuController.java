@@ -279,8 +279,6 @@ final class StartMenuController {
         mSearch.setShowSoftInputOnFocus(false);
         mFocusable = focusable;
         render();
-        final boolean pointerCaptured = MagicDeskRuntimeService
-                .capturePointerPositionIfRunning();
         final int width = getWidth();
         final int height = getHeight();
         final int left = mActivity.getDesktopAreaLeft() + mUi.desktopDp(
@@ -289,8 +287,10 @@ final class StartMenuController {
                 0,
                 mActivity.getDesktopAreaHeight()
                         - mActivity.getTaskbarHeight() - height);
+        final boolean inputMethodTarget = mActivity.getCurrentDisplayId()
+                == Display.DEFAULT_DISPLAY;
         if (!overlays.show(mPanel, left, top, width, height,
-                focusable, "MagicDesk Start")) {
+                focusable, inputMethodTarget, "MagicDesk Start")) {
             mActivity.setErrorStatus(
                     "OVERLAY-001",
                     mActivity.getString(R.string.status_overlay_panel_unavailable));
@@ -298,10 +298,6 @@ final class StartMenuController {
         }
         if (mPanel.hasWindowFocus()) {
             focusSearch();
-        }
-        if (pointerCaptured) {
-            MagicDeskRuntimeService
-                    .restorePointerPositionOnNextMotionIfRunning();
         }
     }
 

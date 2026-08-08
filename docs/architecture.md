@@ -70,10 +70,11 @@ virtual desktops. Only the USB-C path enables Nubia's Console-specific input
 hooks.
 
 Nubia's Touch Panel reads `app_mirror_displayid`, so it cannot target a
-Miracast display without corrupting projection state. `NubiaTouchpadController`
-therefore remains the USB-C implementation. Other external displays use the
-phone-side `MagicDeskTouchpadActivity`, which sends relative pointer events to
-the active display through the same Shizuku UserService.
+Miracast display without corrupting projection state. MagicDesk therefore uses
+one phone-side `MagicDeskTouchpadActivity` for every external transport. Touch
+motion is converted from a stable gesture origin into an absolute cursor
+position through Nubia's input service; clicks and scrolling continue through
+the common virtual pointer.
 
 ### Do not draw replacement application captions
 
@@ -180,8 +181,8 @@ runtime integration and are not distributed through the same release path.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
-- `NubiaTouchpadController` starts and repairs REDMAGIC Touch Panel routing;
-  `MagicDeskTouchpadActivity` covers non-Nubia external displays.
+- `PhoneTouchpadController` starts and repairs the common phone touchpad for
+  every external display transport.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,
   monitoring, and baseline restoration.
 - `DesktopNotificationListenerService` owns Android notification-listener state;
@@ -245,15 +246,17 @@ launcher-navigation guard, then starts the same desktop host and controllers.
 
 - `ConsoleSessionController` asks REDMAGIC firmware to turn a physical USB-C
   display into Nubia's virtual desktop display, applies its output profile, and
-  enables the stock touchpad and wired input-routing path.
+  enables the wired input-routing path.
 - Wireless startup opens the stock SmartCast/Miracast picker. Once Android
   reports a Wi-Fi presentation display, MagicDesk passes that display ID to
-  the common desktop session and opens the phone-side MagicDesk touchpad after
-  the new desktop task is ready. It does not implement a second discovery or
+  the common desktop session. It does not implement a second discovery or
   streaming stack.
 - An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.
+
+When a new wired or wireless desktop task is ready, the same
+`PhoneTouchpadController` opens `MagicDeskTouchpadActivity` on display 0.
 
 The runtime owns native caption visibility for wired and wireless external
 desktops. It selects the matching Nubia privacy filter for the active transport;
@@ -498,8 +501,17 @@ recreates the Activity. Details and rejected alternatives are in
 ## Physical Input
 
 The keyboard helper consumes only the global MagicDesk combinations listed in
-README. Ordinary key events preserve scan code, repeat value, modifier state,
-and device identity through the virtual external keyboard.
+README. Ordinary key events preserve scan code, modifier state, and device
+identity through the virtual external keyboard.
+
+REDMAGIC disables evdev repeat on physical keyboards, then reinjects keys for
+the external display with Android's `POLICY_FLAG_DISABLE_KEY_REPEAT`. While a
+source is exclusively captured, the bridge temporarily enables kernel repeat
+on that source and translates each repeat into a complete release/press cycle.
+This keeps kernel timing without a polling thread or software timer and survives
+Nubia's reinjection path. The original evdev repeat values are restored before
+the source is released; the virtual keyboard does not generate a second repeat
+stream.
 
 `Ctrl+Space` queries `IInputManager` for layouts associated with enabled IME
 subtypes, selects the next configured layout for every connected physical
@@ -507,14 +519,16 @@ keyboard, and updates the taskbar label. The bridge holds subsequent input only
 until InputManager confirms the new layout, avoiding both a fixed delay and a
 first character in the previous language.
 
-The mouse helper forwards movement, wheels, buttons, and multitouch-derived
-pointer events. It exists specifically because REDMAGIC consumes physical
-`BTN_RIGHT` as Back. `Win+Backspace` remains the explicit system Back shortcut.
-For a wireless display the same virtual pointer accepts relative movement,
-clicks, and scrolling from a phone-side touchpad Activity. Physical keyboards
-and pointing devices may be connected or removed while the session is active;
-the runtime updates their routes without recreating the desktop, launch anchor,
-or phone touchpad for keyboard-only configuration changes.
+The mouse helper forwards physical movement, wheels, and buttons. It exists
+specifically because REDMAGIC consumes physical `BTN_RIGHT` as Back.
+`Win+Backspace` remains the explicit system Back shortcut. The phone touchpad
+uses Nubia's absolute mouse-position API for motion and the same virtual pointer
+for clicks and scrolling. Its velocity curve matches the stock Touch Panel and
+re-anchors whenever the acceleration factor changes, avoiding accumulated
+relative-motion error. Physical keyboards and pointing devices may be connected
+or removed while the session is active; the runtime updates their routes
+without recreating the desktop, launch anchor, or phone touchpad for
+keyboard-only configuration changes.
 
 Both helpers keep their virtual devices alive for the complete Console session.
 InputManager inventory changes replace only the physical source descriptors,
@@ -540,10 +554,11 @@ foreground-service HOME process. The same heartbeat refreshes the vendor's
 transient `noteCpuFreezerUidWorking` state and clears it during restore. No
 persistent freezer whitelist is installed.
 
-Touch Panel remains a vendor activity on display 0. MagicDesk can launch it
-from the phone notification or desktop controls and repairs its pointer
-viewport after virtual-display geometry changes. It does not replace the
-vendor touchpad implementation.
+`MagicDeskTouchpadActivity` is the common phone-side input panel for wired and
+wireless desktops. It remains an ordinary display-0 Activity and can be opened
+from the phone notification or desktop controls. Android's public
+`VelocityTracker` supplies gesture speed; the vendor input service supplies
+absolute cursor placement on the active desktop viewport.
 
 Nubia's separate `HostAssistPanel` is the small handle drawn over the external
 desktop. While MagicDesk owns the session it asks the existing vendor observer

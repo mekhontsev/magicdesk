@@ -92,6 +92,9 @@ final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "vendor.power", "present",
                 "API-NUBIA-004", "REDMAGIC power service");
+        optional(result, capabilities,
+                "vendor.mouse_position", "present",
+                "API-NUBIA-007", "REDMAGIC absolute pointer positioning");
 
         final boolean nativeDesktopAvailable =
                 NativeDesktopController.isAvailable();
@@ -102,10 +105,6 @@ final class DesktopSelfTestCapabilityAudit {
                 nativeDesktopAvailable
                         ? "desktopmode passthrough available"
                         : "unavailable; direct WindowContainerTransaction path required");
-        optionalComponent(context, result,
-                "cn.nubia.keymapcenter",
-                "cn.nubia.keymapcenter.mirror.MirrorInputActivity",
-                "API-NUBIA-005", "REDMAGIC Touch Panel entry point");
         optionalComponent(context, result,
                 "cn.nubia.touping",
                 "cn.nubia.touping.HomeActivity",
@@ -118,7 +117,7 @@ final class DesktopSelfTestCapabilityAudit {
                 "DEVICE-WIRELESS-001", "Miracast transport",
                 "requires a wireless receiver");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                "DEVICE-INPUT-001", "Physical keyboard, mouse, and Touch Panel",
+                "DEVICE-INPUT-001", "Physical keyboard and mouse",
                 "requires connected input hardware");
         return runnable;
     }

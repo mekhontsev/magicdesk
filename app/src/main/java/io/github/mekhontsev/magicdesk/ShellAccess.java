@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Point;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
@@ -258,22 +259,48 @@ final class ShellAccess {
         }
     }
 
-    static void injectSecondaryClick(final int displayId) {
+    static boolean injectPointerClick(
+            final int displayId,
+            final int button) {
         if (!isReady() || displayId <= 0) {
-            return;
+            return false;
         }
         final IShizukuCommandService service = connectedServiceOrConnect();
         if (service == null) {
-            return;
+            return false;
         }
         try {
-            service.injectSecondaryClick(displayId);
+            return service.injectPointerClick(displayId, button);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
+            return false;
         }
     }
 
-    static boolean injectTouchTap(final int displayId) {
+    static Point getMousePosition(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return null;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return null;
+        }
+        try {
+            final int[] position = service.getMousePosition(displayId);
+            return position != null && position.length == 2
+                    ? new Point(position[0], position[1]) : null;
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return null;
+        }
+    }
+
+    static boolean updateMousePosition(
+            final int displayId,
+            final int x,
+            final int y,
+            final int action,
+            final long downTime) {
         if (!isReady() || displayId <= 0) {
             return false;
         }
@@ -282,10 +309,81 @@ final class ShellAccess {
             return false;
         }
         try {
-            return service.injectTouchTap(displayId);
+            return service.updateMousePosition(
+                    displayId, x, y, action, downTime);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure();
             return false;
+        }
+    }
+
+    static boolean showMousePointer(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.showMousePointer(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return false;
+        }
+    }
+
+    static boolean updateMirrorTextInput(
+            final int displayId,
+            final int action,
+            final String text,
+            final int arg1,
+            final int arg2,
+            final int arg3) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.updateMirrorTextInput(
+                    displayId, action, text, arg1, arg2, arg3);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return false;
+        }
+    }
+
+    static boolean beginMirrorTextInput(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.beginMirrorTextInput(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
+            return false;
+        }
+    }
+
+    static void endMirrorTextInput(final int displayId) {
+        if (!isReady() || displayId <= 0) {
+            return;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return;
+        }
+        try {
+            service.endMirrorTextInput(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure();
         }
     }
 

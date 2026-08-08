@@ -10,7 +10,6 @@ import java.lang.reflect.Method;
 public final class ConsoleDisplayCommand {
     private static final int CMD_MIRROR = 0;
     private static final int CMD_EXPAND = 1;
-    private static final int CMD_TOUCHPAD_OPEN = 8;
     private static final int CMD_REFRESH_HDMI_MODE = 10;
 
     private ConsoleDisplayCommand() {
@@ -20,7 +19,6 @@ public final class ConsoleDisplayCommand {
         if (args.length != 2
                 || (!"expand".equals(args[0])
                 && !"mirror".equals(args[0])
-                && !"touchpad".equals(args[0])
                 && !"refresh".equals(args[0]))) {
             usage();
             return;
@@ -44,7 +42,7 @@ public final class ConsoleDisplayCommand {
 
         final int command = expand ? CMD_EXPAND
                 : refresh ? CMD_REFRESH_HDMI_MODE
-                : ("touchpad".equals(args[0]) ? CMD_TOUCHPAD_OPEN : CMD_MIRROR);
+                : CMD_MIRROR;
         invokeDisplayCommand(
                 command,
                 expand ? displayId : refresh ? -1 : 0,
@@ -73,7 +71,6 @@ public final class ConsoleDisplayCommand {
             setCmdToDisplay.invoke(
                     displayService, command, displayId, value, null);
             final String commandName = command == CMD_EXPAND ? "expand"
-                    : command == CMD_TOUCHPAD_OPEN ? "touchpad"
                     : command == CMD_REFRESH_HDMI_MODE ? "refresh" : "mirror";
             System.out.println("display-command=" + commandName
                     + " display=" + displayId);
@@ -90,7 +87,7 @@ public final class ConsoleDisplayCommand {
     private static void usage() {
         System.err.println(
                 "usage: ConsoleDisplayCommand "
-                        + "<expand|mirror|touchpad|refresh> <display-id>");
+                        + "<expand|mirror|refresh> <display-id>");
         System.exit(64);
     }
 }

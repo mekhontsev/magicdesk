@@ -13,6 +13,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
+import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.IBinder;
@@ -36,6 +37,9 @@ public final class MagicDeskRuntimeService extends Service {
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
+    private static final String SETTINGS = "/system/bin/settings";
+    private static final String SHOW_IME_WITH_HARD_KEYBOARD =
+            "show_ime_with_hard_keyboard";
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
 
@@ -65,6 +69,8 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mLocalDesktopCleanupInFlight;
     private int mInputSourceRefreshGeneration;
     private String mOperationStatus;
+    private boolean mShowImeOverrideActive;
+    private String mPreviousShowImeWithHardKeyboard;
 
     private final ShellAccess.StateListener mShellStateListener =
             snapshot -> {
@@ -160,16 +166,53 @@ public final class MagicDeskRuntimeService extends Service {
                 .restorePointerPositionIfDisplacedOnNextMotion();
     }
 
-    static boolean moveDesktopPointerIfRunning(
+    static Point getDesktopPointerPositionIfRunning(
+            final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        return service != null
+                && !service.mDestroyed
+                && displayId == service.mOwnedDesktopDisplayId
+                ? ShellAccess.getMousePosition(displayId) : null;
+    }
+
+    static boolean updateDesktopPointerPositionIfRunning(
             final int displayId,
-            final float deltaX,
-            final float deltaY) {
+            final int x,
+            final int y,
+            final int action,
+            final long downTime) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        return service != null
+                && !service.mDestroyed
+                && displayId == service.mOwnedDesktopDisplayId
+                && ShellAccess.updateMousePosition(
+                        displayId, x, y, action, downTime);
+    }
+
+    static boolean showDesktopPointerIfRunning(final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        return service != null
+                && !service.mDestroyed
+                && displayId == service.mOwnedDesktopDisplayId
+                && ShellAccess.showMousePointer(displayId);
+    }
+
+    static boolean activateDesktopPointerIfRunning(final int displayId) {
         final MagicDeskRuntimeService service = sInstance.get();
         return service != null
                 && !service.mDestroyed
                 && displayId == service.mOwnedDesktopDisplayId
                 && service.mDesktopMouseBridge != null
-                && service.mDesktopMouseBridge.movePointer(deltaX, deltaY);
+                && service.mDesktopMouseBridge.activatePointer();
+    }
+
+    static void onDesktopInputRoutingReadyIfRunning(final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return;
+        }
+        service.mHandler.post(() ->
+                MagicDeskTouchpadActivity.showPointerIfVisible(displayId));
     }
 
     static boolean clickDesktopPointerIfRunning(
@@ -182,22 +225,7 @@ public final class MagicDeskRuntimeService extends Service {
                 || service.mDesktopMouseBridge == null) {
             return false;
         }
-        if (button == android.view.MotionEvent.BUTTON_SECONDARY) {
-            ShellAccess.injectSecondaryClick(displayId);
-            return true;
-        }
-        return service.mDesktopMouseBridge.clickPointer(button);
-    }
-
-    static boolean setDesktopPrimaryButtonPressedIfRunning(
-            final int displayId,
-            final boolean pressed) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && displayId == service.mOwnedDesktopDisplayId
-                && service.mDesktopMouseBridge != null
-                && service.mDesktopMouseBridge.setPrimaryButtonPressed(pressed);
+        return ShellAccess.injectPointerClick(displayId, button);
     }
 
     static boolean scrollDesktopPointerIfRunning(
@@ -211,12 +239,46 @@ public final class MagicDeskRuntimeService extends Service {
                 && service.mDesktopMouseBridge.scrollPointer(amount);
     }
 
-    static boolean requestDesktopKeyboardIfRunning(final int displayId) {
+    static boolean updateDesktopTextInputIfRunning(
+            final int displayId,
+            final int action,
+            final String text,
+            final int arg1,
+            final int arg2,
+            final int arg3) {
         final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && displayId == service.mOwnedDesktopDisplayId
-                && ShellAccess.injectTouchTap(displayId);
+        if (service == null
+                || service.mDestroyed
+                || displayId != service.mOwnedDesktopDisplayId) {
+            return false;
+        }
+        if (DesktopRuntimeBridge.dispatchOverlayTextInput(
+                displayId, action, text, arg1, arg2, arg3)) {
+            return true;
+        }
+        return ShellAccess.updateMirrorTextInput(
+                displayId, action, text, arg1, arg2, arg3);
+    }
+
+    static boolean beginDesktopTextInputIfRunning(final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null
+                || service.mDestroyed
+                || displayId != service.mOwnedDesktopDisplayId) {
+            return false;
+        }
+        return DesktopRuntimeBridge.hasOverlayTextInput(displayId)
+                || ShellAccess.beginMirrorTextInput(displayId);
+    }
+
+    static void endDesktopTextInputIfRunning(final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null
+                || service.mDestroyed
+                || displayId != service.mOwnedDesktopDisplayId) {
+            return;
+        }
+        ShellAccess.endMirrorTextInput(displayId);
     }
 
     static boolean showStartIfRunning() {
@@ -259,6 +321,7 @@ public final class MagicDeskRuntimeService extends Service {
         mConsoleDisplayId = getConsoleDisplayId();
         mConsoleModeActive = mConsoleDisplayId > 0;
         refreshDesktopOwnership();
+        updateShowImeOverride();
         registerConfigurationReceiver();
         registerConsoleModeObserver();
         if (ShellAccess.isReady()) {
@@ -366,6 +429,7 @@ public final class MagicDeskRuntimeService extends Service {
         if (mDesktopMouseBridge != null) {
             mDesktopMouseBridge.stop();
         }
+        restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
         PhoneDisplayGuard.requestRestore();
@@ -436,6 +500,7 @@ public final class MagicDeskRuntimeService extends Service {
         }
         handleConsoleStateMaybeChanged();
         refreshDesktopOwnership();
+        updateShowImeOverride();
         if (displayRemoved) {
             schedulePhoneHomeRecovery();
         }
@@ -672,6 +737,7 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         refreshDesktopOwnership();
+        updateShowImeOverride();
         updateKeyboardWatcher();
         updateDesktopMouseBridge();
         updateDesktopTasks();
@@ -723,6 +789,7 @@ public final class MagicDeskRuntimeService extends Service {
         }
         mOwnedDesktopDisplayId = desktopDisplayId;
         mOwnsNubiaConsoleDesktop = ownsNubiaConsoleDesktop;
+        updateShowImeOverride();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
@@ -748,6 +815,64 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean ownsExternalDesktop() {
         return mOwnedDesktopDisplayId
                 > android.view.Display.DEFAULT_DISPLAY;
+    }
+
+    private void updateShowImeOverride() {
+        final boolean shouldBeActive = ownsExternalDesktop()
+                && ShellAccess.isReady();
+        if (shouldBeActive == mShowImeOverrideActive) {
+            return;
+        }
+        if (!shouldBeActive) {
+            restoreShowImeOverride();
+            return;
+        }
+        try {
+            final String previous = ShellAccess.run(
+                    SETTINGS + " get secure "
+                            + SHOW_IME_WITH_HARD_KEYBOARD).trim();
+            ShellAccess.run(
+                    SETTINGS + " put secure "
+                            + SHOW_IME_WITH_HARD_KEYBOARD + " 1");
+            mPreviousShowImeWithHardKeyboard =
+                    "0".equals(previous) || "1".equals(previous)
+                            ? previous : null;
+            mShowImeOverrideActive = true;
+            Log.i(TAG, "software keyboard enabled for external desktop");
+        } catch (IOException error) {
+            Log.w(TAG, "could not enable desktop IME policy", error);
+            CompatibilityDiagnostics.record(
+                    "INPUT-IME-001",
+                    "Could not enable the on-screen keyboard with hardware input",
+                    error.getMessage(),
+                    error);
+        }
+    }
+
+    private void restoreShowImeOverride() {
+        if (!mShowImeOverrideActive) {
+            return;
+        }
+        try {
+            final String command =
+                    mPreviousShowImeWithHardKeyboard == null
+                            ? SETTINGS + " delete secure "
+                                    + SHOW_IME_WITH_HARD_KEYBOARD
+                            : SETTINGS + " put secure "
+                                    + SHOW_IME_WITH_HARD_KEYBOARD + " "
+                                    + mPreviousShowImeWithHardKeyboard;
+            ShellAccess.run(command);
+            mShowImeOverrideActive = false;
+            mPreviousShowImeWithHardKeyboard = null;
+            Log.i(TAG, "software keyboard policy restored");
+        } catch (IOException error) {
+            Log.w(TAG, "could not restore desktop IME policy", error);
+            CompatibilityDiagnostics.record(
+                    "INPUT-IME-002",
+                    "Could not restore the on-screen keyboard policy",
+                    error.getMessage(),
+                    error);
+        }
     }
 
     private void updateDesktopTasks() {

@@ -157,8 +157,7 @@ final class ExistingTaskController {
             if (nativeDesktop) {
                 NativeDesktopController.requireAvailable();
             }
-            restoreTouchpad = nativeDesktop
-                    && ConsoleModeSwitcher.isTouchpadVisible();
+            restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
             if (restoreTouchpad) {
                 DesktopTaskController.expectTouchpadDisplacement();
             }
@@ -167,8 +166,15 @@ final class ExistingTaskController {
             final boolean taskIsFullscreen =
                     MODE_FULLSCREEN.equals(task.windowingMode);
             if (task.displayId != targetDisplayId) {
-                final String command = CMD + " activity display move-stack "
-                        + task.rootTaskId + " " + targetDisplayId;
+                final String command = restoreTouchpad
+                        ? createAppProcessCommand(
+                                TASK_CONTROL_COMMAND,
+                                "move-display-keep-touchpad "
+                                        + task.rootTaskId + " "
+                                        + targetDisplayId)
+                        : CMD + " activity display move-stack "
+                                + task.rootTaskId + " "
+                                + targetDisplayId;
                 Log.i(TAG, "move display: " + command);
                 runCommand(command);
                 waitForTaskDisplay(task.taskId, targetDisplayId);
@@ -177,6 +183,12 @@ final class ExistingTaskController {
             if (nativeDesktop) {
                 if (!taskIsFreeform) {
                     NativeDesktopController.moveTaskToDesktop(task.taskId);
+                    if (restoreTouchpad
+                            && !PhoneTouchpadController
+                                    .bringRequestedTaskToFront(targetDisplayId)) {
+                        Log.w(TAG, "phone touchpad task unavailable after "
+                                + "native desktop transition");
+                    }
                     waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
                 }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);

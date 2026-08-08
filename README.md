@@ -65,7 +65,7 @@ device and One UI version.
 | Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, and exact task switching | Resize, arrange, minimize, maximize, fullscreen, and task switching |
 | Application launch policy | Explicit Auto, Windowed, and Fullscreen modes | Resizable or fixed-size mode according to application compatibility |
 | Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
-| Phone touchpad | Uses REDMAGIC Touch Panel for wired sessions and a MagicDesk fallback touchpad for wireless sessions | Integrated DeX touchpad |
+| Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, and text input | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
@@ -121,7 +121,7 @@ and selected-display recording.
 - Connected-display identification, output resolution and refresh-rate
   selection, and an optional **Fill display** mode for sinks that otherwise
   add letterboxing.
-- Media-volume, connected audio-output, and REDMAGIC Touch Panel controls.
+- Media-volume, connected audio-output, and phone-touchpad controls.
 - Stock REDMAGIC bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through
@@ -253,9 +253,8 @@ when no physical keyboard or mouse is connected:
 
 - Tap the notification itself to perform the same context-sensitive action as
   `Win+D`: start the external desktop, show it, or restore the previous layout.
-- Tap **Open touchpad** to launch or reopen the appropriate phone-side
-  touchpad: REDMAGIC Touch Panel for a wired session or the MagicDesk fallback
-  touchpad for a wireless session.
+- Tap **Open touchpad** to launch or reopen the MagicDesk phone-side touchpad
+  for the active wired or wireless desktop.
 
 The full desktop can also run on display 0 through **Open desktop here**, which
 supports tablets and allows development without an external monitor.

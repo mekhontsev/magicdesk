@@ -12,9 +12,12 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
 
 final class OverlayPanelController {
     private static final String TAG = "MagicDeskPanels";
@@ -36,6 +39,8 @@ final class OverlayPanelController {
     private boolean mOverlayPermissionGranted;
     private boolean mPermissionWatcherStarted;
     private boolean mReleased;
+    private View mTextInputView;
+    private InputConnection mTextInputConnection;
     private final Runnable mTransientTimeout = this::hideTransient;
     private final AppOpsManager.OnOpChangedListener mOverlayPermissionListener;
 
@@ -83,6 +88,13 @@ final class OverlayPanelController {
     boolean show(final View panel, final int left, final int top,
             final int width, final int height, final boolean focusable,
             final String title) {
+        return show(panel, left, top, width, height, focusable, true, title);
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    boolean show(final View panel, final int left, final int top,
+            final int width, final int height, final boolean focusable,
+            final boolean inputMethodTarget, final String title) {
         if (panel == null || mWindowManager == null
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
@@ -95,6 +107,9 @@ final class OverlayPanelController {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
         if (!focusable) {
             flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        }
+        if (!inputMethodTarget) {
+            flags |= WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
         }
         final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 width,
@@ -312,6 +327,7 @@ final class OverlayPanelController {
 
     void hideAll() {
         hideTransient();
+        clearTextInputConnection();
         final View panel = mVisiblePanel;
         if (mAdded && panel != null && mWindowManager != null) {
             try {
@@ -415,7 +431,88 @@ final class OverlayPanelController {
         return panel != null && panel == mVisiblePanel && mAdded;
     }
 
+    boolean hasTextInputTarget() {
+        if (Looper.myLooper() != Looper.getMainLooper()
+                || !mAdded
+                || mVisiblePanel == null) {
+            return false;
+        }
+        final View focused = mVisiblePanel.findFocus();
+        return focused != null && focused.onCheckIsTextEditor();
+    }
+
+    boolean dispatchTextInput(
+            final int action,
+            final String text,
+            final int arg1,
+            final int arg2,
+            final int arg3) {
+        if (Looper.myLooper() != Looper.getMainLooper()
+                || !mAdded
+                || mVisiblePanel == null) {
+            return false;
+        }
+        final View focused = mVisiblePanel.findFocus();
+        if (focused == null || !focused.onCheckIsTextEditor()) {
+            clearTextInputConnection();
+            return false;
+        }
+        final InputConnection connection = textInputConnection(focused);
+        if (connection == null) {
+            return false;
+        }
+        switch (action) {
+            case DesktopMirrorTextInput.COMMIT_TEXT:
+                return connection.commitText(safeText(text), arg1);
+            case DesktopMirrorTextInput.SEND_KEY:
+                final long eventTime = android.os.SystemClock.uptimeMillis();
+                return connection.sendKeyEvent(new KeyEvent(
+                        eventTime,
+                        eventTime,
+                        arg1,
+                        arg2,
+                        0,
+                        arg3));
+            case DesktopMirrorTextInput.SET_COMPOSING_TEXT:
+                return connection.setComposingText(safeText(text), arg1);
+            case DesktopMirrorTextInput.SET_COMPOSING_REGION:
+                return connection.setComposingRegion(arg1, arg2);
+            case DesktopMirrorTextInput.FINISH_COMPOSING:
+                return connection.finishComposingText();
+            case DesktopMirrorTextInput.DELETE_SURROUNDING:
+                return connection.deleteSurroundingText(arg1, arg2);
+            default:
+                return false;
+        }
+    }
+
     boolean contains(final float x, final float y) {
         return hasVisiblePanel() && mBounds.contains(Math.round(x), Math.round(y));
+    }
+
+    private InputConnection textInputConnection(final View focused) {
+        if (mTextInputView == focused && mTextInputConnection != null) {
+            return mTextInputConnection;
+        }
+        clearTextInputConnection();
+        final InputConnection connection = focused.onCreateInputConnection(
+                new EditorInfo());
+        if (connection != null) {
+            mTextInputView = focused;
+            mTextInputConnection = connection;
+        }
+        return connection;
+    }
+
+    private void clearTextInputConnection() {
+        if (mTextInputConnection != null) {
+            mTextInputConnection.closeConnection();
+        }
+        mTextInputView = null;
+        mTextInputConnection = null;
+    }
+
+    private static String safeText(final String text) {
+        return text == null ? "" : text;
     }
 }

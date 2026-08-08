@@ -3,8 +3,9 @@
 MagicDesk targets ZTE-family firmware on Android 16 and newer. This is a
 baseline gate, not a guarantee that every vendor hook exists on every model.
 The app uses standard Android APIs where possible, but Console Mode activation,
-the phone touchpad, external-display input routing, WMShell desktop commands,
-and several task transitions depend on undocumented firmware behavior.
+absolute touchpad positioning, external-display input routing, WMShell desktop
+commands, and several task transitions depend on undocumented firmware
+behavior.
 
 ## Support levels
 

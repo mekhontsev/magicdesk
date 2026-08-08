@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.util.Log;
 import android.view.Display;
 
-/** Selects and maintains the phone-side touchpad for the active desktop transport. */
+/** Opens and maintains MagicDesk's phone-side touchpad. */
 final class PhoneTouchpadController {
     private static final String TAG = "MagicDeskTouchpad";
 
@@ -11,28 +11,24 @@ final class PhoneTouchpadController {
     }
 
     static void open() {
-        if (ConsoleModeSwitcher.getActiveConsoleDisplayId()
-                > Display.DEFAULT_DISPLAY) {
-            NubiaTouchpadController.open();
-            return;
-        }
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int displayId = activeDisplayId();
         if (displayId > Display.DEFAULT_DISPLAY) {
-            MagicDeskTouchpadActivity.open(
-                    MagicDeskApplication.applicationContext(), displayId);
+            open(displayId);
             return;
         }
         Log.w(TAG, "cannot open touchpad: no external desktop is active");
     }
 
-    static boolean isVisible() {
-        if (ConsoleModeSwitcher.getActiveConsoleDisplayId()
-                > Display.DEFAULT_DISPLAY) {
-            return NubiaTouchpadController.isVisible();
+    static void open(final int displayId) {
+        if (displayId <= Display.DEFAULT_DISPLAY) {
+            return;
         }
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        MagicDeskTouchpadActivity.open(
+                MagicDeskApplication.applicationContext(), displayId);
+    }
+
+    static boolean isVisible() {
+        final int displayId = activeDisplayId();
         return displayId > Display.DEFAULT_DISPLAY
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
@@ -44,13 +40,7 @@ final class PhoneTouchpadController {
 
     static void restoreIfMissing(
             final ConsoleModeSwitcher.TouchpadRestoreCallback callback) {
-        if (ConsoleModeSwitcher.getActiveConsoleDisplayId()
-                > Display.DEFAULT_DISPLAY) {
-            NubiaTouchpadController.restoreIfMissing(callback);
-            return;
-        }
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int displayId = activeDisplayId();
         final boolean missing = displayId > Display.DEFAULT_DISPLAY
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
@@ -62,7 +52,32 @@ final class PhoneTouchpadController {
         }
     }
 
+    static boolean restoreObservedMissing(final int displayId) {
+        return displayId > Display.DEFAULT_DISPLAY
+                && MagicDeskTouchpadActivity.restoreObservedMissing(
+                        MagicDeskApplication.applicationContext(),
+                        displayId);
+    }
+
+    static boolean bringRequestedTaskToFront(final int displayId) {
+        return displayId > Display.DEFAULT_DISPLAY
+                && MagicDeskTouchpadActivity.bringRequestedTaskToFront(
+                        MagicDeskApplication.applicationContext(),
+                        displayId);
+    }
+
     static void release(final int displayId) {
         MagicDeskTouchpadActivity.release(displayId);
+    }
+
+    private static int activeDisplayId() {
+        final int consoleDisplayId =
+                ConsoleModeSwitcher.getActiveConsoleDisplayId();
+        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
+            return consoleDisplayId;
+        }
+        final int desktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        return desktopDisplayId;
     }
 }

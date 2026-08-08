@@ -171,15 +171,9 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             associatePort(mouse.location);
         }
 
+        initializePanelRegistration();
+        registerPanelToken();
         if (mUsesNubiaConsoleHooks) {
-            mDisplayManager = getService(
-                    "display", "android.hardware.display.IDisplayManager");
-            final Class<?> displayManagerInterface =
-                    Class.forName("android.hardware.display.IDisplayManager");
-            mNotePanelStatus = displayManagerInterface.getMethod(
-                    "noteMirrorInputPanelStatus", IBinder.class);
-            mPanelToken = new Binder();
-            mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
             setMouseInputSourceOverride(true);
         }
     }
@@ -189,6 +183,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                 || mAddAssociation == null || mAssociationTarget == null) {
             return 0;
         }
+        registerPanelToken();
         int added = 0;
         for (final DesktopKeyboardDevice keyboard
                 : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
@@ -208,6 +203,40 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             DesktopInputRoutingOwnership.record(mAssociatedInputPorts);
         }
         return added;
+    }
+
+    private void initializePanelRegistration() {
+        try {
+            mDisplayManager = getService(
+                    "display", "android.hardware.display.IDisplayManager");
+            final Class<?> displayManagerInterface =
+                    Class.forName(
+                            "android.hardware.display.IDisplayManager");
+            mNotePanelStatus = displayManagerInterface.getMethod(
+                    "noteMirrorInputPanelStatus", IBinder.class);
+            mPanelToken = new Binder();
+        } catch (Exception error) {
+            mDisplayManager = null;
+            mNotePanelStatus = null;
+            mPanelToken = null;
+            System.err.println(
+                    "MAGICDESK_INPUT_ROUTING_PANEL unavailable="
+                            + error);
+        }
+    }
+
+    private void registerPanelToken() {
+        if (mNotePanelStatus != null
+                && mDisplayManager != null
+                && mPanelToken != null) {
+            try {
+                mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                System.err.println(
+                        "MAGICDESK_INPUT_ROUTING_PANEL registration="
+                                + error);
+            }
+        }
     }
 
     private boolean associatePort(final String location)

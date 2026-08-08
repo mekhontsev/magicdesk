@@ -53,8 +53,7 @@ final class DesktopTaskController {
     DesktopTaskController(final Context context, final Handler handler) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
-        mPhoneUiReconciler =
-                new DesktopPhoneUiReconciler(handler, () -> mRunning);
+        mPhoneUiReconciler = new DesktopPhoneUiReconciler();
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
                 handler,

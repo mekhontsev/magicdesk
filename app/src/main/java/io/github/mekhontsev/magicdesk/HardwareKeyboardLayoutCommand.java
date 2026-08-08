@@ -1,8 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.os.LocaleList;
 import android.icu.util.ULocale;
+import android.os.IBinder;
+import android.os.LocaleList;
 import android.util.Base64;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodSubtype;
@@ -32,9 +34,11 @@ public final class HardwareKeyboardLayoutCommand {
         if ((args.length < 1 || args.length > 2)
                 || !("next".equals(args[0])
                         || "sync".equals(args[0])
+                        || "ime".equals(args[0])
                         || "catalog".equals(args[0]))) {
             System.err.println(
-                    "usage: HardwareKeyboardLayoutCommand <next|sync|catalog>"
+                    "usage: HardwareKeyboardLayoutCommand"
+                            + " <next|sync|ime|catalog>"
                             + " [current-descriptor]");
             System.exit(64);
             return;
@@ -55,6 +59,7 @@ public final class HardwareKeyboardLayoutCommand {
             throws ReflectiveOperationException {
         if (!"next".equals(mode)
                 && !"sync".equals(mode)
+                && !"ime".equals(mode)
                 && !"catalog".equals(mode)) {
             throw new IllegalArgumentException("unsupported mode: " + mode);
         }
@@ -71,6 +76,9 @@ public final class HardwareKeyboardLayoutCommand {
                 Class.forName("android.hardware.input.KeyboardLayout");
         final Method getKeyboardLayout = inputManagerInterface.getMethod(
                 "getKeyboardLayout", String.class);
+        if ("next".equals(mode)) {
+            switchInputMethodSubtype();
+        }
         final ImeState imeState = getImeState();
         final List<LayoutInfo> layouts = resolveConfiguredLayouts(
                 inputManager, inputManagerInterface, getKeyboardLayout,
@@ -79,6 +87,9 @@ public final class HardwareKeyboardLayoutCommand {
             throw new IllegalStateException(
                     "no configured hardware keyboard layouts found");
         }
+        // Virtual keyboard indexes are a protocol shared with the native
+        // bridge, so changing the current IME subtype must not reorder them.
+        layouts.sort(Comparator.comparing(layout -> layout.descriptor));
 
         final int subtypeIndex =
                 findSubtypeIndex(layouts, imeState.currentSubtype);
@@ -87,9 +98,13 @@ public final class HardwareKeyboardLayoutCommand {
                         layouts, persistedCurrent);
         final int baseIndex = persistedIndex >= 0
                 ? persistedIndex : Math.max(0, subtypeIndex);
-        final int selectedIndex = "next".equals(mode)
-                ? (baseIndex + 1) % layouts.size()
-                : baseIndex;
+        final int selectedIndex;
+        if (("next".equals(mode) || "ime".equals(mode))
+                && subtypeIndex >= 0) {
+            selectedIndex = subtypeIndex;
+        } else {
+            selectedIndex = baseIndex;
+        }
         final LayoutInfo selected = layouts.get(selectedIndex);
         final List<IndexedKeyboard> virtualKeyboards =
                 getIndexedVirtualKeyboards();
@@ -138,6 +153,28 @@ public final class HardwareKeyboardLayoutCommand {
                 physicalKeyboards.size(),
                 layouts.size(),
                 imeState.imeId);
+    }
+
+    private static void switchInputMethodSubtype()
+            throws ReflectiveOperationException {
+        final Class<?> serviceManager =
+                Class.forName("android.os.ServiceManager");
+        final IBinder binder = (IBinder) serviceManager
+                .getMethod("getService", String.class)
+                .invoke(null, INPUT_METHOD_SERVICE);
+        if (binder == null) {
+            throw new IllegalStateException(
+                    "input method service is unavailable");
+        }
+        final Class<?> inputMethodStub = Class.forName(
+                "com.android.internal.view.IInputMethodManager$Stub");
+        final Object inputMethodManager = inputMethodStub
+                .getMethod("asInterface", IBinder.class)
+                .invoke(null, binder);
+        Class.forName("com.android.internal.view.IInputMethodManager")
+                .getMethod(
+                        "onImeSwitchButtonClickFromSystem", int.class)
+                .invoke(inputMethodManager, Display.DEFAULT_DISPLAY);
     }
 
     private static List<LayoutInfo> resolveConfiguredLayouts(

@@ -12,50 +12,90 @@ import java.lang.reflect.Method;
 
 /** Injects pointer actions that the virtual mouse device cannot express. */
 final class DesktopPointerInjector {
+    private static final int MAGICDESK_VENDOR_ID = 0x4d44;
+    private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
+    private static final int INJECTION_MODE_ASYNC = 0;
     private static final int INJECTION_MODE_WAIT_FOR_RESULT = 1;
+    static final int TOUCHPAD_HOVER = 0;
+    static final int TOUCHPAD_DRAG_START = 1;
+    static final int TOUCHPAD_DRAG_MOVE = 2;
+    static final int TOUCHPAD_DRAG_END = 3;
+
+    private static volatile InjectionContext sInjectionContext;
+    private static volatile int sMagicDeskMouseDeviceId = -1;
 
     private DesktopPointerInjector() {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectSecondaryClick(final int displayId) {
+    static void injectClick(final int displayId, final int button) {
         validateDisplay(displayId);
+        if (button != MotionEvent.BUTTON_PRIMARY
+                && button != MotionEvent.BUTTON_SECONDARY) {
+            throw new IllegalArgumentException(
+                    "unsupported pointer button: " + button);
+        }
         try {
-            final Point position = NubiaMouseController.getPosition();
-            final InjectionContext context = new InjectionContext();
+            final Point position = NubiaMouseController.getPosition(displayId);
+            final InjectionContext context = injectionContext();
             final long downTime = SystemClock.uptimeMillis();
             context.injectMouse(displayId, position, downTime,
                     MotionEvent.ACTION_DOWN,
-                    MotionEvent.BUTTON_SECONDARY, 0);
+                    button, 0);
             context.injectMouse(displayId, position, downTime,
                     MotionEvent.ACTION_BUTTON_PRESS,
-                    MotionEvent.BUTTON_SECONDARY,
-                    MotionEvent.BUTTON_SECONDARY);
+                    button, button);
             context.injectMouse(displayId, position, downTime,
                     MotionEvent.ACTION_BUTTON_RELEASE,
-                    0, MotionEvent.BUTTON_SECONDARY);
+                    0, button);
             context.injectMouse(displayId, position, downTime,
                     MotionEvent.ACTION_UP, 0, 0);
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException(
-                    "could not inject secondary click", error);
+                    "could not inject pointer click", error);
         }
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectTouchTap(final int displayId) {
+    static void injectTouchpadMotion(
+            final int displayId,
+            final Point position,
+            final int action,
+            final long downTime)
+            throws ReflectiveOperationException {
         validateDisplay(displayId);
-        try {
-            final Point position = NubiaMouseController.getPosition();
-            final InjectionContext context = new InjectionContext();
-            final long downTime = SystemClock.uptimeMillis();
-            context.injectTouch(displayId, position, downTime,
-                    MotionEvent.ACTION_DOWN, 1.0f);
-            context.injectTouch(displayId, position, downTime,
-                    MotionEvent.ACTION_UP, 0.0f);
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException(
-                    "could not inject touchscreen tap", error);
+        final InjectionContext context = injectionContext();
+        final long eventTime = SystemClock.uptimeMillis();
+        final long gestureDownTime = downTime > 0 ? downTime : eventTime;
+        switch (action) {
+            case TOUCHPAD_HOVER:
+                context.injectMouseAsync(displayId, position, eventTime,
+                        MotionEvent.ACTION_HOVER_MOVE, 0, 0);
+                return;
+            case TOUCHPAD_DRAG_START:
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.BUTTON_PRIMARY, 0);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_BUTTON_PRESS,
+                        MotionEvent.BUTTON_PRIMARY,
+                        MotionEvent.BUTTON_PRIMARY);
+                return;
+            case TOUCHPAD_DRAG_MOVE:
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_MOVE,
+                        MotionEvent.BUTTON_PRIMARY, 0);
+                return;
+            case TOUCHPAD_DRAG_END:
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_BUTTON_RELEASE,
+                        0, MotionEvent.BUTTON_PRIMARY);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_UP, 0, 0);
+                return;
+            default:
+                throw new IllegalArgumentException(
+                        "invalid touchpad pointer action: " + action);
         }
     }
 
@@ -63,6 +103,22 @@ final class DesktopPointerInjector {
         if (displayId <= 0) {
             throw new IllegalArgumentException("missing target display");
         }
+    }
+
+    private static InjectionContext injectionContext()
+            throws ReflectiveOperationException {
+        InjectionContext context = sInjectionContext;
+        if (context != null) {
+            return context;
+        }
+        synchronized (DesktopPointerInjector.class) {
+            context = sInjectionContext;
+            if (context == null) {
+                context = new InjectionContext();
+                sInjectionContext = context;
+            }
+        }
+        return context;
     }
 
     private static final class InjectionContext {
@@ -95,22 +151,25 @@ final class DesktopPointerInjector {
                     InputDevice.SOURCE_MOUSE,
                     buttonState,
                     actionButton,
-                    0.0f);
+                    0.0f,
+                    INJECTION_MODE_WAIT_FOR_RESULT);
         }
 
-        void injectTouch(
+        void injectMouseAsync(
                 final int displayId,
                 final Point position,
                 final long downTime,
                 final int action,
-                final float pressure)
+                final int buttonState,
+                final int actionButton)
                 throws ReflectiveOperationException {
             inject(displayId, position, downTime, action,
-                    MotionEvent.TOOL_TYPE_FINGER,
-                    InputDevice.SOURCE_TOUCHSCREEN,
-                    0,
-                    0,
-                    pressure);
+                    MotionEvent.TOOL_TYPE_MOUSE,
+                    InputDevice.SOURCE_MOUSE,
+                    buttonState,
+                    actionButton,
+                    0.0f,
+                    INJECTION_MODE_ASYNC);
         }
 
         private void inject(
@@ -122,7 +181,8 @@ final class DesktopPointerInjector {
                 final int source,
                 final int buttonState,
                 final int actionButton,
-                final float pressure)
+                final float pressure,
+                final int injectionMode)
                 throws ReflectiveOperationException {
             final MotionEvent.PointerProperties properties =
                     new MotionEvent.PointerProperties();
@@ -138,18 +198,17 @@ final class DesktopPointerInjector {
                     downTime, SystemClock.uptimeMillis(), action, 1,
                     new MotionEvent.PointerProperties[] {properties},
                     new MotionEvent.PointerCoords[] {coordinates},
-                    0, buttonState, 1.0f, 1.0f, 0, 0, source, 0);
+                    0, buttonState, 1.0f, 1.0f,
+                    magicDeskMouseDeviceId(), 0, source, 0);
             try {
                 mSetActionButton.invoke(
                         event, Integer.valueOf(actionButton));
                 mSetDisplayId.invoke(event, Integer.valueOf(displayId));
                 final Object result = mInject.getParameterCount() == 2
                         ? mInject.invoke(mInputManager, event,
-                                Integer.valueOf(
-                                        INJECTION_MODE_WAIT_FOR_RESULT))
+                                Integer.valueOf(injectionMode))
                         : mInject.invoke(mInputManager, event,
-                                Integer.valueOf(
-                                        INJECTION_MODE_WAIT_FOR_RESULT),
+                                Integer.valueOf(injectionMode),
                                 Integer.valueOf(-1));
                 if (result instanceof Boolean
                         && !((Boolean) result).booleanValue()) {
@@ -160,6 +219,35 @@ final class DesktopPointerInjector {
                 event.recycle();
             }
         }
+    }
+
+    private static int magicDeskMouseDeviceId() {
+        int deviceId = sMagicDeskMouseDeviceId;
+        if (isMagicDeskMouse(InputDevice.getDevice(deviceId))) {
+            return deviceId;
+        }
+        synchronized (DesktopPointerInjector.class) {
+            deviceId = sMagicDeskMouseDeviceId;
+            if (isMagicDeskMouse(InputDevice.getDevice(deviceId))) {
+                return deviceId;
+            }
+            for (final int candidateId : InputDevice.getDeviceIds()) {
+                if (isMagicDeskMouse(InputDevice.getDevice(candidateId))) {
+                    sMagicDeskMouseDeviceId = candidateId;
+                    return candidateId;
+                }
+            }
+        }
+        throw new IllegalStateException(
+                "MagicDesk mouse input device is unavailable");
+    }
+
+    private static boolean isMagicDeskMouse(final InputDevice device) {
+        return device != null
+                && device.getVendorId() == MAGICDESK_VENDOR_ID
+                && device.getProductId() == MAGICDESK_MOUSE_PRODUCT_ID
+                && (device.getSources() & InputDevice.SOURCE_MOUSE)
+                        == InputDevice.SOURCE_MOUSE;
     }
 
     private static Object getInputManager()

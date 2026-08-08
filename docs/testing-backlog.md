@@ -123,8 +123,8 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Protect the desktop process through REDMAGIC `cfreezer`'s transient
   service-working API while display 0 is off. Verify no persistent whitelist
   entry remains.
-- [x] Launch and reopen REDMAGIC Touch Panel from the phone notification and
-  correct its pointer viewport after display geometry changes.
+- [x] Launch and reopen the common MagicDesk touchpad from the phone
+  notification for wired and wireless desktops.
 - [x] Hide Nubia's external `HostAssistPanel` without removing the phone-side
   ProjectionIcon, restore the vendor observer value, and adjust Android pointer
   speed without recreating the virtual mouse.

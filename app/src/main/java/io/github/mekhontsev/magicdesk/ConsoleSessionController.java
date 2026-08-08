@@ -71,8 +71,8 @@ final class ConsoleSessionController {
             final DesktopSessionController.ShowResult desktopResult =
                     DesktopSessionController.show(
                             DesktopDisplayTarget.wired(consoleDisplayId));
-            if (startedConsoleMode && desktopResult.ready) {
-                NubiaTouchpadController.refreshOrOpen();
+            if (desktopResult.ready && desktopResult.created) {
+                PhoneTouchpadController.open(consoleDisplayId);
             }
         } catch (IOException error) {
             Log.w(TAG, "Shell MagicDesk launch failed", error);

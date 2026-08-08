@@ -162,6 +162,35 @@ final class DesktopRuntimeBridge {
         return true;
     }
 
+    static boolean dispatchOverlayTextInput(
+            final int displayId,
+            final int action,
+            final String text,
+            final int arg1,
+            final int arg2,
+            final int arg3) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId
+                || Looper.myLooper() != Looper.getMainLooper()) {
+            return false;
+        }
+        final OverlayPanelController overlays = activity.overlayPanels();
+        return overlays != null && overlays.dispatchTextInput(
+                action, text, arg1, arg2, arg3);
+    }
+
+    static boolean hasOverlayTextInput(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId
+                || Looper.myLooper() != Looper.getMainLooper()) {
+            return false;
+        }
+        final OverlayPanelController overlays = activity.overlayPanels();
+        return overlays != null && overlays.hasTextInputTarget();
+    }
+
     static void showTransientStatus(
             final String message,
             final boolean longDuration) {

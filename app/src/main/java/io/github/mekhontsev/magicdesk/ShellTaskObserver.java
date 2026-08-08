@@ -21,6 +21,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Runnable mCallbackFailure;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
+    private final NubiaMirrorInputPanelGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
 
@@ -30,7 +31,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     ShellTaskObserver(
             final Context context,
             final ITaskObserverCallback callback,
-            final Runnable callbackFailure)
+            final Runnable callbackFailure,
+            final NubiaMirrorInputPanelGuard.InputOwner inputOwner)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
@@ -38,6 +40,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
+        mInputPanelGuard = new NubiaMirrorInputPanelGuard(
+                mService, inputOwner);
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // Nubia's launcher crashes while binding a DesktopTaskView when a
         // finished freeform task remains in Recents and DesktopRepository.
@@ -98,6 +102,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalStateException("task observer is closed");
         }
         mFreeformCleanup.configure(displayId);
+        mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
     }
@@ -152,12 +157,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskCreated(
             final int taskId,
             final ComponentName componentName) {
+        mInputPanelGuard.onTaskAppeared(taskId, componentName);
         signalChange();
     }
 
     @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
+            mInputPanelGuard.onTaskRemoved(taskId);
             mTransientBounds.forget(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange();
@@ -167,6 +174,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     @Override
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
+        if (taskInfo != null) {
+            mInputPanelGuard.onTaskAppeared(
+                    taskInfo.taskId, taskInfo.topActivity);
+        }
         signalChange();
     }
 
@@ -196,6 +207,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mInputPanelGuard.close();
         mFreeformCleanup.close();
         mTransientBounds.close();
         mStateMonitor.close();

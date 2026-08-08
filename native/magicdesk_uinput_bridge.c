@@ -30,7 +30,6 @@ struct bridge_state {
     bool started;
     bool pointer_restore_armed;
     bool pointer_moved;
-    bool control_primary_down;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -86,15 +85,6 @@ static int emit_relative(
     return write_event(uinput_fd, &event);
 }
 
-static int emit_click(
-        const int uinput_fd,
-        const unsigned short code) {
-    return emit_key(uinput_fd, code, 1) < 0
-            || emit_sync(uinput_fd) < 0
-            || emit_key(uinput_fd, code, 0) < 0
-            || emit_sync(uinput_fd) < 0 ? -1 : 0;
-}
-
 static int emit_wheel_steps(
         const int uinput_fd,
         const int steps) {
@@ -106,6 +96,13 @@ static int emit_wheel_steps(
                     REL_WHEEL_HI_RES,
                     steps * WHEEL_HI_RES_UNITS_PER_STEP) < 0
             || emit_relative(uinput_fd, REL_WHEEL, steps) < 0
+            || emit_sync(uinput_fd) < 0 ? -1 : 0;
+}
+
+static int activate_pointer(const int uinput_fd) {
+    return emit_relative(uinput_fd, REL_X, 1) < 0
+            || emit_sync(uinput_fd) < 0
+            || emit_relative(uinput_fd, REL_X, -1) < 0
             || emit_sync(uinput_fd) < 0 ? -1 : 0;
 }
 
@@ -156,9 +153,6 @@ static int clear_button_state(void *context) {
     bool released = false;
     for (unsigned int code = 0; code <= KEY_MAX; ++code) {
         if (!state->forwarded_down[code]) {
-            continue;
-        }
-        if (code == BTN_LEFT && state->control_primary_down) {
             continue;
         }
         if (emit_key(state->uinput_fd, (unsigned short)code, 0) < 0) {
@@ -241,9 +235,6 @@ static int process_key_event(
             return 0;
         }
         state->forwarded_down[code] = true;
-        if (code == BTN_LEFT && state->control_primary_down) {
-            return 0;
-        }
         return write_event(state->uinput_fd, event);
     }
     if (event->value == 2) {
@@ -266,24 +257,7 @@ static int process_key_event(
         return 0;
     }
     state->forwarded_down[code] = false;
-    if (code == BTN_LEFT && state->control_primary_down) {
-        return 0;
-    }
     return write_event(state->uinput_fd, event);
-}
-
-static int set_control_primary(
-        struct bridge_state *state,
-        const bool pressed) {
-    if (state->control_primary_down == pressed) {
-        return 0;
-    }
-    state->control_primary_down = pressed;
-    if (state->forwarded_down[BTN_LEFT]) {
-        return 0;
-    }
-    return emit_key(state->uinput_fd, BTN_LEFT, pressed ? 1 : 0) < 0
-            || emit_sync(state->uinput_fd) < 0 ? -1 : 0;
 }
 
 static int process_event(
@@ -321,7 +295,6 @@ static int handle_control_line(
         struct bridge_state *state,
         const char *line) {
     int first = 0;
-    int second = 0;
     if (strcmp(line, "sources") == 0) {
         return reconcile_sources(state, "");
     }
@@ -333,26 +306,8 @@ static int handle_control_line(
         state->pointer_moved = false;
         return 0;
     }
-    if (sscanf(line, "move %d %d", &first, &second) == 2) {
-        if (emit_relative(state->uinput_fd, REL_X, first) < 0
-                || emit_relative(state->uinput_fd, REL_Y, second) < 0) {
-            return -1;
-        }
-        return first != 0 || second != 0
-                ? emit_sync(state->uinput_fd) : 0;
-    }
-    if (strcmp(line, "click-primary") == 0) {
-        if (state->control_primary_down
-                || state->forwarded_down[BTN_LEFT]) {
-            return 0;
-        }
-        return emit_click(state->uinput_fd, BTN_LEFT);
-    }
-    if (strcmp(line, "primary-down") == 0) {
-        return set_control_primary(state, true);
-    }
-    if (strcmp(line, "primary-up") == 0) {
-        return set_control_primary(state, false);
+    if (strcmp(line, "activate-pointer") == 0) {
+        return activate_pointer(state->uinput_fd);
     }
     if (sscanf(line, "scroll %d", &first) == 1) {
         return emit_wheel_steps(state->uinput_fd, first);
@@ -568,7 +523,6 @@ int main(int argc, char **argv) {
     fflush(stdout);
 
     const int result = forward_events(&state);
-    set_control_primary(&state, false);
     clear_button_state(&state);
     ioctl(uinput_fd, UI_DEV_DESTROY);
     close(uinput_fd);

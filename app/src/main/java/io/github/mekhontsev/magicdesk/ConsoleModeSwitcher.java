@@ -149,11 +149,8 @@ final class ConsoleModeSwitcher {
         try {
             final DesktopSessionController.ShowResult result =
                     DesktopSessionController.show(target);
-            if (result.ready && result.created
-                    && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
-                MagicDeskTouchpadActivity.open(
-                        MagicDeskApplication.applicationContext(),
-                        target.displayId);
+            if (result.ready && result.created) {
+                PhoneTouchpadController.open(target.displayId);
             }
         } catch (IOException error) {
             Log.w(TAG, "Secondary desktop launch failed", error);
@@ -229,7 +226,8 @@ final class ConsoleModeSwitcher {
     }
 
     static void restorePrimaryPhoneHome() {
-        NubiaTouchpadController.restorePrimaryPhoneHome();
+        EXECUTOR.execute(() -> runConsoleCommand(
+                PhoneHomeRecoveryController.primaryHomeCommand()));
     }
 
     static void updateExternalTaskCaptionTarget(

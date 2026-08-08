@@ -64,6 +64,37 @@ int magicdesk_try_grab_source(struct source_device *source) {
     return 0;
 }
 
+int magicdesk_override_source_repeat(
+        struct source_device *source,
+        const unsigned int delay_ms,
+        const unsigned int period_ms) {
+    if (source->fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    if (!source->repeat_overridden
+            && ioctl(source->fd, EVIOCGREP,
+                    source->original_repeat) < 0) {
+        return errno == EINVAL || errno == ENOTTY ? 0 : -1;
+    }
+    const unsigned int requested[2] = {
+        delay_ms,
+        period_ms,
+    };
+    if (ioctl(source->fd, EVIOCSREP, requested) < 0) {
+        return errno == EINVAL || errno == ENOTTY ? 0 : -1;
+    }
+    source->repeat_overridden = true;
+    return 1;
+}
+
+static void restore_source_repeat(struct source_device *source) {
+    if (source->fd >= 0 && source->repeat_overridden) {
+        ioctl(source->fd, EVIOCSREP, source->original_repeat);
+        source->repeat_overridden = false;
+    }
+}
+
 static int open_source(
         struct source_device *source,
         const char *path,
@@ -109,6 +140,7 @@ int magicdesk_open_sources(
 
 static void close_source(struct source_device *source) {
     if (source->fd >= 0) {
+        restore_source_repeat(source);
         if (source->grabbed) {
             ioctl(source->fd, EVIOCGRAB, 0);
         }

@@ -97,6 +97,7 @@ final class ShizukuCapabilityProbe {
                 "com.redmagic.os.RedMagicAppManager$Trigger",
                 "openScreenOffTP",
                 boolean.class);
+        appendMousePositionApi(report);
         appendService(
                 report,
                 "vendor.redmagic_app_manager",
@@ -105,6 +106,23 @@ final class ShizukuCapabilityProbe {
         appendService(report, "vendor.power", "VendorPowerManagerService");
         appendHardwareNodes(report);
         return report.toString();
+    }
+
+    private static void appendMousePositionApi(
+            final StringBuilder report) {
+        try {
+            final Class<?> inputManager = Class.forName(
+                    "android.hardware.input.IInputManager");
+            inputManager.getMethod(
+                    "getMousePosition", android.graphics.Point.class);
+            inputManager.getMethod(
+                    "setMousePosition", int.class, int.class);
+            inputManager.getMethod("sendMouseCmd", int.class);
+            append(report, "vendor.mouse_position", "present", "");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            append(report, "vendor.mouse_position", "missing",
+                    usefulMessage(error));
+        }
     }
 
     private static void appendPermissions(
