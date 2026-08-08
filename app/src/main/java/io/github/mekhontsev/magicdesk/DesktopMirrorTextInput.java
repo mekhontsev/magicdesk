@@ -14,15 +14,39 @@ final class DesktopMirrorTextInput {
     static final int DELETE_SURROUNDING = 6;
 
     private static volatile Access sAccess;
+    private static volatile RuntimeState sRuntimeState =
+            new RuntimeState("not_tested", "no keyboard session requested");
 
     private DesktopMirrorTextInput() {
     }
 
     static Session capture() throws ReflectiveOperationException {
-        final Access access = access();
-        final Object window = access.getFocusMirrorWindow.invoke(
-                access.displayManager);
-        return window == null ? null : new Session(access, window);
+        try {
+            final Access access = access();
+            final Object window = access.api.getFocusMirrorWindow.invoke(
+                    access.displayManager);
+            if (window == null) {
+                sRuntimeState = new RuntimeState(
+                        "no_focused_window",
+                        "no focused projected window during the last request");
+                return null;
+            }
+            sRuntimeState = new RuntimeState(
+                    "not_tested",
+                    "focused mirror window captured; no text operation sent");
+            return new Session(access, window);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            recordFailure(error);
+            throw error;
+        }
+    }
+
+    static void verifyApi() throws ReflectiveOperationException {
+        new Api();
+    }
+
+    static RuntimeState runtimeState() {
+        return sRuntimeState;
     }
 
     private static String safeText(final String text) {
@@ -44,39 +68,46 @@ final class DesktopMirrorTextInput {
                 final int arg1,
                 final int arg2,
                 final int arg3) throws ReflectiveOperationException {
-            switch (action) {
-                case COMMIT_TEXT:
-                    mAccess.dispatchText.invoke(mWindow, safeText(text));
-                    return true;
-                case SEND_KEY:
-                    mAccess.dispatchKeyEvent.invoke(
-                            mWindow,
-                            Integer.valueOf(arg1),
-                            Integer.valueOf(arg2),
-                            Integer.valueOf(arg3));
-                    return true;
-                case SET_COMPOSING_TEXT:
-                    mAccess.setComposingText.invoke(
-                            mWindow, safeText(text), Integer.valueOf(arg1));
-                    return true;
-                case SET_COMPOSING_REGION:
-                    mAccess.setComposingRegion.invoke(
-                            mWindow,
-                            Integer.valueOf(arg1),
-                            Integer.valueOf(arg2));
-                    return true;
-                case FINISH_COMPOSING:
-                    mAccess.finishComposingText.invoke(mWindow);
-                    return true;
-                case DELETE_SURROUNDING:
-                    mAccess.deleteSurroundingText.invoke(
-                            mWindow,
-                            Integer.valueOf(arg1),
-                            Integer.valueOf(arg2));
-                    return true;
-                default:
-                    throw new IllegalArgumentException(
-                            "unknown mirror text input action: " + action);
+            try {
+                switch (action) {
+                    case COMMIT_TEXT:
+                        mAccess.api.dispatchText.invoke(mWindow, safeText(text));
+                        break;
+                    case SEND_KEY:
+                        mAccess.api.dispatchKeyEvent.invoke(
+                                mWindow,
+                                Integer.valueOf(arg1),
+                                Integer.valueOf(arg2),
+                                Integer.valueOf(arg3));
+                        break;
+                    case SET_COMPOSING_TEXT:
+                        mAccess.api.setComposingText.invoke(
+                                mWindow, safeText(text), Integer.valueOf(arg1));
+                        break;
+                    case SET_COMPOSING_REGION:
+                        mAccess.api.setComposingRegion.invoke(
+                                mWindow,
+                                Integer.valueOf(arg1),
+                                Integer.valueOf(arg2));
+                        break;
+                    case FINISH_COMPOSING:
+                        mAccess.api.finishComposingText.invoke(mWindow);
+                        break;
+                    case DELETE_SURROUNDING:
+                        mAccess.api.deleteSurroundingText.invoke(
+                                mWindow,
+                                Integer.valueOf(arg1),
+                                Integer.valueOf(arg2));
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                "unknown mirror text input action: " + action);
+                }
+                recordWorking();
+                return true;
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                recordFailure(error);
+                throw error;
             }
         }
     }
@@ -98,6 +129,30 @@ final class DesktopMirrorTextInput {
 
     private static final class Access {
         final Object displayManager;
+        final Api api;
+
+        Access() throws ReflectiveOperationException {
+            api = new Api();
+            final Class<?> serviceManager = Class.forName(
+                    "android.os.ServiceManager");
+            final IBinder binder = (IBinder) serviceManager
+                    .getMethod("getService", String.class)
+                    .invoke(null, "display");
+            if (binder == null) {
+                throw new IllegalStateException("display service is unavailable");
+            }
+            displayManager = Class.forName(
+                    "android.hardware.display.IDisplayManager$Stub")
+                    .getMethod("asInterface", IBinder.class)
+                    .invoke(null, binder);
+            if (displayManager == null) {
+                throw new IllegalStateException(
+                        "display manager interface is unavailable");
+            }
+        }
+    }
+
+    private static final class Api {
         final Method getFocusMirrorWindow;
         final Method dispatchText;
         final Method dispatchKeyEvent;
@@ -106,18 +161,9 @@ final class DesktopMirrorTextInput {
         final Method finishComposingText;
         final Method deleteSurroundingText;
 
-        Access() throws ReflectiveOperationException {
-            final Class<?> serviceManager = Class.forName(
-                    "android.os.ServiceManager");
-            final IBinder binder = (IBinder) serviceManager
-                    .getMethod("getService", String.class)
-                    .invoke(null, "display");
+        Api() throws ReflectiveOperationException {
             final Class<?> displayManagerType = Class.forName(
                     "android.hardware.display.IDisplayManager");
-            displayManager = Class.forName(
-                    "android.hardware.display.IDisplayManager$Stub")
-                    .getMethod("asInterface", IBinder.class)
-                    .invoke(null, binder);
             getFocusMirrorWindow = displayManagerType.getMethod(
                     "getFocusMirrorWindow");
 
@@ -136,6 +182,32 @@ final class DesktopMirrorTextInput {
                     "finishComposingText");
             deleteSurroundingText = mirrorWindow.getMethod(
                     "deleteSurroundingText", int.class, int.class);
+        }
+    }
+
+    static final class RuntimeState {
+        final String state;
+        final String detail;
+
+        RuntimeState(final String state, final String detail) {
+            this.state = state;
+            this.detail = detail;
+        }
+    }
+
+    private static void recordFailure(final Throwable error) {
+        final String message = error.getMessage();
+        sRuntimeState = new RuntimeState(
+                "failed",
+                error.getClass().getSimpleName()
+                        + (message == null || message.isEmpty()
+                                ? "" : ": " + message));
+    }
+
+    private static void recordWorking() {
+        if (!"working".equals(sRuntimeState.state)) {
+            sRuntimeState = new RuntimeState(
+                    "working", "mirror text operation completed");
         }
     }
 }

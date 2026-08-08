@@ -23,4 +23,25 @@ public final class DesktopSelfTestCapabilityAuditTest {
         assertEquals("", values.get("vendor.phone_screen").detail);
         assertFalse(values.containsKey("invalid line"));
     }
+
+    @Test
+    public void classifiesMirrorTextRuntimeWithoutTreatingMissingFocusAsFailure() {
+        assertEquals(DesktopSelfTestResult.State.PASS,
+                classifyRuntime("working"));
+        assertEquals(DesktopSelfTestResult.State.WARN,
+                classifyRuntime("failed"));
+        assertEquals(DesktopSelfTestResult.State.NOT_TESTED,
+                classifyRuntime("no_focused_window"));
+        assertEquals(DesktopSelfTestResult.State.NOT_TESTED,
+                classifyRuntime("not_tested"));
+        assertEquals(DesktopSelfTestResult.State.NOT_TESTED,
+                DesktopSelfTestCapabilityAudit
+                        .classifyMirrorTextInputRuntime(null));
+    }
+
+    private static DesktopSelfTestResult.State classifyRuntime(
+            final String state) {
+        return DesktopSelfTestCapabilityAudit.classifyMirrorTextInputRuntime(
+                new DesktopSelfTestCapabilityAudit.ProbeEntry(state, ""));
+    }
 }

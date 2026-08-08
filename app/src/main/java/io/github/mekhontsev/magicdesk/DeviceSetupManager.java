@@ -106,26 +106,6 @@ final class DeviceSetupManager {
                 resizableEnabled,
                 restrictionsDisabled,
                 roundedCornersDisabled);
-        if (!compatibleDevice) {
-            CompatibilityDiagnostics.record(
-                    "PLATFORM-001",
-                    "Unsupported Android platform",
-                    "MagicDesk requires ZTE/nubia Android 16+; found "
-                            + Build.MANUFACTURER + " " + Build.MODEL
-                            + " API " + Build.VERSION.SDK_INT);
-        } else if (!verifiedDevice) {
-            CompatibilityDiagnostics.record(
-                    "PROFILE-001",
-                    "Unverified ZTE/nubia firmware",
-                    Build.FINGERPRINT);
-        }
-        if (!shellReady) {
-            CompatibilityDiagnostics.record(
-                    "SHIZUKU-001",
-                    "Shizuku runtime is unavailable",
-                    runtimeError);
-        }
-
         return new Audit(
                 runtimeError,
                 shellState,

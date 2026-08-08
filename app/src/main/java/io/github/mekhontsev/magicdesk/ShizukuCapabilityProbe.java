@@ -98,6 +98,7 @@ final class ShizukuCapabilityProbe {
                 "openScreenOffTP",
                 boolean.class);
         appendMousePositionApi(report);
+        appendMirrorInputApis(report);
         appendService(
                 report,
                 "vendor.redmagic_app_manager",
@@ -123,6 +124,32 @@ final class ShizukuCapabilityProbe {
             append(report, "vendor.mouse_position", "missing",
                     usefulMessage(error));
         }
+    }
+
+    private static void appendMirrorInputApis(
+            final StringBuilder report) {
+        try {
+            DesktopInputRoutingSession.verifyMirrorPanelApi();
+            append(report, "vendor.mirror_panel", "present",
+                    "IDisplayManager#noteMirrorInputPanelStatus");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            append(report, "vendor.mirror_panel", "missing",
+                    usefulMessage(error));
+        }
+
+        try {
+            DesktopMirrorTextInput.verifyApi();
+            append(report, "vendor.mirror_text_input", "present",
+                    "IDisplayManager and IDisplayMirrorWindow signatures");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            append(report, "vendor.mirror_text_input", "missing",
+                    usefulMessage(error));
+        }
+
+        final DesktopMirrorTextInput.RuntimeState runtime =
+                DesktopMirrorTextInput.runtimeState();
+        append(report, "runtime.mirror_text_input",
+                runtime.state, runtime.detail);
     }
 
     private static void appendPermissions(

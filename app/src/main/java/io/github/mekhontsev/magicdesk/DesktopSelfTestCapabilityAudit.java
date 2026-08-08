@@ -95,6 +95,13 @@ final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "vendor.mouse_position", "present",
                 "API-NUBIA-007", "REDMAGIC absolute pointer positioning");
+        optional(result, capabilities,
+                "vendor.mirror_panel", "present",
+                "API-NUBIA-008", "REDMAGIC mirror input panel registration");
+        optional(result, capabilities,
+                "vendor.mirror_text_input", "present",
+                "API-NUBIA-009", "REDMAGIC mirrored text input API");
+        mirrorTextInputRuntime(result, capabilities);
 
         final boolean nativeDesktopAvailable =
                 NativeDesktopController.isAvailable();
@@ -191,6 +198,26 @@ final class DesktopSelfTestCapabilityAudit {
         }
         return entry.state
                 + (entry.detail.isEmpty() ? "" : " (" + entry.detail + ")");
+    }
+
+    private static void mirrorTextInputRuntime(
+            final DesktopSelfTestResult result,
+            final Map<String, ProbeEntry> capabilities) {
+        final ProbeEntry entry = capabilities.get("runtime.mirror_text_input");
+        result.add(classifyMirrorTextInputRuntime(entry),
+                "API-NUBIA-010", "REDMAGIC mirrored text input runtime",
+                detail(entry));
+    }
+
+    static DesktopSelfTestResult.State classifyMirrorTextInputRuntime(
+            final ProbeEntry entry) {
+        if (entry != null && "working".equals(entry.state)) {
+            return DesktopSelfTestResult.State.PASS;
+        }
+        if (entry != null && "failed".equals(entry.state)) {
+            return DesktopSelfTestResult.State.WARN;
+        }
+        return DesktopSelfTestResult.State.NOT_TESTED;
     }
 
     private static void optionalComponent(

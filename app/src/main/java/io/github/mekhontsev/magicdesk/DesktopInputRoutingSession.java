@@ -217,11 +217,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         try {
             mDisplayManager = getService(
                     "display", "android.hardware.display.IDisplayManager");
-            final Class<?> displayManagerInterface =
-                    Class.forName(
-                            "android.hardware.display.IDisplayManager");
-            mNotePanelStatus = displayManagerInterface.getMethod(
-                    "noteMirrorInputPanelStatus", IBinder.class);
+            mNotePanelStatus = resolvePanelStatusMethod();
             mPanelToken = new Binder();
         } catch (Exception error) {
             mDisplayManager = null;
@@ -231,6 +227,16 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                     "MAGICDESK_INPUT_ROUTING_PANEL unavailable="
                             + error);
         }
+    }
+
+    static void verifyMirrorPanelApi() throws ReflectiveOperationException {
+        resolvePanelStatusMethod();
+    }
+
+    private static Method resolvePanelStatusMethod()
+            throws ReflectiveOperationException {
+        return Class.forName("android.hardware.display.IDisplayManager")
+                .getMethod("noteMirrorInputPanelStatus", IBinder.class);
     }
 
     private void registerPanelToken() {

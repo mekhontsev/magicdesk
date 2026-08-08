@@ -411,10 +411,10 @@ final class CompatibilityDiagnostics {
 
     private static void appendEvents(final StringBuilder report, final Context context) {
         report.append("## Recorded compatibility events\n");
-        final String previous = readFile(
-                new File(context.getFilesDir(), EVENT_FILE + ".previous"), 32_000);
-        final String current =
-                readFile(new File(context.getFilesDir(), EVENT_FILE), 64_000);
+        final String previous = filterStaticAuditEvents(readFile(
+                new File(context.getFilesDir(), EVENT_FILE + ".previous"), 32_000));
+        final String current = filterStaticAuditEvents(
+                readFile(new File(context.getFilesDir(), EVENT_FILE), 64_000));
         if (previous.isEmpty() && current.isEmpty()) {
             report.append("No recorded events\n");
         } else {
@@ -426,6 +426,22 @@ final class CompatibilityDiagnostics {
             }
         }
         report.append('\n');
+    }
+
+    static String filterStaticAuditEvents(final String events) {
+        if (events == null || events.isEmpty()) {
+            return "";
+        }
+        final StringBuilder filtered = new StringBuilder(events.length());
+        for (final String line : events.split("(?<=\\n)")) {
+            if (line.contains(" | PLATFORM-001 | ")
+                    || line.contains(" | PROFILE-001 | ")
+                    || line.contains(" | SHIZUKU-001 | ")) {
+                continue;
+            }
+            filtered.append(line);
+        }
+        return filtered.toString();
     }
 
     private static void appendMagicDeskLogcat(final StringBuilder report) {

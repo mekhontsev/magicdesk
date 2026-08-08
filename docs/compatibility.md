@@ -30,6 +30,11 @@ error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
 diagnostics report. Repeated identical errors are coalesced for 30 seconds and
 the local event log is size-bounded.
 
+Static environment states such as an unverified firmware profile, missing
+Shizuku permission, or a stopped Shizuku server remain visible in **Capability
+checks** but are not appended to the event history. Audits are read-only; the
+event history is reserved for failed user or runtime operations.
+
 Fatal uncaught exceptions are stored as `[CRASH-001]` before Android terminates
 the process. Open Diagnostics after restarting MagicDesk to include that crash
 in the next report.
@@ -54,6 +59,8 @@ The report includes:
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, task APIs, and
   REDMAGIC hardware-node access;
+- non-destructive presence checks for the REDMAGIC mirror-panel and mirrored
+  text-input signatures, plus the last runtime text-input result when tested;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
 - current displays and external input-device descriptors;

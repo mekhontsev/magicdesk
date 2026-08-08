@@ -124,10 +124,12 @@ interfaces on REDMAGIC firmware:
 
 These signatures are resolved reflectively inside the Shizuku UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test
-probe absolute pointer support and relevant vendor packages; the remaining
-methods are resolved when their bounded input session starts. A missing
-optional package or method disables the corresponding operation rather than
-changing unrelated device state. In contrast,
+inspect the absolute-pointer, mirror-panel, and mirror-text signatures without
+invoking them. The report also retains the last mirror-text runtime result from
+an explicit keyboard session. No focused projected window is reported as not
+tested rather than as missing firmware support. A missing optional package or
+method disables the corresponding operation rather than changing unrelated
+device state. In contrast,
 `libmagicdesk_keyboard_bridge.so` and `libmagicdesk_uinput_bridge.so` are
 MagicDesk-owned native helpers compiled from repository C sources by every
 local and CI build.

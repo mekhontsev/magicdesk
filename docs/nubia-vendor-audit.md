@@ -304,6 +304,10 @@ For phone-side text input, `IDisplayManager.getFocusMirrorWindow()` returns an
 methods are sufficient to mirror a standard Android `InputConnection` without
 changing the selected IME. MagicDesk captures that Binder only after the user
 requests the software keyboard and discards it when the keyboard closes.
+The capability probe checks all required method signatures without requesting
+a focused window. It records the last real keyboard-session result separately;
+`no_focused_window` is a transient runtime state, not an API compatibility
+failure.
 
 ## Debug Probe
 
