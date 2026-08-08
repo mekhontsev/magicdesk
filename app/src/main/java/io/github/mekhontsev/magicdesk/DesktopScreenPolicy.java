@@ -26,8 +26,11 @@ final class DesktopScreenPolicy {
 
     static boolean isExternalDesktopSession(
             final int desktopDisplayId,
+            final int activeDesktopDisplayId,
             final boolean consoleModeActive) {
-        return isExternalDesktop(desktopDisplayId) && consoleModeActive;
+        return isExternalDesktop(desktopDisplayId)
+                && (consoleModeActive
+                        || activeDesktopDisplayId == desktopDisplayId);
     }
 
     static boolean isExternalDesktop(final int desktopDisplayId) {
@@ -35,11 +38,11 @@ final class DesktopScreenPolicy {
     }
 
     static boolean canControlPhoneScreen(
-            final int desktopDisplayId,
-            final boolean consoleModeActive,
+            final boolean externalDesktopSession,
+            final DesktopDisplayTarget.Kind targetKind,
             final boolean shellReady) {
         return shellReady
-                && isExternalDesktopSession(
-                        desktopDisplayId, consoleModeActive);
+                && externalDesktopSession
+                && targetKind != DesktopDisplayTarget.Kind.SIMULATED;
     }
 }

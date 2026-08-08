@@ -37,9 +37,21 @@ public final class DesktopScreenPolicyTest {
     public void phoneScreenControlRequiresExternalDesktopSession() {
         assertFalse(DesktopScreenPolicy.isExternalDesktop(0));
         assertTrue(DesktopScreenPolicy.isExternalDesktop(7));
-        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(0, true, true));
-        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(7, false, true));
-        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(7, true, false));
-        assertTrue(DesktopScreenPolicy.canControlPhoneScreen(7, true, true));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(0, 0, true));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, -1, false));
+        assertTrue(DesktopScreenPolicy.isExternalDesktopSession(7, -1, true));
+        assertTrue(DesktopScreenPolicy.isExternalDesktopSession(7, 7, false));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, 8, false));
+
+        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
+                false, DesktopDisplayTarget.Kind.WIRELESS, true));
+        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
+                true, DesktopDisplayTarget.Kind.WIRELESS, false));
+        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
+                true, DesktopDisplayTarget.Kind.SIMULATED, true));
+        assertTrue(DesktopScreenPolicy.canControlPhoneScreen(
+                true, DesktopDisplayTarget.Kind.WIRELESS, true));
+        assertTrue(DesktopScreenPolicy.canControlPhoneScreen(
+                true, null, true));
     }
 }

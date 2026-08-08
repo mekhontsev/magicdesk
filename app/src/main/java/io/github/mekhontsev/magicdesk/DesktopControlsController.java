@@ -281,14 +281,21 @@ final class DesktopControlsController {
         final boolean externalDesktop =
                 DesktopScreenPolicy.isExternalDesktop(
                         mActivity.getCurrentDisplayId());
+        final int activeDesktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final boolean externalDesktopSession =
                 DesktopScreenPolicy.isExternalDesktopSession(
-                        mActivity.getCurrentDisplayId(), consoleModeActive);
+                        mActivity.getCurrentDisplayId(),
+                        activeDesktopDisplayId,
+                        consoleModeActive);
+        final DesktopDisplayTarget.Kind targetKind =
+                DesktopRuntimeBridge.getDesktopTargetKind(
+                        mActivity.getCurrentDisplayId());
         final boolean phoneScreenOff = isPhoneScreenOff();
         final boolean phoneScreenControl =
                 DesktopScreenPolicy.canControlPhoneScreen(
-                        mActivity.getCurrentDisplayId(),
-                        consoleModeActive,
+                        externalDesktopSession,
+                        targetKind,
                         ShellAccess.isReady());
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
@@ -329,9 +336,15 @@ final class DesktopControlsController {
     }
 
     void togglePhoneScreen() {
+        final int displayId = mActivity.getCurrentDisplayId();
+        final boolean externalDesktopSession =
+                DesktopScreenPolicy.isExternalDesktopSession(
+                        displayId,
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId(),
+                        isConsoleModeActive());
         if (!DesktopScreenPolicy.canControlPhoneScreen(
-                mActivity.getCurrentDisplayId(),
-                isConsoleModeActive(),
+                externalDesktopSession,
+                DesktopRuntimeBridge.getDesktopTargetKind(displayId),
                 ShellAccess.isReady())) {
             return;
         }
