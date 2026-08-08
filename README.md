@@ -65,7 +65,7 @@ device and One UI version.
 | Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, and exact task switching | Resize, arrange, minimize, maximize, fullscreen, and task switching |
 | Application launch policy | Explicit Auto, Windowed, and Fullscreen modes | Resizable or fixed-size mode according to application compatibility |
 | Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
-| Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, and text input | Integrated DeX touchpad |
+| Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
