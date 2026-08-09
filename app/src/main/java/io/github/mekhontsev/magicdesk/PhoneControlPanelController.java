@@ -130,6 +130,7 @@ final class PhoneControlPanelController {
     private ArrayAdapter<String> mOutputModeAdapter;
     private List<NubiaHdmiModeController.Mode> mOutputModes =
             Collections.emptyList();
+    private boolean mOutputModesConfigurable;
     private boolean mRendering = true;
 
     PhoneControlPanelController(
@@ -241,7 +242,9 @@ final class PhoneControlPanelController {
         mFillDisplay.setChecked(state.fillExternalDisplay);
         mFillDisplay.setEnabled(canConfigureOutput);
         renderOutputModes(state.externalModeSelection);
-        mOutputMode.setEnabled(canConfigureOutput && !mOutputModes.isEmpty());
+        mOutputMode.setEnabled(canConfigureOutput
+                && mOutputModesConfigurable
+                && !mOutputModes.isEmpty());
         mMirror.setEnabled(
                 state.consoleModeActive
                         && state.consoleControlAvailable);
@@ -416,15 +419,23 @@ final class PhoneControlPanelController {
             final NubiaHdmiModeController.Selection selection) {
         final List<NubiaHdmiModeController.Mode> modes = selection == null
                 ? Collections.emptyList() : selection.availableModes;
-        if (!sameModes(mOutputModes, modes)) {
+        final boolean configurable = selection != null
+                && selection.configurable;
+        if (!sameModes(mOutputModes, modes)
+                || mOutputModesConfigurable != configurable) {
             mOutputModes = modes;
+            mOutputModesConfigurable = configurable;
             mOutputModeAdapter.clear();
             if (modes.isEmpty()) {
                 mOutputModeAdapter.add(
                         mActivity.getString(R.string.external_display_no_modes));
             } else {
                 for (final NubiaHdmiModeController.Mode mode : modes) {
-                    mOutputModeAdapter.add(mode.displayLabel());
+                    mOutputModeAdapter.add(configurable
+                            ? mode.displayLabel()
+                            : mActivity.getString(
+                                    R.string.external_display_system_mode,
+                                    mode.displayLabel()));
                 }
             }
             mOutputModeAdapter.notifyDataSetChanged();

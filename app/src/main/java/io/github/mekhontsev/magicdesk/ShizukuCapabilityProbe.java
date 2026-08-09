@@ -1,11 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.app.TaskStackListener;
+import android.app.WallpaperManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -91,6 +94,11 @@ final class ShizukuCapabilityProbe {
                 int.class,
                 int.class,
                 Bundle.class);
+        appendOpenResult(
+                report,
+                "vendor.hdmi_modes.read",
+                new File(NubiaHdmiModeController.EDID_MODES),
+                OsConstants.O_RDONLY);
         appendMethodPresence(
                 report,
                 "vendor.phone_screen",
@@ -105,6 +113,7 @@ final class ShizukuCapabilityProbe {
                 "redmagic.app.manager");
         appendService(report, "vendor.color_light", "ColorfulLightService");
         appendService(report, "vendor.power", "VendorPowerManagerService");
+        appendSystemWallpaper(report, context);
         appendHardwareNodes(report);
         return report.toString();
     }
@@ -407,6 +416,28 @@ final class ShizukuCapabilityProbe {
                 "expected=" + REDMAGIC_HARDWARE_NODES.length);
         append(report, "hardware.nodes.read", readable ? "granted" : "denied", "");
         append(report, "hardware.nodes.write", writable ? "granted" : "denied", "");
+    }
+
+    @SuppressLint("MissingPermission")
+    private static void appendSystemWallpaper(
+            final StringBuilder report,
+            final Context context) {
+        if (context == null) {
+            append(report, "wallpaper.system", "unknown", "no service context");
+            return;
+        }
+        // The probe runs inside the Shizuku UserService as shell UID 2000,
+        // which holds READ_WALLPAPER_INTERNAL on supported firmware.
+        try (ParcelFileDescriptor descriptor = WallpaperManager
+                .getInstance(context)
+                .getWallpaperFile(WallpaperManager.FLAG_SYSTEM)) {
+            append(report,
+                    "wallpaper.system",
+                    descriptor == null ? "unavailable" : "available",
+                    descriptor == null ? "no static system wallpaper" : "");
+        } catch (IOException | RuntimeException error) {
+            append(report, "wallpaper.system", "unavailable", usefulMessage(error));
+        }
     }
 
     private static void appendFileAccess(

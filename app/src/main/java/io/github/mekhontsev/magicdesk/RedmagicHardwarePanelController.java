@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
@@ -29,6 +30,8 @@ final class RedmagicHardwarePanelController
     private TextView mFanStatus;
     private TextView mPumpStatus;
     private TextView mPumpSpeedStatus;
+    private LinearLayout mFanSection;
+    private LinearLayout mPumpSection;
     private Button mPumpManual;
     private SeekBar mPumpSpeed;
     private boolean mUpdatingControls;
@@ -66,7 +69,9 @@ final class RedmagicHardwarePanelController
         mStatus = statusText();
         parent.addView(mStatus, matchWidth());
 
-        mFanStatus = addLabel(parent, R.string.hardware_fan);
+        mFanSection = new LinearLayout(mActivity);
+        mFanSection.setOrientation(LinearLayout.VERTICAL);
+        mFanStatus = addLabel(mFanSection, R.string.hardware_fan);
         final GridLayout fanModes = modeGrid(4);
         addFanButton(fanModes, R.string.hardware_system,
                 RedmagicHardwareController.FanMode.SYSTEM);
@@ -76,9 +81,12 @@ final class RedmagicHardwarePanelController
                 RedmagicHardwareController.FanMode.OFF);
         addFanButton(fanModes, R.string.hardware_extreme,
                 RedmagicHardwareController.FanMode.EXTREME);
-        parent.addView(fanModes, matchWidth());
+        mFanSection.addView(fanModes, matchWidth());
+        parent.addView(mFanSection, matchWidth());
 
-        mPumpStatus = addLabel(parent, R.string.hardware_pump);
+        mPumpSection = new LinearLayout(mActivity);
+        mPumpSection.setOrientation(LinearLayout.VERTICAL);
+        mPumpStatus = addLabel(mPumpSection, R.string.hardware_pump);
         final GridLayout pumpModes = modeGrid(3);
         addPumpButton(pumpModes, R.string.hardware_system,
                 RedmagicHardwareController.PumpMode.SYSTEM);
@@ -88,7 +96,7 @@ final class RedmagicHardwarePanelController
         mPumpManual.setOnClickListener(view ->
                 applyPumpMode(pumpModeForSpeed(mPumpSpeed.getProgress())));
         pumpModes.addView(mPumpManual, modeGridParams());
-        parent.addView(pumpModes, matchWidth());
+        mPumpSection.addView(pumpModes, matchWidth());
 
         mPumpSpeed = levelSlider(PUMP_SPEED_MIN, PUMP_SPEED_MAX);
         mPumpSpeedStatus = levelStatus();
@@ -114,7 +122,9 @@ final class RedmagicHardwarePanelController
                         }
                     }
                 });
-        parent.addView(levelRow(mPumpSpeedStatus, mPumpSpeed), matchWidth());
+        mPumpSection.addView(
+                levelRow(mPumpSpeedStatus, mPumpSpeed), matchWidth());
+        parent.addView(mPumpSection, matchWidth());
 
         update(RedmagicHardwareController.snapshot());
     }
@@ -156,6 +166,14 @@ final class RedmagicHardwarePanelController
             mPumpStatus.setText(mActivity.getString(
                     R.string.hardware_pump_status,
                     pumpStatus(snapshot)));
+        }
+        if (mFanSection != null) {
+            mFanSection.setVisibility(
+                    snapshot.fanAvailable ? View.VISIBLE : View.GONE);
+        }
+        if (mPumpSection != null) {
+            mPumpSection.setVisibility(
+                    snapshot.pumpAvailable ? View.VISIBLE : View.GONE);
         }
 
         final RedmagicHardwareController.FanMode fanMode =

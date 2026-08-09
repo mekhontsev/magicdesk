@@ -84,6 +84,9 @@ final class DesktopSelfTestCapabilityAudit {
                 "vendor.display_command", "present",
                 "API-NUBIA-001", "RedMagic display command signature");
         optional(result, capabilities,
+                "vendor.hdmi_modes.read", "granted",
+                "API-NUBIA-011", "Vendor HDMI output-mode list");
+        optional(result, capabilities,
                 "vendor.phone_screen", "present",
                 "API-NUBIA-002", "RedMagic phone-screen trigger");
         optional(result, capabilities,
@@ -101,6 +104,9 @@ final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "vendor.mirror_text_input", "present",
                 "API-NUBIA-009", "RedMagic mirrored text input API");
+        optional(result, capabilities,
+                "wallpaper.system", "available",
+                "API-WALLPAPER-001", "Static system wallpaper image");
         mirrorTextInputRuntime(result, capabilities);
 
         final boolean nativeDesktopAvailable =

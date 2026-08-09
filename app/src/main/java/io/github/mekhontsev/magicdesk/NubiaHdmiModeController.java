@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 
 final class NubiaHdmiModeController {
     private static final String TAG = "MagicDeskHdmiMode";
-    private static final String EDID_MODES =
+    static final String EDID_MODES =
             "/sys/kernel/lcd_enhance/edid_modes";
     private static final String HPD = "/sys/kernel/lcd_enhance/hpd";
     private static final String DISPLAY_COMMAND =
@@ -27,16 +27,46 @@ final class NubiaHdmiModeController {
     private static final long MODE_POLL_MS = 100L;
     private static final Pattern MODE_PATTERN = Pattern.compile(
             "^(\\d+)x(\\d+)\\s+(\\d+)\\s+(\\d+)$");
+    private static final Object PROBE_LOCK = new Object();
+    private static volatile String sPermanentReadFailure;
 
     private NubiaHdmiModeController() {
     }
 
     static Selection readSelection(
-            final String preferredTiming)
-            throws IOException {
-        final String output = ShellAccess.run(
-                "/system/bin/cat " + EDID_MODES);
-        return select(preferredTiming, parseModes(output));
+            final Context context,
+            final int displayId,
+            final String preferredTiming) {
+        final String cachedFailure = sPermanentReadFailure;
+        if (cachedFailure != null) {
+            return systemSelection(context, displayId, cachedFailure);
+        }
+        try {
+            final String output = ShellAccess.run(
+                    "/system/bin/cat " + EDID_MODES);
+            final Selection selection = select(
+                    preferredTiming, parseModes(output));
+            return selection == null
+                    ? systemSelection(
+                            context, displayId, "vendor mode list is empty")
+                    : selection;
+        } catch (IOException | RuntimeException error) {
+            final String detail = usefulMessage(error);
+            if (isPermanentReadFailure(detail)) {
+                synchronized (PROBE_LOCK) {
+                    if (sPermanentReadFailure == null) {
+                        sPermanentReadFailure = detail;
+                    }
+                }
+            }
+            Log.w(TAG, "Nubia HDMI mode list is unavailable", error);
+            CompatibilityDiagnostics.record(
+                    "NUBIA-DISPLAY-005",
+                    "Could not read the external display mode list",
+                    detail,
+                    error);
+            return systemSelection(context, displayId, detail);
+        }
     }
 
     static int applyIfNeeded(
@@ -44,6 +74,7 @@ final class NubiaHdmiModeController {
             final int displayId,
             final Selection selection) throws IOException {
         if (selection == null || selection.target == null
+                || !selection.configurable
                 || selection.target.sameTiming(selection.current)) {
             return displayId;
         }
@@ -128,6 +159,47 @@ final class NubiaHdmiModeController {
             target = bestNativeResolution(availableModes);
         }
         return new Selection(current, target, availableModes);
+    }
+
+    private static Selection systemSelection(
+            final Context context,
+            final int displayId,
+            final String detail) {
+        final DisplayManager manager = context == null
+                ? null : context.getSystemService(DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(displayId);
+        final Display.Mode displayMode = display == null
+                ? null : display.getMode();
+        final Mode mode = displayMode == null
+                ? null
+                : new Mode(
+                        displayMode.getPhysicalWidth(),
+                        displayMode.getPhysicalHeight(),
+                        Math.max(1, Math.round(displayMode.getRefreshRate())),
+                        0);
+        return systemSelection(mode, detail);
+    }
+
+    static Selection systemSelection(
+            final Mode mode,
+            final String detail) {
+        final List<Mode> modes = mode == null
+                ? Collections.emptyList()
+                : Collections.singletonList(mode);
+        return new Selection(mode, mode, modes, false, detail);
+    }
+
+    private static boolean isPermanentReadFailure(final String detail) {
+        return detail.contains("Permission denied")
+                || detail.contains("No such file or directory");
+    }
+
+    private static String usefulMessage(final Throwable error) {
+        final String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? error.getClass().getSimpleName()
+                : message.trim();
     }
 
     private static List<Mode> normalizeModes(final List<Mode> modes) {
@@ -249,22 +321,39 @@ final class NubiaHdmiModeController {
         final Mode current;
         final Mode target;
         final List<Mode> availableModes;
+        final boolean configurable;
+        final String detail;
 
         Selection(
                 final Mode current,
                 final Mode target,
                 final List<Mode> availableModes) {
+            this(current, target, availableModes, true, "");
+        }
+
+        Selection(
+                final Mode current,
+                final Mode target,
+                final List<Mode> availableModes,
+                final boolean configurable,
+                final String detail) {
             this.current = current;
             this.target = target;
             this.availableModes = availableModes;
+            this.configurable = configurable;
+            this.detail = detail == null ? "" : detail;
         }
 
         Selection withPreferredTiming(final String preferredTiming) {
+            if (!configurable) {
+                return this;
+            }
             Mode preferred = findMode(availableModes, preferredTiming);
             if (preferred == null) {
                 preferred = bestNativeResolution(availableModes);
             }
-            return new Selection(current, preferred, availableModes);
+            return new Selection(
+                    current, preferred, availableModes, true, detail);
         }
     }
 

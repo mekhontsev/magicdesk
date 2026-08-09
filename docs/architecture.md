@@ -470,6 +470,14 @@ saved timing is used only while it remains in that list; otherwise MagicDesk
 chooses the highest native resolution, the highest refresh rate at that
 resolution, and avoids a cinema-aspect duplicate when a normal timing exists.
 
+The vendor node is an optional capability rather than a desktop prerequisite.
+If shell UID 2000 cannot open it, `NubiaHdmiModeController` caches that stable
+firmware-level denial for the process lifetime and exposes Android's current
+`Display.Mode` as a read-only system selection. Session preparation still uses
+that physical size for projection geometry, while timing changes remain under
+the stock projection UI. Callers do not implement separate model checks or
+retry a permanently denied node on every control-panel refresh.
+
 Changing the physical timing uses Nubia's own sequence: write the selected
 EDID mode, ask DisplayManager to refresh its physical displays, pulse HDMI HPD,
 then wait for three stable observations of the requested mode. The physical
@@ -721,7 +729,10 @@ authorize a runtime session or start services.
 ## Diagnostics
 
 `CompatibilityDiagnostics` records stable error codes with bounded local
-history. The issue report includes firmware identity, displays, external input,
+history. An identical signature is recorded only once during a process
+lifetime, including when unrelated events occur between repetitions. Exact
+duplicates left by earlier process runs are also collapsed when the report is
+built. The issue report includes firmware identity, displays, external input,
 desktop settings, Shizuku UID/domain/capability probes, and MagicDesk-only
 logcat. It excludes user files, accounts, notification content, clipboard, and
 the installed-app catalog.
@@ -737,6 +748,12 @@ class, Binder-service, permission, or device-node presence is reported as
 NOT TESTED rather than guessed. The last bounded result is included in the
 normal compatibility report; no periodic self-test or diagnostic polling runs
 in the background.
+
+Desktop wallpaper loading follows the same fail-open rule. A static wallpaper
+descriptor is optional; an unavailable or undecodable image falls back to the
+last valid cached image or MagicDesk's built-in background and records one
+compatibility event per distinct failure instead of changing desktop session
+state.
 
 `CommandConsoleActivity` is an unexported, one-shot interface over the existing
 `ShellAccess` connection. It displays the effective Shizuku UID, requires an

@@ -1,10 +1,24 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
 public final class CompatibilityDiagnosticsTest {
+    @Test
+    public void coalescesInterleavedSignaturesForProcessLifetime() {
+        assertFalse(CompatibilityDiagnostics.isDuplicate(
+                "test-display-event"));
+        assertFalse(CompatibilityDiagnostics.isDuplicate(
+                "test-wallpaper-event"));
+        assertTrue(CompatibilityDiagnostics.isDuplicate(
+                "test-display-event"));
+        assertTrue(CompatibilityDiagnostics.isDuplicate(
+                "test-display-event"));
+    }
+
     @Test
     public void removesStaticAuditStatesFromHistoricalEvents() {
         final String events =
@@ -17,6 +31,22 @@ public final class CompatibilityDiagnosticsTest {
         assertEquals(
                 "2026-08-04 | SHELL-CONSOLE-002 | Launch failed\n"
                         + "2026-08-04 | NUBIA-SCREEN-002 | Screen failed\n",
-                CompatibilityDiagnostics.filterStaticAuditEvents(events));
+                CompatibilityDiagnostics.filterRecordedEvents(events));
+    }
+
+    @Test
+    public void removesExactHistoricalDuplicatesIncludingStackLines() {
+        final String events =
+                "2026-08-09T06:10:21Z | NUBIA-DISPLAY-005 | Denied\n"
+                        + " at MagicDesk.read(MagicDesk.java:1)\n"
+                        + "2026-08-09T06:14:04Z | WALLPAPER-001 | Missing\n"
+                        + "2026-08-09T06:14:19Z | NUBIA-DISPLAY-005 | Denied\n"
+                        + " at MagicDesk.read(MagicDesk.java:1)\n";
+
+        assertEquals(
+                "2026-08-09T06:10:21Z | NUBIA-DISPLAY-005 | Denied\n"
+                        + " at MagicDesk.read(MagicDesk.java:1)\n"
+                        + "2026-08-09T06:14:04Z | WALLPAPER-001 | Missing\n",
+                CompatibilityDiagnostics.filterRecordedEvents(events));
     }
 }

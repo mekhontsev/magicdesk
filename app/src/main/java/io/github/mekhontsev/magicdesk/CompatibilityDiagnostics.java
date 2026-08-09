@@ -23,7 +23,10 @@ import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 
 final class CompatibilityDiagnostics {
@@ -32,10 +35,9 @@ final class CompatibilityDiagnostics {
     private static final long MAX_EVENT_FILE_BYTES = 128 * 1024;
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
     private static final int MAX_LOGCAT_CHARS = 48_000;
-    private static final long DUPLICATE_EVENT_WINDOW_MILLIS = 30_000;
     private static volatile Context sApplicationContext;
-    private static String sLastEventSignature = "";
-    private static long sLastEventTime;
+    private static final Set<String> RECORDED_EVENT_SIGNATURES =
+            new HashSet<>();
 
     private CompatibilityDiagnostics() {
     }
@@ -64,33 +66,32 @@ final class CompatibilityDiagnostics {
         if (context == null) {
             return;
         }
-        final StringBuilder entry = new StringBuilder();
-        entry.append(utcNow())
-                .append(" | ")
-                .append(cleanSingleLine(code, 80))
-                .append(" | ")
-                .append(cleanSingleLine(userMessage, 400));
-        if (!TextUtils.isEmpty(technicalDetail)) {
-            entry.append(" | ").append(cleanMultiline(
-                    technicalDetail, MAX_EVENT_DETAIL_CHARS));
-        }
-        if (error != null) {
-            entry.append(" | ").append(cleanMultiline(
-                    stackTrace(error), MAX_EVENT_DETAIL_CHARS));
-        }
-        entry.append('\n');
+        final String cleanedCode = cleanSingleLine(code, 80);
+        final String cleanedMessage = cleanSingleLine(userMessage, 400);
+        final String cleanedDetail = cleanMultiline(
+                technicalDetail, MAX_EVENT_DETAIL_CHARS);
+        final String signature = cleanedCode
+                + '\n' + cleanedMessage
+                + '\n' + cleanedDetail;
 
         synchronized (LOCK) {
-            final long now = System.currentTimeMillis();
-            final String signature = cleanSingleLine(code, 80)
-                    + '\n' + cleanSingleLine(userMessage, 400)
-                    + '\n' + cleanMultiline(technicalDetail, MAX_EVENT_DETAIL_CHARS);
-            if (signature.equals(sLastEventSignature)
-                    && now - sLastEventTime < DUPLICATE_EVENT_WINDOW_MILLIS) {
+            if (isDuplicate(signature)) {
                 return;
             }
-            sLastEventSignature = signature;
-            sLastEventTime = now;
+            final StringBuilder entry = new StringBuilder();
+            entry.append(utcNow())
+                    .append(" | ")
+                    .append(cleanedCode)
+                    .append(" | ")
+                    .append(cleanedMessage);
+            if (!TextUtils.isEmpty(cleanedDetail)) {
+                entry.append(" | ").append(cleanedDetail);
+            }
+            if (error != null) {
+                entry.append(" | ").append(cleanMultiline(
+                        stackTrace(error), MAX_EVENT_DETAIL_CHARS));
+            }
+            entry.append('\n');
             final File file = new File(context.getFilesDir(), EVENT_FILE);
             if (file.length() > MAX_EVENT_FILE_BYTES) {
                 final File previousFile =
@@ -107,6 +108,10 @@ final class CompatibilityDiagnostics {
                 // Diagnostics must never become a second failure path.
             }
         }
+    }
+
+    static boolean isDuplicate(final String signature) {
+        return !RECORDED_EVENT_SIGNATURES.add(signature);
     }
 
     static String buildReport(final Context context) {
@@ -138,6 +143,7 @@ final class CompatibilityDiagnostics {
 
     static void clearEvents(final Context context) {
         synchronized (LOCK) {
+            RECORDED_EVENT_SIGNATURES.clear();
             new File(context.getFilesDir(), EVENT_FILE).delete();
             new File(context.getFilesDir(), EVENT_FILE + ".previous").delete();
         }
@@ -412,37 +418,62 @@ final class CompatibilityDiagnostics {
 
     private static void appendEvents(final StringBuilder report, final Context context) {
         report.append("## Recorded compatibility events\n");
-        final String previous = filterStaticAuditEvents(readFile(
-                new File(context.getFilesDir(), EVENT_FILE + ".previous"), 32_000));
-        final String current = filterStaticAuditEvents(
-                readFile(new File(context.getFilesDir(), EVENT_FILE), 64_000));
-        if (previous.isEmpty() && current.isEmpty()) {
+        final String events = filterRecordedEvents(
+                readFile(
+                        new File(context.getFilesDir(), EVENT_FILE + ".previous"),
+                        32_000)
+                        + readFile(
+                                new File(context.getFilesDir(), EVENT_FILE),
+                                64_000));
+        if (events.isEmpty()) {
             report.append("No recorded events\n");
         } else {
-            if (!previous.isEmpty()) {
-                report.append(previous);
-            }
-            if (!current.isEmpty()) {
-                report.append(current);
-            }
+            report.append(events);
         }
         report.append('\n');
     }
 
-    static String filterStaticAuditEvents(final String events) {
+    static String filterRecordedEvents(final String events) {
         if (events == null || events.isEmpty()) {
             return "";
         }
         final StringBuilder filtered = new StringBuilder(events.length());
+        final StringBuilder block = new StringBuilder();
+        final LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (final String line : events.split("(?<=\\n)")) {
-            if (line.contains(" | PLATFORM-001 | ")
-                    || line.contains(" | PROFILE-001 | ")
-                    || line.contains(" | SHIZUKU-001 | ")) {
-                continue;
+            if (isEventHeader(line) && block.length() > 0) {
+                appendFilteredEvent(filtered, seen, block.toString());
+                block.setLength(0);
             }
-            filtered.append(line);
+            block.append(line);
         }
+        appendFilteredEvent(filtered, seen, block.toString());
         return filtered.toString();
+    }
+
+    private static boolean isEventHeader(final String line) {
+        final int firstSeparator = line.indexOf(" | ");
+        return firstSeparator > 0
+                && line.indexOf(" | ", firstSeparator + 3)
+                        > firstSeparator + 3;
+    }
+
+    private static void appendFilteredEvent(
+            final StringBuilder destination,
+            final LinkedHashSet<String> seen,
+            final String event) {
+        if (event.isEmpty()
+                || event.contains(" | PLATFORM-001 | ")
+                || event.contains(" | PROFILE-001 | ")
+                || event.contains(" | SHIZUKU-001 | ")) {
+            return;
+        }
+        final int timestampEnd = event.indexOf(" | ");
+        final String signature = timestampEnd < 0
+                ? event : event.substring(timestampEnd + 3);
+        if (seen.add(signature)) {
+            destination.append(event);
+        }
     }
 
     private static void appendMagicDeskLogcat(final StringBuilder report) {

@@ -18,6 +18,23 @@ retired prototypes are listed separately and are not current product modes.
 - User diagnostics and follow-up confirmation cover desktop startup, external
   sizing, launcher recovery, Mora discovery, output modes, and display recording
 
+## Candidate Community Reports
+
+- nubia Z80 Ultra (`NX741J`, `PQ85A01-UN`), Android 16 / API 36, MyOS build
+  `MyOS16.0.16_NX741J_NEEA`, firmware `20251229.234747`:
+  `nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys`
+- The 1.5.1 diagnostics report confirms shell UID 2000, WMShell passthrough,
+  task APIs, input injection, raw-input read access, `/dev/uinput`, keyboard
+  layout control, Nubia mouse/input APIs, and a physical HDMI display.
+- Differences observed so far: shell cannot read
+  `/sys/kernel/lcd_enhance/edid_modes`, no RedMagic fan/pump nodes are present,
+  and Android exposes no static system wallpaper image. These are optional
+  capabilities and must degrade to a read-only system output mode, hidden
+  hardware controls, and a desktop wallpaper fallback.
+- Pending before promotion to community-tested: built-in self-test, two-window
+  launch and resize, maximize/restore, right click, key repeat, `Ctrl+Space`,
+  screenshot/recording, Exit MagicDesk, and launcher recovery.
+
 ## Completed: Setup And Runtime
 
 - [x] Verify strict Shizuku admission. A stopped server, denied permission,

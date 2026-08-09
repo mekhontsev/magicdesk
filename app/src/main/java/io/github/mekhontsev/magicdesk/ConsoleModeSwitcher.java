@@ -179,20 +179,12 @@ final class ConsoleModeSwitcher {
                     ConsoleDisplayController.findWirelessDisplayId();
             NubiaHdmiModeController.Selection selection = null;
             if (wiredDisplayId > 0) {
-                try {
-                    final ExternalDisplayLaunchSettings.Config config =
-                            ExternalDisplayLaunchSettings.load(
-                                    MagicDeskApplication.applicationContext());
-                    selection = NubiaHdmiModeController.readSelection(
-                            config.outputTiming);
-                } catch (IOException | RuntimeException error) {
-                    Log.w(TAG, "Could not read Nubia HDMI modes", error);
-                    CompatibilityDiagnostics.record(
-                            "NUBIA-DISPLAY-005",
-                            "Could not read the external display mode list",
-                            error.getMessage(),
-                            error);
-                }
+                final android.content.Context context =
+                        MagicDeskApplication.applicationContext();
+                final ExternalDisplayLaunchSettings.Config config =
+                        ExternalDisplayLaunchSettings.load(context);
+                selection = NubiaHdmiModeController.readSelection(
+                        context, wiredDisplayId, config.outputTiming);
             }
             if (callback != null) {
                 callback.onComplete(

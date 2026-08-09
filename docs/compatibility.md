@@ -27,13 +27,31 @@ unverified until that firmware has been tested. This is intentional: private
 Binder methods, component names, shell commands, and framework behavior can
 change without an Android API-level change.
 
+## Tested firmware
+
+| Device | Firmware build | Support | Confirmed scope | Known limitations |
+| --- | --- | --- | --- | --- |
+| RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and launcher recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
+| RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, launcher recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
+
+Exact tested fingerprints:
+
+- `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
+- `REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys`
+
+Unverified reports and partially completed test matrices remain in
+[`testing-backlog.md`](testing-backlog.md). They are promoted here only after a
+user confirms the relevant desktop, window, input, and cleanup workflows on the
+exact fingerprint.
+
 ## Error behavior
 
 Failures that can be isolated should not terminate the desktop. MagicDesk keeps
 the rest of the UI running, shows a short user-facing message with a stable
 error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
-diagnostics report. Repeated identical errors are coalesced for 30 seconds and
-the local event log is size-bounded.
+diagnostics report. An identical error is recorded only once during a process
+lifetime, exact duplicates from earlier process runs are collapsed when the
+report is built, and the local event log is size-bounded.
 
 Static environment states such as an unverified firmware profile, missing
 Shizuku permission, or a stopped Shizuku server remain visible in **Capability
@@ -66,6 +84,8 @@ The report includes:
   RedMagic hardware-node access;
 - non-destructive presence checks for the RedMagic mirror-panel and mirrored
   text-input signatures, plus the last runtime text-input result when tested;
+- read-only checks for the vendor HDMI-mode node and the current static system
+  wallpaper image;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;
 - current displays and external input-device descriptors;
@@ -111,3 +131,10 @@ mode**, **Fill display** state, and whether the same timing works in Nubia's
 projection settings. For an input issue, include the keyboard or
 pointing-device model. For a window issue, include the affected Android package
 and whether the task was windowed, maximized, snapped, or true fullscreen.
+
+If the vendor HDMI-mode node is unavailable to shell UID 2000, MagicDesk shows
+Android's current physical mode as read-only and leaves timing selection to the
+system projection UI. This limits MagicDesk's output-mode selector but does not
+disable the desktop. If Android does not expose a static wallpaper image,
+MagicDesk uses its cached wallpaper or built-in background without failing the
+desktop session.

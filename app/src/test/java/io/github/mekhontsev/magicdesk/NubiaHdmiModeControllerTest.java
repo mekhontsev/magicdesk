@@ -1,7 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -23,6 +26,23 @@ public final class NubiaHdmiModeControllerTest {
 
         assertMode(selection.current, 1920, 1080, 240, 0);
         assertMode(selection.target, 3840, 2160, 60, 2);
+        assertTrue(selection.configurable);
+    }
+
+    @Test
+    public void systemFallbackReportsCurrentModeWithoutOfferingChanges() {
+        final NubiaHdmiModeController.Mode mode =
+                new NubiaHdmiModeController.Mode(1920, 1080, 75, 0);
+        final NubiaHdmiModeController.Selection selection =
+                NubiaHdmiModeController.systemSelection(
+                        mode, "Permission denied");
+
+        assertFalse(selection.configurable);
+        assertEquals("Permission denied", selection.detail);
+        assertEquals(1, selection.availableModes.size());
+        assertSame(mode, selection.current);
+        assertSame(mode, selection.target);
+        assertSame(selection, selection.withPreferredTiming("3840x2160@60"));
     }
 
     @Test

@@ -62,6 +62,7 @@
     <string name="external_display_fill">Fill display</string>
     <string name="external_display_resolution">Output mode</string>
     <string name="external_display_no_modes">No modes available</string>
+    <string name="external_display_system_mode">%1$s (system)</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="status_local_desktop_guard_failed">Local desktop could not start safely: %1$s</string>
     <string name="action_open_touchpad">Open touchpad</string>
@@ -232,7 +233,6 @@
     <string name="status_desktop_visible">Desktop</string>
     <string name="status_restoring_windows">Restoring windows&#8230;</string>
     <string name="status_windows_restored">Windows restored</string>
-    <string name="status_wallpaper_failed">Desktop wallpaper unavailable: %1$s</string>
     <string name="status_overlay_panel_unavailable">Overlay panel unavailable</string>
     <string name="status_exiting">Stopping services and exiting&#8230;</string>
     <string name="status_exit_failed">Exit failed: %1$s</string>

@@ -1,9 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.hardware.display.DisplayManager;
 import android.util.Log;
-import android.view.Display;
 
 import java.io.IOException;
 
@@ -24,30 +22,19 @@ final class NubiaExternalDisplayModeController {
             final int physicalDisplayId) throws IOException {
         final ExternalDisplayLaunchSettings.Config config =
                 ExternalDisplayLaunchSettings.load(context);
-        NubiaHdmiModeController.Selection selection = null;
-        try {
-            selection = NubiaHdmiModeController.readSelection(
-                    config.outputTiming);
-        } catch (IOException | RuntimeException error) {
-            Log.w(TAG, "Nubia HDMI mode list is unavailable", error);
-            CompatibilityDiagnostics.record(
-                    "NUBIA-DISPLAY-005",
-                    "Could not read the external display mode list",
-                    error.getMessage(),
-                    error);
-        }
+        final NubiaHdmiModeController.Selection selection =
+                NubiaHdmiModeController.readSelection(
+                        context, physicalDisplayId, config.outputTiming);
         final NubiaHdmiModeController.Mode requestedMode =
                 selection == null ? null : selection.target;
         final int preparedDisplayId = NubiaHdmiModeController.applyIfNeeded(
                 context, physicalDisplayId, selection);
-        final Display.Mode currentMode =
-                physicalMode(context, preparedDisplayId);
         final int width = requestedMode != null
                 ? requestedMode.width
-                : currentMode == null ? 0 : currentMode.getPhysicalWidth();
+                : 0;
         final int height = requestedMode != null
                 ? requestedMode.height
-                : currentMode == null ? 0 : currentMode.getPhysicalHeight();
+                : 0;
         final int sizeType =
                 ExternalDisplayLaunchSettings.resolveVendorSizeType(
                         width, height);
@@ -77,18 +64,6 @@ final class NubiaExternalDisplayModeController {
             prepared.close();
             throw error;
         }
-    }
-
-    private static Display.Mode physicalMode(
-            final Context context, final int displayId) {
-        if (context == null || displayId <= Display.DEFAULT_DISPLAY) {
-            return null;
-        }
-        final DisplayManager manager =
-                context.getSystemService(DisplayManager.class);
-        final Display display = manager == null
-                ? null : manager.getDisplay(displayId);
-        return display == null ? null : display.getMode();
     }
 
     private static String readBypass() throws IOException {

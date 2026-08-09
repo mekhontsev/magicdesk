@@ -542,9 +542,7 @@ public abstract class DesktopShellActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         mDesktopWallpaperController = new DesktopWallpaperController(
-                this, wallpaper, message -> setErrorStatus(
-                        "WALLPAPER-001",
-                        getString(R.string.status_wallpaper_failed, message)));
+                this, wallpaper);
         mDesktopWallpaperController.start();
 
         final LinearLayout desktop = new LinearLayout(this);
