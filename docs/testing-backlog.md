@@ -6,14 +6,14 @@ retired prototypes are listed separately and are not current product modes.
 
 ## Verified Platform
 
-- REDMAGIC 11 Pro (`NX809J`)
+- RedMagic 11 Pro (`NX809J`)
 - Android 16 / API 36
 - Firmware build `20260204.221845`
 - Shizuku UserService running as `uid=2000`, `u:r:shell:s0`
 
 ## Community-Tested Platform
 
-- REDMAGIC 11 Pro (`NX809J-UN` variant)
+- RedMagic 11 Pro (`NX809J-UN` variant)
 - Android 16 / API 36, firmware build `20260625.022314`
 - User diagnostics and follow-up confirmation cover desktop startup, external
   sizing, launcher recovery, Mora discovery, output modes, and display recording
@@ -61,7 +61,7 @@ retired prototypes are listed separately and are not current product modes.
 
 ## Completed: External Desktop And Windows
 
-- [x] Activate REDMAGIC desktop mode from Mirror Mode, including the Home-only
+- [x] Activate RedMagic desktop mode from Mirror Mode, including the Home-only
     state that needs a transient seed. Apply geometry/DPI before desktop launch,
   create one display-sized desktop host, and remove the seed.
 - [x] Resolve changing physical and virtual display IDs after disconnect,
@@ -127,7 +127,7 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Restore display 0 through physical power/unlock, explicit Wake, mirror
   transition, helper termination, package force-stop, UserService death, and
   physical cable removal.
-- [x] Protect the desktop process through REDMAGIC `cfreezer`'s transient
+- [x] Protect the desktop process through RedMagic `cfreezer`'s transient
   service-working API while display 0 is off. Verify no persistent whitelist
   entry remains.
 - [x] Launch and reopen the common MagicDesk touchpad from the phone
@@ -174,7 +174,7 @@ not supported runtime modes:
 - An ordinary app-UID build could render MagicDesk UI and publicly launch
   applications, but Android normalized freeform launches to fullscreen and it
   could not reuse exact tasks, own input routing, or correct display geometry.
-- Public cross-display launch of an already-running Termux task caused REDMAGIC
+- Public cross-display launch of an already-running Termux task caused RedMagic
   to force-stop the process. Exact shell task control is required for stateful
   applications.
 - `scenedecision` callbacks exposed task-like data but retained stale entries
@@ -195,7 +195,7 @@ not supported runtime modes:
   placement metadata from both.
 - [ ] Test first-run Shizuku onboarding on a compatible device that has never
   had root and whose desktop properties retain stock values.
-- [ ] Test another REDMAGIC/ZTE Android 16 firmware and record every changed
+- [ ] Test another RedMagic/ZTE Android 16 firmware and record every changed
   Binder service, component, setting, and diagnostic code.
 - [ ] Validate System audio output across HDMI, USB, Bluetooth, and phone speaker.
 - [ ] On display 0, leave multiple freeform tasks open and verify the system
@@ -204,7 +204,7 @@ not supported runtime modes:
   after task cleanup, including after terminating the Shizuku UserService.
 - [ ] Validate VITURE Beast's 1200-line 3D EDID transition with the independent
   Kernel Fixes APK.
-- [ ] Repeat display-off failure tests after a REDMAGIC OTA because both
+- [ ] Repeat display-off failure tests after a RedMagic OTA because both
   DisplayManager shell commands and `cfreezer` are vendor implementation details.
 
 ## Automated Coverage
@@ -218,7 +218,7 @@ not supported runtime modes:
   certificate checks run in the release workflow.
 - [x] A manually requested built-in self-test creates a lifecycle-owned overlay
   display, exercises the production desktop/window/input paths, audits hidden
-  and REDMAGIC API availability, verifies native caption structure before and
+  and RedMagic API availability, verifies native caption structure before and
   after fullscreen, restores the prior setting, and includes its bounded result
   in Diagnostics without background polling.
 - [ ] Add an instrumentation regression that opens one freeform task, performs

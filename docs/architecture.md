@@ -1,7 +1,7 @@
 # MagicDesk Architecture
 
 This document describes the implementation boundaries behind MagicDesk's
-DeX-style desktop on REDMAGIC firmware. It is intended for contributors,
+DeX-style desktop on RedMagic firmware. It is intended for contributors,
 reviewers, and users diagnosing compatibility problems.
 
 ## Design Principles
@@ -22,7 +22,7 @@ or require a Magisk module.
 
 ## Architecture Guardrails
 
-Several plausible implementations conflict with REDMAGIC's secondary-display
+Several plausible implementations conflict with RedMagic's secondary-display
 stack. These constraints preserve behavior established through device testing.
 
 ### Keep physical input independent of the IME
@@ -50,7 +50,7 @@ same-display fallback when an individual WMShell operation is unavailable.
 
 ### Forward the external input stream, not individual events
 
-REDMAGIC converts the external mouse's `BTN_RIGHT` to Android Back before an
+RedMagic converts the external mouse's `BTN_RIGHT` to Android Back before an
 application receives it. Shell UID 2000 cannot change the physical keymap, but
 it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
 a `BUS_VIRTUAL` pointer through `/dev/uinput`.
@@ -60,7 +60,7 @@ desktop. When physical EventHub devices marked `CURSOR | EXTERNAL` are
 present, the native helper grabs them and forwards motion, wheel, and button
 state through that pointer. `BTN_RIGHT` is the deliberate exception: the
 helper consumes the physical sequence and requests one display-targeted
-Android secondary click, bypassing REDMAGIC's conversion to Back.
+Android secondary click, bypassing RedMagic's conversion to Back.
 
 The keyboard bridge follows the same ownership model. Forwarding the complete
 stream preserves key repeat, modifier state, hot-plug behavior, and the first
@@ -115,7 +115,7 @@ outside that session and devices without the component continue normally.
 
 MagicDesk does not package or link a Nubia binary library. The vendor surface
 used for desktop input consists of private Binder methods added to framework
-interfaces on REDMAGIC firmware:
+interfaces on RedMagic firmware:
 
 - `IInputManager.getMousePosition`, `setMousePosition`, and `sendMouseCmd`;
 - `IDisplayManager.noteMirrorInputPanelStatus` and `getFocusMirrorWindow`;
@@ -277,7 +277,7 @@ The UserService links every long-lived helper to its APK owner token. Input
 helpers block on real descriptor activity; Binder death, EOF, or explicit close
 initiates bounded graceful cleanup before process termination. They do not use
 periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
-one-second heartbeat refreshes REDMAGIC's transient `cfreezer` state and
+one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
@@ -302,7 +302,7 @@ desktop content. `DesktopSessionController` then focuses or creates the same
 transport-specific code stops at that boundary. Local startup retains its
 launcher-navigation guard, then starts the same desktop host and controllers.
 
-- `ConsoleSessionController` asks REDMAGIC firmware to turn a physical USB-C
+- `ConsoleSessionController` asks RedMagic firmware to turn a physical USB-C
   display into Nubia's virtual desktop display, applies its output profile, and
   enables the wired input-routing path.
 - Wireless startup opens the stock SmartCast/Miracast picker. Once Android
@@ -435,7 +435,7 @@ polling while the desktop is idle.
 
 ## External Desktop Activation
 
-The stock REDMAGIC projection UI enters desktop mode through the vendor
+The stock RedMagic projection UI enters desktop mode through the vendor
 DisplayManager extension:
 
 ```text
@@ -451,7 +451,7 @@ On **Start external desktop** or `Win+D`, MagicDesk:
 2. creates a landscape transient seed only for the known Home-only Mirror
    state, avoiding Nubia's synchronous foreground-activity check during an
    orientation relaunch;
-3. requests REDMAGIC desktop mode and waits for the real virtual display;
+3. requests RedMagic desktop mode and waits for the real virtual display;
 4. corrects portrait geometry and applies the display profile DPI;
 5. creates or normalizes one display-sized MagicDesk multi-window host task;
 6. removes the seed and focuses the desktop;
@@ -485,7 +485,7 @@ geometry; desktop DPI remains an independent per-monitor UI scale.
 
 ### Caption visibility
 
-REDMAGIC uses separate privacy filters for wireless and wired projection:
+RedMagic uses separate privacy filters for wireless and wired projection:
 
 ```text
 SurfaceControl.setSFOption(1100, wirelessPrivacy)
@@ -549,7 +549,7 @@ Application-requested immersive mode is reported by the task watcher. MagicDesk
 hides its shell and lets the same Activity enter true fullscreen. Leaving
 immersive mode restores the prior desktop geometry.
 
-REDMAGIC can retain a stale caption inset after changing windowing mode. The
+RedMagic can retain a stale caption inset after changing windowing mode. The
 working same-display refresh captures the task-local caption source before the
 transition, then synchronously replaces that exact client source with an empty
 frame after fullscreen mode is established. It neither changes density nor
@@ -562,7 +562,7 @@ The keyboard helper consumes only the global MagicDesk combinations listed in
 README. Ordinary key events preserve scan code, modifier state, and device
 identity through the virtual external keyboard.
 
-REDMAGIC disables evdev repeat on physical keyboards, then reinjects keys for
+RedMagic disables evdev repeat on physical keyboards, then reinjects keys for
 the external display with Android's `POLICY_FLAG_DISABLE_KEY_REPEAT`. While a
 source is exclusively captured, the bridge temporarily enables kernel repeat
 on that source and translates each repeat into a complete release/press cycle.
@@ -578,7 +578,7 @@ until InputManager confirms the new layout, avoiding both a fixed delay and a
 first character in the previous language.
 
 The mouse helper forwards physical movement, wheels, and buttons. It exists
-specifically because REDMAGIC consumes physical `BTN_RIGHT` as Back.
+specifically because RedMagic consumes physical `BTN_RIGHT` as Back.
 `Win+Backspace` remains the explicit system Back shortcut. The phone touchpad
 uses Nubia's absolute mouse-position API for motion and the same virtual pointer
 for clicks and scrolling. Its velocity curve matches the stock Touch Panel and
@@ -602,12 +602,12 @@ only the virtual device receives key-up. No timing threshold is involved.
 
 ## Phone Screen And Touch Panel
 
-REDMAGIC's `nubia_screen_off_tp` path lets its text-input activity wake display
+RedMagic's `nubia_screen_off_tp` path lets its text-input activity wake display
 0 whenever an external text field receives focus. MagicDesk instead uses the
 shell DisplayManager `power-off 0`/`power-reset 0` contract. A heartbeat-owned
 `PhoneDisplayGuard` restores power after normal or abnormal teardown.
 
-While display 0 is off, REDMAGIC's independent `cfreezer` can freeze even a
+While display 0 is off, RedMagic's independent `cfreezer` can freeze even a
 foreground-service HOME process. The same heartbeat refreshes the vendor's
 transient `noteCpuFreezerUidWorking` state and clears it during restore. No
 persistent freezer whitelist is installed.
@@ -629,7 +629,7 @@ for changes made outside MagicDesk.
 ## Desktop Display Recording
 
 MagicDesk resolves the active desktop's logical display to its physical display
-ID and records either the phone or external REDMAGIC output with Android's
+ID and records either the phone or external RedMagic output with Android's
 system `screenrecord --display-id` command. Internal audio uses the firmware's
 `AUDIO_SOURCE_SYSTEM_RECORD` value `80`, the same source used by the stock ZTE
 screen recorder and Game Highlights. The source is accepted by

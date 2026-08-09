@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import java.io.IOException;
 
 /**
- * Applies the two reviewed REDMAGIC desktop properties from the application UID.
+ * Applies the two reviewed RedMagic desktop properties from the application UID.
  *
  * <p>The verified firmware service clears the Binder caller identity before
  * writing a system property. Keep this wrapper deliberately closed: callers
@@ -66,7 +66,7 @@ final class NubiaDesktopPropertyManager {
         final String observed = read(property);
         if (!value.equals(observed)) {
             throw new IOException(
-                    "REDMAGIC property verification failed for "
+                    "RedMagic property verification failed for "
                             + property.key
                             + ": expected=" + printable(value)
                             + " observed=" + printable(observed));
@@ -91,7 +91,7 @@ final class NubiaDesktopPropertyManager {
                     MAX_OUTPUT_BYTES);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new IOException("REDMAGIC property command interrupted", error);
+            throw new IOException("RedMagic property command interrupted", error);
         } finally {
             process.destroy();
         }

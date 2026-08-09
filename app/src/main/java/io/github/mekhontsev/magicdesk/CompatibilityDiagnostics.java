@@ -278,7 +278,7 @@ final class CompatibilityDiagnostics {
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
-        report.append("REDMAGIC charge separation: package=")
+        report.append("RedMagic charge separation: package=")
                 .append(ChargeSeparationController.isSupported(context))
                 .append(", enabled=")
                 .append(Settings.Global.getInt(
@@ -288,7 +288,7 @@ final class CompatibilityDiagnostics {
                 .append('\n');
         final RedmagicHardwareSnapshot hardware =
                 RedmagicHardwareController.snapshot();
-        report.append("REDMAGIC hardware: fan=")
+        report.append("RedMagic hardware: fan=")
                 .append(hardware.fanAvailable)
                 .append(" enabled=").append(hardware.fanEnabled)
                 .append(", pump=").append(hardware.pumpAvailable)
@@ -478,10 +478,10 @@ final class CompatibilityDiagnostics {
             final DeviceSetupManager.FirmwareSupport support) {
         switch (support) {
             case MAINTAINER_VERIFIED:
-                return "maintainer-verified REDMAGIC 11 Pro / NX809J / "
+                return "maintainer-verified RedMagic 11 Pro / NX809J / "
                         + "20260204.221845";
             case COMMUNITY_TESTED:
-                return "community-tested REDMAGIC 11 Pro / NX809J-UN / "
+                return "community-tested RedMagic 11 Pro / NX809J-UN / "
                         + "20260625.022314";
             case UNVERIFIED:
             default:

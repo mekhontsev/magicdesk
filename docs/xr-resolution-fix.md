@@ -2,7 +2,7 @@
 
 ## Problem
 
-On the REDMAGIC 11 Pro (`NX809J`), VITURE glasses can change their EDID through
+On the RedMagic 11 Pro (`NX809J`), VITURE glasses can change their EDID through
 an HPD-low/HPD-high transition when changing refresh rate or entering
 side-by-side 3D. The original failure was reproduced with a `1920x1080` to
 `3840x1080@60` transition. VITURE Beast exposes `1920x1200` at both 60 and
@@ -59,7 +59,7 @@ operation.
 
 ## Validated target
 
-- Device: REDMAGIC 11 Pro (`NX809J`)
+- Device: RedMagic 11 Pro (`NX809J`)
 - Displays: VITURE Pro XR 2D/3D transition validated; VITURE Beast
   `1920x1200@60` to `1920x1200@120` HPD transition validated, with its 3D
   transition still requiring a separate validation pass

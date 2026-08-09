@@ -1,3 +1,3 @@
-# Validated REDMAGIC 11 Pro kernel components
+# Validated RedMagic 11 Pro kernel components
 6658f1464f33cc09feefba77f5ed026dfeb6af8bbcd96e20b5a93a33288df577  /vendor_dlkm/lib/modules/msm_drm.ko
 f1abf9dfece5b175801194c9a32bba08d6c1d913d16c73e4bc9db332613e043d  kernel-fixes/src/main/res/raw/dp_mode_reset.ko

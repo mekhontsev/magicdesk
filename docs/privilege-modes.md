@@ -26,7 +26,7 @@ does not install, start, or configure the Shizuku manager.
 
 On the verified firmware, shell UID 2000 can:
 
-- activate REDMAGIC external desktop mode and launch Touch Panel;
+- activate RedMagic external desktop mode and launch Touch Panel;
 - observe exact tasks and apply ActivityTaskManager, WindowOrganizer, and
   WMShell desktop transactions;
 - configure display geometry and density and capture screenshots;
@@ -35,7 +35,7 @@ On the verified firmware, shell UID 2000 can:
 - read the current static wallpaper;
 - change physical-keyboard layouts;
 - read and grab external input devices and create `/dev/uinput` devices;
-- use stock REDMAGIC bypass-charging, fan, pump, and thermal interfaces.
+- use stock RedMagic bypass-charging, fan, pump, and thermal interfaces.
 
 `ShellAccess` owns an immutable cached state. Binder-received, Binder-dead,
 and permission-result events update that state; ordinary commands do not probe
@@ -51,7 +51,7 @@ separate `app_process` behind.
 
 ## Input Streams
 
-REDMAGIC routes physical input differently on its virtual desktop display.
+RedMagic routes physical input differently on its virtual desktop display.
 MagicDesk therefore uses two lifecycle-bound native helpers:
 
 - `libmagicdesk_keyboard_bridge.so` forwards physical keyboard events through
@@ -60,7 +60,7 @@ MagicDesk therefore uses two lifecycle-bound native helpers:
   coordinates `Ctrl+Space` with Android's configured keyboard layouts.
 - `libmagicdesk_uinput_bridge.so` grabs only external cursor devices and
   forwards their complete pointer stream through a virtual mouse. This prevents
-  REDMAGIC from converting `BTN_RIGHT` into Android Back.
+  RedMagic from converting `BTN_RIGHT` into Android Back.
 
 The UserService links each helper stream to an APK Binder owner. If the APK,
 UserService, or stream disappears, EOF or Binder death releases the physical
@@ -86,7 +86,7 @@ text-input panel wake the phone whenever an external application requests
 input.
 
 The same heartbeat marks MagicDesk's foreground service as active through
-REDMAGIC's transient `cfreezer` API. Without that signal the firmware can
+RedMagic's transient `cfreezer` API. Without that signal the firmware can
 freeze the desktop process while display 0 is off. Normal teardown clears
 the state, and the vendor service expires it after an abnormal stop.
 
@@ -99,14 +99,14 @@ ownership. This is a fail-open guard, not a persistent screen policy.
 - **Primary** selects Android display 0. It supports tablets and development
   without an external monitor.
 - **Current** keeps the desktop on the display where setup was opened.
-- **External** selects the active REDMAGIC desktop display and falls back to
+- **External** selects the active RedMagic desktop display and falls back to
   Current when none exists.
-- **Auto** prefers an active REDMAGIC desktop display, otherwise Current. In
-  Mirror Mode it ignores the physical presentation display because REDMAGIC
+- **Auto** prefers an active RedMagic desktop display, otherwise Current. In
+  Mirror Mode it ignores the physical presentation display because RedMagic
   continues routing the pointer to the phone.
 
 Display IDs are resolved at each transition and are never persisted as device
-constants. Primary/Current operation does not activate REDMAGIC external
+constants. Primary/Current operation does not activate RedMagic external
 desktop mode, launch Touch Panel, or apply an external monitor profile.
 
 ## Device Setup
@@ -121,7 +121,7 @@ setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
 
 The connected Shizuku UserService writes the two global settings. The ordinary
-MagicDesk process uses a verified REDMAGIC property service for the two
+MagicDesk process uses a verified RedMagic property service for the two
 persistent properties. Its production wrapper accepts only those two keys and
 boolean/absent values, and verifies each write with `getprop`.
 

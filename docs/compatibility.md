@@ -17,7 +17,7 @@ behavior.
   It is known compatible, but has not received the complete maintainer test
   matrix.
 - **Compatible baseline, unverified** means the device identifies as ZTE,
-  nubia, or REDMAGIC and runs API 36 or newer. MagicDesk allows startup, probes
+  nubia, or RedMagic and runs API 36 or newer. MagicDesk allows startup, probes
   capabilities, and reports unavailable features individually.
 - **Unsupported platform** means the vendor-family or Android-version baseline
   is not met. Device Setup does not apply persistent windowing values.
@@ -63,8 +63,8 @@ The report includes:
 - for active Shizuku shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, task APIs, and
-  REDMAGIC hardware-node access;
-- non-destructive presence checks for the REDMAGIC mirror-panel and mirrored
+  RedMagic hardware-node access;
+- non-destructive presence checks for the RedMagic mirror-panel and mirrored
   text-input signatures, plus the last runtime text-input result when tested;
 - overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
   input-package probes;

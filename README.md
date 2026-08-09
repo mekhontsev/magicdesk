@@ -1,23 +1,23 @@
 # MagicDesk
 
-MagicDesk is an open-source, DeX-style desktop environment for REDMAGIC
-devices. It turns REDMAGIC wired and wireless display output into a practical
+MagicDesk is an open-source, DeX-style desktop environment for RedMagic
+devices. It turns RedMagic wired and wireless display output into a practical
 desktop workspace with native Android windows, a taskbar, Start menu, desktop
 shortcuts, global keyboard controls, notifications, and phone-based touchpad
 support.
 
-MagicDesk is intended to be the REDMAGIC counterpart to Samsung DeX. It is not
+MagicDesk is intended to be the RedMagic counterpart to Samsung DeX. It is not
 a port of DeX and is not affiliated with Samsung. It builds on Android's own
 desktop window manager and the external-display services already present in
-REDMAGIC firmware.
+RedMagic firmware.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
 > through iterative AI-assisted development and hands-on testing on real
-> REDMAGIC hardware. Its Shizuku integration and undocumented vendor interfaces
+> RedMagic hardware. Its Shizuku integration and undocumented vendor interfaces
 > make independent source review especially important.
 
 > **Project status:** MagicDesk is under active development. The current
-> firmware verification is limited to the REDMAGIC 11 Pro profile listed below.
+> firmware verification is limited to the RedMagic 11 Pro profile listed below.
 
 ![MagicDesk running terminal and graphical applications in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
 
@@ -25,10 +25,10 @@ REDMAGIC firmware.
 
 ## Why MagicDesk
 
-REDMAGIC phones can drive an external display, but their stock interface does
+RedMagic phones can drive an external display, but their stock interface does
 not provide the complete desktop workflow available in Samsung DeX. MagicDesk
 supplies that missing shell while continuing to use native Android tasks and
-REDMAGIC's existing projection stack.
+RedMagic's existing projection stack.
 
 The result is a familiar desktop model:
 
@@ -51,14 +51,14 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 ## MagicDesk And Samsung DeX
 
 This comparison is deliberately scoped. The MagicDesk column describes
-behavior verified on a REDMAGIC 11 Pro (`NX809J`) running Android 16 and the
-firmware build listed under **Requirements**. Other REDMAGIC devices and OTA
+behavior verified on a RedMagic 11 Pro (`NX809J`) running Android 16 and the
+firmware build listed under **Requirements**. Other RedMagic devices and OTA
 versions may behave differently. Samsung DeX capabilities also vary by Galaxy
 device and One UI version.
 
-| Capability | MagicDesk on the verified REDMAGIC 11 Pro | Samsung DeX |
+| Capability | MagicDesk on the verified RedMagic 11 Pro | Samsung DeX |
 | --- | --- | --- |
-| Wired external desktop | Verified through USB-C DisplayPort and REDMAGIC Console Mode | Built into supported Galaxy devices |
+| Wired external desktop | Verified through USB-C DisplayPort and RedMagic Console Mode | Built into supported Galaxy devices |
 | Wireless desktop | Verified through the stock SmartCast/Miracast picker and the common MagicDesk desktop session | Supported on compatible Miracast displays |
 | Desktop on the device display | Runs the same desktop implementation directly on the phone or a tablet | Standalone DeX is limited to selected Galaxy tablets and Z TriFold devices |
 | Native overlapping windows | Android freeform tasks with system WMShell captions | Native DeX windows |
@@ -71,7 +71,7 @@ device and One UI version.
 | Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
 | Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
-| Device controls | REDMAGIC bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent REDMAGIC hardware controls |
+| Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
 | Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
 | Setup and support | Open source; requires Shizuku, Device Setup, and one reboot; currently experimental and firmware-specific | Proprietary, built into supported Galaxy firmware, and product-supported by Samsung |
 
@@ -81,7 +81,7 @@ mouse shortcuts](https://www.samsung.com/us/support/answer/ANS10003477/), and
 [desktop widget limitation](https://www.samsung.com/us/support/answer/ANS10001972/).
 MagicDesk aims for the same everyday Android desktop workflow, not a claim of
 complete product parity: DeX remains more mature and deeply integrated, while
-MagicDesk adds REDMAGIC-specific controls, desktop files, widgets, diagnostics,
+MagicDesk adds RedMagic-specific controls, desktop files, widgets, diagnostics,
 and selected-display recording.
 
 ## Highlights
@@ -122,7 +122,7 @@ and selected-display recording.
   selection, and an optional **Fill display** mode for sinks that otherwise
   add letterboxing.
 - Media-volume, connected audio-output, and phone-touchpad controls.
-- Stock REDMAGIC bypass-charging, cooling-fan, liquid-pump, and temperature
+- Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through
   `Win+D`.
@@ -133,25 +133,25 @@ and selected-display recording.
 - `Ctrl+Space` cycles through layouts exposed to Android by the active input
   method as enabled keyboard subtypes, in system order. An IME that exposes
   only one subtype cannot provide system-wide physical-keyboard switching.
-- `Alt+Tab` bypasses REDMAGIC's broken system Recents path while ordinary
+- `Alt+Tab` bypasses RedMagic's broken system Recents path while ordinary
   `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal application input.
 - Right click reaches Chrome, Firefox, MagicDesk, and other applications
-  instead of being converted to Android Back by REDMAGIC firmware.
+  instead of being converted to Android Back by RedMagic firmware.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are
   handled without recreating the virtual devices or restarting applications.
 
 ## Requirements
 
-MagicDesk is intentionally REDMAGIC/ZTE-specific and requires:
+MagicDesk is intentionally RedMagic/ZTE-specific and requires:
 
-- a ZTE, nubia, or REDMAGIC device running Android 16 / API 36 or newer;
+- a ZTE, nubia, or RedMagic device running Android 16 / API 36 or newer;
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
 An external desktop requires either:
 
-- USB-C DisplayPort output and REDMAGIC external-display support; or
-- the stock REDMAGIC SmartCast/Miracast interface and a compatible wireless
+- USB-C DisplayPort output and RedMagic external-display support; or
+- the stock RedMagic SmartCast/Miracast interface and a compatible wireless
   display receiver.
 
 USB-C DisplayPort output is therefore not mandatory. Availability of wired and
@@ -165,7 +165,7 @@ UserService path, keeping runtime behavior predictable and reviewable.
 
 **Currently verified:**
 
-- REDMAGIC 11 Pro (`NX809J`)
+- RedMagic 11 Pro (`NX809J`)
 - Android 16
 - Firmware fingerprint:
   `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
@@ -304,7 +304,7 @@ The trust boundaries are deliberately narrow:
   and have the effective privileges displayed by the Console.
 - MagicDesk changes only the four desktop settings documented under Device
   Setup. **Restore defaults** removes those overrides instead of guessing
-  firmware values. The REDMAGIC property writer accepts only two hardcoded
+  firmware values. The RedMagic property writer accepts only two hardcoded
   boolean/absent desktop properties.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
@@ -334,7 +334,7 @@ compatibility reports. With all desktop sessions closed, it temporarily creates
 a simulated 1920x1080 display and exercises the production desktop, freeform,
 fullscreen, minimize/restore, taskbar geometry, native caption structure, and
 targeted-input paths. It
-also checks the hidden Android and REDMAGIC APIs that can be inspected without
+also checks the hidden Android and RedMagic APIs that can be inspected without
 connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
 mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
 devices are present. The simulated-display setting is owned by a lifecycle-bound

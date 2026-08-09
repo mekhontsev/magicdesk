@@ -1,5 +1,5 @@
 name: Firmware compatibility problem
-description: Report a reproducible MagicDesk failure on ZTE, nubia, or REDMAGIC Android 16+
+description: Report a reproducible MagicDesk failure on ZTE, nubia, or RedMagic Android 16+
 title: "[Compatibility] "
 labels:
   - compatibility

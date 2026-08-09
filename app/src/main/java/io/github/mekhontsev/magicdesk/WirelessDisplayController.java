@@ -7,7 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.util.Log;
 
-/** Opens REDMAGIC's stock Miracast device picker. */
+/** Opens RedMagic's stock Miracast device picker. */
 final class WirelessDisplayController {
     private static final String TAG = "MagicDeskWirelessDisplay";
     private static final ComponentName SMART_CAST_COMPONENT =
@@ -43,7 +43,7 @@ final class WirelessDisplayController {
             Log.w(TAG, "Could not open SmartCast", error);
             CompatibilityDiagnostics.record(
                     "WIRELESS-DISPLAY-001",
-                    "Could not open the REDMAGIC wireless display picker",
+                    "Could not open the RedMagic wireless display picker",
                     error.getMessage(),
                     error);
             return false;

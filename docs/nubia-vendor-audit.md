@@ -1,6 +1,6 @@
 # Nubia Vendor Interface Audit
 
-This document records REDMAGIC firmware behavior that was verified separately
+This document records RedMagic firmware behavior that was verified separately
 from MagicDesk's public feature contract. An available Binder transaction is
 not automatically suitable for production use. Every integration still needs
 a capability probe, a bounded input surface, explicit lifecycle ownership, and
@@ -51,9 +51,9 @@ interface audit below.
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons; its `MirrorInputActivity` can automatically replace another phone input panel. | MagicDesk does not disable the package. While its own touchpad is active, it removes only the automatically created activity task and reclaims its existing panel. |
 | `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Retained as research and possible diagnostics, not a task source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
-| `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply REDMAGIC lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
+| `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply RedMagic lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
-| `zte_backlight` | Read accepted | Current nits and normalized backlight are readable; setters also exist. | Use the stock REDMAGIC phone-screen controller instead of raw brightness writes. |
+| `zte_backlight` | Read accepted | Current nits and normalized backlight are readable; setters also exist. | Use the stock RedMagic phone-screen controller instead of raw brightness writes. |
 
 ## Desktop Provisioning
 

@@ -393,7 +393,7 @@ final class RedmagicHardwareController {
             Log.w(TAG, "Shell thermal read failed", error);
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-MONITOR-001",
-                    "Could not read REDMAGIC thermal sensors",
+                    "Could not read RedMagic thermal sensors",
                     "shell=" + ShellAccess.statusLabel(),
                     error);
             return RedmagicHardwareSnapshot.UNAVAILABLE;
@@ -558,7 +558,7 @@ final class RedmagicHardwareController {
             Log.w(TAG, "vendor hardware settings read failed", error);
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-VENDOR-READ-001",
-                    "Could not read REDMAGIC hardware settings",
+                    "Could not read RedMagic hardware settings",
                     "shell=" + ShellAccess.statusLabel(),
                     error);
             return null;
@@ -597,14 +597,14 @@ final class RedmagicHardwareController {
             Log.w(TAG, "vendor hardware settings write failed", error);
             CompatibilityDiagnostics.record(
                     "REDMAGIC-HW-VENDOR-WRITE-001",
-                    "A REDMAGIC vendor hardware request failed",
+                    "A RedMagic vendor hardware request failed",
                     "shell=" + ShellAccess.statusLabel(),
                     error);
             return false;
         }
         CompatibilityDiagnostics.record(
                 "REDMAGIC-HW-VENDOR-WRITE-001",
-                "A REDMAGIC vendor hardware request failed",
+                "A RedMagic vendor hardware request failed",
                 "shell=" + ShellAccess.statusLabel());
         return false;
     }
@@ -659,7 +659,7 @@ final class RedmagicHardwareController {
     private static void recordVendorRestoreFailure(final String component) {
         CompatibilityDiagnostics.record(
                 "REDMAGIC-HW-RESTORE-001",
-                "Could not restore REDMAGIC vendor hardware state",
+                "Could not restore RedMagic vendor hardware state",
                 "component=" + component
                         + " shell=" + ShellAccess.statusLabel());
     }

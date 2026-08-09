@@ -15,7 +15,7 @@ import java.lang.reflect.Method;
 
 final class InternalAudioRecorder implements AutoCloseable {
     private static final String TAG = "MagicDeskRecording";
-    // REDMAGIC's stock screen recorder and Game Highlights use this vendor source.
+    // RedMagic's stock screen recorder and Game Highlights use this vendor source.
     private static final int AUDIO_SOURCE_INTERNAL = 80;
     private static final int SAMPLE_RATE_HZ = 48_000;
     private static final int BIT_RATE = 96_000;

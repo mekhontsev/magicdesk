@@ -82,25 +82,25 @@ final class DesktopSelfTestCapabilityAudit {
                 "API-LAUNCHER-001", "Launcher component recovery");
         optional(result, capabilities,
                 "vendor.display_command", "present",
-                "API-NUBIA-001", "REDMAGIC display command signature");
+                "API-NUBIA-001", "RedMagic display command signature");
         optional(result, capabilities,
                 "vendor.phone_screen", "present",
-                "API-NUBIA-002", "REDMAGIC phone-screen trigger");
+                "API-NUBIA-002", "RedMagic phone-screen trigger");
         optional(result, capabilities,
                 "vendor.redmagic_app_manager", "present",
-                "API-NUBIA-003", "REDMAGIC property service");
+                "API-NUBIA-003", "RedMagic property service");
         optional(result, capabilities,
                 "vendor.power", "present",
-                "API-NUBIA-004", "REDMAGIC power service");
+                "API-NUBIA-004", "RedMagic power service");
         optional(result, capabilities,
                 "vendor.mouse_position", "present",
-                "API-NUBIA-007", "REDMAGIC absolute pointer positioning");
+                "API-NUBIA-007", "RedMagic absolute pointer positioning");
         optional(result, capabilities,
                 "vendor.mirror_panel", "present",
-                "API-NUBIA-008", "REDMAGIC mirror input panel registration");
+                "API-NUBIA-008", "RedMagic mirror input panel registration");
         optional(result, capabilities,
                 "vendor.mirror_text_input", "present",
-                "API-NUBIA-009", "REDMAGIC mirrored text input API");
+                "API-NUBIA-009", "RedMagic mirrored text input API");
         mirrorTextInputRuntime(result, capabilities);
 
         final boolean nativeDesktopAvailable =
@@ -115,7 +115,7 @@ final class DesktopSelfTestCapabilityAudit {
         optionalComponent(context, result,
                 "cn.nubia.touping",
                 "cn.nubia.touping.HomeActivity",
-                "API-NUBIA-006", "REDMAGIC SmartCast entry point");
+                "API-NUBIA-006", "RedMagic SmartCast entry point");
 
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-DP-001", "Physical DisplayPort and EDID",
@@ -205,7 +205,7 @@ final class DesktopSelfTestCapabilityAudit {
             final Map<String, ProbeEntry> capabilities) {
         final ProbeEntry entry = capabilities.get("runtime.mirror_text_input");
         result.add(classifyMirrorTextInputRuntime(entry),
-                "API-NUBIA-010", "REDMAGIC mirrored text input runtime",
+                "API-NUBIA-010", "RedMagic mirrored text input runtime",
                 detail(entry));
     }
 

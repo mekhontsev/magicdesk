@@ -6,7 +6,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Refreshes REDMAGIC's transient service-working state for one application UID. */
+/** Refreshes RedMagic's transient service-working state for one application UID. */
 final class NubiaCpuFreezerWorkingState {
     private static final String SERVICE_NAME = "cfreezer";
     private static final String INTERFACE_NAME =
@@ -33,7 +33,7 @@ final class NubiaCpuFreezerWorkingState {
                 .invoke(null, SERVICE_NAME);
         if (binder == null) {
             throw new IllegalStateException(
-                    "REDMAGIC CPU-freezer service is unavailable");
+                    "RedMagic CPU-freezer service is unavailable");
         }
         return Class.forName(INTERFACE_NAME + "$Stub")
                 .getMethod("asInterface", IBinder.class)

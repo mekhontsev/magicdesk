@@ -230,7 +230,7 @@ final class LauncherAppRepository {
                         target));
                 addedPackages.add(target.packageName);
             } catch (PackageManager.NameNotFoundException error) {
-                Log.d(TAG, "Optional REDMAGIC entry point is unavailable: "
+                Log.d(TAG, "Optional RedMagic entry point is unavailable: "
                         + target.packageName);
             }
         }

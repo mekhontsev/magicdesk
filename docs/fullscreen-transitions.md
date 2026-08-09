@@ -1,6 +1,6 @@
 # Fullscreen transitions
 
-REDMAGIC Console Mode can retain a native desktop caption inset after a task
+RedMagic Console Mode can retain a native desktop caption inset after a task
 changes from freeform to fullscreen. The task and application window already
 have full-display bounds, but application content can still begin below a stale
 `captionBar` inset and leave a black strip at the top.

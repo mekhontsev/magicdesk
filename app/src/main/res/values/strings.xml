@@ -98,7 +98,7 @@
     <string name="hardware_speed_medium">Medium</string>
     <string name="hardware_speed_fast">Fast</string>
     <string name="hardware_pump_running">%1$d%%</string>
-    <string name="hardware_unavailable">Compatible REDMAGIC fan or pump controls were not detected.</string>
+    <string name="hardware_unavailable">Compatible RedMagic fan or pump controls were not detected.</string>
     <string name="hardware_privileged_required">Hardware monitoring requires Shizuku.</string>
     <string name="hardware_monitoring_only">%1$s\nFan and pump controls are unavailable for this runtime.</string>
     <string name="hardware_write_failed">The hardware control did not accept the requested value.</string>
