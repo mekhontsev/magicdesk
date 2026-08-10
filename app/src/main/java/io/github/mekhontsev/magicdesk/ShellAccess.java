@@ -410,9 +410,14 @@ final class ShellAccess {
 
     static ParcelFileDescriptor openDesktopFile(final String relativePath)
             throws IOException {
+        return openDesktopFile(relativePath, "r");
+    }
+
+    static ParcelFileDescriptor openDesktopFile(
+            final String relativePath, final String mode) throws IOException {
         try {
             final ParcelFileDescriptor descriptor =
-                    requireService().openDesktopFile(relativePath);
+                    requireService().openDesktopFile(relativePath, mode);
             if (descriptor == null) {
                 throw new IOException(
                         "Shizuku command service returned no desktop file");

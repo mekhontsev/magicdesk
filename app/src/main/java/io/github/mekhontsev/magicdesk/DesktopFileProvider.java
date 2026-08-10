@@ -70,11 +70,8 @@ public final class DesktopFileProvider extends ContentProvider {
             final Uri uri,
             final String mode,
             final CancellationSignal signal) throws FileNotFoundException {
-        if (!"r".equals(mode)) {
-            throw new FileNotFoundException("desktop files are read-only");
-        }
         try {
-            return ShellAccess.openDesktopFile(relativePath(uri));
+            return ShellAccess.openDesktopFile(relativePath(uri), mode);
         } catch (IOException | RuntimeException error) {
             final FileNotFoundException failure = new FileNotFoundException(
                     ShellAccess.usefulMessage(error));

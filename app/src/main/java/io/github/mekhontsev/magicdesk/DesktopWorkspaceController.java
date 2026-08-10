@@ -309,6 +309,7 @@ final class DesktopWorkspaceController {
                         file.uri,
                         file.mimeType == null ? "*/*" : file.mimeType)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                         | Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(mActivity.getCurrentDisplayId());

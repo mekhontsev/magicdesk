@@ -504,8 +504,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public ParcelFileDescriptor openDesktopFile(final String relativePath) {
-        return mDesktopDirectory.open(relativePath);
+    public ParcelFileDescriptor openDesktopFile(
+            final String relativePath, final String mode) {
+        return mDesktopDirectory.open(relativePath, mode);
     }
 
     @Override

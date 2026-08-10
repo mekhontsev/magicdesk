@@ -94,14 +94,14 @@ final class ShellDesktopDirectory implements AutoCloseable {
         return files.toArray(new DesktopFileInfo[0]);
     }
 
-    ParcelFileDescriptor open(final String relativePath) {
+    ParcelFileDescriptor open(final String relativePath, final String mode) {
         final Path path = existingEntry(relativePath);
         if (Files.isDirectory(path)) {
             throw new IllegalArgumentException("cannot open a directory as a file");
         }
         try {
             return ParcelFileDescriptor.open(
-                    path.toFile(), ParcelFileDescriptor.MODE_READ_ONLY);
+                    path.toFile(), ParcelFileDescriptor.parseMode(mode));
         } catch (IOException error) {
             throw failure("cannot open desktop file", error);
         }

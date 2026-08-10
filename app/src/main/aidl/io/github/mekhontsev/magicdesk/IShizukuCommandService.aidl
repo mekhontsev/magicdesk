@@ -85,7 +85,7 @@ interface IShizukuCommandService {
 
     DesktopFileInfo[] listDesktopFiles() = 26;
 
-    ParcelFileDescriptor openDesktopFile(String relativePath) = 27;
+    ParcelFileDescriptor openDesktopFile(String relativePath, String mode) = 27;
 
     DesktopFileInfo createDesktopEntry(String name, boolean directory) = 28;
 
