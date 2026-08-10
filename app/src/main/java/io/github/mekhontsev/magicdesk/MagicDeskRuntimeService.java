@@ -250,7 +250,14 @@ public final class MagicDeskRuntimeService extends Service {
                 || service.mDesktopMouseBridge == null) {
             return false;
         }
-        return ShellAccess.injectPointerClick(displayId, button);
+        final boolean injected = ShellAccess.injectPointerClick(
+                displayId, button);
+        if (injected
+                && button == android.view.MotionEvent.BUTTON_PRIMARY) {
+            endDesktopTextInputIfRunning(displayId);
+            beginDesktopTextInputIfRunning(displayId);
+        }
+        return injected;
     }
 
     static boolean scrollDesktopPointerIfRunning(
@@ -314,45 +321,87 @@ public final class MagicDeskRuntimeService extends Service {
         }
         final OnScreenKeyboardLocation selected = location == null
                 ? OnScreenKeyboardLocation.PHONE : location;
-        DesktopPreferences.saveOnScreenKeyboardLocation(context, selected);
         final int activeDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        if (selected == OnScreenKeyboardLocation.PHONE
-                && activeDisplayId > android.view.Display.DEFAULT_DISPLAY
-                && DesktopRuntimeBridge.isDesktopKeyboardRequested(
-                        activeDisplayId)) {
-            DesktopRuntimeBridge.hideDesktopKeyboard(activeDisplayId);
+        final boolean reopen = activeDisplayId
+                        > android.view.Display.DEFAULT_DISPLAY
+                && isOnScreenKeyboardRequestedIfRunning(activeDisplayId);
+        if (reopen) {
+            hideOnScreenKeyboardIfRunning(activeDisplayId);
         }
-        MagicDeskTouchpadActivity.onKeyboardLocationChanged(selected);
+        DesktopPreferences.saveOnScreenKeyboardLocation(context, selected);
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service != null && !service.mDestroyed) {
+            service.reconcileDesktopImePolicy();
+        }
+        if (reopen) {
+            handleOnScreenKeyboardActionIfRunning(activeDisplayId);
+        }
         DesktopRuntimeBridge.refreshDesktopControls();
     }
 
-    static boolean showDesktopKeyboardIfRunning(final int displayId) {
+    static boolean handleOnScreenKeyboardActionIfRunning(
+            final int displayId) {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null
                 || service.mDestroyed
-                || displayId != service.mOwnedDesktopDisplayId
-                || !service.useLocalImePolicy(displayId)) {
+                || displayId != service.mOwnedDesktopDisplayId) {
             return false;
         }
-        if (!ShellAccess.focusDisplayForInput(displayId)) {
-            service.restoreDesktopImePolicy(displayId);
-            return false;
+        final boolean desktopRequested = DesktopRuntimeBridge
+                .isDesktopKeyboardRequested(displayId);
+        final boolean phoneRequested = PhoneTouchpadController
+                .isKeyboardRequested(displayId);
+        if (DesktopPreferences.onScreenKeyboardLocation(service)
+                == OnScreenKeyboardLocation.DESKTOP) {
+            if (desktopRequested) {
+                return hideOnScreenKeyboardIfRunning(displayId);
+            }
+            if (phoneRequested) {
+                PhoneTouchpadController.hideKeyboard(displayId);
+            }
+            return service.showDesktopKeyboard(displayId);
         }
-        if (DesktopRuntimeBridge.showDesktopKeyboard(displayId)) {
-            return true;
+        if (desktopRequested) {
+            DesktopRuntimeBridge.hideDesktopKeyboard(displayId);
         }
-        ShellAccess.endMirrorTextInput(displayId);
-        service.restoreDesktopImePolicy(displayId);
-        return false;
+        return PhoneTouchpadController.showKeyboard(displayId);
     }
 
-    static boolean focusDesktopInputIfRunning(final int displayId) {
+    static boolean isOnScreenKeyboardRequestedIfRunning(
+            final int displayId) {
         final MagicDeskRuntimeService service = sInstance.get();
         return service != null
                 && !service.mDestroyed
                 && displayId == service.mOwnedDesktopDisplayId
-                && ShellAccess.focusDisplayForInput(displayId);
+                && (DesktopRuntimeBridge.isDesktopKeyboardRequested(displayId)
+                        || PhoneTouchpadController
+                                .isKeyboardRequested(displayId));
+    }
+
+    private static boolean hideOnScreenKeyboardIfRunning(
+            final int displayId) {
+        boolean hidden = false;
+        if (DesktopRuntimeBridge.isDesktopKeyboardRequested(displayId)) {
+            DesktopRuntimeBridge.hideDesktopKeyboard(displayId);
+            hidden = true;
+        }
+        return PhoneTouchpadController.hideKeyboard(displayId) || hidden;
+    }
+
+    private boolean showDesktopKeyboard(
+            final int displayId) {
+        if (!ensureLocalImePolicy(displayId)) {
+            return false;
+        }
+        if (!ShellAccess.focusDisplayForInput(displayId)) {
+            return false;
+        }
+        beginDesktopTextInputIfRunning(displayId);
+        if (DesktopRuntimeBridge.showDesktopKeyboard(displayId)) {
+            return true;
+        }
+        return false;
     }
 
     static void desktopKeyboardDismissedIfRunning(final int displayId) {
@@ -361,8 +410,8 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         ShellAccess.endMirrorTextInput(displayId);
-        service.restoreDesktopImePolicy(displayId);
-        MagicDeskTouchpadActivity.onDesktopKeyboardDismissed(displayId);
+        service.reconcileDesktopImePolicy();
+        DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     static boolean showStartIfRunning() {
@@ -891,14 +940,7 @@ public final class MagicDeskRuntimeService extends Service {
         updateDesktopMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            if (mLocalImePolicyDisplayId
-                    != android.view.Display.INVALID_DISPLAY
-                    && (mLocalImePolicyDisplayId != mOwnedDesktopDisplayId
-                            || !DesktopRuntimeBridge
-                                    .isDesktopKeyboardRequested(
-                                            mLocalImePolicyDisplayId))) {
-                restoreDesktopImePolicy(mLocalImePolicyDisplayId);
-            }
+            reconcileDesktopImePolicy();
             if (ownsNubiaConsoleDesktop()) {
                 NubiaHostAssistPanelController.hideIfPresent();
             }
@@ -951,6 +993,7 @@ public final class MagicDeskRuntimeService extends Service {
         mOwnedDesktopDisplayId = desktopDisplayId;
         mOwnsNubiaConsoleDesktop = ownsNubiaConsoleDesktop;
         updateShowImeOverride();
+        reconcileDesktopImePolicy();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
@@ -1036,10 +1079,32 @@ public final class MagicDeskRuntimeService extends Service {
         }
     }
 
-    private boolean useLocalImePolicy(final int displayId) {
+    private void reconcileDesktopImePolicy() {
+        if (!ShellAccess.isReady()) {
+            return;
+        }
+        final int desiredDisplayId = ownsExternalDesktop()
+                        && DesktopPreferences.onScreenKeyboardLocation(this)
+                                == OnScreenKeyboardLocation.DESKTOP
+                ? mOwnedDesktopDisplayId
+                : android.view.Display.INVALID_DISPLAY;
+        if (mLocalImePolicyDisplayId
+                != android.view.Display.INVALID_DISPLAY
+                && mLocalImePolicyDisplayId != desiredDisplayId) {
+            restoreDesktopImePolicy(mLocalImePolicyDisplayId);
+        }
+        if (desiredDisplayId > android.view.Display.DEFAULT_DISPLAY) {
+            ensureLocalImePolicy(desiredDisplayId);
+        }
+    }
+
+    private boolean ensureLocalImePolicy(final int displayId) {
         if (!ShellAccess.isReady()
                 || displayId <= android.view.Display.DEFAULT_DISPLAY) {
             return false;
+        }
+        if (mLocalImePolicyDisplayId == displayId) {
+            return true;
         }
         try {
             final int actual = ShellAccess.setDisplayImePolicy(

@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.WindowMetrics;
 
 /**
@@ -17,6 +18,7 @@ final class DesktopLayoutController {
     interface RuntimeState {
         int displayId();
         int taskbarHeight();
+        void onImeInsetsChanged(boolean visible, int bottomInset);
         void onViewportChanged();
     }
 
@@ -46,6 +48,13 @@ final class DesktopLayoutController {
         root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             final WindowMetrics metrics =
                     mActivity.getWindowManager().getCurrentWindowMetrics();
+            final boolean imeVisible = windowInsets.isVisible(
+                    WindowInsets.Type.ime());
+            final int imeBottomInset = imeVisible
+                    ? windowInsets.getInsets(WindowInsets.Type.ime()).bottom
+                    : 0;
+            mRuntimeState.onImeInsetsChanged(
+                    imeVisible, imeBottomInset);
             applyViewport(mRuntimeState.displayId() == Display.DEFAULT_DISPLAY
                     ? DesktopViewport.fromWindowMetrics(metrics, windowInsets)
                     : DesktopViewport.fromDisplayBounds(metrics.getBounds()));

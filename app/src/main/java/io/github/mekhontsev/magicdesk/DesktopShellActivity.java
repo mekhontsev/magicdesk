@@ -100,6 +100,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
     private boolean mTaskbarVisible = true;
+    private boolean mDesktopImeVisible;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
@@ -185,6 +186,14 @@ public abstract class DesktopShellActivity extends Activity
                     @Override
                     public int taskbarHeight() {
                         return getTaskbarHeight();
+                    }
+
+                    @Override
+                    public void onImeInsetsChanged(
+                            final boolean visible,
+                            final int bottomInset) {
+                        DesktopShellActivity.this.onDesktopImeInsetsChanged(
+                                visible, bottomInset);
                     }
 
                     @Override
@@ -420,33 +429,38 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void hideDesktopKeyboard() {
-        if (mDesktopImeOverlay != null) {
+        if (mDesktopImeOverlay != null
+                && mDesktopImeOverlay.isRequested()) {
             mDesktopImeOverlay.hide();
+        } else if (mDesktopImeVisible) {
+            TaskRepository.sendBackToDisplay(
+                    getCurrentDisplayId(), result -> {
+                        if (!result.success) {
+                            Log.w(TAG, "could not hide desktop keyboard: "
+                                    + result.message);
+                        }
+                    });
         }
     }
 
     boolean isDesktopKeyboardRequested() {
-        return mDesktopImeOverlay != null
-                && mDesktopImeOverlay.isRequested();
+        return mDesktopImeVisible
+                || (mDesktopImeOverlay != null
+                        && mDesktopImeOverlay.isRequested());
     }
 
-    void toggleDesktopKeyboardFromTaskbar() {
-        if (isDesktopKeyboardRequested()) {
-            hideDesktopKeyboard();
-            return;
-        }
-        if (DesktopPreferences.onScreenKeyboardLocation(this)
-                != OnScreenKeyboardLocation.DESKTOP
-                || !MagicDeskRuntimeService
-                        .showDesktopKeyboardIfRunning(
-                                getCurrentDisplayId())) {
-            setStatus(R.string.status_desktop_keyboard_failed);
+    void toggleOnScreenKeyboardFromTaskbar() {
+        if (!MagicDeskRuntimeService
+                .handleOnScreenKeyboardActionIfRunning(
+                        getCurrentDisplayId())) {
+            setStatus(R.string.status_on_screen_keyboard_failed);
         }
     }
 
     private void onDesktopImeInsetsChanged(
             final boolean visible,
             final int bottomInset) {
+        mDesktopImeVisible = visible;
         if (mDesktopLayout != null) {
             mDesktopLayout.setTaskbarBottomInset(
                     visible ? bottomInset : 0);

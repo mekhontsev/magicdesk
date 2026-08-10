@@ -220,7 +220,7 @@ final class TaskbarController {
                 R.drawable.ic_keyboard,
                 R.string.action_show_on_screen_keyboard);
         mOnScreenKeyboardButton.setOnClickListener(view ->
-                mActivity.toggleDesktopKeyboardFromTaskbar());
+                mActivity.toggleOnScreenKeyboardFromTaskbar());
         addButton(taskbar, mOnScreenKeyboardButton);
 
         mPhoneScreenButton = taskbarButton(
@@ -463,15 +463,14 @@ final class TaskbarController {
         if (mOnScreenKeyboardButton == null) {
             return;
         }
-        final boolean requested =
-                mActivity.isDesktopKeyboardRequested();
-        final boolean desktopLocation =
-                DesktopPreferences.onScreenKeyboardLocation(mActivity)
-                        == OnScreenKeyboardLocation.DESKTOP;
+        final boolean desktopLocation = DesktopPreferences
+                .onScreenKeyboardLocation(mActivity)
+                == OnScreenKeyboardLocation.DESKTOP;
+        final boolean requested = desktopLocation
+                && mActivity.isDesktopKeyboardRequested();
         final boolean visible = !mActivity.isCompactDesktopPreview()
                 && DesktopScreenPolicy.isExternalDesktop(
-                        mActivity.getCurrentDisplayId())
-                && (desktopLocation || requested);
+                        mActivity.getCurrentDisplayId());
         final int actionResId = requested
                 ? R.string.action_hide_on_screen_keyboard
                 : R.string.action_show_on_screen_keyboard;
