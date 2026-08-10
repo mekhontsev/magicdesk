@@ -21,7 +21,8 @@ final class DisplayProfileController {
     private static int sMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
     private static int sMonitorIdentityAttempts;
 
-    private final DesktopShellActivity mActivity;
+    private final Context mContext;
+    private final Host mHost;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mRefresh = this::refreshAfterDisplayChange;
     private final Runnable mMonitorIdentityRetry =
@@ -35,13 +36,14 @@ final class DisplayProfileController {
     private int mMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
     private int mMonitorIdentityGeneration;
 
-    DisplayProfileController(final DesktopShellActivity activity) {
-        mActivity = activity;
+    DisplayProfileController(final Context context, final Host host) {
+        mContext = context;
+        mHost = host;
     }
 
     void start() {
         final DisplayManager displayManager =
-                mActivity.getSystemService(DisplayManager.class);
+                mContext.getSystemService(DisplayManager.class);
         if (displayManager == null || mDisplayListener != null) {
             return;
         }
@@ -71,7 +73,7 @@ final class DisplayProfileController {
         mMonitorIdentityGeneration++;
         mMonitorIdentityRequested = false;
         final DisplayManager displayManager =
-                mActivity.getSystemService(DisplayManager.class);
+                mContext.getSystemService(DisplayManager.class);
         if (displayManager != null && mDisplayListener != null) {
             displayManager.unregisterDisplayListener(mDisplayListener);
         }
@@ -91,7 +93,7 @@ final class DisplayProfileController {
         mProfile = DisplayProfileStore.load(
                 monitorKey,
                 initialDpi(profileDisplay));
-        mActivity.onDisplayProfileReset();
+        mHost.onDisplayProfileReset();
         return mProfile;
     }
 
@@ -122,7 +124,7 @@ final class DisplayProfileController {
     String getMonitorLabel() {
         final Display display = getProfileDisplay();
         return display == null
-                ? mActivity.getString(R.string.profile_default)
+                ? mContext.getString(R.string.profile_default)
                 : display.getName();
     }
 
@@ -134,7 +136,7 @@ final class DisplayProfileController {
         if (mMonitorIdentityRequested) {
             return;
         }
-        final String explicitProfileKey = mActivity.getDesktopProfileKey();
+        final String explicitProfileKey = mHost.getDesktopProfileKey();
         if (explicitProfileKey.startsWith("edid:")) {
             return;
         }
@@ -158,7 +160,7 @@ final class DisplayProfileController {
                 output = readConnectedEdidHashes();
             } catch (IOException error) {
                 Log.w(TAG, "Cannot resolve monitor EDID", error);
-                mActivity.runOnUiThread(() ->
+                mHost.runOnUiThread(() ->
                         finishMonitorIdentityAttempt(
                                 generation, requestedDisplayKey, null));
                 return;
@@ -167,14 +169,14 @@ final class DisplayProfileController {
             if (hash == null) {
                 Log.w(TAG,
                         "Expected exactly one connected DP EDID: " + output);
-                mActivity.runOnUiThread(() ->
+                mHost.runOnUiThread(() ->
                         finishMonitorIdentityAttempt(
                                 generation, requestedDisplayKey, null));
                 return;
             }
             final String monitorKey = "edid:" + hash;
             Log.i(TAG, "Resolved monitor profile " + monitorKey);
-            mActivity.runOnUiThread(() ->
+            mHost.runOnUiThread(() ->
                     finishMonitorIdentityAttempt(
                             generation, requestedDisplayKey, monitorKey));
         }, "MagicDeskMonitorIdentity").start();
@@ -273,7 +275,7 @@ final class DisplayProfileController {
     }
 
     private void refreshAfterDisplayChange() {
-        if (mActivity.isActivityUnavailable()) {
+        if (mHost.isActivityUnavailable()) {
             return;
         }
         refreshForDisplay();
@@ -287,7 +289,7 @@ final class DisplayProfileController {
     }
 
     private String resolveProfileKey() {
-        final String explicitProfileKey = mActivity.getDesktopProfileKey();
+        final String explicitProfileKey = mHost.getDesktopProfileKey();
         if (!explicitProfileKey.isEmpty()) {
             return explicitProfileKey;
         }
@@ -335,12 +337,12 @@ final class DisplayProfileController {
 
     private Display getProfileDisplay() {
         final DisplayManager manager =
-                mActivity.getSystemService(DisplayManager.class);
-        final Display current = mActivity.getDisplay();
+                mContext.getSystemService(DisplayManager.class);
+        final Display current = mHost.getDisplay();
         if (manager == null) {
             return current;
         }
-        final int profileDisplayId = mActivity.getDesktopProfileDisplayId();
+        final int profileDisplayId = mHost.getDesktopProfileDisplayId();
         if (profileDisplayId > Display.DEFAULT_DISPLAY) {
             final Display profileDisplay = manager.getDisplay(profileDisplayId);
             if (profileDisplay != null) {
@@ -355,7 +357,7 @@ final class DisplayProfileController {
             final String requestedDisplayKey,
             final String monitorKey) {
         if (generation != mMonitorIdentityGeneration
-                || mActivity.isActivityUnavailable()) {
+                || mHost.isActivityUnavailable()) {
             return;
         }
         if (!requestedDisplayKey.equals(resolveProfileKey())
@@ -381,7 +383,7 @@ final class DisplayProfileController {
             final String monitorKey) {
         if (monitorKey == null
                 || monitorKey.equals(mMonitorProfileKey)
-                || mActivity.isActivityUnavailable()
+                || mHost.isActivityUnavailable()
                 || !requestedDisplayKey.equals(mProfileDisplayKey)) {
             return;
         }
@@ -405,7 +407,7 @@ final class DisplayProfileController {
         mMonitorProfileKey = monitorKey;
         mProfile = resolved;
         Log.i(TAG, "Activated monitor profile " + monitorKey);
-        mActivity.onMonitorProfileResolved(previousDpi, resolved.dpi);
+        mHost.onMonitorProfileResolved(previousDpi, resolved.dpi);
     }
 
     private static int initialDpi(final Display display) {
@@ -463,6 +465,22 @@ final class DisplayProfileController {
             this.key = key;
             this.dpi = dpi;
         }
+    }
+
+    interface Host {
+        boolean isActivityUnavailable();
+
+        void runOnUiThread(Runnable action);
+
+        Display getDisplay();
+
+        int getDesktopProfileDisplayId();
+
+        String getDesktopProfileKey();
+
+        void onDisplayProfileReset();
+
+        void onMonitorProfileResolved(int previousDpi, int resolvedDpi);
     }
 
 }

@@ -40,7 +40,9 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class DesktopShellActivity extends Activity
-        implements MagicDeskSessionHost {
+        implements MagicDeskSessionHost,
+        DisplayProfileController.Host,
+        DesktopHostWindowController.Host {
     private static final String TAG = "MagicDesk";
     static final String HARDWARE_LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
@@ -211,7 +213,7 @@ public abstract class DesktopShellActivity extends Activity
                         "OVERLAY-001",
                         getString(R.string.status_overlay_panel_unavailable)));
         mNotifications = new NotificationCenterController(this, mUi);
-        mDisplayProfiles = new DisplayProfileController(this);
+        mDisplayProfiles = new DisplayProfileController(this, this);
         mStartMenuController = new StartMenuController(this, mUi);
         mTaskOverviewController = new TaskOverviewController(this, mUi);
         mContextMenuController = new DesktopContextMenuController(this, mUi);
@@ -461,7 +463,8 @@ public abstract class DesktopShellActivity extends Activity
         return true;
     }
 
-    boolean isActivityUnavailable() {
+    @Override
+    public boolean isActivityUnavailable() {
         return isFinishing() || isDestroyed();
     }
 
@@ -1091,7 +1094,8 @@ public abstract class DesktopShellActivity extends Activity
         void run(String name);
     }
 
-    void refreshTaskSnapshot() {
+    @Override
+    public void refreshTaskSnapshot() {
         mTaskSnapshots.refresh();
     }
 
@@ -1357,12 +1361,14 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayProfiles.save();
     }
 
-    void onDisplayProfileReset() {
+    @Override
+    public void onDisplayProfileReset() {
         mWorkspaceAppController.resetProfileState();
         mDesktopWorkspaceController.resetDisplayProfile();
     }
 
-    void onMonitorProfileResolved(
+    @Override
+    public void onMonitorProfileResolved(
             final int previousDpi, final int resolvedDpi) {
         onDisplayProfileReset();
         renderApps();
@@ -1449,17 +1455,25 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openDiagnostics();
     }
 
-    int getCurrentDisplayId() {
+    @Override
+    public int getCurrentDisplayId() {
         final Display display = getWindowManager().getDefaultDisplay();
         return display == null ? 0 : display.getDisplayId();
     }
 
-    int getDesktopProfileDisplayId() {
+    @Override
+    public int getDesktopProfileDisplayId() {
         return mDesktopProfileDisplayId;
     }
 
-    String getDesktopProfileKey() {
+    @Override
+    public String getDesktopProfileKey() {
         return mDesktopProfileKey;
+    }
+
+    @Override
+    public Rect getMaximumWindowBounds() {
+        return getWindowManager().getMaximumWindowMetrics().getBounds();
     }
 
     static void setLaunchWindowingMode(

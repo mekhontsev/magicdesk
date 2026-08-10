@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.WindowMetrics;
 
 /**
  * Keeps MagicDesk's desktop host in a translucent fullscreen task.
@@ -18,7 +17,7 @@ final class DesktopHostWindowController {
     private static final int MAX_ATTEMPTS = 3;
     private static final long RETRY_DELAY_MS = 500L;
 
-    private final DesktopShellActivity mActivity;
+    private final Host mHost;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Runnable mRetry = this::ensureConfigured;
     private int mGeneration;
@@ -27,12 +26,12 @@ final class DesktopHostWindowController {
     private boolean mReady;
     private boolean mConfigurationApplied;
 
-    DesktopHostWindowController(final DesktopShellActivity activity) {
-        mActivity = activity;
+    DesktopHostWindowController(final Host host) {
+        mHost = host;
     }
 
     void ensureConfigured() {
-        if (mActivity.isActivityUnavailable()) {
+        if (mHost.isActivityUnavailable()) {
             return;
         }
         if (mPending || mAttempts >= MAX_ATTEMPTS
@@ -44,11 +43,11 @@ final class DesktopHostWindowController {
         mPending = true;
         mAttempts++;
         final int generation = ++mGeneration;
-        final int displayId = mActivity.getCurrentDisplayId();
-        final int taskId = mActivity.getTaskId();
+        final int displayId = mHost.getCurrentDisplayId();
+        final int taskId = mHost.getTaskId();
         final Rect hostBounds = readHostBounds();
         TaskRepository.load(displayId, snapshot ->
-                mActivity.runOnUiThread(() -> {
+                mHost.runOnUiThread(() -> {
                     if (!isCurrent(generation)) {
                         finishIfCurrent(generation);
                         return;
@@ -72,7 +71,7 @@ final class DesktopHostWindowController {
                         return;
                     }
                     TaskRepository.configureDesktopHost(task, result ->
-                            mActivity.runOnUiThread(() -> {
+                            mHost.runOnUiThread(() -> {
                                 if (!isCurrent(generation)) {
                                     return;
                                 }
@@ -87,7 +86,7 @@ final class DesktopHostWindowController {
                                     return;
                                 }
                                 mConfigurationApplied = true;
-                                mActivity.refreshTaskSnapshot();
+                                mHost.refreshTaskSnapshot();
                                 mMainHandler.removeCallbacks(mRetry);
                                 mMainHandler.postDelayed(
                                         mRetry, RETRY_DELAY_MS);
@@ -118,7 +117,7 @@ final class DesktopHostWindowController {
     }
 
     private boolean isCurrent(final int generation) {
-        return generation == mGeneration && !mActivity.isActivityUnavailable();
+        return generation == mGeneration && !mHost.isActivityUnavailable();
     }
 
     private void finishIfCurrent(final int generation) {
@@ -148,9 +147,7 @@ final class DesktopHostWindowController {
     }
 
     private Rect readHostBounds() {
-        final WindowMetrics metrics = mActivity.getWindowManager()
-                .getMaximumWindowMetrics();
-        final Rect bounds = metrics.getBounds();
+        final Rect bounds = mHost.getMaximumWindowBounds();
         return new Rect(0, 0,
                 Math.max(1, bounds.width()),
                 Math.max(1, bounds.height()));
@@ -161,5 +158,19 @@ final class DesktopHostWindowController {
                 DIAGNOSTIC_CODE,
                 "MagicDesk could not configure its desktop host",
                 detail);
+    }
+
+    interface Host {
+        boolean isActivityUnavailable();
+
+        int getCurrentDisplayId();
+
+        int getTaskId();
+
+        Rect getMaximumWindowBounds();
+
+        void runOnUiThread(Runnable action);
+
+        void refreshTaskSnapshot();
     }
 }
