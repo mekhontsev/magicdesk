@@ -9,29 +9,28 @@ final class DisplayProfileStore {
     private DisplayProfileStore() {
     }
 
-    static Profile load(final String monitorKey,
+    static Profile load(final String key,
             final int defaultDpi) {
         final Profile stored = DesktopStateStore.read(state ->
-                copy(state.displayProfiles.get(monitorKey)), null);
+                copy(state.displayProfiles.get(key)), null);
         if (stored != null) {
             return stored;
         }
 
-        final Profile profile = new Profile(monitorKey);
+        final Profile profile = new Profile(key);
         profile.dpi = defaultDpi;
         profile.dpiExplicit = false;
-        save(profile);
         return profile;
     }
 
     static boolean save(final Profile profile) {
-        if (profile == null || profile.monitorKey == null
-                || profile.monitorKey.length() == 0) {
+        if (profile == null || profile.key == null
+                || profile.key.length() == 0) {
             return false;
         }
         final Profile snapshot = copy(profile);
         return DesktopStateStore.update(state ->
-                state.displayProfiles.put(snapshot.monitorKey, snapshot));
+                state.displayProfiles.put(snapshot.key, snapshot));
     }
 
     static void removePlacementEverywhere(
@@ -65,45 +64,15 @@ final class DisplayProfileStore {
         });
     }
 
-    static boolean exists(final String monitorKey) {
-        return DesktopStateStore.read(
-                state -> state.displayProfiles.containsKey(monitorKey),
-                false);
-    }
-
-    static Integer readStoredDpi(
-            final String monitorKey) {
-        final Profile profile = DesktopStateStore.read(
-                state -> state.displayProfiles.get(monitorKey), null);
-        return profile == null ? null : Integer.valueOf(profile.dpi);
-    }
-
-    static String resolveMonitorAlias(final String displayKey) {
-        if (displayKey == null || displayKey.length() == 0) {
-            return displayKey;
-        }
-        final String monitorKey = DesktopStateStore.read(
-                state -> state.displayAliases.get(displayKey), null);
-        return monitorKey == null ? displayKey : monitorKey;
-    }
-
-    static void saveMonitorAlias(final String displayKey,
-            final String monitorKey) {
-        if (displayKey == null || displayKey.length() == 0
-                || monitorKey == null || monitorKey.length() == 0) {
-            return;
-        }
-        DesktopStateStore.update(state ->
-                state.displayAliases.put(displayKey, monitorKey));
-    }
-
     static Profile copy(final Profile source) {
         if (source == null) {
             return null;
         }
-        final Profile copy = new Profile(source.monitorKey);
+        final Profile copy = new Profile(source.key);
         copy.dpi = source.dpi;
         copy.dpiExplicit = source.dpiExplicit;
+        copy.fillDisplay = source.fillDisplay;
+        copy.outputTiming = source.outputTiming;
         copy.workspaceBounds.left = source.workspaceBounds.left;
         copy.workspaceBounds.top = source.workspaceBounds.top;
         copy.workspaceBounds.right = source.workspaceBounds.right;
@@ -114,16 +83,18 @@ final class DisplayProfileStore {
     }
 
     static final class Profile {
-        final String monitorKey;
+        final String key;
         int dpi;
         boolean dpiExplicit;
+        boolean fillDisplay = true;
+        String outputTiming;
         Rect workspaceBounds = new Rect();
         String workspaceBoundsTarget;
         final Map<String, DesktopPlacement> placements =
                 new LinkedHashMap<>();
 
-        Profile(final String monitorKey) {
-            this.monitorKey = monitorKey;
+        Profile(final String key) {
+            this.key = key;
         }
     }
 }

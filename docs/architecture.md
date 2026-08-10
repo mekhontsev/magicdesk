@@ -197,7 +197,7 @@ runtime integration and are not distributed through the same release path.
   `FileObserver`. `DesktopWidgetController` owns the process-wide
   `AppWidgetHost` lifecycle and widget binding/configuration.
 - `DesktopStateStore` is the single typed model for persistent desktop content,
-  taskbar pins, monitor aliases, and display profiles. `DesktopContentStore`,
+  taskbar pins, and display profiles. `DesktopContentStore`,
   `DesktopPreferences`, and `DisplayProfileStore` are narrow domain facades over
   that model. `DesktopPlacementEngine` is the platform-independent collision
   and reflow policy.
@@ -398,14 +398,14 @@ The firmware launcher is unusually destructive here: three crashes within
 roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
 databases, preferences, and files. MagicDesk never edits launcher data.
 
-Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
-with a port/name/resolution fallback until EDID is available. Profiles store
-DPI, sparse desktop-item placements, widget spans, and confirmed window
-geometry. Files under `/storage/emulated/0/Desktop`, system-managed widget
-bindings, taskbar pins, desktop shortcuts, the kept workspace application, and
-recent-app history are global across displays, so the same desktop content
-follows the user between the phone, a tablet, and every monitor while adapting
-to each viewport.
+Each desktop target has a profile keyed by its Android display identity, never
+by the transient logical display ID. Profiles store DPI, wired output timing,
+the Fill display policy, sparse desktop-item placements, widget spans, and
+confirmed window geometry. Files under `/storage/emulated/0/Desktop`,
+system-managed widget bindings, taskbar pins, desktop shortcuts, the kept
+workspace application, and recent-app history are global across displays, so
+the same desktop content follows the user between the phone, a tablet, and
+every monitor while adapting to each viewport.
 
 Persistent desktop configuration has one source of truth:
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`. The shell UserService
@@ -481,18 +481,20 @@ desktop on display 0.
 ### Output timing and fill policy
 
 Before activation, the phone control panel reads Nubia's current and available
-DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. The selector
-shows the resolution and refresh rate advertised by the connected sink. A
-saved timing is used only while it remains in that list; otherwise MagicDesk
-chooses the highest native resolution, the highest refresh rate at that
-resolution, and avoids a cinema-aspect duplicate when a normal timing exists.
+DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. It offers the
+sink's native resolution and the resolution classes supported by Nubia's
+desktop projection service, including every advertised refresh rate for those
+resolutions. A saved timing is used only while it remains in that list;
+otherwise MagicDesk chooses the highest native resolution, the highest refresh
+rate at that resolution, and avoids a cinema-aspect duplicate when a normal
+timing exists.
 
 The vendor node is an optional capability rather than a desktop prerequisite.
 If shell UID 2000 cannot open it, `NubiaHdmiModeController` caches that stable
-firmware-level denial for the process lifetime and exposes Android's current
-`Display.Mode` as a read-only system selection. Session preparation still uses
-that physical size for projection geometry, while timing changes remain under
-the stock projection UI. Callers do not implement separate model checks or
+firmware-level denial for the process lifetime and falls back to the modes
+reported by Android `DisplayManager`. It applies a selected public mode through
+`cmd display` where the firmware honors that API and clears a failed request
+after a settlement timeout. Callers do not implement separate model checks or
 retry a permanently denied node on every control-panel refresh.
 
 Changing the physical timing uses Nubia's own sequence: write the selected
@@ -502,11 +504,13 @@ display id is resolved again afterward because the firmware can recreate it
 during this transition. The operation runs before the virtual desktop is
 requested, so no MagicDesk task is attached to a disappearing display.
 
-**Fill display** maps to Nubia's projection-fit setting. MagicDesk temporarily
-enables the vendor fit bypass while preparing the session, writes the fit and
-resolution-class values consumed by the projection service, and restores the
-previous bypass property afterward. Output timing changes real HDMI/DisplayPort
-geometry; desktop DPI remains an independent per-monitor UI scale.
+Output timing and **Fill display** are stored in the same per-display profile
+as DPI. **Fill display** maps to Nubia's projection-fit setting. MagicDesk
+temporarily enables the vendor fit bypass while preparing the session, writes
+the fit and resolution-class values consumed by the projection service, and
+restores the previous bypass property afterward. Output timing changes real
+HDMI/DisplayPort geometry; desktop DPI remains an independent per-monitor UI
+scale.
 
 ### Caption visibility
 

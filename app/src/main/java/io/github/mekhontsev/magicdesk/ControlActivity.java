@@ -43,6 +43,7 @@ public final class ControlActivity extends Activity
     private int mDisplayProbeGeneration;
     private int mWiredDisplayId = Display.INVALID_DISPLAY;
     private int mWirelessDisplayId = Display.INVALID_DISPLAY;
+    private DisplayProfileStore.Profile mExternalDisplayProfile;
     private NubiaHdmiModeController.Selection mExternalModeSelection;
     private String mExternalDisplaySummary;
     private String mStatus;
@@ -290,6 +291,7 @@ public final class ControlActivity extends Activity
     }
 
     private void launchWirelessDesktop(final int displayId) {
+        mExternalDisplayProfile = null;
         mExternalModeSelection = null;
         mExternalDisplaySummary = describeExternalDisplay(displayId, null);
         mStatus = getString(R.string.status_wireless_desktop_starting);
@@ -311,13 +313,21 @@ public final class ControlActivity extends Activity
 
     @Override
     public void setFillExternalDisplay(final boolean enabled) {
-        ExternalDisplayLaunchSettings.setFillDisplay(this, enabled);
+        if (mExternalDisplayProfile == null) {
+            return;
+        }
+        mExternalDisplayProfile.fillDisplay = enabled;
+        DisplayProfileStore.save(mExternalDisplayProfile);
         refresh();
     }
 
     @Override
     public void setExternalOutputTiming(final String outputTiming) {
-        ExternalDisplayLaunchSettings.setOutputTiming(this, outputTiming);
+        if (mExternalDisplayProfile == null) {
+            return;
+        }
+        mExternalDisplayProfile.outputTiming = outputTiming;
+        DisplayProfileStore.save(mExternalDisplayProfile);
         if (mExternalModeSelection != null) {
             mExternalModeSelection =
                     mExternalModeSelection.withPreferredTiming(outputTiming);
@@ -441,8 +451,6 @@ public final class ControlActivity extends Activity
                         || activeDesktopDisplayId > Display.DEFAULT_DISPLAY;
         final int externalDesktopDisplayId = consoleModeActive
                 ? consoleDisplayId : activeDesktopDisplayId;
-        final ExternalDisplayLaunchSettings.Config displayConfig =
-                ExternalDisplayLaunchSettings.load(this);
         mPanel.render(new PhoneControlPanelController.State(
                 externalDesktopActive,
                 consoleModeActive,
@@ -452,7 +460,8 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady(),
                 ConsoleModeState.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
-                displayConfig.fillDisplay,
+                mExternalDisplayProfile == null
+                        || mExternalDisplayProfile.fillDisplay,
                 mExternalModeSelection,
                 mExternalDisplaySummary,
                 mExternalDisplayState,
@@ -551,11 +560,12 @@ public final class ControlActivity extends Activity
     private void startExternalDisplayProbe() {
         final int generation = mDisplayProbeGeneration;
         ConsoleModeSwitcher.probeExternalDisplay((
-                wiredDisplayId, wirelessDisplayId, selection) ->
+                wiredDisplayId, wirelessDisplayId, profile, selection) ->
                 runOnUiThread(() -> finishExternalDisplayProbe(
                         generation,
                         wiredDisplayId,
                         wirelessDisplayId,
+                        profile,
                         selection)));
     }
 
@@ -563,6 +573,7 @@ public final class ControlActivity extends Activity
             final int generation,
             final int wiredDisplayId,
             final int wirelessDisplayId,
+            final DisplayProfileStore.Profile displayProfile,
             final NubiaHdmiModeController.Selection selection) {
         if (generation != mDisplayProbeGeneration
                 || isActivityUnavailable()) {
@@ -577,9 +588,12 @@ public final class ControlActivity extends Activity
         final boolean connected = wiredConnected || wirelessConnected;
         final int activeDesktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final int selectedDisplayId = activeDesktopDisplayId == wirelessDisplayId
+        final int selectedDisplayId = wirelessConnected
+                && activeDesktopDisplayId == wirelessDisplayId
                 ? wirelessDisplayId
                 : wiredConnected ? wiredDisplayId : wirelessDisplayId;
+        mExternalDisplayProfile = selectedDisplayId == wiredDisplayId
+                ? displayProfile : null;
         mExternalModeSelection = selectedDisplayId == wiredDisplayId
                 ? selection : null;
         mExternalDisplaySummary = connected

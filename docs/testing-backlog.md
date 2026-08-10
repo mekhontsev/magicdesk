@@ -83,7 +83,7 @@ retired prototypes are listed separately and are not current product modes.
   create one display-sized desktop host, and remove the seed.
 - [x] Resolve changing physical and virtual display IDs after disconnect,
   reconnect, and reboot. No numeric display ID is persisted.
-- [x] Verify EDID-specific profiles and recommended density, including
+- [x] Verify display-identity profiles and recommended density, including
   1920x1080 at 160 DPI.
 - [x] Read the sink-provided output timing list, select resolution and refresh
   rate before desktop activation, and survive the resulting physical-display

@@ -19,12 +19,14 @@ final class NubiaExternalDisplayModeController {
 
     static PreparedMode prepare(
             final Context context,
-            final int physicalDisplayId) throws IOException {
-        final ExternalDisplayLaunchSettings.Config config =
-                ExternalDisplayLaunchSettings.load(context);
+            final int physicalDisplayId,
+            final DisplayProfileStore.Profile profile) throws IOException {
+        final boolean fillDisplay = profile == null || profile.fillDisplay;
+        final String outputTiming = profile == null
+                ? null : profile.outputTiming;
         final NubiaHdmiModeController.Selection selection =
                 NubiaHdmiModeController.readSelection(
-                        context, physicalDisplayId, config.outputTiming);
+                        context, physicalDisplayId, outputTiming);
         final NubiaHdmiModeController.Mode requestedMode =
                 selection == null ? null : selection.target;
         final int preparedDisplayId = NubiaHdmiModeController.applyIfNeeded(
@@ -35,9 +37,8 @@ final class NubiaExternalDisplayModeController {
         final int height = requestedMode != null
                 ? requestedMode.height
                 : 0;
-        final int sizeType =
-                ExternalDisplayLaunchSettings.resolveVendorSizeType(
-                        width, height);
+        final int sizeType = NubiaHdmiModeController.resolveVendorSizeType(
+                width, height);
         final String previousBypass = readBypass();
         final PreparedMode prepared = new PreparedMode(
                 previousBypass, preparedDisplayId);
@@ -45,8 +46,8 @@ final class NubiaExternalDisplayModeController {
             writeBypass("1");
             ShellAccess.run(
                     SETTINGS + " put global " + FIT_SETTING + " "
-                            + (config.fillDisplay ? "1" : "0"));
-            if (sizeType != ExternalDisplayLaunchSettings.VENDOR_SIZE_UNCHANGED) {
+                            + (fillDisplay ? "1" : "0"));
+            if (sizeType != NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED) {
                 ShellAccess.run(
                         SETTINGS + " put global " + SIZE_SETTING + " "
                                 + sizeType);
@@ -56,8 +57,8 @@ final class NubiaExternalDisplayModeController {
                     + " physical=" + width + "x" + height
                     + (requestedMode == null
                             ? "" : "@" + requestedMode.refreshRate)
-                    + " fill=" + config.fillDisplay
-                    + " output=" + config.outputTiming
+                    + " fill=" + fillDisplay
+                    + " output=" + outputTiming
                     + " vendorSize=" + sizeType);
             return prepared;
         } catch (IOException | RuntimeException error) {

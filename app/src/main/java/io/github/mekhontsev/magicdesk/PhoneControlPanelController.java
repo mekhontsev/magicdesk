@@ -416,7 +416,8 @@ final class PhoneControlPanelController {
                 ? Collections.emptyList() : selection.availableModes;
         final boolean configurable = selection != null
                 && selection.configurable;
-        if (!sameModes(mOutputModes, modes)
+        if (mOutputModeAdapter.getCount() == 0
+                || !sameModes(mOutputModes, modes)
                 || mOutputModesConfigurable != configurable) {
             mOutputModes = modes;
             mOutputModesConfigurable = configurable;

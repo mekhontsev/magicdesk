@@ -46,6 +46,7 @@ final class ConsoleModeSwitcher {
         void onComplete(
                 int wiredDisplayId,
                 int wirelessDisplayId,
+                DisplayProfileStore.Profile displayProfile,
                 NubiaHdmiModeController.Selection modeSelection);
     }
 
@@ -178,17 +179,24 @@ final class ConsoleModeSwitcher {
             final int wirelessDisplayId =
                     ConsoleDisplayController.findWirelessDisplayId();
             NubiaHdmiModeController.Selection selection = null;
+            DisplayProfileStore.Profile displayProfile = null;
             if (wiredDisplayId > 0) {
                 final android.content.Context context =
                         MagicDeskApplication.applicationContext();
-                final ExternalDisplayLaunchSettings.Config config =
-                        ExternalDisplayLaunchSettings.load(context);
+                displayProfile = DisplayProfileController
+                        .prepareExternalProfile(context, wiredDisplayId);
                 selection = NubiaHdmiModeController.readSelection(
-                        context, wiredDisplayId, config.outputTiming);
+                        context,
+                        wiredDisplayId,
+                        displayProfile == null
+                                ? null : displayProfile.outputTiming);
             }
             if (callback != null) {
                 callback.onComplete(
-                        wiredDisplayId, wirelessDisplayId, selection);
+                        wiredDisplayId,
+                        wirelessDisplayId,
+                        displayProfile,
+                        selection);
             }
         });
     }

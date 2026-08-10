@@ -17,6 +17,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class NubiaHdmiModeController {
+    static final int VENDOR_SIZE_UNCHANGED = -1;
+    static final int VENDOR_SIZE_1080 = 0;
+    static final int VENDOR_SIZE_1440 = 1;
+    static final int VENDOR_SIZE_2160 = 2;
+
     private static final String TAG = "MagicDeskHdmiMode";
     static final String EDID_MODES =
             "/sys/kernel/lcd_enhance/edid_modes";
@@ -37,19 +42,21 @@ final class NubiaHdmiModeController {
             final Context context,
             final int displayId,
             final String preferredTiming) {
+        final Selection publicSelection =
+                publicSelection(context, displayId, preferredTiming);
         final String cachedFailure = sPermanentReadFailure;
         if (cachedFailure != null) {
-            return systemSelection(context, displayId, cachedFailure);
+            return fallbackSelection(publicSelection, cachedFailure);
         }
         try {
             final String output = ShellAccess.run(
                     "/system/bin/cat " + EDID_MODES);
             final Selection selection = select(
                     preferredTiming, parseModes(output));
-            return selection == null
-                    ? systemSelection(
-                            context, displayId, "vendor mode list is empty")
-                    : selection;
+            return selection != null
+                    ? selection
+                    : fallbackSelection(
+                            publicSelection, "vendor mode list is empty");
         } catch (IOException | RuntimeException error) {
             final String detail = usefulMessage(error);
             if (isPermanentReadFailure(detail)) {
@@ -65,8 +72,16 @@ final class NubiaHdmiModeController {
                     "Could not read the external display mode list",
                     detail,
                     error);
-            return systemSelection(context, displayId, detail);
+            return fallbackSelection(publicSelection, detail);
         }
+    }
+
+    private static Selection fallbackSelection(
+            final Selection publicSelection,
+            final String detail) {
+        return publicSelection != null
+                ? publicSelection
+                : systemSelection((Mode) null, detail);
     }
 
     static int applyIfNeeded(
@@ -80,6 +95,26 @@ final class NubiaHdmiModeController {
         }
 
         final Mode target = selection.target;
+        if (selection.controlPath == ControlPath.SYSTEM) {
+            try {
+                ShellAccess.run("/system/bin/cmd display "
+                        + "set-user-preferred-display-mode "
+                        + target.width + " " + target.height + " "
+                        + target.refreshRate + " " + displayId);
+                final int settledDisplayId = waitForMode(context, target);
+                if (settledDisplayId <= Display.DEFAULT_DISPLAY) {
+                    throw new IOException(
+                            "display mode did not settle at " + target);
+                }
+                Log.i(TAG, "applied Android display mode " + target
+                        + " display=" + displayId + "->" + settledDisplayId);
+                return settledDisplayId;
+            } catch (IOException | RuntimeException error) {
+                clearSystemModePreference(displayId, error);
+                throw error;
+            }
+        }
+
         ShellAccess.run("/system/bin/printf '%s' '"
                 + target.width + " " + target.height + " "
                 + target.refreshRate + " " + target.pictureAspect
@@ -153,7 +188,9 @@ final class NubiaHdmiModeController {
             return null;
         }
         final Mode current = modes.get(0);
-        final List<Mode> availableModes = normalizeModes(modes);
+        final Mode nativeMode = bestNativeResolution(normalizeModes(modes));
+        final List<Mode> availableModes = normalizeModes(
+                consoleCompatibleModes(nativeMode, modes));
         Mode target = findMode(availableModes, preferredTiming);
         if (target == null) {
             target = bestNativeResolution(availableModes);
@@ -161,24 +198,99 @@ final class NubiaHdmiModeController {
         return new Selection(current, target, availableModes);
     }
 
-    private static Selection systemSelection(
+    static int resolveVendorSizeType(
+            final int physicalWidth,
+            final int physicalHeight) {
+        final int longSide = Math.max(physicalWidth, physicalHeight);
+        final int shortSide = Math.min(physicalWidth, physicalHeight);
+        if (longSide == 1920 && shortSide == 1080) {
+            return VENDOR_SIZE_1080;
+        }
+        if (longSide == 2560 && shortSide == 1440) {
+            return VENDOR_SIZE_1440;
+        }
+        if (longSide >= 3840 && shortSide == 2160) {
+            return VENDOR_SIZE_2160;
+        }
+        return VENDOR_SIZE_UNCHANGED;
+    }
+
+    private static List<Mode> consoleCompatibleModes(
+            final Mode nativeMode,
+            final List<Mode> modes) {
+        final ArrayList<Mode> compatible = new ArrayList<>();
+        for (final Mode mode : modes) {
+            if (mode.sameResolution(nativeMode)
+                    || resolveVendorSizeType(mode.width, mode.height)
+                            != VENDOR_SIZE_UNCHANGED) {
+                compatible.add(mode);
+            }
+        }
+        return compatible;
+    }
+
+    private static Selection publicSelection(
             final Context context,
             final int displayId,
-            final String detail) {
+            final String preferredTiming) {
         final DisplayManager manager = context == null
                 ? null : context.getSystemService(DisplayManager.class);
         final Display display = manager == null
                 ? null : manager.getDisplay(displayId);
         final Display.Mode displayMode = display == null
                 ? null : display.getMode();
-        final Mode mode = displayMode == null
-                ? null
-                : new Mode(
-                        displayMode.getPhysicalWidth(),
-                        displayMode.getPhysicalHeight(),
-                        Math.max(1, Math.round(displayMode.getRefreshRate())),
-                        0);
-        return systemSelection(mode, detail);
+        if (displayMode == null) {
+            return null;
+        }
+        final Mode current = fromDisplayMode(displayMode);
+        final ArrayList<Mode> modes = new ArrayList<>();
+        for (final Display.Mode mode : display.getSupportedModes()) {
+            final Mode converted = fromDisplayMode(mode);
+            if (converted.isValid()) {
+                modes.add(converted);
+            }
+        }
+        if (modes.isEmpty()) {
+            modes.add(current);
+        }
+        return systemModeSelection(current, modes, preferredTiming);
+    }
+
+    static Selection systemModeSelection(
+            final Mode current,
+            final List<Mode> modes,
+            final String preferredTiming) {
+        final List<Mode> availableModes = normalizeModes(modes);
+        Mode target = findMode(availableModes, preferredTiming);
+        if (target == null) {
+            target = current;
+        }
+        return new Selection(
+                current,
+                target,
+                availableModes,
+                true,
+                "Android DisplayManager",
+                ControlPath.SYSTEM);
+    }
+
+    private static Mode fromDisplayMode(final Display.Mode mode) {
+        return new Mode(
+                mode.getPhysicalWidth(),
+                mode.getPhysicalHeight(),
+                Math.max(1, Math.round(mode.getRefreshRate())),
+                0);
+    }
+
+    private static void clearSystemModePreference(
+            final int displayId,
+            final Throwable originalError) {
+        try {
+            ShellAccess.run("/system/bin/cmd display "
+                    + "clear-user-preferred-display-mode " + displayId);
+        } catch (IOException | RuntimeException cleanupError) {
+            originalError.addSuppressed(cleanupError);
+        }
     }
 
     static Selection systemSelection(
@@ -323,12 +435,19 @@ final class NubiaHdmiModeController {
         final List<Mode> availableModes;
         final boolean configurable;
         final String detail;
+        final ControlPath controlPath;
 
         Selection(
                 final Mode current,
                 final Mode target,
                 final List<Mode> availableModes) {
-            this(current, target, availableModes, true, "");
+            this(
+                    current,
+                    target,
+                    availableModes,
+                    true,
+                    "",
+                    ControlPath.VENDOR);
         }
 
         Selection(
@@ -337,11 +456,28 @@ final class NubiaHdmiModeController {
                 final List<Mode> availableModes,
                 final boolean configurable,
                 final String detail) {
+            this(
+                    current,
+                    target,
+                    availableModes,
+                    configurable,
+                    detail,
+                    ControlPath.NONE);
+        }
+
+        Selection(
+                final Mode current,
+                final Mode target,
+                final List<Mode> availableModes,
+                final boolean configurable,
+                final String detail,
+                final ControlPath controlPath) {
             this.current = current;
             this.target = target;
             this.availableModes = availableModes;
             this.configurable = configurable;
             this.detail = detail == null ? "" : detail;
+            this.controlPath = controlPath;
         }
 
         Selection withPreferredTiming(final String preferredTiming) {
@@ -350,11 +486,23 @@ final class NubiaHdmiModeController {
             }
             Mode preferred = findMode(availableModes, preferredTiming);
             if (preferred == null) {
-                preferred = bestNativeResolution(availableModes);
+                preferred = controlPath == ControlPath.SYSTEM
+                        ? current : bestNativeResolution(availableModes);
             }
             return new Selection(
-                    current, preferred, availableModes, true, detail);
+                    current,
+                    preferred,
+                    availableModes,
+                    true,
+                    detail,
+                    controlPath);
         }
+    }
+
+    private enum ControlPath {
+        SYSTEM,
+        VENDOR,
+        NONE
     }
 
     static final class Mode {
@@ -385,6 +533,12 @@ final class NubiaHdmiModeController {
                     && height == other.height
                     && refreshRate == other.refreshRate
                     && pictureAspect == other.pictureAspect;
+        }
+
+        boolean sameResolution(final Mode other) {
+            return other != null
+                    && width == other.width
+                    && height == other.height;
         }
 
         String timingKey() {

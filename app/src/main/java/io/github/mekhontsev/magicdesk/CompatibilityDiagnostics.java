@@ -324,14 +324,22 @@ final class CompatibilityDiagnostics {
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "app_mirror_displayid"))
                 .append('\n');
-        final ExternalDisplayLaunchSettings.Config displayConfig =
-                ExternalDisplayLaunchSettings.load(context);
-        report.append("External display launch: fill=")
-                .append(displayConfig.fillDisplay)
-                .append(", output=")
-                .append(displayConfig.outputTiming == null
-                        ? "native" : displayConfig.outputTiming)
-                .append('\n')
+        final int physicalDisplayId =
+                ConsoleDisplayController.findExternalDisplayId();
+        final DisplayProfileStore.Profile displayProfile =
+                DisplayProfileController.prepareExternalProfile(
+                        context, physicalDisplayId);
+        report.append("External display profile: ");
+        if (displayProfile == null) {
+            report.append("not connected");
+        } else {
+            report.append("key=").append(displayProfile.key)
+                    .append(", fill=").append(displayProfile.fillDisplay)
+                    .append(", output=")
+                    .append(displayProfile.outputTiming == null
+                            ? "system" : displayProfile.outputTiming);
+        }
+        report.append('\n')
                 .append("Nubia projection settings: fit=")
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "app_mirror_fit_status"))
@@ -378,6 +386,23 @@ final class CompatibilityDiagnostics {
                         .append(mode.getPhysicalHeight())
                         .append('@')
                         .append(Math.round(mode.getRefreshRate()));
+            }
+            final Display.Mode[] supportedModes = display.getSupportedModes();
+            if (supportedModes.length > 0) {
+                report.append(" supportedModes=[");
+                for (int index = 0; index < supportedModes.length; index++) {
+                    if (index > 0) {
+                        report.append(',');
+                    }
+                    final Display.Mode supportedMode = supportedModes[index];
+                    report.append(supportedMode.getPhysicalWidth())
+                            .append('x')
+                            .append(supportedMode.getPhysicalHeight())
+                            .append('@')
+                            .append(Math.round(
+                                    supportedMode.getRefreshRate()));
+                }
+                report.append(']');
             }
             report
                     .append('\n');

@@ -3,11 +3,13 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 public final class NubiaHdmiModeControllerTest {
@@ -43,6 +45,81 @@ public final class NubiaHdmiModeControllerTest {
         assertSame(mode, selection.current);
         assertSame(mode, selection.target);
         assertSame(selection, selection.withPreferredTiming("3840x2160@60"));
+    }
+
+    @Test
+    public void publicModesUseSavedTimingAndDefaultToCurrent() {
+        final NubiaHdmiModeController.Mode current =
+                new NubiaHdmiModeController.Mode(1920, 1080, 60, 0);
+        final NubiaHdmiModeController.Mode faster =
+                new NubiaHdmiModeController.Mode(1920, 1080, 120, 0);
+
+        final NubiaHdmiModeController.Selection selected =
+                NubiaHdmiModeController.systemModeSelection(
+                        current,
+                        Arrays.asList(current, faster),
+                        faster.timingKey());
+        final NubiaHdmiModeController.Selection invalid =
+                NubiaHdmiModeController.systemModeSelection(
+                        current,
+                        Arrays.asList(current, faster),
+                        "3840x2160@60");
+
+        assertTrue(selected.configurable);
+        assertSame(faster, selected.target);
+        assertSame(current, invalid.target);
+    }
+
+    @Test
+    public void mapsOnlyNubiaConsoleResolutionPresets() {
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_1080,
+                resolveVendorSize(1920, 1080));
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_1440,
+                resolveVendorSize(2560, 1440));
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_2160,
+                resolveVendorSize(3840, 2160));
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_2160,
+                resolveVendorSize(4096, 2160));
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
+                resolveVendorSize(1920, 1200));
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
+                resolveVendorSize(1280, 720));
+    }
+
+    @Test
+    public void vendorListKeepsNativeResolutionAndConsolePresets() {
+        final NubiaHdmiModeController.Selection selection = select(
+                null,
+                "1920x1200 120 0\n"
+                        + "1920x1200 60 0\n"
+                        + "1920x1080 120 2\n"
+                        + "1280x720 60 2\n"
+                        + "640x480 60 1\n");
+
+        assertEquals(3, selection.availableModes.size());
+        assertMode(selection.availableModes.get(0), 1920, 1200, 120, 0);
+        assertMode(selection.availableModes.get(1), 1920, 1200, 60, 0);
+        assertMode(selection.availableModes.get(2), 1920, 1080, 120, 2);
+    }
+
+    @Test
+    public void temporaryLowResolutionIsNotOfferedForConsoleMode() {
+        final NubiaHdmiModeController.Selection selection = select(
+                null,
+                "1280x720 60 2\n"
+                        + "1920x1080 120 2\n"
+                        + "1280x720 60 2\n"
+                        + "640x480 60 1\n");
+
+        assertEquals(1, selection.availableModes.size());
+        assertMode(selection.availableModes.get(0), 1920, 1080, 120, 2);
+        assertMode(selection.target, 1920, 1080, 120, 2);
     }
 
     @Test
@@ -87,11 +164,10 @@ public final class NubiaHdmiModeControllerTest {
     public void duplicateTimingsUseTheVendorPreferredAspect() {
         final NubiaHdmiModeController.Selection selection = select(
                 "1280x720@60",
-                "1920x1080 60 2\n"
-                        + "1280x720 60 0\n"
+                "1280x720 60 0\n"
                         + "1280x720 60 2\n");
 
-        assertEquals(2, selection.availableModes.size());
+        assertEquals(1, selection.availableModes.size());
         assertMode(selection.target, 1280, 720, 60, 2);
     }
 
@@ -101,6 +177,12 @@ public final class NubiaHdmiModeControllerTest {
         return NubiaHdmiModeController.select(
                 preferredTiming,
                 NubiaHdmiModeController.parseModes(modes));
+    }
+
+    private static int resolveVendorSize(
+            final int width,
+            final int height) {
+        return NubiaHdmiModeController.resolveVendorSizeType(width, height);
     }
 
     private static void assertMode(

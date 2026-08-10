@@ -529,7 +529,6 @@ public abstract class DesktopShellActivity extends Activity
         super.onResume();
         MagicDeskRuntimeService.refreshNotificationIfRunning();
         refreshDisplayProfile();
-        resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
         setTaskbarVisible(true);
         if (mLastApps.isEmpty()) {
@@ -593,7 +592,6 @@ public abstract class DesktopShellActivity extends Activity
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
         refreshDisplayProfile();
-        resolveMonitorIdentityAsync();
         setDesktopWindowFocusable(true);
     }
 
@@ -621,7 +619,6 @@ public abstract class DesktopShellActivity extends Activity
             // A client may leave Android pointer capture orphaned after losing focus.
             getWindow().getDecorView().releasePointerCapture();
             refreshDisplayProfile();
-            resolveMonitorIdentityAsync();
         }
         refreshTaskSnapshot();
     }
@@ -1001,7 +998,6 @@ public abstract class DesktopShellActivity extends Activity
 
     private void renderDesktop(final List<AppItem> apps) {
         refreshDisplayProfile();
-        resolveMonitorIdentityAsync();
         renderDesktopIcons(apps);
         renderTaskbarPins(apps);
         renderStartMenuContent();
@@ -1349,12 +1345,8 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayProfiles.refreshForDisplay();
     }
 
-    private void resolveMonitorIdentityAsync() {
-        mDisplayProfiles.resolveMonitorIdentityAsync();
-    }
-
-    String getMonitorProfileLabel() {
-        return mDisplayProfiles.getMonitorLabel();
+    String getDisplayProfileLabel() {
+        return mDisplayProfiles.getDisplayLabel();
     }
 
     void saveDisplayProfile() {
@@ -1366,20 +1358,6 @@ public abstract class DesktopShellActivity extends Activity
         mWorkspaceAppController.resetProfileState();
         mDesktopWorkspaceController.resetDisplayProfile();
     }
-
-    @Override
-    public void onMonitorProfileResolved(
-            final int previousDpi, final int resolvedDpi) {
-        onDisplayProfileReset();
-        renderApps();
-        refreshDesktopFolder(true);
-        updateDesktopControls();
-        if (resolvedDpi != previousDpi) {
-            mDisplayDensityController.resetApplyState();
-            ensurePreferredConsoleDensity();
-        }
-    }
-
 
     void launchDefault(final AppItem app) {
         mAppTasks.launchDefault(app);

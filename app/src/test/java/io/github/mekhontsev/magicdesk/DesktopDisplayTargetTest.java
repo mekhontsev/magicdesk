@@ -22,11 +22,11 @@ public final class DesktopDisplayTargetTest {
     @Test
     public void profileMetadataIsExplicitAndImmutable() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7)
-                .withProfile(3, "edid:abc");
+                .withProfile(3, "display:wired:local:123");
 
         assertEquals(7, target.displayId);
         assertEquals(3, target.profileDisplayId);
-        assertEquals("edid:abc", target.profileKey);
+        assertEquals("display:wired:local:123", target.profileKey);
     }
 
     @Test(expected = IllegalArgumentException.class)

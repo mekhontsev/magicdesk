@@ -66,9 +66,6 @@ public final class MagicDeskRuntimeService extends Service {
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
-    private ContentObserver mPhoneRotationObserver;
-    private int mLastAccelerometerRotation;
-    private int mLastUserRotation;
     private boolean mDestroyed;
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
@@ -397,7 +394,6 @@ public final class MagicDeskRuntimeService extends Service {
         updateShowImeOverride();
         registerConfigurationReceiver();
         registerConsoleModeObserver();
-        registerPhoneRotationObserver();
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
                     mOwnedDesktopDisplayId,
@@ -492,10 +488,6 @@ public final class MagicDeskRuntimeService extends Service {
         if (mConsoleModeObserver != null) {
             getContentResolver().unregisterContentObserver(mConsoleModeObserver);
             mConsoleModeObserver = null;
-        }
-        if (mPhoneRotationObserver != null) {
-            getContentResolver().unregisterContentObserver(mPhoneRotationObserver);
-            mPhoneRotationObserver = null;
         }
         if (mHandler != null) {
             mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
@@ -639,54 +631,6 @@ public final class MagicDeskRuntimeService extends Service {
                 Settings.Global.getUriFor(CONSOLE_DISPLAY_STATE),
                 false,
                 mConsoleModeObserver);
-    }
-
-    private void registerPhoneRotationObserver() {
-        mLastAccelerometerRotation = readSystemSetting(
-                Settings.System.ACCELEROMETER_ROTATION);
-        mLastUserRotation = readSystemSetting(Settings.System.USER_ROTATION);
-        mPhoneRotationObserver = new ContentObserver(mHandler) {
-            @Override
-            public void onChange(final boolean selfChange) {
-                handlePhoneRotationMaybeChanged();
-            }
-        };
-        getContentResolver().registerContentObserver(
-                Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
-                false,
-                mPhoneRotationObserver);
-        getContentResolver().registerContentObserver(
-                Settings.System.getUriFor(Settings.System.USER_ROTATION),
-                false,
-                mPhoneRotationObserver);
-    }
-
-    private void handlePhoneRotationMaybeChanged() {
-        final int accelerometerRotation = readSystemSetting(
-                Settings.System.ACCELEROMETER_ROTATION);
-        final int userRotation = readSystemSetting(Settings.System.USER_ROTATION);
-        if (accelerometerRotation == mLastAccelerometerRotation
-                && userRotation == mLastUserRotation) {
-            return;
-        }
-        final String detail = "auto=" + mLastAccelerometerRotation
-                + "->" + accelerometerRotation
-                + " user=" + mLastUserRotation + "->" + userRotation
-                + " desktopDisplay=" + mOwnedDesktopDisplayId
-                + " consoleActive=" + mConsoleModeActive
-                + " consoleDisplay=" + mConsoleDisplayId
-                + " removedDisplay=" + mRemovedDesktopDisplayId;
-        Log.i(TAG, "phone rotation setting changed: " + detail);
-        CompatibilityDiagnostics.record(
-                "PHONE-ROTATION-001",
-                "Phone rotation settings changed while MagicDesk was running",
-                detail);
-        mLastAccelerometerRotation = accelerometerRotation;
-        mLastUserRotation = userRotation;
-    }
-
-    private int readSystemSetting(final String name) {
-        return Settings.System.getInt(getContentResolver(), name, -1);
     }
 
     private void handleConsoleStateMaybeChanged() {

@@ -19,4 +19,5 @@ public final class NubiaExternalDisplayModeControllerTest {
         assertFalse(NubiaExternalDisplayModeController.isBooleanProperty(
                 "1; reboot"));
     }
+
 }

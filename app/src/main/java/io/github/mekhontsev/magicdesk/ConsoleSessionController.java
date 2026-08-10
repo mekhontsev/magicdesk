@@ -22,7 +22,7 @@ final class ConsoleSessionController {
         boolean seedStarted = false;
         int physicalDisplayId = -1;
         NubiaExternalDisplayModeController.PreparedMode preparedMode = null;
-        DisplayProfileController.PreparedProfile preparedProfile = null;
+        DisplayProfileStore.Profile displayProfile = null;
         try {
             if (consoleDisplayId <= 0) {
                 physicalDisplayId =
@@ -31,6 +31,10 @@ final class ConsoleSessionController {
                     throw new IOException(
                             "no physical external display was reported");
                 }
+                displayProfile = DisplayProfileController
+                        .prepareExternalProfile(
+                                MagicDeskApplication.applicationContext(),
+                                physicalDisplayId);
                 if (ConsoleDisplayController.isMirrorMode()
                         && !hasVisibleAppTask(0)) {
                     seedStarted = startConsoleSeedTask();
@@ -41,7 +45,8 @@ final class ConsoleSessionController {
                 try {
                     preparedMode = NubiaExternalDisplayModeController.prepare(
                             MagicDeskApplication.applicationContext(),
-                            physicalDisplayId);
+                            physicalDisplayId,
+                            displayProfile);
                     physicalDisplayId = preparedMode.physicalDisplayId();
                 } catch (IOException | RuntimeException error) {
                     Log.w(TAG, "Cannot prepare Nubia external display mode", error);
@@ -66,21 +71,20 @@ final class ConsoleSessionController {
             }
             ConsoleDisplayController.ensureLandscape(consoleDisplayId);
             if (startedConsoleMode) {
-                preparedProfile = prepareConsoleDisplayDensity(
-                        consoleDisplayId, physicalDisplayId);
+                applyConsoleDisplayDensity(consoleDisplayId, displayProfile);
             } else {
                 physicalDisplayId =
                         ConsoleDisplayController.findExternalDisplayId();
-                preparedProfile = DisplayProfileController
+                displayProfile = DisplayProfileController
                         .prepareExternalProfile(
                                 MagicDeskApplication.applicationContext(),
                                 physicalDisplayId);
             }
             DesktopDisplayTarget target =
                     DesktopDisplayTarget.wired(consoleDisplayId);
-            if (preparedProfile != null && physicalDisplayId > 0) {
+            if (displayProfile != null && physicalDisplayId > 0) {
                 target = target.withProfile(
-                        physicalDisplayId, preparedProfile.key);
+                        physicalDisplayId, displayProfile.key);
             }
             final DesktopSessionController.ShowResult desktopResult =
                     DesktopSessionController.show(target);
@@ -150,22 +154,16 @@ final class ConsoleSessionController {
         }
     }
 
-    private static DisplayProfileController.PreparedProfile
-            prepareConsoleDisplayDensity(
-            final int displayId, final int physicalDisplayId) {
+    private static void applyConsoleDisplayDensity(
+            final int displayId,
+            final DisplayProfileStore.Profile profile) {
         try {
-            final DisplayProfileController.PreparedProfile profile =
-                    DisplayProfileController.prepareExternalProfile(
-                            MagicDeskApplication.applicationContext(),
-                            physicalDisplayId);
             if (profile != null) {
                 ConsoleDisplayController.applyStartupDensity(
                         displayId, profile.dpi);
             }
-            return profile;
         } catch (RuntimeException error) {
             Log.w(TAG, "Cannot prepare Console display profile", error);
-            return null;
         }
     }
 

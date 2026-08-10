@@ -34,9 +34,11 @@ public final class DesktopStateStoreTest {
         source.taskbarPackages.add("example.application");
 
         final DisplayProfileStore.Profile profile =
-                new DisplayProfileStore.Profile("monitor:primary");
+                new DisplayProfileStore.Profile("display:primary");
         profile.dpi = 160;
         profile.dpiExplicit = true;
+        profile.fillDisplay = false;
+        profile.outputTiming = "2560x1440@120";
         profile.workspaceBounds = new Rect();
         profile.workspaceBounds.left = 10;
         profile.workspaceBounds.top = 20;
@@ -46,8 +48,7 @@ public final class DesktopStateStoreTest {
         profile.placements.put(
                 "app:example.application",
                 new DesktopPlacement(2, 3, 1, 2));
-        source.displayProfiles.put(profile.monitorKey, profile);
-        source.displayAliases.put("display:3", profile.monitorKey);
+        source.displayProfiles.put(profile.key, profile);
 
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
                 DesktopStateStore.encode(source));
@@ -57,11 +58,12 @@ public final class DesktopStateStoreTest {
                 source.content.workspaceTarget,
                 decoded.content.workspaceTarget);
         assertEquals(source.taskbarPackages, decoded.taskbarPackages);
-        assertEquals("monitor:primary", decoded.displayAliases.get("display:3"));
         final DisplayProfileStore.Profile decodedProfile =
-                decoded.displayProfiles.get("monitor:primary");
+                decoded.displayProfiles.get("display:primary");
         assertEquals(160, decodedProfile.dpi);
         assertTrue(decodedProfile.dpiExplicit);
+        assertFalse(decodedProfile.fillDisplay);
+        assertEquals("2560x1440@120", decodedProfile.outputTiming);
         assertEquals(10, decodedProfile.workspaceBounds.left);
         assertEquals(20, decodedProfile.workspaceBounds.top);
         assertEquals(1010, decodedProfile.workspaceBounds.right);
@@ -80,14 +82,12 @@ public final class DesktopStateStoreTest {
                         + "\"shortcuts\":[{\"package\":\"not a package\"}],"
                         + "\"taskbar\":[\"\",\"bad package\"],"
                         + "\"displayProfiles\":{\"wrong-key\":{"
-                        + "\"monitor\":\"monitor:primary\"}},"
-                        + "\"displayAliases\":{\"display:3\":\"\"}}" );
+                        + "\"key\":\"display:primary\"}}}" );
 
         assertTrue(decoded.content.shortcuts.isEmpty());
         assertNull(decoded.content.workspaceTarget);
         assertTrue(decoded.taskbarPackages.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
-        assertTrue(decoded.displayAliases.isEmpty());
     }
 
     @Test
@@ -147,16 +147,22 @@ public final class DesktopStateStoreTest {
     @Test
     public void profileCopiesDoNotExposeStoredMutableState() {
         final DisplayProfileStore.Profile source =
-                new DisplayProfileStore.Profile("monitor:copy");
+                new DisplayProfileStore.Profile("display:copy");
         source.dpi = 160;
+        source.fillDisplay = false;
+        source.outputTiming = "1920x1080@60";
         source.placements.put(
                 "app:example", new DesktopPlacement(1, 2, 1, 1));
 
         final DisplayProfileStore.Profile copy = DisplayProfileStore.copy(source);
         copy.dpi = 240;
+        copy.fillDisplay = true;
+        copy.outputTiming = null;
         copy.placements.clear();
 
         assertEquals(160, source.dpi);
+        assertFalse(source.fillDisplay);
+        assertEquals("1920x1080@60", source.outputTiming);
         assertEquals(1, source.placements.size());
     }
 
@@ -176,6 +182,21 @@ public final class DesktopStateStoreTest {
                 DesktopStateStore.read(
                         state -> new ArrayList<>(state.taskbarPackages),
                         Collections.emptyList()));
+    }
+
+    @Test
+    public void loadingDefaultProfileDoesNotPersistIt() {
+        final MemoryStorage storage = new MemoryStorage();
+        DesktopStateStore.useStorageForTests(storage);
+
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileStore.load("display:test", 160);
+
+        assertEquals("display:test", profile.key);
+        assertEquals(160, profile.dpi);
+        assertTrue(storage.encoded.isEmpty());
+        assertTrue(DisplayProfileStore.save(profile));
+        assertFalse(storage.encoded.isEmpty());
     }
 
     private static final class MemoryStorage

@@ -328,7 +328,7 @@ final class DesktopControlsController {
                                     : R.string.state_on),
                             ShellAccess.statusLabel(),
                             shortcutsState,
-                            mActivity.getMonitorProfileLabel())
+                            mActivity.getDisplayProfileLabel())
                     : mActivity.getString(
                             R.string.tools_status_local,
                             Integer.valueOf(mActivity.getCurrentDisplayId()),

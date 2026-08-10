@@ -165,23 +165,12 @@ final class DesktopStateStore {
                 final JSONObject value = profiles.optJSONObject(key);
                 final DisplayProfileStore.Profile profile =
                         profileFromJson(value);
-                if (profile != null && key.equals(profile.monitorKey)) {
+                if (profile != null && key.equals(profile.key)) {
                     state.displayProfiles.put(key, profile);
                 }
             }
         }
 
-        final JSONObject aliases = root.optJSONObject("displayAliases");
-        if (aliases != null) {
-            final java.util.Iterator<String> keys = aliases.keys();
-            while (keys.hasNext()) {
-                final String displayKey = keys.next();
-                final String monitorKey = aliases.optString(displayKey, "");
-                if (!displayKey.isEmpty() && !monitorKey.isEmpty()) {
-                    state.displayAliases.put(displayKey, monitorKey);
-                }
-            }
-        }
         return state;
     }
 
@@ -226,7 +215,6 @@ final class DesktopStateStore {
             snapshot.displayProfiles.put(
                     entry.getKey(), DisplayProfileStore.copy(entry.getValue()));
         }
-        snapshot.displayAliases.putAll(sState.displayAliases);
         return snapshot;
     }
 
@@ -253,22 +241,12 @@ final class DesktopStateStore {
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
                 : state.displayProfiles.entrySet()) {
             final DisplayProfileStore.Profile profile = entry.getValue();
-            if (profile != null && entry.getKey().equals(profile.monitorKey)) {
+            if (profile != null && entry.getKey().equals(profile.key)) {
                 profiles.put(entry.getKey(), profileToJson(profile));
             }
         }
         root.put("displayProfiles", profiles);
 
-        final JSONObject aliases = new JSONObject();
-        for (final Map.Entry<String, String> entry
-                : state.displayAliases.entrySet()) {
-            if (entry.getKey() != null && !entry.getKey().isEmpty()
-                    && entry.getValue() != null
-                    && !entry.getValue().isEmpty()) {
-                aliases.put(entry.getKey(), entry.getValue());
-            }
-        }
-        root.put("displayAliases", aliases);
         return root;
     }
 
@@ -358,9 +336,13 @@ final class DesktopStateStore {
     private static JSONObject profileToJson(
             final DisplayProfileStore.Profile profile) throws JSONException {
         final JSONObject json = new JSONObject();
-        json.put("monitor", profile.monitorKey);
+        json.put("key", profile.key);
         json.put("dpi", profile.dpi);
         json.put("dpiExplicit", profile.dpiExplicit);
+        json.put("fillDisplay", profile.fillDisplay);
+        if (profile.outputTiming != null && !profile.outputTiming.isEmpty()) {
+            json.put("outputTiming", profile.outputTiming);
+        }
         if (profile.workspaceBounds != null
                 && profile.workspaceBounds.right > profile.workspaceBounds.left
                 && profile.workspaceBounds.bottom
@@ -400,14 +382,17 @@ final class DesktopStateStore {
         if (json == null) {
             return null;
         }
-        final String monitorKey = json.optString("monitor", "");
-        if (monitorKey.isEmpty()) {
+        final String profileKey = json.optString("key", "");
+        if (profileKey.isEmpty()) {
             return null;
         }
         final DisplayProfileStore.Profile profile =
-                new DisplayProfileStore.Profile(monitorKey);
+                new DisplayProfileStore.Profile(profileKey);
         profile.dpi = json.optInt("dpi", 192);
         profile.dpiExplicit = json.optBoolean("dpiExplicit", false);
+        profile.fillDisplay = json.optBoolean("fillDisplay", true);
+        final String outputTiming = json.optString("outputTiming", "");
+        profile.outputTiming = outputTiming.isEmpty() ? null : outputTiming;
         final JSONArray bounds = json.optJSONArray("workspaceBounds");
         if (bounds != null && bounds.length() == 4) {
             final int left = bounds.optInt(0);
@@ -474,7 +459,6 @@ final class DesktopStateStore {
         final List<String> taskbarPackages = new ArrayList<>();
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();
-        final Map<String, String> displayAliases = new LinkedHashMap<>();
     }
 
     static final class ExternalSnapshot {
