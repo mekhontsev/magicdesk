@@ -5,8 +5,6 @@ final class TouchpadPointerMotion {
     private static final double MOVE_SPEED_2X = 1_500.0;
     private static final double MOVE_SPEED_4X = 2_500.0;
     private static final double MOVE_SPEED_6X = 3_500.0;
-    private static final double DRAG_SPEED_3X = 1_000.0;
-    private static final double DRAG_SPEED_6X = 2_000.0;
 
     private float mFingerAnchorX;
     private float mFingerAnchorY;
@@ -18,7 +16,6 @@ final class TouchpadPointerMotion {
     private int mOutputX;
     private int mOutputY;
     private int mVelocityScale = 1;
-    private boolean mDragging;
     private boolean mActive;
 
     void start(
@@ -28,8 +25,7 @@ final class TouchpadPointerMotion {
             final int pointerY,
             final int maximumX,
             final int maximumY,
-            final float sensitivity,
-            final boolean dragging) {
+            final float sensitivity) {
         mFingerAnchorX = fingerX;
         mFingerAnchorY = fingerY;
         mMaximumX = Math.max(0, maximumX);
@@ -40,7 +36,6 @@ final class TouchpadPointerMotion {
         mPointerAnchorY = mOutputY;
         mSensitivity = Math.max(0.1f, sensitivity);
         mVelocityScale = 1;
-        mDragging = dragging;
         mActive = true;
     }
 
@@ -59,7 +54,7 @@ final class TouchpadPointerMotion {
                 mPointerAnchorY + (fingerY - mFingerAnchorY) * scale),
                 mMaximumY);
 
-        final int nextScale = velocityScale(velocity, mDragging);
+        final int nextScale = velocityScale(velocity);
         if (nextScale != mVelocityScale) {
             mPointerAnchorX = mOutputX;
             mPointerAnchorY = mOutputY;
@@ -86,15 +81,7 @@ final class TouchpadPointerMotion {
         return mOutputY;
     }
 
-    static int velocityScale(
-            final double velocity,
-            final boolean dragging) {
-        if (dragging) {
-            if (velocity > DRAG_SPEED_6X) {
-                return 6;
-            }
-            return velocity > DRAG_SPEED_3X ? 3 : 1;
-        }
+    static int velocityScale(final double velocity) {
         if (velocity > MOVE_SPEED_6X) {
             return 6;
         }

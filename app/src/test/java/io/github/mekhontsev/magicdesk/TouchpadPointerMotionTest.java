@@ -9,7 +9,7 @@ import org.junit.Test;
 public final class TouchpadPointerMotionTest {
     @Test
     public void positionIsCalculatedFromStableGestureAnchor() {
-        final TouchpadPointerMotion motion = startedMotion(1.0f, false);
+        final TouchpadPointerMotion motion = startedMotion(1.0f);
 
         assertTrue(motion.move(110.0f, 96.0f, 0.0));
         assertEquals(510, motion.outputX());
@@ -22,7 +22,7 @@ public final class TouchpadPointerMotionTest {
 
     @Test
     public void velocityScaleChangeReanchorsWithoutJump() {
-        final TouchpadPointerMotion motion = startedMotion(1.0f, false);
+        final TouchpadPointerMotion motion = startedMotion(1.0f);
 
         motion.move(110.0f, 100.0f, 2_000.0);
         assertEquals(510, motion.outputX());
@@ -33,7 +33,7 @@ public final class TouchpadPointerMotionTest {
 
     @Test
     public void sensitivityAndDisplayBoundsAreApplied() {
-        final TouchpadPointerMotion motion = startedMotion(0.5f, false);
+        final TouchpadPointerMotion motion = startedMotion(0.5f);
 
         motion.move(300.0f, -1_000.0f, 0.0);
         assertEquals(600, motion.outputX());
@@ -45,35 +45,29 @@ public final class TouchpadPointerMotionTest {
     }
 
     @Test
-    public void nubiaVelocityCurvesArePreserved() {
-        assertEquals(1, TouchpadPointerMotion.velocityScale(1_500.0, false));
-        assertEquals(2, TouchpadPointerMotion.velocityScale(1_500.1, false));
-        assertEquals(4, TouchpadPointerMotion.velocityScale(2_500.1, false));
-        assertEquals(6, TouchpadPointerMotion.velocityScale(3_500.1, false));
-
-        assertEquals(1, TouchpadPointerMotion.velocityScale(1_000.0, true));
-        assertEquals(3, TouchpadPointerMotion.velocityScale(1_000.1, true));
-        assertEquals(6, TouchpadPointerMotion.velocityScale(2_000.1, true));
+    public void nubiaPointerVelocityCurveIsPreserved() {
+        assertEquals(1, TouchpadPointerMotion.velocityScale(1_500.0));
+        assertEquals(2, TouchpadPointerMotion.velocityScale(1_500.1));
+        assertEquals(4, TouchpadPointerMotion.velocityScale(2_500.1));
+        assertEquals(6, TouchpadPointerMotion.velocityScale(3_500.1));
     }
 
     @Test
     public void stoppedMotionRejectsUpdates() {
-        final TouchpadPointerMotion motion = startedMotion(1.0f, false);
+        final TouchpadPointerMotion motion = startedMotion(1.0f);
         motion.stop();
 
         assertFalse(motion.move(110.0f, 100.0f, 0.0));
     }
 
     private static TouchpadPointerMotion startedMotion(
-            final float sensitivity,
-            final boolean dragging) {
+            final float sensitivity) {
         final TouchpadPointerMotion motion = new TouchpadPointerMotion();
         motion.start(
                 100.0f, 100.0f,
                 500, 400,
                 1_919, 1_079,
-                sensitivity,
-                dragging);
+                sensitivity);
         return motion;
     }
 }

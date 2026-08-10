@@ -290,14 +290,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final long downTime) {
         try {
             final Point position = new Point(x, y);
-            if (action == DesktopPointerInjector.TOUCHPAD_HOVER) {
-                NubiaMouseController.setMousePosition(displayId, position);
-            }
+            NubiaMouseController.setMousePosition(displayId, position);
             DesktopPointerInjector.injectTouchpadMotion(
                     displayId, position, action, downTime);
-            if (action != DesktopPointerInjector.TOUCHPAD_HOVER) {
-                NubiaMouseController.rememberPosition(displayId, position);
-            }
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.e(TAG, "absolute mouse movement failed", error);

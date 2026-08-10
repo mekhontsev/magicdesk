@@ -12,7 +12,7 @@ import android.view.MotionEvent;
 
 import java.lang.reflect.Method;
 
-/** Injects pointer actions that the virtual mouse device cannot express. */
+/** Injects display-targeted pointer actions. */
 final class DesktopPointerInjector {
     private static final int MAGICDESK_VENDOR_ID = 0x4d44;
     private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
@@ -86,25 +86,16 @@ final class DesktopPointerInjector {
                         MotionEvent.ACTION_HOVER_MOVE, 0, 0);
                 return;
             case TOUCHPAD_DRAG_START:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_DOWN,
-                        MotionEvent.BUTTON_PRIMARY, 0);
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_BUTTON_PRESS,
-                        MotionEvent.BUTTON_PRIMARY,
-                        MotionEvent.BUTTON_PRIMARY);
+                context.injectTouchAsync(displayId, position,
+                        gestureDownTime, MotionEvent.ACTION_DOWN, 1.0f);
                 return;
             case TOUCHPAD_DRAG_MOVE:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_MOVE,
-                        MotionEvent.BUTTON_PRIMARY, 0);
+                context.injectTouchAsync(displayId, position,
+                        gestureDownTime, MotionEvent.ACTION_MOVE, 1.0f);
                 return;
             case TOUCHPAD_DRAG_END:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_BUTTON_RELEASE,
-                        0, MotionEvent.BUTTON_PRIMARY);
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_UP, 0, 0);
+                context.injectTouchAsync(displayId, position,
+                        gestureDownTime, MotionEvent.ACTION_UP, 0.0f);
                 return;
             default:
                 throw new IllegalArgumentException(
@@ -182,6 +173,22 @@ final class DesktopPointerInjector {
                     buttonState,
                     actionButton,
                     0.0f,
+                    INJECTION_MODE_ASYNC);
+        }
+
+        void injectTouchAsync(
+                final int displayId,
+                final Point position,
+                final long downTime,
+                final int action,
+                final float pressure)
+                throws ReflectiveOperationException {
+            inject(displayId, position, downTime, action,
+                    MotionEvent.TOOL_TYPE_FINGER,
+                    InputDevice.SOURCE_TOUCHSCREEN,
+                    0,
+                    0,
+                    pressure,
                     INJECTION_MODE_ASYNC);
         }
 

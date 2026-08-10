@@ -885,11 +885,12 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     pointer.y,
                     displaySize.x - 1,
                     displaySize.y - 1,
-                    pointerScale(),
-                    dragging);
+                    pointerScale());
             mPointerX = mPointerMotion.outputX();
             mPointerY = mPointerMotion.outputY();
-            mPointerNeedsActivation = true;
+            // Drag updates the vendor cursor directly. An activation pulse
+            // would add an unrelated mouse move to the touch stream.
+            mPointerNeedsActivation = !dragging;
             return true;
         }
 
