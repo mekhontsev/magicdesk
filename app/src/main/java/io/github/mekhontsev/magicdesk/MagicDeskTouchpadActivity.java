@@ -258,6 +258,16 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(ui.dp(18), ui.dp(8), ui.dp(8), ui.dp(8));
 
+        final ImageButton close = new ImageButton(this);
+        close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+        close.setColorFilter(DesktopUiFactory.COLOR_TEXT);
+        close.setBackgroundColor(Color.TRANSPARENT);
+        close.setContentDescription(getString(R.string.action_close));
+        close.setTooltipText(getString(R.string.action_close));
+        close.setOnClickListener(view -> dismissFromUser());
+        header.addView(close, new LinearLayout.LayoutParams(
+                ui.dp(48), ui.dp(48)));
+
         final TextView title = new TextView(this);
         title.setText(R.string.touchpad_title);
         title.setTextColor(DesktopUiFactory.COLOR_TEXT);
@@ -293,16 +303,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
             toggleKeyboard();
         });
         header.addView(keyboard, new LinearLayout.LayoutParams(
-                ui.dp(48), ui.dp(48)));
-
-        final ImageButton close = new ImageButton(this);
-        close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-        close.setColorFilter(DesktopUiFactory.COLOR_TEXT);
-        close.setBackgroundColor(Color.TRANSPARENT);
-        close.setContentDescription(getString(R.string.action_close));
-        close.setTooltipText(getString(R.string.action_close));
-        close.setOnClickListener(view -> dismissFromUser());
-        header.addView(close, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
         root.addView(header, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
