@@ -35,6 +35,7 @@ final class DesktopTaskController {
 
     private final Context mApplicationContext;
     private final Handler mHandler;
+    private final Runnable mTaskStackChanged;
     private final DesktopTaskWatcher mTaskWatcher;
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
     private final NativeWindowBoundsController mNativeWindowBounds;
@@ -44,15 +45,21 @@ final class DesktopTaskController {
     private Context mWindowContext;
     private int mDisplayId = -1;
     private int mGeneration;
+    private int mTaskWatcherGeneration;
     private volatile int mFocusingTaskId = -1;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
+    private boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
     private boolean mRestoringLocalDesktop;
 
-    DesktopTaskController(final Context context, final Handler handler) {
+    DesktopTaskController(
+            final Context context,
+            final Handler handler,
+            final Runnable taskStackChanged) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
+        mTaskStackChanged = taskStackChanged;
         mPhoneUiReconciler = new DesktopPhoneUiReconciler();
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
@@ -113,19 +120,26 @@ final class DesktopTaskController {
                 new DesktopTaskWatcher.Listener() {
                     @Override
                     public boolean isActive(final int generation) {
-                        return mRunning && generation == mGeneration;
+                        return mTaskWatcherRunning
+                                && generation == mTaskWatcherGeneration;
                     }
 
                     @Override
                     public void onReady(final int generation) {
                         mTaskWatcherReady = true;
-                        configureTaskWatcher();
-                        scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                        if (mRunning) {
+                            configureTaskWatcher();
+                            scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                        }
+                        notifyTaskStackChanged();
                     }
 
                     @Override
                     public void onChanged(final int generation) {
-                        scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                        notifyTaskStackChanged();
+                        if (mRunning) {
+                            scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
+                        }
                     }
 
                     @Override
@@ -134,15 +148,19 @@ final class DesktopTaskController {
                             final int taskId,
                             final boolean requesting,
                             final boolean initialSample) {
-                        mWindowTransitions.handleImmersiveRequest(
-                                taskId, requesting, initialSample);
+                        if (mRunning) {
+                            mWindowTransitions.handleImmersiveRequest(
+                                    taskId, requesting, initialSample);
+                        }
                     }
 
                     @Override
                     public void onTaskGone(
                             final int generation,
                             final int taskId) {
-                        mWindowTransitions.forgetTaskState(taskId);
+                        if (mRunning) {
+                            mWindowTransitions.forgetTaskState(taskId);
+                        }
                     }
 
                     @Override
@@ -150,6 +168,9 @@ final class DesktopTaskController {
                             final int generation,
                             final int taskId,
                             final boolean enteredFullscreen) {
+                        if (!mRunning) {
+                            return;
+                        }
                         Log.d(TAG,
                                 (enteredFullscreen
                                         ? "native maximize"
@@ -161,9 +182,13 @@ final class DesktopTaskController {
                     @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
-                        scheduleRefresh(0);
+                        if (mRunning) {
+                            scheduleRefresh(0);
+                        }
                         mHandler.postDelayed(() -> {
-                            if (mRunning && generation == mGeneration) {
+                            if (mTaskWatcherRunning
+                                    && generation == mTaskWatcherGeneration
+                                    && ShellAccess.isReady()) {
                                 startTaskWatcher(generation);
                             }
                         }, WATCHER_RESTART_MILLIS);
@@ -189,8 +214,8 @@ final class DesktopTaskController {
         }
         mGeneration++;
         setActiveController(this);
-        if (ShellAccess.isReady()) {
-            startTaskWatcher(mGeneration);
+        if (mTaskWatcherReady) {
+            configureTaskWatcher();
         }
         scheduleRefresh(0);
         Log.i(TAG, "started on display=" + displayId);
@@ -202,11 +227,10 @@ final class DesktopTaskController {
         mGeneration++;
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
-        mTaskWatcher.stop();
+        mTaskWatcher.clearConfiguration();
         mWindowContext = null;
         mDisplayId = -1;
         mFocusingTaskId = -1;
-        mTaskWatcherReady = false;
         mRestoringLocalDesktop = false;
         mNativeWindowBounds.reset();
         mPhoneUiReconciler.reset();
@@ -216,7 +240,22 @@ final class DesktopTaskController {
 
     void destroy() {
         stop();
+        setTaskWatcherEnabled(false);
         mTaskWatcher.destroy();
+    }
+
+    void setTaskWatcherEnabled(final boolean enabled) {
+        if (enabled == mTaskWatcherRunning) {
+            return;
+        }
+        mTaskWatcherRunning = enabled;
+        mTaskWatcherReady = false;
+        mTaskWatcherGeneration++;
+        if (enabled) {
+            startTaskWatcher(mTaskWatcherGeneration);
+        } else {
+            mTaskWatcher.stop();
+        }
     }
 
     static synchronized List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
@@ -559,6 +598,12 @@ final class DesktopTaskController {
 
     private void startTaskWatcher(final int generation) {
         mTaskWatcher.start(generation);
+    }
+
+    private void notifyTaskStackChanged() {
+        if (mTaskStackChanged != null) {
+            mTaskStackChanged.run();
+        }
     }
 
     private void configureTaskWatcher() {

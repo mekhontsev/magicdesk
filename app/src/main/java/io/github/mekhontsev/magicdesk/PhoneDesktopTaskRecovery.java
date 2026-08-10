@@ -55,38 +55,50 @@ final class PhoneDesktopTaskRecovery {
     private PhoneDesktopTaskRecovery() {
     }
 
+    static String repositoryDumpCommand() {
+        return REPOSITORY_DUMP;
+    }
+
     static void recover(final Callback callback) {
-        recover(-1, -1, ALWAYS_CONTINUE, callback);
+        recover(-1, -1, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recover(
             final int releasedAnchorTaskId,
             final Callback callback) {
-        recover(releasedAnchorTaskId, -1, ALWAYS_CONTINUE, callback);
+        recover(releasedAnchorTaskId, -1, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recoverRemovedDisplay(
             final int removedDisplayId,
             final Callback callback) {
-        recover(-1, removedDisplayId, ALWAYS_CONTINUE, callback);
+        recover(-1, removedDisplayId, false, ALWAYS_CONTINUE, callback);
+    }
+
+    static void recoverRemovedDisplayAfterTimeout(
+            final int removedDisplayId,
+            final Callback callback) {
+        recover(-1, removedDisplayId, true, ALWAYS_CONTINUE, callback);
     }
 
     static void recover(
             final int releasedAnchorTaskId,
             final Continuation continuation,
             final Callback callback) {
-        recover(releasedAnchorTaskId, -1, continuation, callback);
+        recover(releasedAnchorTaskId, -1, false, continuation, callback);
     }
 
     private static void recover(
             final int releasedAnchorTaskId,
             final int removedDisplayId,
+            final boolean allowUnsettledRemoval,
             final Continuation continuation,
             final Callback callback) {
         TaskCommandQueue.execute(() -> {
             final Result result = recoverNow(
                     releasedAnchorTaskId,
                     removedDisplayId,
+                    allowUnsettledRemoval,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT);
             if (callback != null) {
@@ -104,6 +116,7 @@ final class PhoneDesktopTaskRecovery {
             return TaskCommandQueue.call(() -> recoverNow(
                     -1,
                     -1,
+                    false,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT));
         } catch (RuntimeException error) {
@@ -117,19 +130,38 @@ final class PhoneDesktopTaskRecovery {
             final Continuation continuation,
             final Environment environment) {
         return recoverNow(
-                releasedAnchorTaskId, -1, continuation, environment);
+                releasedAnchorTaskId,
+                -1,
+                false,
+                continuation,
+                environment);
+    }
+
+    static Result recoverRemovedDisplayForTest(
+            final int removedDisplayId,
+            final boolean allowUnsettledRemoval,
+            final Continuation continuation,
+            final Environment environment) {
+        return recoverNow(
+                -1,
+                removedDisplayId,
+                allowUnsettledRemoval,
+                continuation,
+                environment);
     }
 
     static Result recoverRemovedDisplayForTest(
             final int removedDisplayId,
             final Continuation continuation,
             final Environment environment) {
-        return recoverNow(-1, removedDisplayId, continuation, environment);
+        return recoverRemovedDisplayForTest(
+                removedDisplayId, false, continuation, environment);
     }
 
     private static Result recoverNow(
             final int releasedAnchorTaskId,
             final int removedDisplayId,
+            final boolean allowUnsettledRemoval,
             final Continuation continuation,
             final Environment environment) {
         if (!environment.isReady()) {
@@ -157,14 +189,23 @@ final class PhoneDesktopTaskRecovery {
             return Result.failure(stack.output.trim());
         }
         final CommandResult repository = runRead(
-                REPOSITORY_DUMP, continuation, environment);
+                repositoryDumpCommand(), continuation, environment);
         if (repository.cancelled) {
             return Result.cancelled();
         }
         if (!repository.success) {
             return Result.failure(repository.output.trim());
         }
-
+        final boolean removedDisplaySettled = removedDisplayId <= 0
+                || removedDisplayTransitionSettled(
+                        stack.output,
+                        repository.output,
+                        removedDisplayId);
+        if (!removedDisplaySettled && !allowUnsettledRemoval) {
+            return Result.pending(
+                    "waiting for tasks from removed display "
+                            + removedDisplayId);
+        }
         Map<Integer, PhoneTask> liveTasks = indexPhoneTasks(stack.output);
         final Set<Integer> phoneRepositoryTaskIds = new LinkedHashSet<>(
                 SystemUiDesktopRepositoryParser.parseTaskIds(
@@ -273,7 +314,7 @@ final class PhoneDesktopTaskRecovery {
             final CommandResult currentStack = runRead(
                     CMD + " activity stack list", continuation, environment);
             final CommandResult currentRepository = runRead(
-                    REPOSITORY_DUMP, continuation, environment);
+                    repositoryDumpCommand(), continuation, environment);
             if (currentStack.cancelled || currentRepository.cancelled) {
                 return Result.cancelled();
             }
@@ -452,6 +493,21 @@ final class PhoneDesktopTaskRecovery {
         return result;
     }
 
+    static boolean removedDisplayTransitionSettled(
+            final String stackOutput,
+            final String repositoryOutput,
+            final int removedDisplayId) {
+        final Set<Integer> removedTaskIds =
+                SystemUiDesktopRepositoryParser.parseTaskIds(
+                        repositoryOutput, removedDisplayId);
+        if (removedTaskIds.isEmpty()) {
+            return true;
+        }
+        final Set<Integer> phoneTaskIds =
+                indexPhoneTasks(stackOutput).keySet();
+        return phoneTaskIds.containsAll(removedTaskIds);
+    }
+
     private static void excludeMagicDeskTasks(
             final Set<Integer> taskIds,
             final Map<Integer, PhoneTask> liveTasks) {
@@ -505,27 +561,34 @@ final class PhoneDesktopTaskRecovery {
     static final class Result {
         final boolean success;
         final boolean cancelled;
+        final boolean pending;
         final String message;
 
         private Result(
                 final boolean success,
                 final boolean cancelled,
+                final boolean pending,
                 final String message) {
             this.success = success;
             this.cancelled = cancelled;
+            this.pending = pending;
             this.message = message;
         }
 
         static Result success(final String message) {
-            return new Result(true, false, message);
+            return new Result(true, false, false, message);
         }
 
         static Result failure(final String message) {
-            return new Result(false, false, message);
+            return new Result(false, false, false, message);
+        }
+
+        static Result pending(final String message) {
+            return new Result(true, false, true, message);
         }
 
         static Result cancelled() {
-            return new Result(true, true,
+            return new Result(true, true, false,
                     "cleanup superseded by a newer local desktop");
         }
     }

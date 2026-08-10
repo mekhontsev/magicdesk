@@ -41,57 +41,65 @@ final class DesktopSessionController {
             throw new IOException(
                     "desktop display no longer exists: " + target.displayId);
         }
-
-        final Boolean visibleTaskSnapshot =
-                DesktopTaskController.hasVisibleAppTaskSnapshot(
-                        target.displayId);
-        final boolean restoreWindows = visibleTaskSnapshot != null
-                && !visibleTaskSnapshot.booleanValue();
-        final int desktopTaskId = findDesktopTask(target.displayId);
-        if (desktopTaskId >= 0) {
-            final String focusOutput = ShellAccess.run(
-                    AM + " task focus " + desktopTaskId).trim();
-            Log.i(TAG, "focused desktop kind=" + target.kind
-                    + " display=" + target.displayId
-                    + " task=" + desktopTaskId
-                    + " output=" + focusOutput.replace('\n', ' '));
-            if (restoreWindows) {
-                DesktopRuntimeBridge.restoreLastVisibleWindows();
+        DesktopRuntimeBridge.noteDesktopTarget(target);
+        try {
+            final Boolean visibleTaskSnapshot =
+                    DesktopTaskController.hasVisibleAppTaskSnapshot(
+                            target.displayId);
+            final boolean restoreWindows = visibleTaskSnapshot != null
+                    && !visibleTaskSnapshot.booleanValue();
+            final int desktopTaskId = findDesktopTask(target.displayId);
+            if (desktopTaskId >= 0) {
+                final String focusOutput = ShellAccess.run(
+                        AM + " task focus " + desktopTaskId).trim();
+                Log.i(TAG, "focused desktop kind=" + target.kind
+                        + " display=" + target.displayId
+                        + " task=" + desktopTaskId
+                        + " output=" + focusOutput.replace('\n', ' '));
+                if (restoreWindows) {
+                    DesktopRuntimeBridge.restoreLastVisibleWindows();
+                }
+                return new ShowResult(true, false);
             }
-            DesktopRuntimeBridge.noteDesktopTarget(target);
-            return new ShowResult(true, false);
-        }
 
-        final String output = ShellAccess.run(
-                AM + " start -W --display " + target.displayId
-                        + " --windowingMode 1"
-                        + " -f 0x18000000"
-                        + " -a android.intent.action.MAIN"
-                        + " -c android.intent.category.LAUNCHER"
-                        + " --ei "
-                        + DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID
-                        + " " + target.displayId
-                        + (restoreWindows
-                                ? " --es " + DesktopShellActivity.EXTRA_ACTION
-                                        + " "
-                                        + DesktopShellActivity
-                                                .ACTION_RESTORE_WINDOWS
-                                : "")
-                        + " -n " + DESKTOP_COMPONENT)
-                .trim();
-        if (output.startsWith("Error:")
-                || output.contains(
-                        "Exception occurred while executing")) {
-            throw new IOException(output);
+            final String output = ShellAccess.run(
+                    AM + " start -W --display " + target.displayId
+                            + " --windowingMode 1"
+                            + " -f 0x18000000"
+                            + " -a android.intent.action.MAIN"
+                            + " -c android.intent.category.LAUNCHER"
+                            + " --ei "
+                            + DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID
+                            + " " + target.displayId
+                            + (restoreWindows
+                                    ? " --es " + DesktopShellActivity.EXTRA_ACTION
+                                            + " "
+                                            + DesktopShellActivity
+                                                    .ACTION_RESTORE_WINDOWS
+                                    : "")
+                            + " -n " + DESKTOP_COMPONENT)
+                    .trim();
+            if (output.startsWith("Error:")
+                    || output.contains(
+                            "Exception occurred while executing")) {
+                throw new IOException(output);
+            }
+            Log.i(TAG, "launched desktop kind=" + target.kind
+                    + " display=" + target.displayId
+                    + " output=" + output.replace('\n', ' '));
+            final boolean ready = waitForDesktopReady(target.displayId);
+            if (!ready) {
+                DesktopRuntimeBridge.clearDesktopTarget(target);
+                MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+                        target.displayId);
+            }
+            return new ShowResult(ready, true);
+        } catch (IOException | RuntimeException error) {
+            DesktopRuntimeBridge.clearDesktopTarget(target);
+            MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+                    target.displayId);
+            throw error;
         }
-        Log.i(TAG, "launched desktop kind=" + target.kind
-                + " display=" + target.displayId
-                + " output=" + output.replace('\n', ' '));
-        final boolean ready = waitForDesktopReady(target.displayId);
-        if (ready) {
-            DesktopRuntimeBridge.noteDesktopTarget(target);
-        }
-        return new ShowResult(ready, true);
     }
 
     private static int findDesktopTask(final int displayId)

@@ -130,6 +130,16 @@ final class DesktopRuntimeBridge {
         sDesktopSessionKind = target.kind;
     }
 
+    static void clearDesktopTarget(final DesktopDisplayTarget target) {
+        if (target == null
+                || sDesktopSessionDisplayId != target.displayId
+                || sDesktopSessionKind != target.kind) {
+            return;
+        }
+        sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
+        sDesktopSessionKind = null;
+    }
+
     static DesktopDisplayTarget.Kind getDesktopTargetKind(final int displayId) {
         return sDesktopSessionDisplayId == displayId
                 ? sDesktopSessionKind : null;

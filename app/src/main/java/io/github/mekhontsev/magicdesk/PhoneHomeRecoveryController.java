@@ -55,17 +55,57 @@ final class PhoneHomeRecoveryController {
     static void restoreIfNeeded(
             final boolean includeStrandedDesktop,
             final int removedDisplayId,
+            final boolean localDesktopActive,
+            final boolean allowUnsettledRemoval,
             final ResultCallback callback) {
         if (!ShellAccess.isReady()) {
             complete(callback, true);
             return;
         }
-        TaskRepository.load(Display.DEFAULT_DISPLAY, snapshot ->
-                restoreSnapshot(
-                        snapshot,
-                        includeStrandedDesktop,
-                        removedDisplayId,
-                        callback));
+        final boolean ensureVisiblePhoneTask =
+                includeStrandedDesktop || removedDisplayId > 0;
+        if (!ensureVisiblePhoneTask) {
+            loadAndRestoreSnapshot(
+                    includeStrandedDesktop,
+                    localDesktopActive,
+                    false,
+                    false,
+                    callback);
+            return;
+        }
+        final PhoneDesktopTaskRecovery.Callback recoveryComplete = result -> {
+            if (result.pending) {
+                Log.d(TAG, result.message);
+                complete(callback, false);
+                return;
+            }
+            if (!result.success) {
+                Log.w(TAG, "phone desktop cleanup failed before Home: "
+                        + result.message);
+                CompatibilityDiagnostics.record(
+                        "NUBIA-HOME-004",
+                        "Could not clean phone desktop tasks before"
+                                + " restoring the launcher",
+                        result.message);
+            }
+            loadAndRestoreSnapshot(
+                    includeStrandedDesktop,
+                    localDesktopActive,
+                    true,
+                    !result.success,
+                    callback);
+        };
+        if (removedDisplayId > 0) {
+            if (allowUnsettledRemoval) {
+                PhoneDesktopTaskRecovery.recoverRemovedDisplayAfterTimeout(
+                        removedDisplayId, recoveryComplete);
+            } else {
+                PhoneDesktopTaskRecovery.recoverRemovedDisplay(
+                        removedDisplayId, recoveryComplete);
+            }
+        } else {
+            PhoneDesktopTaskRecovery.recover(recoveryComplete);
+        }
     }
 
     static String primaryHomeCommand() {
@@ -107,50 +147,126 @@ final class PhoneHomeRecoveryController {
         return false;
     }
 
+    static boolean isSecondaryPhoneHomeTask(
+            final TaskRepository.TaskEntry task) {
+        return task != null
+                && task.displayId == Display.DEFAULT_DISPLAY
+                && task.home
+                && (SECONDARY_PHONE_HOME.equals(task.componentName)
+                        || SECONDARY_PHONE_HOME.equals(task.topActivityName));
+    }
+
+    static boolean isStrandedDesktopTask(
+            final TaskRepository.TaskEntry task,
+            final boolean localDesktopActive) {
+        return !localDesktopActive
+                && task != null
+                && task.displayId == Display.DEFAULT_DISPLAY
+                && (MAGICDESK_DESKTOP_ACTIVITY.equals(task.componentName)
+                        || MAGICDESK_DESKTOP_ACTIVITY.equals(
+                                task.topActivityName));
+    }
+
+    private static void loadAndRestoreSnapshot(
+            final boolean includeStrandedDesktop,
+            final boolean localDesktopActive,
+            final boolean ensureVisiblePhoneTask,
+            final boolean forcePrimaryHome,
+            final ResultCallback callback) {
+        TaskRepository.load(Display.DEFAULT_DISPLAY, snapshot ->
+                restoreSnapshot(
+                        snapshot,
+                        includeStrandedDesktop,
+                        localDesktopActive,
+                        ensureVisiblePhoneTask,
+                        forcePrimaryHome,
+                        callback));
+    }
+
     private static void restoreSnapshot(
             final TaskRepository.Snapshot snapshot,
             final boolean includeStrandedDesktop,
-            final int removedDisplayId,
+            final boolean localDesktopActive,
+            final boolean ensureVisiblePhoneTask,
+            final boolean forcePrimaryHome,
             final ResultCallback callback) {
         if (!snapshot.available) {
-            complete(callback, false);
-            return;
-        }
-        final boolean needsPrimaryHome = needsPrimaryHomeRestore(
-                snapshot.tasks, includeStrandedDesktop);
-        if (includeStrandedDesktop || removedDisplayId > 0) {
-            final PhoneDesktopTaskRecovery.Callback recoveryComplete = result -> {
-                if (!result.success) {
-                    Log.w(TAG, "phone desktop cleanup failed before Home: "
-                            + result.message);
-                    CompatibilityDiagnostics.record(
-                            "NUBIA-HOME-004",
-                            "Could not clean phone desktop tasks before"
-                                    + " restoring the launcher",
-                            result.message);
-                    restorePrimaryHome(callback);
-                    return;
-                }
-                if (needsPrimaryHome
-                        || !hasVisiblePhoneTask(snapshot.tasks)) {
-                    restorePrimaryHome(callback);
-                } else {
-                    complete(callback, true);
-                }
-            };
-            if (removedDisplayId > 0) {
-                PhoneDesktopTaskRecovery.recoverRemovedDisplay(
-                        removedDisplayId, recoveryComplete);
+            if (forcePrimaryHome) {
+                restorePrimaryHome(callback);
             } else {
-                PhoneDesktopTaskRecovery.recover(recoveryComplete);
+                complete(callback, false);
             }
             return;
         }
-        if (!needsPrimaryHome) {
+        removeSecondaryPhoneHomeTasks(snapshot.tasks);
+        removeStrandedDesktopTasks(snapshot.tasks, localDesktopActive);
+        final boolean needsPrimaryHome = needsPrimaryHomeRestore(
+                snapshot.tasks, includeStrandedDesktop);
+        if (!forcePrimaryHome
+                && !needsPrimaryHome
+                && (!ensureVisiblePhoneTask
+                        || hasVisiblePhoneTaskAfterCleanup(
+                                snapshot.tasks,
+                                localDesktopActive))) {
             complete(callback, true);
             return;
         }
         restorePrimaryHome(callback);
+    }
+
+    private static void removeSecondaryPhoneHomeTasks(
+            final List<TaskRepository.TaskEntry> tasks) {
+        if (tasks == null) {
+            return;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (!isSecondaryPhoneHomeTask(task)) {
+                continue;
+            }
+            try {
+                final String output = ShellAccess.run(AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                        "remove " + task.taskId));
+                Log.i(TAG, "removed secondary phone Home task="
+                        + task.taskId + ": " + output.trim());
+            } catch (IOException error) {
+                Log.w(TAG, "failed to remove secondary phone Home task="
+                        + task.taskId, error);
+                CompatibilityDiagnostics.record(
+                        "NUBIA-HOME-005",
+                        "Could not remove a secondary launcher task"
+                                + " from the phone screen",
+                        error.getMessage());
+            }
+        }
+    }
+
+    private static void removeStrandedDesktopTasks(
+            final List<TaskRepository.TaskEntry> tasks,
+            final boolean localDesktopActive) {
+        if (tasks == null || localDesktopActive) {
+            return;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (!isStrandedDesktopTask(task, localDesktopActive)) {
+                continue;
+            }
+            try {
+                final String output = ShellAccess.run(AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                        "remove " + task.taskId));
+                Log.i(TAG, "removed stranded desktop task="
+                        + task.taskId + ": " + output.trim());
+            } catch (IOException error) {
+                Log.w(TAG, "failed to remove stranded desktop task="
+                        + task.taskId, error);
+                CompatibilityDiagnostics.record(
+                        "NUBIA-HOME-006",
+                        "Could not remove a desktop task stranded"
+                                + " on the phone screen",
+                        error.getMessage());
+            }
+        }
     }
 
     private static void restorePrimaryHome(
@@ -176,13 +292,17 @@ final class PhoneHomeRecoveryController {
         }
     }
 
-    private static boolean hasVisiblePhoneTask(
-            final List<TaskRepository.TaskEntry> tasks) {
+    static boolean hasVisiblePhoneTaskAfterCleanup(
+            final List<TaskRepository.TaskEntry> tasks,
+            final boolean localDesktopActive) {
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (task != null
                         && task.displayId == Display.DEFAULT_DISPLAY
-                        && task.visible) {
+                        && task.visible
+                        && !isSecondaryPhoneHomeTask(task)
+                        && !isStrandedDesktopTask(
+                                task, localDesktopActive)) {
                     return true;
                 }
             }

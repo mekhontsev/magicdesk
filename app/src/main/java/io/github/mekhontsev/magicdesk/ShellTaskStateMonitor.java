@@ -107,6 +107,23 @@ final class ShellTaskStateMonitor implements Closeable {
         }
     }
 
+    void clearConfiguration() {
+        synchronized (mLock) {
+            if (mClosed || mDisplayId < 0) {
+                return;
+            }
+            mDisplayId = -1;
+            mDisplayBounds.setEmpty();
+            mWorkAreaBounds.setEmpty();
+            mLastVisibleTypes.clear();
+            mLastProcessIds.clear();
+            mFullscreenTasks.clear();
+            mMaximizedTasks.clear();
+            mSampleGeneration++;
+            mLock.notifyAll();
+        }
+    }
+
     void requestSample() {
         synchronized (mLock) {
             if (!mClosed) {

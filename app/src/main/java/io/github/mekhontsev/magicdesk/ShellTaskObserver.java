@@ -109,6 +109,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
+        if (displayId < 0) {
+            mFreeformCleanup.configure(-1);
+            mInputPanelGuard.configure(-1);
+            mTransientBounds.clearConfiguration();
+            mStateMonitor.clearConfiguration();
+            return;
+        }
         mFreeformCleanup.configure(displayId);
         mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);

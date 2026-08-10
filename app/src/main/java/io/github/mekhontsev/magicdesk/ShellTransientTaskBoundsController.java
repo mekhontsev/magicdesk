@@ -54,6 +54,13 @@ final class ShellTransientTaskBoundsController {
         }
     }
 
+    synchronized void clearConfiguration() {
+        mDisplayId = -1;
+        mDisplayBounds.setEmpty();
+        mStableBounds.clear();
+        mCorrectedTransientTasks.clear();
+    }
+
     synchronized void observeTasks(
             final int displayId,
             final List<?> tasks) {
@@ -77,10 +84,7 @@ final class ShellTransientTaskBoundsController {
     }
 
     synchronized void close() {
-        mDisplayId = -1;
-        mDisplayBounds.setEmpty();
-        mStableBounds.clear();
-        mCorrectedTransientTasks.clear();
+        clearConfiguration();
     }
 
     private void observe(final Object task) throws ReflectiveOperationException {

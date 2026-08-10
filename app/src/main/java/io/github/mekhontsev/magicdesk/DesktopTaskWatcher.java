@@ -89,6 +89,17 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized void clearConfiguration() {
+        if (mHandle == null) {
+            return;
+        }
+        try {
+            mHandle.configure(-1, new Rect(), new Rect());
+        } catch (IOException error) {
+            Log.w(TAG, "failed to clear task observer configuration", error);
+        }
+    }
+
     synchronized void sendFocusStack(
             final int displayId,
             final List<Integer> taskIds,

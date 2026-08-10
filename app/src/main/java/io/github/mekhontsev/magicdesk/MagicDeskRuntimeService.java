@@ -36,6 +36,7 @@ public final class MagicDeskRuntimeService extends Service {
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
+    private static final long DISPLAY_REMOVAL_WATCHDOG_MILLIS = 2000;
     private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String SETTINGS = "/system/bin/settings";
     private static final String SHOW_IME_WITH_HARD_KEYBOARD =
@@ -56,6 +57,7 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
     private boolean mPhoneHomeRecoveryAgain;
+    private boolean mAllowUnsettledDisplayRecovery;
     private int mRemovedDesktopDisplayId = android.view.Display.INVALID_DISPLAY;
     private boolean mRestorePhonePanelAfterRecovery;
     private boolean mKeyboardWatcherRunning;
@@ -87,6 +89,12 @@ public final class MagicDeskRuntimeService extends Service {
 
     private final Runnable mPhoneHomeRecoveryRunnable =
             this::restorePrimaryPhoneHomeIfNeeded;
+    private final Runnable mDisplayRemovalWatchdogRunnable = () -> {
+        if (mRemovedDesktopDisplayId
+                > android.view.Display.DEFAULT_DISPLAY) {
+            schedulePhoneHomeRecovery(true);
+        }
+    };
     private final Runnable mLocalDesktopCleanupRunnable =
             this::cleanupClosedLocalDesktop;
 
@@ -130,6 +138,23 @@ public final class MagicDeskRuntimeService extends Service {
         service.mHandler.post(() -> {
             service.refreshDesktopOwnership();
             service.updateDesktopTasks();
+        });
+    }
+
+    static void reconcileFailedDesktopLaunchIfRunning(final int displayId) {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null
+                || displayId <= android.view.Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        service.mHandler.post(() -> {
+            if (!service.mDestroyed
+                    && service.mDisplayCoordinator != null
+                    && !service.mDisplayCoordinator.hasDisplay(displayId)) {
+                service.mRemovedDesktopDisplayId = displayId;
+                service.scheduleDisplayRemovalWatchdog();
+                service.schedulePhoneHomeRecovery();
+            }
         });
     }
 
@@ -353,7 +378,8 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         mInitialized = true;
-        mDesktopTasks = new DesktopTaskController(this, mHandler);
+        mDesktopTasks = new DesktopTaskController(
+                this, mHandler, this::handleTaskStackChanged);
         mDesktopMouseBridge = new DesktopMouseBridge(this);
         mInputCoordinator = new RuntimeInputCoordinator(
                 this, mHandler, this::handleInputStateChanged);
@@ -473,6 +499,7 @@ public final class MagicDeskRuntimeService extends Service {
         }
         if (mHandler != null) {
             mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
+            mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
             mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         }
         if (mDesktopTasks != null) {
@@ -538,11 +565,15 @@ public final class MagicDeskRuntimeService extends Service {
         final DesktopDisplayTarget.Kind desktopKind = displayRemoved
                 ? DesktopRuntimeBridge.getDesktopTargetKind(displayId)
                 : null;
+        final boolean activeDesktopRemoved = displayRemoved
+                && DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        == displayId;
         final boolean externalDesktopRemoved = isExternalDesktopRemoval(
                 displayRemoved,
                 displayId,
                 mOwnedDesktopDisplayId,
-                desktopKind);
+                desktopKind,
+                activeDesktopRemoved);
         if (displayRemoved) {
             restoreDesktopImePolicy(displayId);
             PhoneTouchpadController.release(displayId);
@@ -550,6 +581,7 @@ public final class MagicDeskRuntimeService extends Service {
             if (externalDesktopRemoved) {
                 mRemovedDesktopDisplayId = displayId;
                 mRestorePhonePanelAfterRecovery = true;
+                scheduleDisplayRemovalWatchdog();
             }
         }
         handleConsoleStateMaybeChanged();
@@ -564,10 +596,14 @@ public final class MagicDeskRuntimeService extends Service {
             final boolean displayRemoved,
             final int displayId,
             final int ownedDesktopDisplayId,
-            final DesktopDisplayTarget.Kind desktopKind) {
-        if (!displayRemoved || displayId <= android.view.Display.DEFAULT_DISPLAY
-                || desktopKind == DesktopDisplayTarget.Kind.SIMULATED) {
+            final DesktopDisplayTarget.Kind desktopKind,
+            final boolean activeDesktopRemoved) {
+        if (!displayRemoved
+                || displayId <= android.view.Display.DEFAULT_DISPLAY) {
             return false;
+        }
+        if (desktopKind == DesktopDisplayTarget.Kind.SIMULATED) {
+            return activeDesktopRemoved;
         }
         return displayId == ownedDesktopDisplayId || desktopKind != null;
     }
@@ -696,11 +732,35 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void schedulePhoneHomeRecovery() {
+        schedulePhoneHomeRecovery(false);
+    }
+
+    private void schedulePhoneHomeRecovery(
+            final boolean allowUnsettledDisplayRecovery) {
         if (mDestroyed || mHandler == null || !ShellAccess.isReady()) {
             return;
         }
+        mAllowUnsettledDisplayRecovery |=
+                allowUnsettledDisplayRecovery;
         mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
         mHandler.post(mPhoneHomeRecoveryRunnable);
+    }
+
+    private void handleTaskStackChanged() {
+        if (mRemovedDesktopDisplayId > android.view.Display.DEFAULT_DISPLAY
+                || mConsoleExitRecoveryPending) {
+            schedulePhoneHomeRecovery();
+        }
+    }
+
+    private void scheduleDisplayRemovalWatchdog() {
+        if (mDestroyed || mHandler == null) {
+            return;
+        }
+        mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
+        mHandler.postDelayed(
+                mDisplayRemovalWatchdogRunnable,
+                DISPLAY_REMOVAL_WATCHDOG_MILLIS);
     }
 
     private void restorePrimaryPhoneHomeIfNeeded() {
@@ -712,14 +772,22 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         mPhoneHomeRecoveryInFlight = true;
+        final boolean allowUnsettledDisplayRecovery =
+                mAllowUnsettledDisplayRecovery;
+        mAllowUnsettledDisplayRecovery = false;
         final boolean includeStrandedDesktop =
                 PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
                         mConsoleModeActive,
                         mConsoleExitRecoveryPending);
         final int removedDisplayId = mRemovedDesktopDisplayId;
+        final boolean localDesktopActive =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        == android.view.Display.DEFAULT_DISPLAY;
         PhoneHomeRecoveryController.restoreIfNeeded(
                 includeStrandedDesktop,
                 removedDisplayId,
+                localDesktopActive,
+                allowUnsettledDisplayRecovery,
                 settled -> mHandler.post(() -> {
                     mPhoneHomeRecoveryInFlight = false;
                     final boolean restorePhonePanel =
@@ -730,6 +798,8 @@ public final class MagicDeskRuntimeService extends Service {
                             && mRemovedDesktopDisplayId == removedDisplayId) {
                         mRemovedDesktopDisplayId =
                                 android.view.Display.INVALID_DISPLAY;
+                        mHandler.removeCallbacks(
+                                mDisplayRemovalWatchdogRunnable);
                     }
                     if (!mDestroyed && restorePhonePanel) {
                         mRestorePhonePanelAfterRecovery = false;
@@ -1059,11 +1129,12 @@ public final class MagicDeskRuntimeService extends Service {
         }
         final int displayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        if (displayId >= 0
-                && ShellAccess.isReady()) {
+        if (displayId >= 0 && ShellAccess.isReady()) {
+            mDesktopTasks.setTaskWatcherEnabled(true);
             mDesktopTasks.start(displayId);
         } else {
             mDesktopTasks.stop();
+            mDesktopTasks.setTaskWatcherEnabled(ShellAccess.isReady());
         }
     }
 

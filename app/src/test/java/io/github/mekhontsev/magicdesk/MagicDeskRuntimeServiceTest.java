@@ -9,7 +9,7 @@ public final class MagicDeskRuntimeServiceTest {
     @Test
     public void recognizesOwnedDisplayAfterTargetMetadataWasLost() {
         assertTrue(MagicDeskRuntimeService.isExternalDesktopRemoval(
-                true, 100, 100, null));
+                true, 100, 100, null, false));
     }
 
     @Test
@@ -18,17 +18,29 @@ public final class MagicDeskRuntimeServiceTest {
                 true,
                 100,
                 -1,
-                DesktopDisplayTarget.Kind.WIRELESS));
+                DesktopDisplayTarget.Kind.WIRELESS,
+                false));
     }
 
     @Test
-    public void ignoresSimulatedAndUnownedDisplays() {
+    public void recognizesOnlyActiveSimulatedDisplayRemoval() {
+        assertTrue(MagicDeskRuntimeService.isExternalDesktopRemoval(
+                true,
+                100,
+                100,
+                DesktopDisplayTarget.Kind.SIMULATED,
+                true));
         assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
                 true,
                 100,
                 100,
-                DesktopDisplayTarget.Kind.SIMULATED));
+                DesktopDisplayTarget.Kind.SIMULATED,
+                false));
+    }
+
+    @Test
+    public void ignoresUnownedDisplayRemoval() {
         assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
-                true, 100, -1, null));
+                true, 100, -1, null, false));
     }
 }

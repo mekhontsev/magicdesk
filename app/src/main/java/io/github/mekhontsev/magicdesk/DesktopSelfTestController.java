@@ -26,6 +26,8 @@ final class DesktopSelfTestController {
             PACKAGE_NAME + ".DesktopActivity";
     private static final String LAUNCH_ANCHOR_CLASS =
             PACKAGE_NAME + ".FreeformLaunchAnchorActivity";
+    private static final String SECONDARY_HOME_CLASS =
+            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
     private static final int EXPECTED_WIDTH = 1920;
     private static final int EXPECTED_HEIGHT = 1080;
     private static final int EXPECTED_DENSITY = 160;
@@ -572,9 +574,11 @@ final class DesktopSelfTestController {
             if (ShellAccess.isReady()) {
                 try {
                     waitForTaskAbsent(DESKTOP_CLASS);
+                    waitForTaskAbsent(LAUNCH_ANCHOR_CLASS);
+                    waitForDesktopRepositoryEmpty(displayId);
                 } catch (IOException error) {
                     clean = false;
-                    detail.append("desktop removal: ")
+                    detail.append("desktop task quiescence: ")
                             .append(usefulMessage(error)).append("; ");
                 }
             }
@@ -602,6 +606,24 @@ final class DesktopSelfTestController {
                 clean = false;
                 detail.append("display ").append(displayId)
                         .append(" remained; ");
+            }
+            if (ShellAccess.isReady()) {
+                try {
+                    waitForTaskAbsentOnDisplay(
+                            Display.DEFAULT_DISPLAY,
+                            SECONDARY_HOME_CLASS);
+                } catch (IOException error) {
+                    clean = false;
+                    detail.append("phone launcher cleanup: ")
+                            .append(usefulMessage(error)).append("; ");
+                }
+                try {
+                    waitForDesktopRepositoryEmpty(displayId);
+                } catch (IOException error) {
+                    clean = false;
+                    detail.append("desktop repository cleanup: ")
+                            .append(usefulMessage(error)).append("; ");
+                }
             }
         }
         if (ShellAccess.isReady()) {
@@ -674,6 +696,40 @@ final class DesktopSelfTestController {
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className + " remained after close");
+    }
+
+    private static void waitForTaskAbsentOnDisplay(
+            final int displayId,
+            final String className) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            final TaskStackParser.Entry task = findTask(
+                    ShellAccess.run("/system/bin/cmd activity stack list"),
+                    displayId,
+                    className);
+            if (task == null) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + className
+                + " remained on display " + displayId + " after close");
+    }
+
+    private static void waitForDesktopRepositoryEmpty(
+            final int displayId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            final String repository = ShellAccess.run(
+                    PhoneDesktopTaskRecovery.repositoryDumpCommand());
+            if (SystemUiDesktopRepositoryParser.parseTaskIds(
+                    repository, displayId).isEmpty()) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("SystemUI retained tasks for display "
+                + displayId);
     }
 
     private static TaskStackParser.Entry findTaskOnAnyDisplay(

@@ -60,10 +60,23 @@ public final class PhoneHomeRecoveryControllerTest {
 
     @Test
     public void ignoresSecondaryBaseTaskWhenPrimaryHomeIsOnTop() {
+        final TaskRepository.TaskEntry secondaryBase =
+                task(SECONDARY_HOME, true, true, PRIMARY_HOME);
         assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
-                Collections.singletonList(
-                        task(SECONDARY_HOME, true, true, PRIMARY_HOME)),
+                Collections.singletonList(secondaryBase),
                 true));
+        assertTrue(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+                secondaryBase));
+    }
+
+    @Test
+    public void detectsHiddenSecondaryHomeForCleanup() {
+        assertTrue(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+                task(SECONDARY_HOME, false, true)));
+        assertFalse(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+                task(SECONDARY_HOME, true, false)));
+        assertFalse(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+                task(PRIMARY_HOME, false, true)));
     }
 
     @Test
@@ -76,6 +89,30 @@ public final class PhoneHomeRecoveryControllerTest {
         assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
                 Collections.singletonList(task),
                 false));
+        assertTrue(PhoneHomeRecoveryController.isStrandedDesktopTask(
+                task, false));
+        assertFalse(PhoneHomeRecoveryController.isStrandedDesktopTask(
+                task, true));
+        assertFalse(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(task), false));
+        assertTrue(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(task), true));
+    }
+
+    @Test
+    public void visiblePhoneTaskPredictionExcludesRemovedSecondaryHome() {
+        assertFalse(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(
+                                task(SECONDARY_HOME, true, true)),
+                        false));
+        assertTrue(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(
+                                task(PRIMARY_HOME, true, true)),
+                        false));
     }
 
     private static TaskRepository.TaskEntry task(
