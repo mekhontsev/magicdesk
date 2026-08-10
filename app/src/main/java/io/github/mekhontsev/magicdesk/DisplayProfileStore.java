@@ -11,8 +11,8 @@ final class DisplayProfileStore {
 
     static Profile load(final String monitorKey,
             final int defaultDpi) {
-        final Profile stored = DesktopStateStore.get()
-                .displayProfiles.get(monitorKey);
+        final Profile stored = DesktopStateStore.read(state ->
+                copy(state.displayProfiles.get(monitorKey)), null);
         if (stored != null) {
             return stored;
         }
@@ -24,14 +24,14 @@ final class DisplayProfileStore {
         return profile;
     }
 
-    static void save(final Profile profile) {
+    static boolean save(final Profile profile) {
         if (profile == null || profile.monitorKey == null
                 || profile.monitorKey.length() == 0) {
-            return;
+            return false;
         }
-        DesktopStateStore.get().displayProfiles.put(
-                profile.monitorKey, profile);
-        DesktopStateStore.save();
+        final Profile snapshot = copy(profile);
+        return DesktopStateStore.update(state ->
+                state.displayProfiles.put(snapshot.monitorKey, snapshot));
     }
 
     static void removePlacementEverywhere(
@@ -54,32 +54,27 @@ final class DisplayProfileStore {
         if (previousItemId == null || previousItemId.length() == 0) {
             return;
         }
-        boolean changed = false;
-        for (final Profile profile : DesktopStateStore.get()
-                .displayProfiles.values()) {
-            final DesktopPlacement placement =
-                    profile.placements.remove(previousItemId);
-            if (placement == null) {
-                continue;
+        DesktopStateStore.update(state -> {
+            for (final Profile profile : state.displayProfiles.values()) {
+                final DesktopPlacement placement =
+                        profile.placements.remove(previousItemId);
+                if (placement != null && newItemId != null) {
+                    profile.placements.put(newItemId, placement);
+                }
             }
-            if (newItemId != null) {
-                profile.placements.put(newItemId, placement);
-            }
-            changed = true;
-        }
-        if (changed) {
-            DesktopStateStore.save();
-        }
+        });
     }
 
     static boolean exists(final String monitorKey) {
-        return DesktopStateStore.get().displayProfiles.containsKey(monitorKey);
+        return DesktopStateStore.read(
+                state -> state.displayProfiles.containsKey(monitorKey),
+                false);
     }
 
     static Integer readStoredDpi(
             final String monitorKey) {
-        final Profile profile = DesktopStateStore.get()
-                .displayProfiles.get(monitorKey);
+        final Profile profile = DesktopStateStore.read(
+                state -> state.displayProfiles.get(monitorKey), null);
         return profile == null ? null : Integer.valueOf(profile.dpi);
     }
 
@@ -87,8 +82,8 @@ final class DisplayProfileStore {
         if (displayKey == null || displayKey.length() == 0) {
             return displayKey;
         }
-        final String monitorKey = DesktopStateStore.get()
-                .displayAliases.get(displayKey);
+        final String monitorKey = DesktopStateStore.read(
+                state -> state.displayAliases.get(displayKey), null);
         return monitorKey == null ? displayKey : monitorKey;
     }
 
@@ -98,11 +93,24 @@ final class DisplayProfileStore {
                 || monitorKey == null || monitorKey.length() == 0) {
             return;
         }
-        final String previous = DesktopStateStore.get()
-                .displayAliases.put(displayKey, monitorKey);
-        if (!monitorKey.equals(previous)) {
-            DesktopStateStore.save();
+        DesktopStateStore.update(state ->
+                state.displayAliases.put(displayKey, monitorKey));
+    }
+
+    static Profile copy(final Profile source) {
+        if (source == null) {
+            return null;
         }
+        final Profile copy = new Profile(source.monitorKey);
+        copy.dpi = source.dpi;
+        copy.dpiExplicit = source.dpiExplicit;
+        copy.workspaceBounds.left = source.workspaceBounds.left;
+        copy.workspaceBounds.top = source.workspaceBounds.top;
+        copy.workspaceBounds.right = source.workspaceBounds.right;
+        copy.workspaceBounds.bottom = source.workspaceBounds.bottom;
+        copy.workspaceBoundsTarget = source.workspaceBoundsTarget;
+        copy.placements.putAll(source.placements);
+        return copy;
     }
 
     static final class Profile {

@@ -7,9 +7,21 @@ import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
 
+import org.junit.After;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+
 public final class DesktopStateStoreTest {
+    @After
+    public void restoreStorage() {
+        DesktopStateStore.useStorageForTests(null);
+    }
+
     @Test
     public void stateRoundTripPreservesDesktopConfiguration() throws Exception {
         final DesktopStateStore.State source = new DesktopStateStore.State();
@@ -76,5 +88,112 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.taskbarPackages.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.displayAliases.isEmpty());
+    }
+
+    @Test
+    public void concurrentUpdatesDoNotLoseState() throws Exception {
+        final MemoryStorage storage = new MemoryStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        final int workerCount = 8;
+        final CountDownLatch start = new CountDownLatch(1);
+        final CountDownLatch complete = new CountDownLatch(workerCount);
+        final List<Throwable> failures = Collections.synchronizedList(
+                new ArrayList<>());
+        for (int index = 0; index < workerCount; index++) {
+            final String packageName = "example.application" + index;
+            new Thread(() -> {
+                try {
+                    start.await();
+                    assertTrue(DesktopStateStore.update(state ->
+                            state.taskbarPackages.add(packageName)));
+                } catch (Throwable error) {
+                    failures.add(error);
+                } finally {
+                    complete.countDown();
+                }
+            }).start();
+        }
+
+        start.countDown();
+        complete.await();
+
+        assertTrue(failures.toString(), failures.isEmpty());
+        final List<String> packages = DesktopStateStore.read(
+                state -> new ArrayList<>(state.taskbarPackages),
+                Collections.emptyList());
+        assertEquals(workerCount, packages.size());
+    }
+
+    @Test
+    public void failedWriteRollsBackInMemoryState() {
+        final MemoryStorage storage = new MemoryStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.before")));
+        storage.failWrites = true;
+
+        assertFalse(DesktopStateStore.update(state -> {
+            state.taskbarPackages.clear();
+            state.taskbarPackages.add("example.after");
+        }));
+
+        assertEquals(
+                Collections.singletonList("example.before"),
+                DesktopStateStore.read(
+                        state -> new ArrayList<>(state.taskbarPackages),
+                        Collections.emptyList()));
+    }
+
+    @Test
+    public void profileCopiesDoNotExposeStoredMutableState() {
+        final DisplayProfileStore.Profile source =
+                new DisplayProfileStore.Profile("monitor:copy");
+        source.dpi = 160;
+        source.placements.put(
+                "app:example", new DesktopPlacement(1, 2, 1, 1));
+
+        final DisplayProfileStore.Profile copy = DisplayProfileStore.copy(source);
+        copy.dpi = 240;
+        copy.placements.clear();
+
+        assertEquals(160, source.dpi);
+        assertEquals(1, source.placements.size());
+    }
+
+    @Test
+    public void readsCannotMutateStoredState() {
+        DesktopStateStore.useStorageForTests(new MemoryStorage());
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.saved")));
+
+        DesktopStateStore.read(state -> {
+            state.taskbarPackages.clear();
+            return null;
+        }, null);
+
+        assertEquals(
+                Collections.singletonList("example.saved"),
+                DesktopStateStore.read(
+                        state -> new ArrayList<>(state.taskbarPackages),
+                        Collections.emptyList()));
+    }
+
+    private static final class MemoryStorage
+            implements DesktopStateStore.Storage {
+        String encoded = "";
+        boolean failWrites;
+
+        @Override
+        public synchronized String read() {
+            return encoded;
+        }
+
+        @Override
+        public synchronized void write(final String value) throws IOException {
+            if (failWrites) {
+                throw new IOException("write failed");
+            }
+            encoded = value;
+        }
     }
 }

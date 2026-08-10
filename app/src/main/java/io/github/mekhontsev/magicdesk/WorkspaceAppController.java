@@ -30,7 +30,7 @@ final class WorkspaceAppController {
     }
 
     String getWorkspacePackage() {
-        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        final AppLaunchTarget target = mContent.workspaceTarget();
         return target == null ? null : target.packageName;
     }
 
@@ -46,8 +46,9 @@ final class WorkspaceAppController {
         final DisplayProfileStore.Profile profile =
                 mActivity.getDisplayProfile();
         if (!keep) {
-            mContent.get().workspaceTarget = null;
-            mContent.save();
+            if (!mContent.setWorkspaceTarget(null)) {
+                return;
+            }
             profile.workspaceBounds.setEmpty();
             profile.workspaceBoundsTarget = null;
             mBoundsRestorePending = false;
@@ -60,8 +61,9 @@ final class WorkspaceAppController {
             return;
         }
 
-        mContent.get().workspaceTarget = app.launchTarget;
-        mContent.save();
+        if (!mContent.setWorkspaceTarget(app.launchTarget)) {
+            return;
+        }
         profile.workspaceBounds.setEmpty();
         profile.workspaceBoundsTarget = app.launchTarget.stableKey();
         if (task != null
@@ -87,7 +89,7 @@ final class WorkspaceAppController {
             final boolean bringToFront) {
         final DisplayProfileStore.Profile profile =
                 mActivity.getDisplayProfile();
-        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        final AppLaunchTarget target = mContent.workspaceTarget();
         if (target == null) {
             return;
         }
@@ -144,7 +146,7 @@ final class WorkspaceAppController {
             final TaskRepository.Snapshot snapshot) {
         final DisplayProfileStore.Profile profile =
                 mActivity.getDisplayProfile();
-        final AppLaunchTarget target = mContent.get().workspaceTarget;
+        final AppLaunchTarget target = mContent.workspaceTarget();
         if (target == null) {
             return;
         }

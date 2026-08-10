@@ -21,13 +21,14 @@ final class DesktopPreferences {
     }
 
     static List<String> taskbarPackages() {
-        return new ArrayList<>(DesktopStateStore.get().taskbarPackages);
+        return DesktopStateStore.read(
+                state -> new ArrayList<>(state.taskbarPackages),
+                new ArrayList<>());
     }
 
     static void saveTaskbarPackages(
             final Collection<String> packages) {
-        final List<String> stored = DesktopStateStore.get().taskbarPackages;
-        stored.clear();
+        final List<String> stored = new ArrayList<>();
         if (packages != null) {
             for (final String packageName : packages) {
                 if (PackageNameValidator.isSafe(packageName)
@@ -36,7 +37,10 @@ final class DesktopPreferences {
                 }
             }
         }
-        DesktopStateStore.save();
+        DesktopStateStore.update(state -> {
+            state.taskbarPackages.clear();
+            state.taskbarPackages.addAll(stored);
+        });
     }
 
     static List<String> recentPackages(final Context context) {

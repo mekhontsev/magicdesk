@@ -19,22 +19,47 @@ final class DesktopStateStore {
 
     private static final String TAG = "MagicDeskState";
     private static final Object LOCK = new Object();
-    private static final State UNAVAILABLE_STATE = new State();
+    private static final Storage SHELL_STORAGE = new Storage() {
+        @Override
+        public String read() throws IOException {
+            return ShellAccess.readDesktopState();
+        }
+
+        @Override
+        public void write(final String encoded) throws IOException {
+            ShellAccess.writeDesktopState(encoded);
+        }
+    };
 
     private static State sState;
     private static String sEncoded;
+    private static Storage sStorage = SHELL_STORAGE;
 
     private DesktopStateStore() {
     }
 
-    static State get() {
+    interface Reader<T> {
+        T read(State state);
+    }
+
+    interface Mutation {
+        void apply(State state);
+    }
+
+    interface Storage {
+        String read() throws IOException;
+
+        void write(String encoded) throws IOException;
+    }
+
+    static <T> T read(final Reader<T> reader, final T unavailableValue) {
         synchronized (LOCK) {
             try {
                 ensureLoadedLocked();
-                return sState;
+                return reader.read(snapshotLocked());
             } catch (IOException error) {
                 report("Could not load desktop state", error);
-                return UNAVAILABLE_STATE;
+                return unavailableValue;
             }
         }
     }
@@ -45,36 +70,54 @@ final class DesktopStateStore {
         }
     }
 
-    static void save() {
+    static boolean update(final Mutation mutation) {
         synchronized (LOCK) {
             try {
                 ensureLoadedLocked();
             } catch (IOException error) {
                 report("Could not save desktop state", error);
-                return;
+                return false;
+            }
+            final String previous;
+            try {
+                previous = toJson(sState).toString();
+            } catch (JSONException | RuntimeException error) {
+                report("Could not encode desktop state", error);
+                return false;
+            }
+            try {
+                mutation.apply(sState);
+            } catch (RuntimeException error) {
+                restoreLocked(previous);
+                report("Could not update desktop state", error);
+                return false;
             }
             final String encoded;
             try {
                 encoded = toJson(sState).toString();
             } catch (JSONException | RuntimeException error) {
+                restoreLocked(previous);
                 report("Could not encode desktop state", error);
-                return;
+                return false;
             }
-            if (encoded.equals(sEncoded)) {
-                return;
+            if (encoded.equals(previous)) {
+                return true;
             }
             try {
-                ShellAccess.writeDesktopState(encoded);
+                sStorage.write(encoded);
                 sEncoded = encoded;
+                return true;
             } catch (IOException | RuntimeException error) {
+                restoreLocked(previous);
                 report("Could not save desktop state", error);
+                return false;
             }
         }
     }
 
     static ExternalSnapshot readExternal() {
         try {
-            return new ExternalSnapshot(ShellAccess.readDesktopState());
+            return new ExternalSnapshot(sStorage.read());
         } catch (IOException | RuntimeException error) {
             report("Could not reload desktop state", error);
             return null;
@@ -150,7 +193,7 @@ final class DesktopStateStore {
         if (sState != null) {
             return;
         }
-        final String encoded = ShellAccess.readDesktopState();
+        final String encoded = sStorage.read();
         try {
             final State state = decode(encoded);
             sEncoded = encoded;
@@ -158,6 +201,39 @@ final class DesktopStateStore {
         } catch (JSONException | RuntimeException error) {
             report("Desktop state is invalid; using defaults", error);
             sState = new State();
+            sEncoded = null;
+        }
+    }
+
+    private static void restoreLocked(final String encoded) {
+        try {
+            sState = decode(encoded);
+            sEncoded = encoded;
+        } catch (JSONException | RuntimeException error) {
+            report("Could not roll back desktop state", error);
+            sState = null;
+            sEncoded = null;
+        }
+    }
+
+    private static State snapshotLocked() {
+        final State snapshot = new State();
+        snapshot.content.shortcuts.addAll(sState.content.shortcuts);
+        snapshot.content.workspaceTarget = sState.content.workspaceTarget;
+        snapshot.taskbarPackages.addAll(sState.taskbarPackages);
+        for (final Map.Entry<String, DisplayProfileStore.Profile> entry
+                : sState.displayProfiles.entrySet()) {
+            snapshot.displayProfiles.put(
+                    entry.getKey(), DisplayProfileStore.copy(entry.getValue()));
+        }
+        snapshot.displayAliases.putAll(sState.displayAliases);
+        return snapshot;
+    }
+
+    static void useStorageForTests(final Storage storage) {
+        synchronized (LOCK) {
+            sStorage = storage == null ? SHELL_STORAGE : storage;
+            sState = null;
             sEncoded = null;
         }
     }
@@ -374,14 +450,22 @@ final class DesktopStateStore {
     }
 
     private static void report(final String message, final Throwable error) {
-        Log.w(TAG, message, error);
-        CompatibilityDiagnostics.record(
-                "DESKTOP-STATE-001",
-                message,
-                error.getMessage() == null
-                        ? error.getClass().getSimpleName()
-                        : error.getMessage(),
-                error);
+        try {
+            Log.w(TAG, message, error);
+        } catch (RuntimeException ignored) {
+            // Diagnostics must not alter storage transaction semantics.
+        }
+        try {
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-STATE-001",
+                    message,
+                    error.getMessage() == null
+                            ? error.getClass().getSimpleName()
+                            : error.getMessage(),
+                    error);
+        } catch (RuntimeException ignored) {
+            // The state has already been rolled back where necessary.
+        }
     }
 
     static final class State {

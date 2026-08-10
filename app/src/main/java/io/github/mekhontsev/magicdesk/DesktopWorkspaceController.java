@@ -176,23 +176,26 @@ final class DesktopWorkspaceController {
 
     boolean isDesktopShortcut(final AppItem app) {
         return app != null
-                && mContent.get().shortcuts.contains(app.launchTarget);
+                && mContent.containsShortcut(app.launchTarget);
     }
 
     void toggleDesktopShortcut(final AppItem app) {
-        final List<AppLaunchTarget> shortcuts = mContent.get().shortcuts;
         final boolean added;
-        if (shortcuts.remove(app.launchTarget)) {
+        if (mContent.containsShortcut(app.launchTarget)) {
+            if (!mContent.removeShortcut(app.launchTarget)) {
+                return;
+            }
             added = false;
             final String itemId = appItemId(app.launchTarget);
             mActivity.getDisplayProfile().placements.remove(itemId);
             mActivity.saveDisplayProfile();
             DisplayProfileStore.removePlacementEverywhere(itemId);
         } else {
-            shortcuts.add(app.launchTarget);
+            if (!mContent.addShortcut(app.launchTarget)) {
+                return;
+            }
             added = true;
         }
-        mContent.save();
         render(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
                 added
@@ -396,11 +399,10 @@ final class DesktopWorkspaceController {
 
     void deleteShortcut(final AppItem app) {
         if (app == null
-                || !mContent.get().shortcuts.remove(app.launchTarget)) {
+                || !mContent.removeShortcut(app.launchTarget)) {
             return;
         }
         final String itemId = appItemId(app.launchTarget);
-        mContent.save();
         mActivity.getDisplayProfile().placements.remove(itemId);
         mActivity.saveDisplayProfile();
         DisplayProfileStore.removePlacementEverywhere(itemId);
@@ -416,7 +418,7 @@ final class DesktopWorkspaceController {
 
     private List<Entry> collectEntries() {
         final List<Entry> entries = new ArrayList<>();
-        for (final AppLaunchTarget target : mContent.get().shortcutsView()) {
+        for (final AppLaunchTarget target : mContent.shortcuts()) {
             final AppItem app = mActivity.findOrLoadApp(mApps, target);
             if (app != null) {
                 entries.add(Entry.app(appItemId(target), app));
