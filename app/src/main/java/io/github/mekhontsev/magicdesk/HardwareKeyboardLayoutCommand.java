@@ -21,6 +21,8 @@ import java.util.Set;
 
 public final class HardwareKeyboardLayoutCommand {
     private static final String INPUT_METHOD_SERVICE = "input_method";
+    private static final String INPUT_METHOD_SUBTYPE_SAFE_LIST =
+            "com.android.internal.inputmethod.InputMethodSubtypeSafeList";
     private static final String KEYBOARD_SUBTYPE_MODE = "keyboard";
     private static final String MAGICDESK_VIRTUAL_KEYBOARD_NAME =
             "MagicDesk Keyboard";
@@ -444,12 +446,13 @@ public final class HardwareKeyboardLayoutCommand {
                         "getEnabledInputMethodListLegacy", int.class)
                         .invoke(inputMethodManager, userId);
         for (final InputMethodInfo enabledInputMethod : enabledInputMethods) {
+            final Object enabledSubtypeResult = inputMethodManagerInterface.getMethod(
+                    "getEnabledInputMethodSubtypeList",
+                    String.class, boolean.class, int.class)
+                    .invoke(inputMethodManager,
+                            enabledInputMethod.getId(), true, userId);
             final List<InputMethodSubtype> enabledSubtypes =
-                    (List<InputMethodSubtype>) inputMethodManagerInterface.getMethod(
-                            "getEnabledInputMethodSubtypeList",
-                            String.class, boolean.class, int.class)
-                            .invoke(inputMethodManager,
-                                    enabledInputMethod.getId(), true, userId);
+                    extractEnabledInputMethodSubtypes(enabledSubtypeResult);
             for (final InputMethodSubtype subtype : enabledSubtypes) {
                 addSubtypeMapping(
                         layoutMappings, seenMappings,
@@ -457,6 +460,30 @@ public final class HardwareKeyboardLayoutCommand {
             }
         }
         return new ImeState(inputMethod, currentSubtype, layoutMappings);
+    }
+
+    @SuppressWarnings("unchecked")
+    static List<InputMethodSubtype> extractEnabledInputMethodSubtypes(
+            final Object result) throws ReflectiveOperationException {
+        if (result == null) {
+            return new ArrayList<>();
+        }
+        if (result instanceof List<?>) {
+            return (List<InputMethodSubtype>) result;
+        }
+        final Class<?> resultClass = result.getClass();
+        if (!INPUT_METHOD_SUBTYPE_SAFE_LIST.equals(resultClass.getName())) {
+            throw new IllegalStateException(
+                    "unsupported enabled subtype result: "
+                            + resultClass.getName());
+        }
+        final Object extracted = resultClass.getMethod(
+                "extractFrom", resultClass).invoke(null, result);
+        if (!(extracted instanceof List<?>)) {
+            throw new IllegalStateException(
+                    "extracted subtype result is not a List");
+        }
+        return (List<InputMethodSubtype>) extracted;
     }
 
     private static void addSubtypeMapping(
