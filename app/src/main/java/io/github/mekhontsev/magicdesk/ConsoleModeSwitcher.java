@@ -302,6 +302,44 @@ final class ConsoleModeSwitcher {
         });
     }
 
+    static void disconnectWirelessDisplay(
+            final ResultCallback callback) {
+        ControlActivity.finishActiveForMirrorTransition();
+        disconnectWirelessDisplayTransport(callback);
+    }
+
+    private static void disconnectWirelessDisplayTransport(
+            final ResultCallback callback) {
+        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
+            Log.i(TAG, "Desktop transition is already in progress");
+            if (callback != null) {
+                callback.onComplete(false);
+            }
+            return;
+        }
+        EXECUTOR.execute(() -> {
+            boolean success = false;
+            try {
+                success = WirelessDisplayController.disconnect()
+                        && ConsoleDisplayController
+                                .waitForWirelessDisplayStop();
+                if (!success) {
+                    Log.w(TAG, "Wireless display remained connected");
+                } else if (ShellAccess.isReady()) {
+                    ConsoleSessionController.setExternalTaskCaptionTransport(
+                            NubiaCaptionVisibilityManager.Transport.NONE);
+                }
+            } catch (IOException error) {
+                Log.w(TAG, "Wireless display disconnect failed", error);
+            } finally {
+                DESKTOP_START_IN_PROGRESS.set(false);
+                if (callback != null) {
+                    callback.onComplete(success);
+                }
+            }
+        });
+    }
+
     static void returnConsoleTasksToPhone(final ResultCallback callback) {
         EXECUTOR.execute(new Runnable() {
             @Override

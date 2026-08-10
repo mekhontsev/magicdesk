@@ -307,10 +307,10 @@ launcher-navigation guard, then starts the same desktop host and controllers.
 - `ConsoleSessionController` asks RedMagic firmware to turn a physical USB-C
   display into Nubia's virtual desktop display, applies its output profile, and
   enables the wired input-routing path.
-- Wireless startup opens the stock SmartCast/Miracast picker. Once Android
-  reports a Wi-Fi presentation display, MagicDesk passes that display ID to
-  the common desktop session. It does not implement a second discovery or
-  streaming stack.
+- With no connected target, the common external-desktop action opens the stock
+  SmartCast/Miracast picker. Once Android reports a Wi-Fi presentation display,
+  MagicDesk passes that display ID to the common desktop session. It does not
+  implement a second discovery or streaming stack.
 - An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.

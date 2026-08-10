@@ -240,12 +240,12 @@ display size, density, and scaling to the defaults supplied by nubia.
 3. For a wired session, connect a USB-C display. If needed, select an **Output
    mode** reported by the display and enable **Fill display** to remove
    letterboxing, then select **Start external desktop** or press `Win+D`.
-4. For a wireless session, select **Connect a wireless display**, then choose a
-   Miracast receiver in the stock SmartCast interface. MagicDesk starts the
-   desktop when Android reports the wireless display.
-5. To leave a wired session, select **Switch to screen mirroring**. To leave a
-   wireless session, disconnect it through the stock casting interface. Select
-   **Exit MagicDesk** to stop MagicDesk and its background services completely.
+4. For a wireless session with no display connected, select **Start external
+   desktop**, then choose a Miracast receiver in the stock SmartCast interface.
+   MagicDesk starts the desktop when Android reports the wireless display.
+5. Select **Close desktop** to return a wired display to screen mirroring or to
+   disconnect a wireless display. Select **Exit MagicDesk** to stop MagicDesk
+   and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted

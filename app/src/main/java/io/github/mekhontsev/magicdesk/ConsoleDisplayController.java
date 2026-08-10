@@ -116,6 +116,17 @@ final class ConsoleDisplayController {
         return false;
     }
 
+    static boolean waitForWirelessDisplayStop() {
+        final long deadline = SystemClock.uptimeMillis() + START_TIMEOUT_MS;
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (findWirelessDisplayId() <= 0) {
+                return true;
+            }
+            SystemClock.sleep(STATE_POLL_MS);
+        }
+        return false;
+    }
+
     static boolean displayExists(final int displayId) {
         final String output = runCommand(
                 DISPLAY + " get-displays --ids-only");

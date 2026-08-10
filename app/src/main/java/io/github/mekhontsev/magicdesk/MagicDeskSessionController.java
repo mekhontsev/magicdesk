@@ -89,14 +89,41 @@ final class MagicDeskSessionController {
             mActivity.runOnUiThread(mActivity::finishAndRemoveTask);
             return;
         }
+        if (DesktopRuntimeBridge.getDesktopTargetKind(display.getDisplayId())
+                == DesktopDisplayTarget.Kind.WIRELESS) {
+            final int displayId = display.getDisplayId();
+            ConsoleModeSwitcher.disconnectWirelessDisplay(
+                    success -> {
+                        if (success) {
+                            MagicDeskRuntimeService
+                                    .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
+                                            displayId);
+                        }
+                        finishCloseDesktop(
+                                success,
+                                "WIRELESS-DISPLAY-002",
+                                R.string.status_close_desktop_failed);
+                    });
+            return;
+        }
         ConsoleModeSwitcher.switchToMirrorWithControlPanel(success -> {
-            if (!success) {
-                abort(
-                        "NUBIA-CONSOLE-001",
-                        mActivity.getString(R.string.status_mirror_failed),
-                        null);
-            }
+            finishCloseDesktop(
+                    success,
+                    "NUBIA-CONSOLE-001",
+                    R.string.status_mirror_failed);
         });
+    }
+
+    private void finishCloseDesktop(
+            final boolean success,
+            final String code,
+            final int messageResource) {
+        if (!success) {
+            abort(
+                    code,
+                    mActivity.getString(messageResource),
+                    null);
+        }
     }
 
     private void finishExit() {

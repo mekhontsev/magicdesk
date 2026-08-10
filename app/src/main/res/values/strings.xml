@@ -57,8 +57,7 @@
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
     <string name="action_close_desktop">Close desktop</string>
-    <string name="action_connect_wireless_display">Connect a wireless display</string>
-    <string name="action_start_console_mode">Start external desktop</string>
+    <string name="action_start_external_desktop">Start external desktop</string>
     <string name="action_show_external_desktop">Show external desktop</string>
     <string name="external_display_fill">Fill display</string>
     <string name="external_display_resolution">Output mode</string>
@@ -211,6 +210,7 @@
     <string name="status_wireless_desktop_starting">Starting wireless desktop&#8230;</string>
     <string name="status_desktop_opening">Opening desktop here&#8230;</string>
     <string name="status_desktop_closing">Closing desktop&#8230;</string>
+    <string name="status_close_desktop_failed">Could not close the external desktop</string>
     <string name="status_touchpad_opening">Opening touchpad&#8230;</string>
     <string name="touchpad_title">Touchpad</string>
     <string name="touchpad_show_keyboard">Show keyboard</string>

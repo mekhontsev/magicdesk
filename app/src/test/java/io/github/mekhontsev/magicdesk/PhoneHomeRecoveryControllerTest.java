@@ -20,6 +20,9 @@ public final class PhoneHomeRecoveryControllerTest {
     private static final String MAGICDESK_DESKTOP =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.DesktopActivity";
+    private static final String SYSTEM_DESKTOP_WALLPAPER =
+            "com.android.systemui/"
+                    + "com.android.wm.shell.desktopmode.DesktopWallpaperActivity";
     private static final PhoneHomeComponents HOME =
             PhoneHomeComponents.forTests(PRIMARY_HOME, SECONDARY_HOME);
 
@@ -112,10 +115,35 @@ public final class PhoneHomeRecoveryControllerTest {
                 task, true));
         assertFalse(PhoneHomeRecoveryController
                 .hasVisiblePhoneTaskAfterCleanup(
-                        Collections.singletonList(task), false, HOME));
+                        Collections.singletonList(task), false, HOME, false));
         assertTrue(PhoneHomeRecoveryController
                 .hasVisiblePhoneTaskAfterCleanup(
-                        Collections.singletonList(task), true, HOME));
+                        Collections.singletonList(task), true, HOME, false));
+    }
+
+    @Test
+    public void removesSystemDesktopWallpaperOnlyAfterExternalRecovery() {
+        final TaskRepository.TaskEntry wallpaper = task(
+                SYSTEM_DESKTOP_WALLPAPER,
+                true,
+                false,
+                SYSTEM_DESKTOP_WALLPAPER);
+        assertTrue(PhoneHomeRecoveryController
+                .isStrandedSystemDesktopWallpaperTask(wallpaper, true));
+        assertFalse(PhoneHomeRecoveryController
+                .isStrandedSystemDesktopWallpaperTask(wallpaper, false));
+        assertFalse(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(wallpaper),
+                        false,
+                        HOME,
+                        true));
+        assertTrue(PhoneHomeRecoveryController
+                .hasVisiblePhoneTaskAfterCleanup(
+                        Collections.singletonList(wallpaper),
+                        false,
+                        HOME,
+                        false));
     }
 
     @Test
@@ -125,13 +153,15 @@ public final class PhoneHomeRecoveryControllerTest {
                         Collections.singletonList(
                                 task(SECONDARY_HOME, true, true)),
                         false,
-                        HOME));
+                        HOME,
+                        false));
         assertTrue(PhoneHomeRecoveryController
                 .hasVisiblePhoneTaskAfterCleanup(
                         Collections.singletonList(
                                 task(PRIMARY_HOME, true, true)),
                         false,
-                        HOME));
+                        HOME,
+                        false));
     }
 
     private static TaskRepository.TaskEntry task(

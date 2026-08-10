@@ -15,6 +15,9 @@ final class PhoneHomeRecoveryController {
     private static final String MAGICDESK_DESKTOP_ACTIVITY =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.DesktopActivity";
+    private static final String SYSTEM_DESKTOP_WALLPAPER_ACTIVITY =
+            "com.android.systemui/"
+                    + "com.android.wm.shell.desktopmode.DesktopWallpaperActivity";
 
     private PhoneHomeRecoveryController() {
     }
@@ -212,6 +215,12 @@ final class PhoneHomeRecoveryController {
         }
         removeSecondaryPhoneHomeTasks(snapshot.tasks, home);
         removeStrandedDesktopTasks(snapshot.tasks, localDesktopActive);
+        final boolean removeSystemDesktopWallpaper =
+                ensureVisiblePhoneTask
+                        && !forcePrimaryHome
+                        && !localDesktopActive;
+        removeStrandedSystemDesktopWallpaperTasks(
+                snapshot.tasks, removeSystemDesktopWallpaper);
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
                 snapshot.tasks, includeStrandedDesktop, home);
         if (!forcePrimaryHome
@@ -220,7 +229,8 @@ final class PhoneHomeRecoveryController {
                         || hasVisiblePhoneTaskAfterCleanup(
                                 snapshot.tasks,
                                 localDesktopActive,
-                                home))) {
+                                home,
+                                removeSystemDesktopWallpaper))) {
             complete(callback, true);
             return;
         }
@@ -283,6 +293,35 @@ final class PhoneHomeRecoveryController {
         }
     }
 
+    private static void removeStrandedSystemDesktopWallpaperTasks(
+            final List<TaskRepository.TaskEntry> tasks,
+            final boolean cleanupEnabled) {
+        if (tasks == null || !cleanupEnabled) {
+            return;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (!isStrandedSystemDesktopWallpaperTask(
+                    task, cleanupEnabled)) {
+                continue;
+            }
+            try {
+                final String output = ShellAccess.run(AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                        "remove " + task.taskId));
+                Log.i(TAG, "removed stranded SystemUI desktop wallpaper task="
+                        + task.taskId + ": " + output.trim());
+            } catch (IOException error) {
+                Log.w(TAG, "failed to remove stranded SystemUI desktop"
+                        + " wallpaper task=" + task.taskId, error);
+                CompatibilityDiagnostics.record(
+                        "NUBIA-HOME-007",
+                        "Could not remove a SystemUI desktop wallpaper task"
+                                + " stranded on the phone screen",
+                        error.getMessage());
+            }
+        }
+    }
+
     private static void restorePrimaryHome(
             final PhoneHomeComponents home,
             final ResultCallback callback) {
@@ -310,7 +349,8 @@ final class PhoneHomeRecoveryController {
     static boolean hasVisiblePhoneTaskAfterCleanup(
             final List<TaskRepository.TaskEntry> tasks,
             final boolean localDesktopActive,
-            final PhoneHomeComponents home) {
+            final PhoneHomeComponents home,
+            final boolean removeSystemDesktopWallpaper) {
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (task != null
@@ -318,12 +358,26 @@ final class PhoneHomeRecoveryController {
                         && task.visible
                         && !isSecondaryPhoneHomeTask(task, home)
                         && !isStrandedDesktopTask(
-                                task, localDesktopActive)) {
+                                task, localDesktopActive)
+                        && !isStrandedSystemDesktopWallpaperTask(
+                                task, removeSystemDesktopWallpaper)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    static boolean isStrandedSystemDesktopWallpaperTask(
+            final TaskRepository.TaskEntry task,
+            final boolean cleanupEnabled) {
+        return cleanupEnabled
+                && task != null
+                && task.displayId == Display.DEFAULT_DISPLAY
+                && (SYSTEM_DESKTOP_WALLPAPER_ACTIVITY.equals(
+                            task.componentName)
+                        || SYSTEM_DESKTOP_WALLPAPER_ACTIVITY.equals(
+                                task.topActivityName));
     }
 
     private static void complete(

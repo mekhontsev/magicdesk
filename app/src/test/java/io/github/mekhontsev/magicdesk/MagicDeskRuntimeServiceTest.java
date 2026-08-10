@@ -43,4 +43,14 @@ public final class MagicDeskRuntimeServiceTest {
         assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
                 true, 100, -1, null, false));
     }
+
+    @Test
+    public void phoneRecoveryCompletesOnlyAfterFinalSettledPass() {
+        assertFalse(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+                false, false));
+        assertFalse(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+                true, true));
+        assertTrue(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+                true, false));
+    }
 }

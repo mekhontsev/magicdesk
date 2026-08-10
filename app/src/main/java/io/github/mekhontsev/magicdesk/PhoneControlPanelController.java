@@ -38,8 +38,6 @@ final class PhoneControlPanelController {
 
         void showExternalDesktop();
 
-        void showWirelessDesktop();
-
         void setFillExternalDisplay(boolean enabled);
 
         void setExternalOutputTiming(String outputTiming);
@@ -122,7 +120,6 @@ final class PhoneControlPanelController {
     private TextView mDisplay;
     private TextView mExternalDisplay;
     private Button mExternalDesktop;
-    private Button mWirelessDesktop;
     private Button mMirror;
     private Button mTouchpad;
     private Button mPhoneScreen;
@@ -202,25 +199,24 @@ final class PhoneControlPanelController {
 
         if (!state.externalDesktopActive) {
             mExternalDesktop.setText(
-                    R.string.action_start_console_mode);
+                    R.string.action_start_external_desktop);
         } else if (!state.desktopReady) {
             mExternalDesktop.setText(
-                    R.string.action_start_console_mode);
+                    R.string.action_start_external_desktop);
         } else {
             mExternalDesktop.setText(
                     R.string.action_show_external_desktop);
         }
+        final boolean canStartOrShowExternalDesktop =
+                state.externalDesktopActive
+                        || state.externalDisplayState
+                                == ExternalDisplayState.CONNECTED
+                        || (state.externalDisplayState
+                                        == ExternalDisplayState.DISCONNECTED
+                                && state.wirelessDisplayAvailable);
         mExternalDesktop.setEnabled(
                 state.consoleControlAvailable
-                        && (state.externalDesktopActive
-                                || state.externalDisplayState
-                                        == ExternalDisplayState.CONNECTED));
-        mWirelessDesktop.setVisibility(
-                state.wirelessDisplayAvailable ? View.VISIBLE : View.GONE);
-        mWirelessDesktop.setEnabled(
-                state.wirelessDisplayAvailable
-                        && state.consoleControlAvailable
-                        && !state.externalDesktopActive);
+                        && canStartOrShowExternalDesktop);
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
                         && state.consoleControlAvailable
@@ -318,17 +314,10 @@ final class PhoneControlPanelController {
         addExternalDisplayOptions(parent);
 
         mExternalDesktop = actionButton(
-                R.string.action_start_console_mode, COLOR_CYAN);
+                R.string.action_start_external_desktop, COLOR_CYAN);
         mExternalDesktop.setOnClickListener(
                 view -> mActions.showExternalDesktop());
         parent.addView(mExternalDesktop, fullWidthActionParams());
-
-        mWirelessDesktop = actionButton(
-                R.string.action_connect_wireless_display, COLOR_CYAN);
-        mWirelessDesktop.setVisibility(View.GONE);
-        mWirelessDesktop.setOnClickListener(
-                view -> mActions.showWirelessDesktop());
-        parent.addView(mWirelessDesktop, fullWidthActionParams());
 
         final GridLayout actions = actionGrid();
         mMirror = actionButton(

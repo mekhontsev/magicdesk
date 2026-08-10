@@ -267,19 +267,6 @@ public final class ControlActivity extends Activity
             launchWirelessDesktop(mWirelessDisplayId);
             return;
         }
-        mStatus = getString(R.string.status_external_display_unavailable);
-        refresh();
-    }
-
-    @Override
-    public void showWirelessDesktop() {
-        if (!ShellAccess.isReady() || isExternalDesktopActive()) {
-            return;
-        }
-        if (isDisplayConnected(mWirelessDisplayId)) {
-            launchWirelessDesktop(mWirelessDisplayId);
-            return;
-        }
         if (mWirelessDisplayAvailable
                 && WirelessDisplayController.openPicker(this)) {
             mAwaitingWirelessDisplay = true;
