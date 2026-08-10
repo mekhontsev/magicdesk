@@ -98,6 +98,9 @@ final class HardwareKeyboardLayoutController {
                 LAYOUT_STATE);
         final String output = ShellAccess.updateHardwareKeyboardLayout(
                 "catalog", current).trim();
+        if (isNoExternalKeyboard(output)) {
+            return 0;
+        }
         final String count = parseOutputValue(output, "layouts");
         try {
             final int parsed = count == null ? -1 : Integer.parseInt(count);
@@ -149,6 +152,10 @@ final class HardwareKeyboardLayoutController {
                     mode, current).trim();
         } catch (IOException e) {
             Log.w(TAG, "hardware keyboard layout command failed", e);
+            return;
+        }
+        if (isNoExternalKeyboard(output)) {
+            Log.d(TAG, "no external hardware keyboard to configure");
             return;
         }
         final String descriptor =
@@ -209,6 +216,11 @@ final class HardwareKeyboardLayoutController {
             }
         }
         return null;
+    }
+
+    static boolean isNoExternalKeyboard(final String output) {
+        return HardwareKeyboardLayoutCommand.STATUS_NO_EXTERNAL_KEYBOARD.equals(
+                parseOutputValue(output, "status"));
     }
 
 }

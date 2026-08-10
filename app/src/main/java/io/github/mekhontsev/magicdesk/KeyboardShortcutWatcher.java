@@ -209,6 +209,10 @@ final class KeyboardShortcutWatcher {
             }
             final int layoutCount =
                     HardwareKeyboardLayoutController.catalogLayoutCount();
+            if (layoutCount == 0) {
+                runPointerOnlySession(routingDisplayId, generation);
+                return;
+            }
 
             keyboardStream = ShellAccess.openOwnedStream(
                     buildKeyboardCommand(

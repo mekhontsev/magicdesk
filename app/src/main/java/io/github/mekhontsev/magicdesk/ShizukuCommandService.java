@@ -114,7 +114,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final HardwareKeyboardLayoutCommand.Result result =
                     HardwareKeyboardLayoutCommand.execute(
                             mode, currentDescriptor);
-            if (!"catalog".equals(mode)) {
+            if (result.isAvailable() && !"catalog".equals(mode)) {
                 persistHardwareKeyboardLayout(result);
             }
             return result.format();

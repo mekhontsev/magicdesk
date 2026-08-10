@@ -26,6 +26,8 @@ public final class HardwareKeyboardLayoutCommand {
             "MagicDesk Keyboard";
     private static final String MAGICDESK_VIRTUAL_KEYBOARD_PREFIX =
             MAGICDESK_VIRTUAL_KEYBOARD_NAME + " ";
+    static final String STATUS_NO_EXTERNAL_KEYBOARD =
+            "no_external_keyboard";
 
     private HardwareKeyboardLayoutCommand() {
     }
@@ -66,8 +68,7 @@ public final class HardwareKeyboardLayoutCommand {
         final List<InputDevice> physicalKeyboards =
                 getExternalAlphabeticKeyboards();
         if (physicalKeyboards.isEmpty()) {
-            throw new IllegalStateException(
-                    "no external alphabetic keyboard found");
+            return Result.noExternalKeyboard();
         }
         final Object inputManager = getInputManagerService();
         final Class<?> inputManagerInterface =
@@ -569,6 +570,10 @@ public final class HardwareKeyboardLayoutCommand {
         final int layouts;
         final String imeId;
 
+        static Result noExternalKeyboard() {
+            return new Result(null, null, null, -1, 0, 0, 0, null);
+        }
+
         Result(
                 final String descriptor,
                 final String code,
@@ -588,7 +593,16 @@ public final class HardwareKeyboardLayoutCommand {
             this.imeId = imeId;
         }
 
+        boolean isAvailable() {
+            return descriptor != null;
+        }
+
         String format() {
+            if (!isAvailable()) {
+                return "status=" + STATUS_NO_EXTERNAL_KEYBOARD + '\n'
+                        + "physicalDevices=0\n"
+                        + "layouts=0\n";
+            }
             return "descriptor=" + descriptor + '\n'
                     + "code=" + code + '\n'
                     + "index=" + index + '\n'
