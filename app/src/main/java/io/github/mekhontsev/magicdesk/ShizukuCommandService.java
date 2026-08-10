@@ -543,6 +543,31 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public String readDesktopState() {
+        return mDesktopDirectory.readState();
+    }
+
+    @Override
+    public void writeDesktopState(final String encodedState) {
+        mDesktopDirectory.writeState(encodedState);
+    }
+
+    @Override
+    public ParcelFileDescriptor openDesktopWallpaper() {
+        return mDesktopDirectory.openWallpaper();
+    }
+
+    @Override
+    public void writeDesktopWallpaper(final ParcelFileDescriptor source) {
+        mDesktopDirectory.writeWallpaper(source);
+    }
+
+    @Override
+    public boolean deleteDesktopWallpaper() {
+        return mDesktopDirectory.deleteWallpaper();
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,

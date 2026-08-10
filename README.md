@@ -105,8 +105,15 @@ and selected-display recording.
 - Preserve the last visible freeform window layout across Show Desktop.
 - Keep desktop files, widgets, pins, shortcuts, and recent applications global
   while storing DPI and desktop/window geometry separately for each monitor.
-- Use the phone's current static wallpaper, center-cropped for the active
-  display.
+- Use the phone's current static wallpaper or choose a custom desktop wallpaper,
+  center-cropped for the active display.
+
+Desktop configuration is stored as an atomic, human-readable file at
+`/storage/emulated/0/Desktop/.magicdesk/desktop.json`; an optional custom
+wallpaper is stored beside it. The hidden directory is not shown as a desktop
+item. Runtime state, diagnostics, and Recent history remain private to the app.
+Android widget bindings remain system-managed and scoped to the installed app
+and Android user; neither kind of state is written into the desktop folder.
 
 ### Desktop controls
 

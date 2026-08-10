@@ -12,23 +12,29 @@ final class DesktopPreferences {
     static final int DEFAULT_DESKTOP_DPI = 192;
 
     private static final String PREFS = "magicdesk";
-    private static final String PREF_TASKBAR_PACKAGES = "taskbar_packages_v2";
     private static final String PREF_RECENT_PACKAGES = "recent_packages";
     private static final int MAX_RECENT_PACKAGES = 24;
 
     private DesktopPreferences() {
     }
 
-    static List<String> taskbarPackages(final Context context) {
-        return decodePackages(preferences(context).getString(
-                PREF_TASKBAR_PACKAGES, ""));
+    static List<String> taskbarPackages() {
+        return new ArrayList<>(DesktopStateStore.get().taskbarPackages);
     }
 
     static void saveTaskbarPackages(
-            final Context context, final Collection<String> packages) {
-        preferences(context).edit()
-                .putString(PREF_TASKBAR_PACKAGES, encodePackages(packages))
-                .apply();
+            final Collection<String> packages) {
+        final List<String> stored = DesktopStateStore.get().taskbarPackages;
+        stored.clear();
+        if (packages != null) {
+            for (final String packageName : packages) {
+                if (PackageNameValidator.isSafe(packageName)
+                        && !stored.contains(packageName)) {
+                    stored.add(packageName);
+                }
+            }
+        }
+        DesktopStateStore.save();
     }
 
     static List<String> recentPackages(final Context context) {

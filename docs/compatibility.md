@@ -136,5 +136,5 @@ If the vendor HDMI-mode node is unavailable to shell UID 2000, MagicDesk shows
 Android's current physical mode as read-only and leaves timing selection to the
 system projection UI. This limits MagicDesk's output-mode selector but does not
 disable the desktop. If Android does not expose a static wallpaper image,
-MagicDesk uses its cached wallpaper or built-in background without failing the
-desktop session.
+MagicDesk can use a custom desktop wallpaper, its cached system wallpaper, or
+the built-in background without failing the desktop session.

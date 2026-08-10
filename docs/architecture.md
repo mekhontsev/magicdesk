@@ -196,9 +196,11 @@ runtime integration and are not distributed through the same release path.
   typed UserService operations to `/storage/emulated/0/Desktop` and owns its
   `FileObserver`. `DesktopWidgetController` owns the process-wide
   `AppWidgetHost` lifecycle and widget binding/configuration.
-- `DesktopContentStore` stores global desktop content. `DisplayProfileStore`
-  stores only display-specific DPI and geometry. `DesktopPlacementEngine` is
-  the platform-independent collision and reflow policy.
+- `DesktopStateStore` is the single typed model for persistent desktop content,
+  taskbar pins, monitor aliases, and display profiles. `DesktopContentStore`,
+  `DesktopPreferences`, and `DisplayProfileStore` are narrow domain facades over
+  that model. `DesktopPlacementEngine` is the platform-independent collision
+  and reflow policy.
 - `OverlayPanelController` provides consistent toggle, dismissal, placement,
   and display-scoped overlay behavior.
 - `DesktopInputController` handles shell UI input and delegates global physical
@@ -399,10 +401,25 @@ databases, preferences, and files. MagicDesk never edits launcher data.
 Each external monitor has a profile keyed by a hash of its DisplayPort EDID,
 with a port/name/resolution fallback until EDID is available. Profiles store
 DPI, sparse desktop-item placements, widget spans, and confirmed window
-geometry. Files under `/storage/emulated/0/Desktop`, widget bindings, taskbar
-pins, desktop shortcuts, the kept workspace application, and recent-app
-history are global, so the same desktop content follows the user between the
-phone, a tablet, and every monitor while adapting to each viewport.
+geometry. Files under `/storage/emulated/0/Desktop`, system-managed widget
+bindings, taskbar pins, desktop shortcuts, the kept workspace application, and
+recent-app history are global across displays, so the same desktop content
+follows the user between the phone, a tablet, and every monitor while adapting
+to each viewport.
+
+Persistent desktop configuration has one source of truth:
+`/storage/emulated/0/Desktop/.magicdesk/desktop.json`. The shell UserService
+validates and atomically replaces this bounded JSON file; the same event-driven
+folder observer reloads deliberate external edits without polling. The hidden
+metadata directory is excluded from the desktop file model and cannot be
+opened, renamed, or deleted through ordinary desktop-entry operations. Recent
+history, active tasks, diagnostics, and setup/recovery state remain private
+runtime state. Android widget bindings remain system-managed and scoped to the
+installed app and Android user. Display profiles may contain opaque placement
+keys for currently bound widgets, but those keys cannot bind or instantiate a
+widget. Configuration can describe only package-default or explicit
+package/activity launch targets with an optional action string; it cannot
+supply commands, URIs, extras, categories, or Intent flags.
 
 ## Desktop Surface And Widgets
 
@@ -749,11 +766,14 @@ NOT TESTED rather than guessed. The last bounded result is included in the
 normal compatibility report; no periodic self-test or diagnostic polling runs
 in the background.
 
-Desktop wallpaper loading follows the same fail-open rule. A static wallpaper
-descriptor is optional; an unavailable or undecodable image falls back to the
-last valid cached image or MagicDesk's built-in background and records one
-compatibility event per distinct failure instead of changing desktop session
-state.
+Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk
+reads the current static system wallpaper. A user-selected image is validated
+and atomically copied to `/storage/emulated/0/Desktop/.magicdesk/wallpaper`;
+selecting **Use system wallpaper** removes that override. An unavailable or
+undecodable image falls back to the last valid custom image, the system image,
+the last valid cached system image, or MagicDesk's built-in background and
+records one compatibility event per distinct failure instead of changing
+desktop session state.
 
 `CommandConsoleActivity` is an unexported, one-shot interface over the existing
 `ShellAccess` connection. It displays the effective Shizuku UID, requires an

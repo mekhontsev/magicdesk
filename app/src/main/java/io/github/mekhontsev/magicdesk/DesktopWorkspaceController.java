@@ -45,12 +45,13 @@ final class DesktopWorkspaceController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
-        mContent = new DesktopContentStore(activity);
+        mContent = new DesktopContentStore();
         mViews = new DesktopItemViewFactory(activity, ui);
         mFolder = new DesktopFolderController(
                 activity,
                 new DesktopFileRepository(activity),
-                this::onFilesChanged);
+                this::onFilesChanged,
+                activity::onDesktopMetadataChanged);
         mWidgets = new DesktopWidgetController(
                 activity, ui, this::onWidgetsChanged);
     }
@@ -186,8 +187,7 @@ final class DesktopWorkspaceController {
             final String itemId = appItemId(app.launchTarget);
             mActivity.getDisplayProfile().placements.remove(itemId);
             mActivity.saveDisplayProfile();
-            DisplayProfileStore.removePlacementEverywhere(
-                    mActivity, itemId);
+            DisplayProfileStore.removePlacementEverywhere(itemId);
         } else {
             shortcuts.add(app.launchTarget);
             added = true;
@@ -223,7 +223,7 @@ final class DesktopWorkspaceController {
         final String itemId = widgetItemId(appWidgetId);
         mActivity.getDisplayProfile().placements.remove(itemId);
         mActivity.saveDisplayProfile();
-        DisplayProfileStore.removePlacementEverywhere(mActivity, itemId);
+        DisplayProfileStore.removePlacementEverywhere(itemId);
         mWidgets.remove(appWidgetId);
     }
 
@@ -374,7 +374,7 @@ final class DesktopWorkspaceController {
                 mActivity.saveDisplayProfile();
             }
             DisplayProfileStore.renamePlacementEverywhere(
-                    mActivity, previousItemId, newItemId);
+                    previousItemId, newItemId);
             mActivity.setStatus(mActivity.getString(
                     R.string.status_desktop_entry_renamed,
                     renamed.name));
@@ -386,8 +386,7 @@ final class DesktopWorkspaceController {
         mFolder.delete(file, () -> {
             mActivity.getDisplayProfile().placements.remove(itemId);
             mActivity.saveDisplayProfile();
-            DisplayProfileStore.removePlacementEverywhere(
-                    mActivity, itemId);
+            DisplayProfileStore.removePlacementEverywhere(itemId);
             mActivity.setStatus(mActivity.getString(
                     R.string.status_desktop_entry_deleted,
                     file.name));
@@ -403,7 +402,7 @@ final class DesktopWorkspaceController {
         mContent.save();
         mActivity.getDisplayProfile().placements.remove(itemId);
         mActivity.saveDisplayProfile();
-        DisplayProfileStore.removePlacementEverywhere(mActivity, itemId);
+        DisplayProfileStore.removePlacementEverywhere(itemId);
         render(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
                 R.string.status_desktop_shortcut_removed,

@@ -84,12 +84,11 @@ final class DisplayProfileController {
         }
         final String displayKey = resolveProfileKey();
         final String monitorKey = DisplayProfileStore.resolveMonitorAlias(
-                mActivity, displayKey);
+                displayKey);
         mProfileDisplayKey = displayKey;
         mMonitorProfileKey = monitorKey;
         final Display profileDisplay = getProfileDisplay();
         mProfile = DisplayProfileStore.load(
-                mActivity,
                 monitorKey,
                 initialDpi(profileDisplay));
         mActivity.onDisplayProfileReset();
@@ -97,7 +96,7 @@ final class DisplayProfileController {
     }
 
     void save() {
-        DisplayProfileStore.save(mActivity, getProfile());
+        DisplayProfileStore.save(getProfile());
     }
 
     void refreshForDisplay() {
@@ -111,6 +110,12 @@ final class DisplayProfileController {
         mMonitorIdentityRequested = false;
         mMonitorIdentityGeneration++;
         mHandler.removeCallbacks(mMonitorIdentityRetry);
+        getProfile();
+    }
+
+    void reloadStoredProfile() {
+        mProfile = null;
+        mMonitorProfileKey = null;
         getProfile();
     }
 
@@ -211,9 +216,9 @@ final class DisplayProfileController {
         final String monitorKey =
                 "edid:" + hash.toLowerCase(Locale.ROOT);
         DisplayProfileStore.saveMonitorAlias(
-                context, profileKey(display), monitorKey);
+                profileKey(display), monitorKey);
         final Integer storedDpi =
-                DisplayProfileStore.readStoredDpi(context, monitorKey);
+                DisplayProfileStore.readStoredDpi(monitorKey);
         return storedDpi == null
                 ? Integer.valueOf(initialDpi(display)) : storedDpi;
     }
@@ -322,10 +327,9 @@ final class DisplayProfileController {
         }
         final DisplayProfileStore.Profile previous = getProfile();
         final boolean existed =
-                DisplayProfileStore.exists(mActivity, monitorKey);
+                DisplayProfileStore.exists(monitorKey);
         final DisplayProfileStore.Profile resolved =
                 DisplayProfileStore.load(
-                        mActivity,
                         monitorKey,
                         previous.dpi);
         if (!existed) {
@@ -333,11 +337,11 @@ final class DisplayProfileController {
             resolved.workspaceBounds.set(previous.workspaceBounds);
             resolved.workspaceBoundsTarget = previous.workspaceBoundsTarget;
             resolved.placements.putAll(previous.placements);
-            DisplayProfileStore.save(mActivity, resolved);
+            DisplayProfileStore.save(resolved);
         }
         final int previousDpi = previous.dpi;
         DisplayProfileStore.saveMonitorAlias(
-                mActivity, requestedDisplayKey, monitorKey);
+                requestedDisplayKey, monitorKey);
         mMonitorProfileKey = monitorKey;
         mProfile = resolved;
         Log.i(TAG, "Activated monitor profile " + monitorKey);

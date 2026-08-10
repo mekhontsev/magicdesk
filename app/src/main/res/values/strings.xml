@@ -39,6 +39,8 @@
     <string name="action_rename">Rename</string>
     <string name="action_delete">Delete</string>
     <string name="action_add_widget">Add widget</string>
+    <string name="action_choose_wallpaper">Choose wallpaper&#8230;</string>
+    <string name="action_use_system_wallpaper">Use system wallpaper</string>
     <string name="status_no_widgets">No compatible widgets found</string>
     <string name="widget_recommended_size">Recommended size: %1$d × %2$d</string>
     <string name="action_widget_wider">Make wider</string>
@@ -182,6 +184,9 @@
     <string name="delete_desktop_file_message">Delete %1$s permanently?</string>
     <string name="delete_desktop_folder_message">Delete %1$s and everything inside it permanently?</string>
     <string name="status_widgets_unavailable">Android widgets are unavailable</string>
+    <string name="status_desktop_wallpaper_changed">Desktop wallpaper changed</string>
+    <string name="status_system_wallpaper_restored">Using system wallpaper</string>
+    <string name="status_desktop_wallpaper_failed">Cannot change desktop wallpaper: %1$s</string>
     <string name="widget_default_name">Widget</string>
     <string name="desktop_more_files">+%1$d</string>
     <string name="status_desktop_file_failed">No application can open %1$s</string>

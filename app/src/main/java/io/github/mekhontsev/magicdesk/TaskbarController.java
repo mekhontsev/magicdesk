@@ -351,7 +351,7 @@ final class TaskbarController {
     }
 
     List<String> getPinnedPackages() {
-        return DesktopPreferences.taskbarPackages(mActivity);
+        return DesktopPreferences.taskbarPackages();
     }
 
     void togglePinned(final AppItem app) {
@@ -363,7 +363,7 @@ final class TaskbarController {
             pinned.add(app.packageName);
             nowPinned = true;
         }
-        DesktopPreferences.saveTaskbarPackages(mActivity, pinned);
+        DesktopPreferences.saveTaskbarPackages(pinned);
         renderPins(mActivity.getLauncherApps());
         mActivity.renderStartMenuContent();
         mActivity.setStatus(mActivity.getString(

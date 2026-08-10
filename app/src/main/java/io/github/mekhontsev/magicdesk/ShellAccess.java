@@ -552,6 +552,93 @@ final class ShellAccess {
         }
     }
 
+    static String readDesktopState() throws IOException {
+        try {
+            return requireService().readDesktopState();
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop state read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop state read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static void writeDesktopState(final String encodedState)
+            throws IOException {
+        try {
+            requireService().writeDesktopState(encodedState);
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop state write failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop state write failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static ParcelFileDescriptor openDesktopWallpaper() throws IOException {
+        try {
+            return requireService().openDesktopWallpaper();
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop wallpaper read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop wallpaper read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static void writeDesktopWallpaper(final ParcelFileDescriptor source)
+            throws IOException {
+        try {
+            requireService().writeDesktopWallpaper(source);
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop wallpaper write failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop wallpaper write failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static boolean deleteDesktopWallpaper() throws IOException {
+        try {
+            return requireService().deleteDesktopWallpaper();
+        } catch (RemoteException error) {
+            handleServiceFailure();
+            throw new IOException(
+                    "Shizuku desktop wallpaper deletion failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku desktop wallpaper deletion failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static ShellStreamHandle openOwnedStream(final String command)
             throws IOException {
         return openStream(command, false);

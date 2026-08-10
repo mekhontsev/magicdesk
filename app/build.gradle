@@ -118,6 +118,7 @@ dependencies {
     }
     compileOnly project(':hidden-api-stubs')
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }
 
 apply from: rootProject.file('gradle/release-signing.gradle')

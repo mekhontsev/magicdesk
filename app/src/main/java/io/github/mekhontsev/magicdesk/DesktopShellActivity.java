@@ -454,6 +454,11 @@ public abstract class DesktopShellActivity extends Activity
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (mDesktopWallpaperController != null
+                && mDesktopWallpaperController.handleActivityResult(
+                        requestCode, resultCode, data)) {
+            return;
+        }
         mDesktopWorkspaceController.handleActivityResult(
                 requestCode, resultCode, data);
     }
@@ -699,8 +704,37 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.showDesktopMenu(x, y);
     }
 
+    void onDesktopMetadataChanged(
+            final boolean stateChanged,
+            final boolean wallpaperChanged) {
+        if (wallpaperChanged && mDesktopWallpaperController != null) {
+            mDesktopWallpaperController.reloadExternal();
+        }
+        if (!stateChanged) {
+            return;
+        }
+        mDisplayProfiles.reloadStoredProfile();
+        renderApps();
+        updateDesktopControls();
+    }
+
     void addDesktopWidget() {
         mDesktopWorkspaceController.addWidget();
+    }
+
+    void chooseDesktopWallpaper() {
+        hideAllPanels();
+        mDesktopWallpaperController.chooseWallpaper();
+    }
+
+    void useSystemDesktopWallpaper() {
+        hideAllPanels();
+        mDesktopWallpaperController.useSystemWallpaper();
+    }
+
+    boolean isUsingCustomDesktopWallpaper() {
+        return mDesktopWallpaperController != null
+                && mDesktopWallpaperController.isUsingCustomWallpaper();
     }
 
     void configureDesktopWidget(final int appWidgetId) {

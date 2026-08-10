@@ -8,10 +8,16 @@ import android.provider.DocumentsContract;
 import android.webkit.MimeTypeMap;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +25,9 @@ import java.util.Locale;
 
 final class ShellDesktopDirectory implements AutoCloseable {
     static final String ABSOLUTE_PATH = "/storage/emulated/0/Desktop";
+    static final String METADATA_DIRECTORY = ".magicdesk";
+    static final String STATE_RELATIVE_PATH = METADATA_DIRECTORY + "/desktop.json";
+    static final String WALLPAPER_RELATIVE_PATH = METADATA_DIRECTORY + "/wallpaper";
 
     private static final int OBSERVED_EVENTS = FileObserver.CREATE
             | FileObserver.DELETE
@@ -27,9 +36,15 @@ final class ShellDesktopDirectory implements AutoCloseable {
             | FileObserver.CLOSE_WRITE
             | FileObserver.ATTRIB;
     private static final String BINARY_MIME = "application/octet-stream";
+    private static final int MAX_STATE_BYTES = 2 * 1024 * 1024;
+    private static final long MAX_WALLPAPER_BYTES = 64L * 1024L * 1024L;
+    private static final int COPY_BUFFER_SIZE = 32 * 1024;
 
     private final Object mLock = new Object();
     private final Path mRoot = Path.of(ABSOLUTE_PATH).toAbsolutePath().normalize();
+    private final Path mMetadata = mRoot.resolve(METADATA_DIRECTORY);
+    private final Path mState = mMetadata.resolve("desktop.json");
+    private final Path mWallpaper = mMetadata.resolve("wallpaper");
     private final RemoteCallbackList<IDesktopFolderObserverCallback> mCallbacks =
             new RemoteCallbackList<>() {
                 @Override
@@ -43,7 +58,8 @@ final class ShellDesktopDirectory implements AutoCloseable {
                     }
                 }
             };
-    private FileObserver mObserver;
+    private FileObserver mRootObserver;
+    private FileObserver mMetadataObserver;
 
     void ensureDirectory() {
         try {
@@ -63,7 +79,9 @@ final class ShellDesktopDirectory implements AutoCloseable {
         try (var stream = Files.list(mRoot)) {
             stream.forEach(path -> {
                 try {
-                    if (!Files.isSymbolicLink(path)) {
+                    if (!METADATA_DIRECTORY.equals(
+                                    path.getFileName().toString())
+                            && !Files.isSymbolicLink(path)) {
                         files.add(toInfo(path));
                     }
                 } catch (IOException ignored) {
@@ -168,18 +186,105 @@ final class ShellDesktopDirectory implements AutoCloseable {
             throw new IllegalArgumentException("missing desktop folder observer");
         }
         ensureDirectory();
+        ensureMetadataDirectory();
         synchronized (mLock) {
             mCallbacks.register(callback);
-            if (mObserver != null) {
+            if (mRootObserver != null) {
                 return;
             }
-            mObserver = new FileObserver(mRoot.toFile(), OBSERVED_EVENTS) {
+            mRootObserver = new FileObserver(mRoot.toFile(), OBSERVED_EVENTS) {
                 @Override
                 public void onEvent(final int event, final String path) {
-                    notifyChanged();
+                    if (METADATA_DIRECTORY.equals(path)
+                            && (event & (FileObserver.CREATE
+                                    | FileObserver.DELETE
+                                    | FileObserver.MOVED_FROM
+                                    | FileObserver.MOVED_TO)) != 0) {
+                        synchronized (mLock) {
+                            if (mRootObserver != null) {
+                                restartMetadataObserverLocked();
+                            }
+                        }
+                    }
+                    notifyChanged(path == null ? "" : path);
                 }
             };
-            mObserver.startWatching();
+            mRootObserver.startWatching();
+            restartMetadataObserverLocked();
+        }
+    }
+
+    String readState() {
+        ensureMetadataDirectory();
+        if (!Files.exists(mState)) {
+            return null;
+        }
+        validateMetadataFile(mState, MAX_STATE_BYTES);
+        try {
+            return new String(
+                    Files.readAllBytes(mState), StandardCharsets.UTF_8);
+        } catch (IOException error) {
+            throw failure("cannot read desktop state", error);
+        }
+    }
+
+    void writeState(final String encodedState) {
+        if (encodedState == null) {
+            throw new IllegalArgumentException("missing desktop state");
+        }
+        final byte[] bytes = encodedState.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_STATE_BYTES) {
+            throw new IllegalArgumentException("desktop state is too large");
+        }
+        ensureMetadataDirectory();
+        writeAtomically(mState, output -> output.write(bytes));
+    }
+
+    ParcelFileDescriptor openWallpaper() {
+        ensureMetadataDirectory();
+        if (!Files.exists(mWallpaper)) {
+            return null;
+        }
+        validateMetadataFile(mWallpaper, MAX_WALLPAPER_BYTES);
+        try {
+            return ParcelFileDescriptor.open(
+                    mWallpaper.toFile(), ParcelFileDescriptor.MODE_READ_ONLY);
+        } catch (IOException error) {
+            throw failure("cannot open desktop wallpaper", error);
+        }
+    }
+
+    void writeWallpaper(final ParcelFileDescriptor source) {
+        if (source == null) {
+            throw new IllegalArgumentException("missing desktop wallpaper");
+        }
+        ensureMetadataDirectory();
+        writeAtomically(mWallpaper, output -> {
+            try (InputStream input =
+                    new ParcelFileDescriptor.AutoCloseInputStream(source)) {
+                final byte[] buffer = new byte[COPY_BUFFER_SIZE];
+                long total = 0L;
+                int count;
+                while ((count = input.read(buffer)) >= 0) {
+                    total += count;
+                    if (total > MAX_WALLPAPER_BYTES) {
+                        throw new IOException("desktop wallpaper is too large");
+                    }
+                    output.write(buffer, 0, count);
+                }
+                if (total == 0L) {
+                    throw new IOException("desktop wallpaper is empty");
+                }
+            }
+        });
+    }
+
+    boolean deleteWallpaper() {
+        ensureMetadataDirectory();
+        try {
+            return Files.deleteIfExists(mWallpaper);
+        } catch (IOException error) {
+            throw failure("cannot delete desktop wallpaper", error);
         }
     }
 
@@ -232,7 +337,15 @@ final class ShellDesktopDirectory implements AutoCloseable {
     }
 
     private Path resolveRelative(final String relativePath) {
-        return DesktopPathPolicy.resolve(mRoot, relativePath);
+        final Path resolved = DesktopPathPolicy.resolve(mRoot, relativePath);
+        final Path relative = mRoot.relativize(resolved);
+        if (relative.getNameCount() > 0
+                && METADATA_DIRECTORY.equals(
+                        relative.getName(0).toString())) {
+            throw new IllegalArgumentException(
+                    "MagicDesk metadata is not a desktop entry");
+        }
+        return resolved;
     }
 
     private void rejectSymbolicParents(final Path path) {
@@ -252,7 +365,73 @@ final class ShellDesktopDirectory implements AutoCloseable {
             throw new IllegalArgumentException("invalid desktop entry name");
         }
         rejectSymbolicParents(parent);
+        if (child.startsWith(mMetadata)) {
+            throw new IllegalArgumentException(
+                    "MagicDesk metadata is not a desktop entry");
+        }
         return child;
+    }
+
+    private void ensureMetadataDirectory() {
+        ensureDirectory();
+        try {
+            Files.createDirectories(mMetadata);
+            if (Files.isSymbolicLink(mMetadata)
+                    || !Files.isDirectory(mMetadata)) {
+                throw new IOException("metadata path is not a directory");
+            }
+        } catch (IOException error) {
+            throw failure("cannot create MagicDesk metadata directory", error);
+        }
+    }
+
+    private static void validateMetadataFile(
+            final Path path, final long maximumSize) {
+        try {
+            if (Files.isSymbolicLink(path)
+                    || !Files.isRegularFile(path)
+                    || Files.size(path) > maximumSize) {
+                throw new IOException("invalid MagicDesk metadata file");
+            }
+        } catch (IOException error) {
+            throw failure("cannot validate MagicDesk metadata", error);
+        }
+    }
+
+    private void writeAtomically(
+            final Path destination,
+            final FileWriter writer) {
+        final Path pending = destination.resolveSibling(
+                destination.getFileName() + ".pending");
+        try {
+            Files.deleteIfExists(pending);
+            try (OutputStream output = Files.newOutputStream(
+                    pending,
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE)) {
+                writer.write(output);
+                output.flush();
+            }
+            try {
+                Files.move(
+                        pending,
+                        destination,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(
+                        pending,
+                        destination,
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException error) {
+            try {
+                Files.deleteIfExists(pending);
+            } catch (IOException ignored) {
+                // Preserve the original failure.
+            }
+            throw failure("cannot update MagicDesk metadata", error);
+        }
     }
 
     private static String mimeType(final String name) {
@@ -267,13 +446,13 @@ final class ShellDesktopDirectory implements AutoCloseable {
         return mime == null ? BINARY_MIME : mime;
     }
 
-    private void notifyChanged() {
+    private void notifyChanged(final String relativePath) {
         final int count = mCallbacks.beginBroadcast();
         try {
             for (int index = 0; index < count; index++) {
                 try {
                     mCallbacks.getBroadcastItem(index)
-                            .onDesktopFolderChanged();
+                            .onDesktopFolderChanged(relativePath);
                 } catch (RemoteException ignored) {
                     // RemoteCallbackList removes dead callback binders.
                 }
@@ -284,11 +463,36 @@ final class ShellDesktopDirectory implements AutoCloseable {
     }
 
     private void stopObserverLocked() {
-        if (mObserver == null) {
-            return;
+        if (mRootObserver != null) {
+            mRootObserver.stopWatching();
+            mRootObserver = null;
         }
-        mObserver.stopWatching();
-        mObserver = null;
+        if (mMetadataObserver != null) {
+            mMetadataObserver.stopWatching();
+            mMetadataObserver = null;
+        }
+    }
+
+    private void restartMetadataObserverLocked() {
+        if (mMetadataObserver != null) {
+            mMetadataObserver.stopWatching();
+        }
+        ensureMetadataDirectory();
+        mMetadataObserver = new FileObserver(
+                mMetadata.toFile(), OBSERVED_EVENTS) {
+            @Override
+            public void onEvent(final int event, final String path) {
+                notifyChanged(path == null
+                        ? METADATA_DIRECTORY
+                        : METADATA_DIRECTORY + "/" + path);
+            }
+        };
+        mMetadataObserver.startWatching();
+    }
+
+    @FunctionalInterface
+    private interface FileWriter {
+        void write(OutputStream output) throws IOException;
     }
 
     private static IllegalStateException failure(

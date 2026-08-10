@@ -19,9 +19,15 @@ final class DesktopFolderController {
         void onFilesChanged(List<DesktopFile> files, boolean successfulRead);
     }
 
+    interface MetadataListener {
+        void onMetadataChanged(
+                boolean stateChanged, boolean wallpaperChanged);
+    }
+
     private final DesktopShellActivity mActivity;
     private final DesktopFileRepository mFilesRepository;
     private final Listener mListener;
+    private final MetadataListener mMetadataListener;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor(
             runnable -> new Thread(runnable, "MagicDeskDesktopFolder"));
@@ -31,25 +37,85 @@ final class DesktopFolderController {
     private boolean mLoaded;
     private volatile boolean mReleased;
     private ShellDesktopFolderHandle mObserverHandle;
+    private boolean mObservedStateChanged;
+    private boolean mObservedWallpaperChanged;
     private final IDesktopFolderObserverCallback mObserverCallback =
             new IDesktopFolderObserverCallback.Stub() {
                 @Override
-                public void onDesktopFolderChanged() {
-                    mHandler.removeCallbacks(mObservedRefresh);
-                    mHandler.postDelayed(
-                            mObservedRefresh, CHANGE_DEBOUNCE_MILLIS);
+                public void onDesktopFolderChanged(
+                        final String relativePath) {
+                    if (relativePath != null
+                            && (relativePath.equals(
+                                    ShellDesktopDirectory.METADATA_DIRECTORY)
+                                    || relativePath.startsWith(
+                                            ShellDesktopDirectory
+                                                    .METADATA_DIRECTORY
+                                                    + "/"))) {
+                        mHandler.post(() ->
+                                scheduleMetadataRefresh(relativePath));
+                    } else {
+                        mHandler.removeCallbacks(mObservedRefresh);
+                        mHandler.postDelayed(
+                                mObservedRefresh, CHANGE_DEBOUNCE_MILLIS);
+                    }
                 }
             };
     private final Runnable mObservedRefresh =
             () -> refresh(true, mThumbnailLimit);
+    private final Runnable mObservedMetadataRefresh = () -> {
+        final boolean reloadState = mObservedStateChanged;
+        final boolean wallpaperChanged = mObservedWallpaperChanged;
+        mObservedStateChanged = false;
+        mObservedWallpaperChanged = false;
+        mExecutor.execute(() -> {
+            final DesktopStateStore.ExternalSnapshot snapshot = reloadState
+                    ? DesktopStateStore.readExternal() : null;
+            mHandler.post(() -> {
+                if (!mReleased) {
+                    final boolean stateChanged =
+                            DesktopStateStore.applyExternal(snapshot);
+                    notifyMetadataChanged(
+                            stateChanged, wallpaperChanged);
+                }
+            });
+        });
+    };
+
+    private void scheduleMetadataRefresh(final String relativePath) {
+        final String statePath = ShellDesktopDirectory.STATE_RELATIVE_PATH;
+        final String wallpaperPath =
+                ShellDesktopDirectory.WALLPAPER_RELATIVE_PATH;
+        if (relativePath.equals(ShellDesktopDirectory.METADATA_DIRECTORY)) {
+            mObservedStateChanged = true;
+            mObservedWallpaperChanged = true;
+        } else if (relativePath.equals(statePath)
+                || relativePath.startsWith(statePath + ".")) {
+            mObservedStateChanged = true;
+        } else if (relativePath.equals(wallpaperPath)
+                || relativePath.startsWith(wallpaperPath + ".")) {
+            mObservedWallpaperChanged = true;
+        }
+        mHandler.removeCallbacks(mObservedMetadataRefresh);
+        mHandler.postDelayed(
+                mObservedMetadataRefresh, CHANGE_DEBOUNCE_MILLIS);
+    }
+
+    private void notifyMetadataChanged(
+            final boolean stateChanged,
+            final boolean wallpaperChanged) {
+        mMetadataListener.onMetadataChanged(
+                stateChanged, wallpaperChanged);
+    }
 
     DesktopFolderController(
             final DesktopShellActivity activity,
             final DesktopFileRepository filesRepository,
-            final Listener listener) {
+            final Listener listener,
+            final MetadataListener metadataListener) {
         mActivity = activity;
         mFilesRepository = filesRepository;
         mListener = listener;
+        mMetadataListener = metadataListener;
     }
 
     void start() {
@@ -65,6 +131,7 @@ final class DesktopFolderController {
         mStarted = false;
         closeObserver();
         mHandler.removeCallbacks(mObservedRefresh);
+        mHandler.removeCallbacks(mObservedMetadataRefresh);
     }
 
     void release() {

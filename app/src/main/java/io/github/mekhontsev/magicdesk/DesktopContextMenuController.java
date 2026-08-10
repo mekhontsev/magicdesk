@@ -157,6 +157,16 @@ final class DesktopContextMenuController {
                 true,
                 view -> mActivity.addDesktopWidget());
         addAction(
+                R.string.action_choose_wallpaper,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.chooseDesktopWallpaper());
+        addAction(
+                R.string.action_use_system_wallpaper,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                mActivity.isUsingCustomDesktopWallpaper(),
+                view -> mActivity.useSystemDesktopWallpaper());
+        addAction(
                 R.string.action_refresh,
                 DesktopUiFactory.COLOR_CYAN,
                 true,

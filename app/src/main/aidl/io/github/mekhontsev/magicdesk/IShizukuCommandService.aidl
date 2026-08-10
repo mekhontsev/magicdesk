@@ -117,4 +117,14 @@ interface IShizukuCommandService {
 
     void setPhoneTouchpadPreservation(
         ITaskObserverCallback callback, boolean enabled) = 41;
+
+    String readDesktopState() = 42;
+
+    void writeDesktopState(String encodedState) = 43;
+
+    ParcelFileDescriptor openDesktopWallpaper() = 44;
+
+    void writeDesktopWallpaper(in ParcelFileDescriptor source) = 45;
+
+    boolean deleteDesktopWallpaper() = 46;
 }
