@@ -57,7 +57,6 @@
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
     <string name="action_close_desktop">Close desktop</string>
-    <string name="action_connect_external_display">Connect an external display</string>
     <string name="action_connect_wireless_display">Connect a wireless display</string>
     <string name="action_start_console_mode">Start external desktop</string>
     <string name="action_show_external_desktop">Show external desktop</string>

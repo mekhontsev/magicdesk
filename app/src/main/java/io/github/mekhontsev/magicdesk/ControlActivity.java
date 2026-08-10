@@ -257,29 +257,45 @@ public final class ControlActivity extends Activity
                                     activeDesktopDisplayId));
             return;
         }
-        if (mWiredDisplayId <= Display.DEFAULT_DISPLAY
-                && isDisplayConnected(mWirelessDisplayId)) {
-            mStatus = getString(R.string.status_wireless_desktop_starting);
-            refresh();
-            ConsoleModeSwitcher.showDesktop(
-                    DesktopDisplayTarget.wireless(mWirelessDisplayId));
+        if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
+            mStatus = getString(R.string.status_external_display_checking);
+            scheduleExternalDisplayProbe(true, 0L);
             return;
         }
-        if (mWiredDisplayId <= Display.DEFAULT_DISPLAY) {
-            if (mWirelessDisplayAvailable
-                    && WirelessDisplayController.openPicker(this)) {
-                mAwaitingWirelessDisplay = true;
-                mStatus = getString(
-                        R.string.status_wireless_display_connecting);
-            } else {
-                mStatus = getString(
-                        R.string.status_external_display_unavailable);
-            }
-            refresh();
+        if (isDisplayConnected(mWirelessDisplayId)) {
+            launchWirelessDesktop(mWirelessDisplayId);
             return;
         }
-        mStatus = getString(R.string.status_external_display_checking);
-        scheduleExternalDisplayProbe(true, 0L);
+        mStatus = getString(R.string.status_external_display_unavailable);
+        refresh();
+    }
+
+    @Override
+    public void showWirelessDesktop() {
+        if (!ShellAccess.isReady() || isExternalDesktopActive()) {
+            return;
+        }
+        if (isDisplayConnected(mWirelessDisplayId)) {
+            launchWirelessDesktop(mWirelessDisplayId);
+            return;
+        }
+        if (mWirelessDisplayAvailable
+                && WirelessDisplayController.openPicker(this)) {
+            mAwaitingWirelessDisplay = true;
+            mStatus = getString(R.string.status_wireless_display_connecting);
+        } else {
+            mStatus = getString(R.string.status_external_display_unavailable);
+        }
+        refresh();
+    }
+
+    private void launchWirelessDesktop(final int displayId) {
+        mExternalModeSelection = null;
+        mExternalDisplaySummary = describeExternalDisplay(displayId, null);
+        mStatus = getString(R.string.status_wireless_desktop_starting);
+        refresh();
+        ConsoleModeSwitcher.showDesktop(
+                DesktopDisplayTarget.wireless(displayId));
     }
 
     private void startExternalDesktopAfterProbe() {
@@ -559,9 +575,13 @@ public final class ControlActivity extends Activity
         final boolean wirelessConnected =
                 wirelessDisplayId > Display.DEFAULT_DISPLAY;
         final boolean connected = wiredConnected || wirelessConnected;
-        mExternalModeSelection = wiredConnected ? selection : null;
-        final int selectedDisplayId = wiredConnected
-                ? wiredDisplayId : wirelessDisplayId;
+        final int activeDesktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int selectedDisplayId = activeDesktopDisplayId == wirelessDisplayId
+                ? wirelessDisplayId
+                : wiredConnected ? wiredDisplayId : wirelessDisplayId;
+        mExternalModeSelection = selectedDisplayId == wiredDisplayId
+                ? selection : null;
         mExternalDisplaySummary = connected
                 ? describeExternalDisplay(
                         selectedDisplayId, mExternalModeSelection)
@@ -575,10 +595,7 @@ public final class ControlActivity extends Activity
                 mAwaitingWirelessDisplay && wirelessConnected;
         if (shouldStartWireless) {
             mAwaitingWirelessDisplay = false;
-            mStatus = getString(R.string.status_wireless_desktop_starting);
-            refresh();
-            ConsoleModeSwitcher.showDesktop(
-                    DesktopDisplayTarget.wireless(wirelessDisplayId));
+            launchWirelessDesktop(wirelessDisplayId);
             return;
         }
         if (shouldStart && connected) {
