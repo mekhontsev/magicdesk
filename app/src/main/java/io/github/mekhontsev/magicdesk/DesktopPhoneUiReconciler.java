@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.util.Log;
 
 import java.util.HashSet;
@@ -12,8 +13,7 @@ final class DesktopPhoneUiReconciler {
             "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
     private static final String NUBIA_TOUCHPAD_ACTIVITY =
             "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
-    private static final String SECONDARY_HOME_ACTIVITY =
-            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
+    private final PhoneHomeComponents mHomeComponents;
 
     private final Set<Integer> mLastVisibleAppTaskIds = new HashSet<>();
 
@@ -22,7 +22,8 @@ final class DesktopPhoneUiReconciler {
     private boolean mTouchpadRestorePending;
     private boolean mAwaitingNubiaPanelRemoval;
 
-    DesktopPhoneUiReconciler() {
+    DesktopPhoneUiReconciler(final Context context) {
+        mHomeComponents = PhoneHomeComponents.resolve(context);
     }
 
     void reset() {
@@ -58,7 +59,7 @@ final class DesktopPhoneUiReconciler {
                 touchpadVisible = true;
             } else if (hasActivity(task, NUBIA_TOUCHPAD_ACTIVITY)) {
                 nubiaPanelVisible = true;
-            } else if (task.componentName.endsWith(SECONDARY_HOME_ACTIVITY)) {
+            } else if (mHomeComponents.isSecondaryTask(task)) {
                 secondaryHomeVisible = true;
             }
         }

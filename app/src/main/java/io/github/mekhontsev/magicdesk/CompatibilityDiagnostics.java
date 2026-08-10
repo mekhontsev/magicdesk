@@ -258,9 +258,12 @@ final class CompatibilityDiagnostics {
         appendCheck(report, "NUBIA-INPUT-001",
                 hasPackage(context, "cn.nubia.keymapcenter"),
                 "Nubia mirror input package", "cn.nubia.keymapcenter");
+        final PhoneHomeComponents phoneHome =
+                PhoneHomeComponents.resolve(context);
         appendCheck(report, "NUBIA-LAUNCHER-001",
-                hasPackage(context, "com.zte.mifavor.launcher"),
-                "ZTE launcher package", "com.zte.mifavor.launcher");
+                phoneHome.hasPrimary(),
+                "Phone launcher HOME activity",
+                phoneHome.diagnosticDetail());
         final boolean globalInput = ShellAccess.isReady();
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),

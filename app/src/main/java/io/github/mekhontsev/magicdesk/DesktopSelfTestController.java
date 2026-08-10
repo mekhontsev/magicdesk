@@ -26,8 +26,6 @@ final class DesktopSelfTestController {
             PACKAGE_NAME + ".DesktopActivity";
     private static final String LAUNCH_ANCHOR_CLASS =
             PACKAGE_NAME + ".FreeformLaunchAnchorActivity";
-    private static final String SECONDARY_HOME_CLASS =
-            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
     private static final int EXPECTED_WIDTH = 1920;
     private static final int EXPECTED_HEIGHT = 1080;
     private static final int EXPECTED_DENSITY = 160;
@@ -608,14 +606,19 @@ final class DesktopSelfTestController {
                         .append(" remained; ");
             }
             if (ShellAccess.isReady()) {
-                try {
-                    waitForTaskAbsentOnDisplay(
-                            Display.DEFAULT_DISPLAY,
-                            SECONDARY_HOME_CLASS);
-                } catch (IOException error) {
-                    clean = false;
-                    detail.append("phone launcher cleanup: ")
-                            .append(usefulMessage(error)).append("; ");
+                final String secondaryHomeClass = PhoneHomeComponents.resolve(
+                        MagicDeskApplication.applicationContext())
+                        .firstSecondaryClassName();
+                if (!secondaryHomeClass.isEmpty()) {
+                    try {
+                        waitForTaskAbsentOnDisplay(
+                                Display.DEFAULT_DISPLAY,
+                                secondaryHomeClass);
+                    } catch (IOException error) {
+                        clean = false;
+                        detail.append("phone launcher cleanup: ")
+                                .append(usefulMessage(error)).append("; ");
+                    }
                 }
                 try {
                     waitForDesktopRepositoryEmpty(displayId);

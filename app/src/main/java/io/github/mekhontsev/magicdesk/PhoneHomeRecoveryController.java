@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityOptions;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
@@ -13,12 +12,6 @@ import java.util.List;
 final class PhoneHomeRecoveryController {
     private static final String TAG = "MagicDeskPhoneHome";
     private static final String AM = "/system/bin/am";
-    private static final String SECONDARY_PHONE_HOME =
-            "com.zte.mifavor.launcher/"
-                    + "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
-    private static final String PRIMARY_PHONE_HOME =
-            "com.zte.mifavor.launcher/"
-                    + "com.android.launcher3.uioverrides.QuickstepLauncher";
     private static final String MAGICDESK_DESKTOP_ACTIVITY =
             "io.github.mekhontsev.magicdesk/"
                     + "io.github.mekhontsev.magicdesk.DesktopActivity";
@@ -32,13 +25,16 @@ final class PhoneHomeRecoveryController {
             return;
         }
         try {
+            final PhoneHomeComponents home =
+                    PhoneHomeComponents.resolve(context);
             final Intent intent = new Intent(Intent.ACTION_MAIN)
                     .addCategory(Intent.CATEGORY_HOME)
-                    .setComponent(ComponentName.unflattenFromString(
-                            PRIMARY_PHONE_HOME))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                             | Intent.FLAG_ACTIVITY_CLEAR_TOP
                             | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (home.hasPrimary()) {
+                intent.setComponent(home.primaryComponentName());
+            }
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
             context.startActivity(intent, options.toBundle());
@@ -64,8 +60,11 @@ final class PhoneHomeRecoveryController {
         }
         final boolean ensureVisiblePhoneTask =
                 includeStrandedDesktop || removedDisplayId > 0;
+        final PhoneHomeComponents home = PhoneHomeComponents.resolve(
+                MagicDeskApplication.applicationContext());
         if (!ensureVisiblePhoneTask) {
             loadAndRestoreSnapshot(
+                    home,
                     includeStrandedDesktop,
                     localDesktopActive,
                     false,
@@ -89,6 +88,7 @@ final class PhoneHomeRecoveryController {
                         result.message);
             }
             loadAndRestoreSnapshot(
+                    home,
                     includeStrandedDesktop,
                     localDesktopActive,
                     true,
@@ -109,12 +109,18 @@ final class PhoneHomeRecoveryController {
     }
 
     static String primaryHomeCommand() {
+        return primaryHomeCommand(PhoneHomeComponents.resolve(
+                MagicDeskApplication.applicationContext()));
+    }
+
+    static String primaryHomeCommand(final PhoneHomeComponents home) {
         return AM + " start --display " + Display.DEFAULT_DISPLAY
                 + " --activity-clear-top"
                 + " --activity-single-top"
                 + " -a android.intent.action.MAIN"
                 + " -c android.intent.category.HOME"
-                + " -n " + PRIMARY_PHONE_HOME;
+                + (home != null && home.hasPrimary()
+                        ? " -n " + home.primaryComponent() : "");
     }
 
     static boolean shouldRestoreStrandedDesktop(
@@ -125,7 +131,8 @@ final class PhoneHomeRecoveryController {
 
     static boolean needsPrimaryHomeRestore(
             final List<TaskRepository.TaskEntry> tasks,
-            final boolean includeStrandedDesktop) {
+            final boolean includeStrandedDesktop,
+            final PhoneHomeComponents home) {
         if (tasks == null) {
             return false;
         }
@@ -135,7 +142,8 @@ final class PhoneHomeRecoveryController {
                 continue;
             }
             final boolean secondaryHome = task.home
-                    && SECONDARY_PHONE_HOME.equals(task.topActivityName);
+                    && home != null
+                    && home.isSecondaryComponent(task.topActivityName);
             final boolean strandedDesktop =
                     includeStrandedDesktop
                             && MAGICDESK_DESKTOP_ACTIVITY.equals(
@@ -148,12 +156,13 @@ final class PhoneHomeRecoveryController {
     }
 
     static boolean isSecondaryPhoneHomeTask(
-            final TaskRepository.TaskEntry task) {
+            final TaskRepository.TaskEntry task,
+            final PhoneHomeComponents home) {
         return task != null
                 && task.displayId == Display.DEFAULT_DISPLAY
                 && task.home
-                && (SECONDARY_PHONE_HOME.equals(task.componentName)
-                        || SECONDARY_PHONE_HOME.equals(task.topActivityName));
+                && home != null
+                && home.isSecondaryTask(task);
     }
 
     static boolean isStrandedDesktopTask(
@@ -168,6 +177,7 @@ final class PhoneHomeRecoveryController {
     }
 
     private static void loadAndRestoreSnapshot(
+            final PhoneHomeComponents home,
             final boolean includeStrandedDesktop,
             final boolean localDesktopActive,
             final boolean ensureVisiblePhoneTask,
@@ -176,6 +186,7 @@ final class PhoneHomeRecoveryController {
         TaskRepository.load(Display.DEFAULT_DISPLAY, snapshot ->
                 restoreSnapshot(
                         snapshot,
+                        home,
                         includeStrandedDesktop,
                         localDesktopActive,
                         ensureVisiblePhoneTask,
@@ -185,6 +196,7 @@ final class PhoneHomeRecoveryController {
 
     private static void restoreSnapshot(
             final TaskRepository.Snapshot snapshot,
+            final PhoneHomeComponents home,
             final boolean includeStrandedDesktop,
             final boolean localDesktopActive,
             final boolean ensureVisiblePhoneTask,
@@ -192,35 +204,37 @@ final class PhoneHomeRecoveryController {
             final ResultCallback callback) {
         if (!snapshot.available) {
             if (forcePrimaryHome) {
-                restorePrimaryHome(callback);
+                restorePrimaryHome(home, callback);
             } else {
                 complete(callback, false);
             }
             return;
         }
-        removeSecondaryPhoneHomeTasks(snapshot.tasks);
+        removeSecondaryPhoneHomeTasks(snapshot.tasks, home);
         removeStrandedDesktopTasks(snapshot.tasks, localDesktopActive);
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
-                snapshot.tasks, includeStrandedDesktop);
+                snapshot.tasks, includeStrandedDesktop, home);
         if (!forcePrimaryHome
                 && !needsPrimaryHome
                 && (!ensureVisiblePhoneTask
                         || hasVisiblePhoneTaskAfterCleanup(
                                 snapshot.tasks,
-                                localDesktopActive))) {
+                                localDesktopActive,
+                                home))) {
             complete(callback, true);
             return;
         }
-        restorePrimaryHome(callback);
+        restorePrimaryHome(home, callback);
     }
 
     private static void removeSecondaryPhoneHomeTasks(
-            final List<TaskRepository.TaskEntry> tasks) {
+            final List<TaskRepository.TaskEntry> tasks,
+            final PhoneHomeComponents home) {
         if (tasks == null) {
             return;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (!isSecondaryPhoneHomeTask(task)) {
+            if (!isSecondaryPhoneHomeTask(task, home)) {
                 continue;
             }
             try {
@@ -270,10 +284,11 @@ final class PhoneHomeRecoveryController {
     }
 
     private static void restorePrimaryHome(
+            final PhoneHomeComponents home,
             final ResultCallback callback) {
         try {
             final String output =
-                    ShellAccess.run(primaryHomeCommand()).trim();
+                    ShellAccess.run(primaryHomeCommand(home)).trim();
             if (output.startsWith("Error:")
                     || output.contains(
                             "Exception occurred while executing")) {
@@ -294,13 +309,14 @@ final class PhoneHomeRecoveryController {
 
     static boolean hasVisiblePhoneTaskAfterCleanup(
             final List<TaskRepository.TaskEntry> tasks,
-            final boolean localDesktopActive) {
+            final boolean localDesktopActive,
+            final PhoneHomeComponents home) {
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (task != null
                         && task.displayId == Display.DEFAULT_DISPLAY
                         && task.visible
-                        && !isSecondaryPhoneHomeTask(task)
+                        && !isSecondaryPhoneHomeTask(task, home)
                         && !isStrandedDesktopTask(
                                 task, localDesktopActive)) {
                     return true;
