@@ -39,6 +39,8 @@ final class DesktopControlsController {
     private Button mTouchpadAction;
     private SeekBar mDpiSlider;
     private TextView mDpiValue;
+    private Button mImePhoneButton;
+    private Button mImeDesktopButton;
     private TextView mHardwareBatteryStatus;
     private Switch mChargeSeparationSwitch;
     private TextView mToolsStatus;
@@ -221,6 +223,11 @@ final class DesktopControlsController {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
         addDpiControls(parent);
 
+        if (DesktopScreenPolicy.isExternalDesktop(
+                mActivity.getCurrentDisplayId())) {
+            addOnScreenKeyboardControls(parent, spacing);
+        }
+
         final TextView powerTitle = mUi.sectionTitle(
                 R.string.hardware_power_section);
         final LinearLayout.LayoutParams powerTitleParams =
@@ -275,6 +282,7 @@ final class DesktopControlsController {
 
     void update() {
         mActivity.taskbar().updateKeyboardLayout();
+        mActivity.taskbar().updateOnScreenKeyboard();
         mPointerSpeed.refresh();
 
         final boolean consoleModeActive = isConsoleModeActive();
@@ -333,6 +341,88 @@ final class DesktopControlsController {
         }
         mActivity.taskbar().updateSystemStatus(
                 KeyboardShortcutWatcher.isFullShortcutMode());
+        updateOnScreenKeyboardControls();
+    }
+
+    private void addOnScreenKeyboardControls(
+            final LinearLayout parent,
+            final int spacing) {
+        final TextView inputTitle = mUi.sectionTitle(
+                R.string.system_input_section);
+        final LinearLayout.LayoutParams titleParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        titleParams.setMargins(0, spacing, 0, 0);
+        parent.addView(inputTitle, titleParams);
+
+        final TextView label = new TextView(mActivity);
+        label.setText(R.string.on_screen_keyboard_location);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(14);
+        final LinearLayout.LayoutParams labelParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, spacing / 2, 0, 0);
+        parent.addView(label, labelParams);
+
+        final LinearLayout choices = new LinearLayout(mActivity);
+        choices.setOrientation(LinearLayout.HORIZONTAL);
+        mImePhoneButton = mUi.actionButton(
+                R.string.keyboard_location_phone,
+                DesktopUiFactory.COLOR_CYAN);
+        mImePhoneButton.setOnClickListener(view ->
+                selectOnScreenKeyboardLocation(
+                        OnScreenKeyboardLocation.PHONE));
+        mImeDesktopButton = mUi.actionButton(
+                R.string.keyboard_location_desktop,
+                DesktopUiFactory.COLOR_CYAN);
+        mImeDesktopButton.setOnClickListener(view ->
+                selectOnScreenKeyboardLocation(
+                        OnScreenKeyboardLocation.DESKTOP));
+        final LinearLayout.LayoutParams choiceParams =
+                new LinearLayout.LayoutParams(
+                        0, mUi.dp(ACTION_BUTTON_HEIGHT_DP), 1);
+        choices.addView(mImePhoneButton, choiceParams);
+        final LinearLayout.LayoutParams desktopParams =
+                new LinearLayout.LayoutParams(
+                        0, mUi.dp(ACTION_BUTTON_HEIGHT_DP), 1);
+        desktopParams.setMargins(spacing / 2, 0, 0, 0);
+        choices.addView(mImeDesktopButton, desktopParams);
+        final LinearLayout.LayoutParams choicesParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        choicesParams.setMargins(0, spacing / 2, 0, 0);
+        parent.addView(choices, choicesParams);
+        updateOnScreenKeyboardControls();
+    }
+
+    private void selectOnScreenKeyboardLocation(
+            final OnScreenKeyboardLocation location) {
+        MagicDeskRuntimeService.setOnScreenKeyboardLocation(
+                mActivity, location);
+        updateOnScreenKeyboardControls();
+    }
+
+    private void updateOnScreenKeyboardControls() {
+        if (mImePhoneButton == null || mImeDesktopButton == null) {
+            return;
+        }
+        final OnScreenKeyboardLocation location =
+                DesktopPreferences.onScreenKeyboardLocation(mActivity);
+        mImePhoneButton.setText(
+                (location == OnScreenKeyboardLocation.PHONE
+                        ? "\u2713 " : "")
+                        + mActivity.getString(
+                                R.string.keyboard_location_phone));
+        mImeDesktopButton.setText(
+                (location == OnScreenKeyboardLocation.DESKTOP
+                        ? "\u2713 " : "")
+                        + mActivity.getString(
+                                R.string.keyboard_location_desktop));
+        mImeDesktopButton.setEnabled(ShellAccess.isReady());
     }
 
     void togglePhoneScreen() {

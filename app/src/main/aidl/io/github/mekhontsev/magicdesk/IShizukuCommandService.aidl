@@ -127,4 +127,8 @@ interface IShizukuCommandService {
     void writeDesktopWallpaper(in ParcelFileDescriptor source) = 45;
 
     boolean deleteDesktopWallpaper() = 46;
+
+    int setDisplayImePolicy(int displayId, int policy) = 47;
+
+    boolean focusDisplayForInput(int displayId) = 48;
 }

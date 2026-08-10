@@ -107,6 +107,7 @@ final class ShizukuCapabilityProbe {
                 boolean.class);
         appendMousePositionApi(report);
         appendMirrorInputApis(report);
+        appendDisplayImePolicyApi(report);
         appendService(
                 report,
                 "vendor.redmagic_app_manager",
@@ -159,6 +160,18 @@ final class ShizukuCapabilityProbe {
                 DesktopMirrorTextInput.runtimeState();
         append(report, "runtime.mirror_text_input",
                 runtime.state, runtime.detail);
+    }
+
+    private static void appendDisplayImePolicyApi(
+            final StringBuilder report) {
+        try {
+            DisplayImePolicyController.verifyApi();
+            append(report, "input.display_ime_policy", "present",
+                    "IWindowManager#getDisplayImePolicy/setDisplayImePolicy");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            append(report, "input.display_ime_policy", "missing",
+                    usefulMessage(error));
+        }
     }
 
     private static void appendPermissions(

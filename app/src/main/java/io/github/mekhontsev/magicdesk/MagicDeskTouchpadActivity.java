@@ -57,6 +57,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private int mPointerY;
     private long mPointerDragDownTime;
     private MirrorInputEditText mMirrorInput;
+    private OnScreenKeyboardLocation mActiveKeyboardLocation;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
     private ScrollView mHelpView;
@@ -116,6 +117,33 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
         open(context, displayId);
         return true;
+    }
+
+    static void onKeyboardLocationChanged(
+            final OnScreenKeyboardLocation location) {
+        final MagicDeskTouchpadActivity activity;
+        synchronized (STATE_LOCK) {
+            activity = sVisibleActivity.get();
+        }
+        if (activity != null) {
+            activity.runOnUiThread(() ->
+                    activity.applyKeyboardLocation(location));
+        }
+    }
+
+    static void onDesktopKeyboardDismissed(final int displayId) {
+        final MagicDeskTouchpadActivity activity;
+        synchronized (STATE_LOCK) {
+            activity = sVisibleActivity.get();
+        }
+        if (activity != null && activity.mTargetDisplayId == displayId) {
+            activity.runOnUiThread(() -> {
+                if (activity.mActiveKeyboardLocation
+                        == OnScreenKeyboardLocation.DESKTOP) {
+                    activity.mActiveKeyboardLocation = null;
+                }
+            });
+        }
     }
 
     static boolean bringRequestedTaskToFront(
@@ -402,6 +430,29 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     + " clickInjected=" + clickInjected);
             return;
         }
+        if (DesktopPreferences.onScreenKeyboardLocation(this)
+                == OnScreenKeyboardLocation.DESKTOP
+                && showDesktopKeyboard()) {
+            return;
+        }
+        showPhoneKeyboard();
+    }
+
+    private boolean showDesktopKeyboard() {
+        if (MagicDeskRuntimeService.showDesktopKeyboardIfRunning(
+                mTargetDisplayId)) {
+            mActiveKeyboardLocation = OnScreenKeyboardLocation.DESKTOP;
+            return true;
+        }
+        MagicDeskRuntimeService.beginDesktopTextInputIfRunning(
+                mTargetDisplayId);
+        DesktopRuntimeBridge.showTransientStatus(
+                getString(R.string.status_desktop_keyboard_failed),
+                false);
+        return false;
+    }
+
+    private void showPhoneKeyboard() {
         bringTaskToFront();
         setTextInputFocusEnabled(true);
         mMirrorInput.setKeyboardRequested(true);
@@ -416,6 +467,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         inputMethodManager.restartInput(mMirrorInput);
+        mActiveKeyboardLocation = OnScreenKeyboardLocation.PHONE;
         showKeyboardIfReady();
     }
 
@@ -439,7 +491,10 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void toggleKeyboard() {
-        if (isKeyboardVisible()) {
+        if (mActiveKeyboardLocation != null
+                || DesktopRuntimeBridge.isDesktopKeyboardRequested(
+                        mTargetDisplayId)
+                || isKeyboardVisible()) {
             hideKeyboard();
             return;
         }
@@ -448,6 +503,13 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     private void hideKeyboard() {
         Log.i(TAG, "hide keyboard display=" + mTargetDisplayId);
+        if (mActiveKeyboardLocation == OnScreenKeyboardLocation.DESKTOP
+                || DesktopRuntimeBridge.isDesktopKeyboardRequested(
+                        mTargetDisplayId)) {
+            DesktopRuntimeBridge.hideDesktopKeyboard(mTargetDisplayId);
+            mActiveKeyboardLocation = null;
+            return;
+        }
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
         if (hasTextInputProxy()) {
             final InputMethodManager inputMethodManager =
@@ -467,6 +529,20 @@ public final class MagicDeskTouchpadActivity extends Activity {
         setTextInputFocusEnabled(false);
         MagicDeskRuntimeService.endDesktopTextInputIfRunning(
                 mTargetDisplayId);
+        if (mActiveKeyboardLocation == OnScreenKeyboardLocation.PHONE) {
+            mActiveKeyboardLocation = null;
+        }
+    }
+
+    private void applyKeyboardLocation(
+            final OnScreenKeyboardLocation location) {
+        if (location == null
+                || mActiveKeyboardLocation == null
+                || location == mActiveKeyboardLocation) {
+            return;
+        }
+        hideKeyboard();
+        getWindow().getDecorView().post(this::showKeyboard);
     }
 
     private boolean hasTextInputProxy() {
@@ -619,6 +695,15 @@ public final class MagicDeskTouchpadActivity extends Activity {
         public boolean onTouchEvent(final MotionEvent event) {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
+                    if (mActiveKeyboardLocation
+                            == OnScreenKeyboardLocation.DESKTOP
+                            || DesktopRuntimeBridge
+                                    .isDesktopKeyboardRequested(
+                                            mTargetDisplayId)) {
+                        MagicDeskRuntimeService
+                                .focusDesktopInputIfRunning(
+                                        mTargetDisplayId);
+                    }
                     mLastX = event.getX();
                     mLastY = event.getY();
                     mTravel = 0.0f;

@@ -6,6 +6,8 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 import java.lang.reflect.Method;
@@ -53,6 +55,17 @@ final class DesktopPointerInjector {
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException(
                     "could not inject pointer click", error);
+        }
+    }
+
+    @SuppressLint("BlockedPrivateApi")
+    static void focusDisplay(final int displayId) {
+        validateDisplay(displayId);
+        try {
+            injectionContext().injectFocusHandoff(displayId);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException(
+                    "could not focus target display for input", error);
         }
     }
 
@@ -172,6 +185,26 @@ final class DesktopPointerInjector {
                     INJECTION_MODE_ASYNC);
         }
 
+        void injectFocusHandoff(final int displayId)
+                throws ReflectiveOperationException {
+            final long eventTime = SystemClock.uptimeMillis();
+            final KeyEvent down = new KeyEvent(
+                    eventTime,
+                    eventTime,
+                    KeyEvent.ACTION_DOWN,
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    0,
+                    0,
+                    KeyCharacterMap.VIRTUAL_KEYBOARD,
+                    0,
+                    KeyEvent.FLAG_FROM_SYSTEM,
+                    InputDevice.SOURCE_KEYBOARD);
+            final KeyEvent up = KeyEvent.changeAction(
+                    down, KeyEvent.ACTION_UP);
+            injectEvent(displayId, down, INJECTION_MODE_WAIT_FOR_RESULT);
+            injectEvent(displayId, up, INJECTION_MODE_WAIT_FOR_RESULT);
+        }
+
         private void inject(
                 final int displayId,
                 final Point position,
@@ -203,20 +236,28 @@ final class DesktopPointerInjector {
             try {
                 mSetActionButton.invoke(
                         event, Integer.valueOf(actionButton));
-                mSetDisplayId.invoke(event, Integer.valueOf(displayId));
-                final Object result = mInject.getParameterCount() == 2
-                        ? mInject.invoke(mInputManager, event,
-                                Integer.valueOf(injectionMode))
-                        : mInject.invoke(mInputManager, event,
-                                Integer.valueOf(injectionMode),
-                                Integer.valueOf(-1));
-                if (result instanceof Boolean
-                        && !((Boolean) result).booleanValue()) {
-                    throw new IllegalStateException(
-                            "input injection was rejected");
-                }
+                injectEvent(displayId, event, injectionMode);
             } finally {
                 event.recycle();
+            }
+        }
+
+        private void injectEvent(
+                final int displayId,
+                final InputEvent event,
+                final int injectionMode)
+                throws ReflectiveOperationException {
+            mSetDisplayId.invoke(event, Integer.valueOf(displayId));
+            final Object result = mInject.getParameterCount() == 2
+                    ? mInject.invoke(mInputManager, event,
+                            Integer.valueOf(injectionMode))
+                    : mInject.invoke(mInputManager, event,
+                            Integer.valueOf(injectionMode),
+                            Integer.valueOf(-1));
+            if (result instanceof Boolean
+                    && !((Boolean) result).booleanValue()) {
+                throw new IllegalStateException(
+                        "input injection was rejected");
             }
         }
     }

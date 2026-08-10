@@ -64,6 +64,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopLayoutController mDesktopLayout;
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
+    private DesktopImeOverlay mDesktopImeOverlay;
     private DesktopUiFactory mUi;
     private CalendarPanelController mCalendarController;
     private ShortcutHelpController mShortcutHelpController;
@@ -233,6 +234,10 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopOverlays() {
+        if (mDesktopImeOverlay != null) {
+            mDesktopImeOverlay.release();
+            mDesktopImeOverlay = null;
+        }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
@@ -332,6 +337,69 @@ public abstract class DesktopShellActivity extends Activity
 
     OverlayPanelController overlayPanels() {
         return mOverlayPanelController;
+    }
+
+    boolean showDesktopKeyboard() {
+        final int displayId = getCurrentDisplayId();
+        final boolean shown = mDesktopImeOverlay != null
+                && mDesktopImeOverlay.show(
+                        (action, text, arg1, arg2, arg3) ->
+                                MagicDeskRuntimeService
+                                        .updateDesktopTextInputIfRunning(
+                                                displayId,
+                                                action,
+                                                text,
+                                                arg1,
+                                                arg2,
+                                                arg3),
+                        this::onDesktopImeInsetsChanged,
+                        () -> MagicDeskRuntimeService
+                                .desktopKeyboardDismissedIfRunning(
+                                        displayId));
+        if (mTaskbarController != null) {
+            mTaskbarController.updateOnScreenKeyboard();
+        }
+        return shown;
+    }
+
+    void hideDesktopKeyboard() {
+        if (mDesktopImeOverlay != null) {
+            mDesktopImeOverlay.hide();
+        }
+    }
+
+    boolean isDesktopKeyboardRequested() {
+        return mDesktopImeOverlay != null
+                && mDesktopImeOverlay.isRequested();
+    }
+
+    void toggleDesktopKeyboardFromTaskbar() {
+        if (isDesktopKeyboardRequested()) {
+            hideDesktopKeyboard();
+            return;
+        }
+        if (DesktopPreferences.onScreenKeyboardLocation(this)
+                != OnScreenKeyboardLocation.DESKTOP
+                || !MagicDeskRuntimeService
+                        .showDesktopKeyboardIfRunning(
+                                getCurrentDisplayId())) {
+            setStatus(R.string.status_desktop_keyboard_failed);
+        }
+    }
+
+    private void onDesktopImeInsetsChanged(
+            final boolean visible,
+            final int bottomInset) {
+        if (mDesktopLayout != null) {
+            mDesktopLayout.setTaskbarBottomInset(
+                    visible ? bottomInset : 0);
+        }
+        if (mTaskbarRevealController != null) {
+            mTaskbarRevealController.setForcedVisible(visible);
+        }
+        if (mTaskbarController != null) {
+            mTaskbarController.updateOnScreenKeyboard();
+        }
     }
 
     boolean isDesktopShell() {
@@ -537,6 +605,10 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopRoot = root;
         mOverlayPanelController = new OverlayPanelController(
                 this, getCurrentDisplayId());
+        if (DesktopScreenPolicy.isExternalDesktop(getCurrentDisplayId())) {
+            mDesktopImeOverlay = new DesktopImeOverlay(
+                    this, getCurrentDisplayId());
+        }
         root.setBackgroundColor(COLOR_BACKGROUND);
         mDesktopLayout.attachDesktopRoot(root);
 
@@ -1159,6 +1231,10 @@ public abstract class DesktopShellActivity extends Activity
 
     DesktopViewport getDesktopViewport() {
         return mDesktopLayout.viewport();
+    }
+
+    Rect getTaskbarBounds() {
+        return mDesktopLayout.taskbarBounds();
     }
 
     void updateDesktopControls() {

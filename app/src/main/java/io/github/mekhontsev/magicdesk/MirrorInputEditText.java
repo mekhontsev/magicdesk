@@ -10,7 +10,7 @@ import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.widget.EditText;
 
-/** Invisible phone-side IME target that writes into the mirrored window. */
+/** Invisible IME target that writes into the focused mirrored window. */
 final class MirrorInputEditText extends EditText {
     interface Dispatcher {
         boolean dispatch(
@@ -48,6 +48,9 @@ final class MirrorInputEditText extends EditText {
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
+        if (event.getKeyCode() == KeyEvent.KEYCODE_UNKNOWN) {
+            return true;
+        }
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
             return false;
         }

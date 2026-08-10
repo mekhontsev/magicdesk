@@ -17,6 +17,7 @@ final class DesktopTaskbarRevealController {
             new PointerEdgeRevealState();
 
     private boolean mPolicyVisible = true;
+    private boolean mForcedVisible;
     private boolean mStarted;
     private boolean mReleased;
 
@@ -42,7 +43,7 @@ final class DesktopTaskbarRevealController {
         }
         mStarted = true;
         mActivity.taskbar().setEdgeHoverListener(this::onHoverEvent);
-        mState.setArmed(!mPolicyVisible);
+        mState.setArmed(!mPolicyVisible && !mForcedVisible);
         applyPresentation();
     }
 
@@ -55,7 +56,19 @@ final class DesktopTaskbarRevealController {
         }
         mPolicyVisible = visible;
         cancelTimers();
-        mState.setArmed(!visible);
+        mState.setArmed(!visible && !mForcedVisible);
+        if (mStarted) {
+            applyPresentation();
+        }
+    }
+
+    void setForcedVisible(final boolean visible) {
+        if (mReleased || mForcedVisible == visible) {
+            return;
+        }
+        mForcedVisible = visible;
+        cancelTimers();
+        mState.setArmed(!mPolicyVisible && !visible);
         if (mStarted) {
             applyPresentation();
         }
@@ -77,7 +90,8 @@ final class DesktopTaskbarRevealController {
     }
 
     private void onHoverEvent(final MotionEvent event) {
-        if (mReleased || mPolicyVisible || event == null) {
+        if (mReleased || mPolicyVisible || mForcedVisible
+                || event == null) {
             return;
         }
         switch (event.getActionMasked()) {
@@ -111,8 +125,7 @@ final class DesktopTaskbarRevealController {
         if (!mState.isRevealed()) {
             return false;
         }
-        final Rect bounds = mActivity.getDesktopViewport().taskbarBounds(
-                mActivity.getTaskbarHeight());
+        final Rect bounds = mActivity.getTaskbarBounds();
         return isBottomEdgeExit(
                 bounds.left,
                 bounds.right,
@@ -157,10 +170,10 @@ final class DesktopTaskbarRevealController {
         if (taskbar == null || overlays == null) {
             return;
         }
-        final boolean visible = mPolicyVisible || mState.isRevealed();
-        final DesktopViewport viewport = mActivity.getDesktopViewport();
-        final Rect normalBounds = viewport.taskbarBounds(
-                mActivity.getTaskbarHeight());
+        final boolean visible = mForcedVisible
+                || mPolicyVisible
+                || mState.isRevealed();
+        final Rect normalBounds = mActivity.getTaskbarBounds();
         if (visible) {
             overlays.updatePersistentBounds(
                     normalBounds.left,

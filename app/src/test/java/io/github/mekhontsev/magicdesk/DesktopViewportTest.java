@@ -33,6 +33,25 @@ public final class DesktopViewportTest {
         assertEquals(906, viewport.taskbarTop(64));
     }
 
+    @Test
+    public void keyboardInsetRaisesOnlyTaskbarBounds() {
+        final DesktopViewport viewport = new DesktopViewport(
+                0, 0, 1920, 1080, 0, 0, 0, 0);
+
+        assertEquals(340, viewport.taskbarTop(64, 676));
+        assertEquals(404, viewport.taskbarBottom(64, 676));
+        assertContentBounds(viewport, 0, 0, 1920, 1080);
+    }
+
+    @Test
+    public void oversizedKeyboardInsetKeepsTaskbarInsideViewport() {
+        final DesktopViewport viewport = new DesktopViewport(
+                100, 200, 1300, 1000, 12, 24, 18, 30);
+
+        assertEquals(224, viewport.taskbarTop(64, 10_000));
+        assertEquals(288, viewport.taskbarBottom(64, 10_000));
+    }
+
     private static void assertContentBounds(
             final DesktopViewport viewport,
             final int left,

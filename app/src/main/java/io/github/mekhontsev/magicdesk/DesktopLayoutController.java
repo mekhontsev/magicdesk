@@ -27,6 +27,7 @@ final class DesktopLayoutController {
     private View mDesktopRoot;
     private View mTaskbar;
     private OverlayPanelController mOverlays;
+    private int mTaskbarBottomInset;
 
     DesktopLayoutController(
             final Activity activity,
@@ -61,8 +62,7 @@ final class DesktopLayoutController {
         if (taskbar == null || overlays == null) {
             return false;
         }
-        final Rect bounds =
-                mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
+        final Rect bounds = taskbarBounds();
         return overlays.attachPersistent(
                 taskbar,
                 bounds.left,
@@ -74,6 +74,21 @@ final class DesktopLayoutController {
 
     DesktopViewport viewport() {
         return mViewport;
+    }
+
+    Rect taskbarBounds() {
+        return mViewport.taskbarBounds(
+                mRuntimeState.taskbarHeight(),
+                mTaskbarBottomInset);
+    }
+
+    void setTaskbarBottomInset(final int bottomInset) {
+        final int normalized = Math.max(0, bottomInset);
+        if (mTaskbarBottomInset == normalized) {
+            return;
+        }
+        mTaskbarBottomInset = normalized;
+        updateTaskbarBounds();
     }
 
     int desktopAreaWidth() {
@@ -144,8 +159,7 @@ final class DesktopLayoutController {
         if (mTaskbar == null || mOverlays == null || mViewport == null) {
             return;
         }
-        final Rect bounds =
-                mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
+        final Rect bounds = taskbarBounds();
         mOverlays.updatePersistentBounds(
                 bounds.left,
                 bounds.top,

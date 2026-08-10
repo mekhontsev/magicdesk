@@ -34,6 +34,7 @@ final class TaskbarController {
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
     private TextView mKeyboardLayout;
+    private ImageButton mOnScreenKeyboardButton;
     private final InputMethodMenuController mInputMethodMenu;
     private TextView mBatteryStatus;
     private ImageButton mSystemButton;
@@ -215,6 +216,13 @@ final class TaskbarController {
             mKeyboardLayout.setVisibility(View.GONE);
         }
 
+        mOnScreenKeyboardButton = taskbarButton(
+                R.drawable.ic_keyboard,
+                R.string.action_show_on_screen_keyboard);
+        mOnScreenKeyboardButton.setOnClickListener(view ->
+                mActivity.toggleDesktopKeyboardFromTaskbar());
+        addButton(taskbar, mOnScreenKeyboardButton);
+
         mPhoneScreenButton = taskbarButton(
                 R.drawable.ic_phone_screen_off,
                 R.string.tooltip_phone_screen);
@@ -268,6 +276,7 @@ final class TaskbarController {
                 desktopDp(72, 50),
                 LinearLayout.LayoutParams.MATCH_PARENT));
         mTaskbar = taskbar;
+        updateOnScreenKeyboard();
         return taskbar;
     }
 
@@ -276,6 +285,7 @@ final class TaskbarController {
         mTaskbar = null;
         mPins = null;
         mKeyboardLayout = null;
+        mOnScreenKeyboardButton = null;
         mInputMethodMenu.release();
         mBatteryStatus = null;
         mSystemButton = null;
@@ -447,6 +457,37 @@ final class TaskbarController {
                         : layoutName);
         mKeyboardLayout.setContentDescription(description);
         mKeyboardLayout.setTooltipText(description);
+    }
+
+    void updateOnScreenKeyboard() {
+        if (mOnScreenKeyboardButton == null) {
+            return;
+        }
+        final boolean requested =
+                mActivity.isDesktopKeyboardRequested();
+        final boolean desktopLocation =
+                DesktopPreferences.onScreenKeyboardLocation(mActivity)
+                        == OnScreenKeyboardLocation.DESKTOP;
+        final boolean visible = !mActivity.isCompactDesktopPreview()
+                && DesktopScreenPolicy.isExternalDesktop(
+                        mActivity.getCurrentDisplayId())
+                && (desktopLocation || requested);
+        final int actionResId = requested
+                ? R.string.action_hide_on_screen_keyboard
+                : R.string.action_show_on_screen_keyboard;
+        mOnScreenKeyboardButton.setImageResource(requested
+                ? R.drawable.ic_keyboard_hide
+                : R.drawable.ic_keyboard);
+        mOnScreenKeyboardButton.setColorFilter(requested
+                ? DesktopUiFactory.COLOR_CYAN
+                : DesktopUiFactory.COLOR_TEXT);
+        mOnScreenKeyboardButton.setContentDescription(
+                mActivity.getString(actionResId));
+        mOnScreenKeyboardButton.setTooltipText(
+                mActivity.getString(actionResId));
+        mOnScreenKeyboardButton.setEnabled(ShellAccess.isReady());
+        mOnScreenKeyboardButton.setVisibility(
+                visible ? View.VISIBLE : View.GONE);
     }
 
     void updatePhoneScreen(

@@ -90,6 +90,7 @@ final class DesktopSelfTestController {
                         return Integer.valueOf(created);
                     }, null).intValue();
             verifyDisplayGeometry(appContext, displayId, result);
+            verifyDisplayImePolicy(displayId, result);
 
             final int targetDisplayId = displayId;
             require(result, "DESKTOP-001", "Launch desktop session", () -> {
@@ -208,6 +209,43 @@ final class DesktopSelfTestController {
             RUNNING.set(false);
         }
         return finish(result, appContext);
+    }
+
+    private static void verifyDisplayImePolicy(
+            final int displayId,
+            final DesktopSelfTestResult result) {
+        String detail = "not tested";
+        DesktopSelfTestResult.State state =
+                DesktopSelfTestResult.State.WARN;
+        try {
+            final int actual = ShellAccess.setDisplayImePolicy(
+                    displayId, DisplayImePolicyController.LOCAL);
+            state = actual == DisplayImePolicyController.LOCAL
+                    ? DesktopSelfTestResult.State.PASS
+                    : DesktopSelfTestResult.State.WARN;
+            detail = "local policy=" + actual;
+        } catch (IOException error) {
+            state = DesktopSelfTestResult.State.WARN;
+            detail = usefulMessage(error);
+        } finally {
+            try {
+                final int restored = ShellAccess.setDisplayImePolicy(
+                        displayId,
+                        DisplayImePolicyController.FALLBACK_TO_PHONE);
+                detail += "; restored policy=" + restored;
+                if (restored
+                        != DisplayImePolicyController.FALLBACK_TO_PHONE) {
+                    state = DesktopSelfTestResult.State.WARN;
+                }
+            } catch (IOException error) {
+                state = DesktopSelfTestResult.State.WARN;
+                detail += "; restore failed: " + usefulMessage(error);
+            }
+        }
+        result.add(state,
+                "INPUT-IME-001",
+                "Set simulated-display keyboard location",
+                detail);
     }
 
     private static void requireNoActiveDesktop(

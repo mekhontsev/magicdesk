@@ -110,13 +110,20 @@ final class DesktopViewport {
     }
 
     Rect taskbarBounds(final int requestedHeight) {
+        return taskbarBounds(requestedHeight, 0);
+    }
+
+    Rect taskbarBounds(
+            final int requestedHeight,
+            final int bottomInset) {
         final int height = Math.max(
                 1, Math.min(requestedHeight, contentHeight()));
+        final int bottom = taskbarBottom(requestedHeight, bottomInset);
         return new Rect(
                 mContentLeft,
-                mContentBottom - height,
+                bottom - height,
                 mContentRight,
-                mContentBottom);
+                bottom);
     }
 
     Rect workAreaBounds(final int taskbarHeight) {
@@ -153,9 +160,25 @@ final class DesktopViewport {
     }
 
     int taskbarTop(final int requestedHeight) {
+        return taskbarTop(requestedHeight, 0);
+    }
+
+    int taskbarTop(
+            final int requestedHeight,
+            final int bottomInset) {
         final int height = Math.max(
                 1, Math.min(requestedHeight, contentHeight()));
-        return mContentBottom - height;
+        return taskbarBottom(requestedHeight, bottomInset) - height;
+    }
+
+    int taskbarBottom(
+            final int requestedHeight,
+            final int bottomInset) {
+        final int height = Math.max(
+                1, Math.min(requestedHeight, contentHeight()));
+        final int availableOffset = Math.max(0, contentHeight() - height);
+        return mContentBottom - Math.max(
+                0, Math.min(bottomInset, availableOffset));
     }
 
     int insetLeft() {
