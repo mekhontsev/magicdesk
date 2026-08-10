@@ -29,19 +29,27 @@ final class NubiaExternalDisplayModeController {
                         context, physicalDisplayId, outputTiming);
         final NubiaHdmiModeController.Mode requestedMode =
                 selection == null ? null : selection.target;
-        final int preparedDisplayId = NubiaHdmiModeController.applyIfNeeded(
-                context, physicalDisplayId, selection);
+        final boolean deferExactMode = selection != null
+                && selection.requiresDeferredVendorMode();
+        final int preparedDisplayId = deferExactMode
+                ? physicalDisplayId
+                : NubiaHdmiModeController.applyIfNeeded(
+                        context, physicalDisplayId, selection);
         final int width = requestedMode != null
                 ? requestedMode.width
                 : 0;
         final int height = requestedMode != null
                 ? requestedMode.height
                 : 0;
-        final int sizeType = NubiaHdmiModeController.resolveVendorSizeType(
-                width, height);
+        final int sizeType = selection == null
+                ? NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED
+                : selection.vendorSizeType();
         final String previousBypass = readBypass();
         final PreparedMode prepared = new PreparedMode(
-                previousBypass, preparedDisplayId);
+                previousBypass,
+                preparedDisplayId,
+                deferExactMode ? context : null,
+                deferExactMode ? selection : null);
         try {
             writeBypass("1");
             ShellAccess.run(
@@ -59,7 +67,8 @@ final class NubiaExternalDisplayModeController {
                             ? "" : "@" + requestedMode.refreshRate)
                     + " fill=" + fillDisplay
                     + " output=" + outputTiming
-                    + " vendorSize=" + sizeType);
+                    + " vendorSize=" + sizeType
+                    + " deferred=" + deferExactMode);
             return prepared;
         } catch (IOException | RuntimeException error) {
             prepared.close();
@@ -108,18 +117,53 @@ final class NubiaExternalDisplayModeController {
 
     static final class PreparedMode implements AutoCloseable {
         private final String mPreviousBypass;
-        private final int mPhysicalDisplayId;
+        private int mPhysicalDisplayId;
+        private Context mDeferredContext;
+        private NubiaHdmiModeController.Selection mDeferredSelection;
         private boolean mClosed;
 
         PreparedMode(
                 final String previousBypass,
-                final int physicalDisplayId) {
+                final int physicalDisplayId,
+                final Context deferredContext,
+                final NubiaHdmiModeController.Selection deferredSelection) {
             mPreviousBypass = previousBypass;
             mPhysicalDisplayId = physicalDisplayId;
+            mDeferredContext = deferredContext;
+            mDeferredSelection = deferredSelection;
         }
 
         int physicalDisplayId() {
             return mPhysicalDisplayId;
+        }
+
+        boolean applyDeferredMode() throws IOException {
+            if (mDeferredContext == null || mDeferredSelection == null) {
+                return false;
+            }
+            final NubiaHdmiModeController.Mode target =
+                    mDeferredSelection.target;
+            final int currentDisplayId =
+                    ConsoleDisplayController.findExternalDisplayId();
+            if (currentDisplayId <= 0) {
+                throw new IOException(
+                        "external display disappeared during Console startup");
+            }
+            final NubiaHdmiModeController.Selection refreshed =
+                    NubiaHdmiModeController.readSelection(
+                            mDeferredContext,
+                            currentDisplayId,
+                            target.timingKey());
+            if (refreshed == null || refreshed.target == null
+                    || !target.sameTiming(refreshed.target)) {
+                throw new IOException(
+                        "native output timing disappeared during Console startup");
+            }
+            mPhysicalDisplayId = NubiaHdmiModeController.applyIfNeeded(
+                    mDeferredContext, currentDisplayId, refreshed);
+            mDeferredContext = null;
+            mDeferredSelection = null;
+            return true;
         }
 
         @Override

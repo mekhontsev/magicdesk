@@ -93,7 +93,17 @@ final class NubiaHdmiModeController {
                 || selection.target.sameTiming(selection.current)) {
             return displayId;
         }
+        return applyMode(context, displayId, selection);
+    }
 
+    static int applyMode(
+            final Context context,
+            final int displayId,
+            final Selection selection) throws IOException {
+        if (selection == null || selection.target == null
+                || !selection.configurable) {
+            return displayId;
+        }
         final Mode target = selection.target;
         if (selection.controlPath == ControlPath.SYSTEM) {
             try {
@@ -199,18 +209,18 @@ final class NubiaHdmiModeController {
     }
 
     static int resolveVendorSizeType(
-            final int physicalWidth,
-            final int physicalHeight) {
-        final int longSide = Math.max(physicalWidth, physicalHeight);
-        final int shortSide = Math.min(physicalWidth, physicalHeight);
-        if (longSide == 1920 && shortSide == 1080) {
-            return VENDOR_SIZE_1080;
+            final Mode target,
+            final List<Mode> modes) {
+        if (target == null || modes == null) {
+            return VENDOR_SIZE_UNCHANGED;
         }
-        if (longSide == 2560 && shortSide == 1440) {
-            return VENDOR_SIZE_1440;
-        }
-        if (longSide >= 3840 && shortSide == 2160) {
-            return VENDOR_SIZE_2160;
+        final int[] shortSides = {1080, 1440, 2160};
+        for (int sizeType = 0; sizeType < shortSides.length; sizeType++) {
+            final Mode preferred = findVendorPreferredMode(
+                    modes, shortSides[sizeType]);
+            if (target.sameResolution(preferred)) {
+                return sizeType;
+            }
         }
         return VENDOR_SIZE_UNCHANGED;
     }
@@ -221,12 +231,61 @@ final class NubiaHdmiModeController {
         final ArrayList<Mode> compatible = new ArrayList<>();
         for (final Mode mode : modes) {
             if (mode.sameResolution(nativeMode)
-                    || resolveVendorSizeType(mode.width, mode.height)
+                    || resolveVendorSizeType(mode, modes)
                             != VENDOR_SIZE_UNCHANGED) {
                 compatible.add(mode);
             }
         }
         return compatible;
+    }
+
+    private static Mode findVendorPreferredMode(
+            final List<Mode> modes,
+            final int shortSide) {
+        Mode preferred = null;
+        for (final Mode mode : modes) {
+            if (Math.min(mode.width, mode.height) != shortSide
+                    || mode.refreshRate < 60
+                    || mode.refreshRate > 120) {
+                continue;
+            }
+            if (preferred == null || vendorPrefers(mode, preferred, shortSide)) {
+                preferred = mode;
+            }
+        }
+        return preferred;
+    }
+
+    private static boolean vendorPrefers(
+            final Mode candidate,
+            final Mode current,
+            final int shortSide) {
+        final boolean candidate16By9 = is16By9(candidate);
+        final boolean current16By9 = is16By9(current);
+        if (candidate16By9 != current16By9) {
+            return candidate16By9;
+        }
+
+        final int candidateLongSide = Math.max(
+                candidate.width, candidate.height);
+        final int currentLongSide = Math.max(current.width, current.height);
+        if (candidateLongSide != currentLongSide) {
+            return candidateLongSide < currentLongSide;
+        }
+
+        if (candidate.refreshRate != current.refreshRate) {
+            if (shortSide == 1440 || shortSide == 2160) {
+                return candidate.refreshRate < current.refreshRate;
+            }
+            return candidate.refreshRate > current.refreshRate;
+        }
+        return candidate.pictureAspect > current.pictureAspect;
+    }
+
+    private static boolean is16By9(final Mode mode) {
+        final int longSide = Math.max(mode.width, mode.height);
+        final int shortSide = Math.min(mode.width, mode.height);
+        return longSide * 9 == shortSide * 16;
     }
 
     private static Selection publicSelection(
@@ -478,6 +537,18 @@ final class NubiaHdmiModeController {
             this.configurable = configurable;
             this.detail = detail == null ? "" : detail;
             this.controlPath = controlPath;
+        }
+
+        int vendorSizeType() {
+            return controlPath == ControlPath.VENDOR
+                    ? resolveVendorSizeType(target, availableModes)
+                    : VENDOR_SIZE_UNCHANGED;
+        }
+
+        boolean requiresDeferredVendorMode() {
+            return controlPath == ControlPath.VENDOR
+                    && target != null
+                    && vendorSizeType() == VENDOR_SIZE_UNCHANGED;
         }
 
         Selection withPreferredTiming(final String preferredTiming) {

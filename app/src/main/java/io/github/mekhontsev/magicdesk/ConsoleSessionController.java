@@ -67,6 +67,30 @@ final class ConsoleSessionController {
                     throw new IOException(
                             "Nubia Console Mode did not create an app mirror display");
                 }
+                try {
+                    if (preparedMode.applyDeferredMode()) {
+                        physicalDisplayId = preparedMode.physicalDisplayId();
+                        consoleDisplayId =
+                                ConsoleDisplayController.waitForConsoleDisplay();
+                        if (consoleDisplayId <= 0) {
+                            throw new IOException(
+                                    "Console display disappeared after changing"
+                                            + " the native output mode");
+                        }
+                    }
+                } catch (IOException | RuntimeException error) {
+                    Log.w(TAG, "Cannot restore the exact native output mode", error);
+                    CompatibilityDiagnostics.record(
+                            "NUBIA-DISPLAY-001",
+                            "Could not apply the external display launch settings",
+                            error.getMessage(),
+                            error);
+                    final int currentDisplayId =
+                            ConsoleDisplayController.findExternalDisplayId();
+                    if (currentDisplayId > 0) {
+                        physicalDisplayId = currentDisplayId;
+                    }
+                }
                 startedConsoleMode = true;
             }
             ConsoleDisplayController.ensureLandscape(consoleDisplayId);

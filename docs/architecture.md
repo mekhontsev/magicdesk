@@ -507,10 +507,18 @@ requested, so no MagicDesk task is attached to a disappearing display.
 Output timing and **Fill display** are stored in the same per-display profile
 as DPI. **Fill display** maps to Nubia's projection-fit setting. MagicDesk
 temporarily enables the vendor fit bypass while preparing the session, writes
-the fit and resolution-class values consumed by the projection service, and
-restores the previous bypass property afterward. Output timing changes real
-HDMI/DisplayPort geometry; desktop DPI remains an independent per-monitor UI
-scale.
+the fit setting and, when applicable, the `1080P`, `1440P`, or `2160P`
+resolution profile consumed by the projection service, and restores the
+previous bypass property afterward. MagicDesk reproduces Nubia's EDID profile
+selection instead of assigning these values by numeric range. A non-standard
+native timing such as `1920x1200` is applied through Nubia's exact wired-mode
+path after the Console display exists, so the projection service cannot replace
+it with its `1080P` profile during startup. Modes below a 1080-pixel short edge
+are not offered as alternatives because RedMagic desktop activation resets
+them to 1080p; a lower mode remains available when it is the display's native
+resolution.
+Output timing changes real HDMI/DisplayPort geometry; desktop DPI remains an
+independent per-monitor UI scale.
 
 ### Caption visibility
 

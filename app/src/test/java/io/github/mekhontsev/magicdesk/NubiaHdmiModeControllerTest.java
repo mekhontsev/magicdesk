@@ -71,25 +71,21 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void mapsOnlyNubiaConsoleResolutionPresets() {
+    public void mapsOnlyModesReproducedByNubiaResolutionProfiles() {
+        final NubiaHdmiModeController.Selection nativeSelection =
+                select(null, TV_MODES);
+        final NubiaHdmiModeController.Selection fullHdSelection =
+                select("1920x1080@240", TV_MODES);
+        final NubiaHdmiModeController.Selection cinemaSelection =
+                select("4096x2160@24", TV_MODES);
+
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_2160,
+                nativeSelection.vendorSizeType());
         assertEquals(
                 NubiaHdmiModeController.VENDOR_SIZE_1080,
-                resolveVendorSize(1920, 1080));
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_1440,
-                resolveVendorSize(2560, 1440));
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_2160,
-                resolveVendorSize(3840, 2160));
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_2160,
-                resolveVendorSize(4096, 2160));
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
-                resolveVendorSize(1920, 1200));
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
-                resolveVendorSize(1280, 720));
+                fullHdSelection.vendorSizeType());
+        assertMode(cinemaSelection.target, 3840, 2160, 60, 2);
     }
 
     @Test
@@ -99,6 +95,7 @@ public final class NubiaHdmiModeControllerTest {
                 "1920x1200 120 0\n"
                         + "1920x1200 60 0\n"
                         + "1920x1080 120 2\n"
+                        + "1600x1200 60 0\n"
                         + "1280x720 60 2\n"
                         + "640x480 60 1\n");
 
@@ -131,13 +128,34 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void nativePreservesVitureBeast120HzMode() {
+    public void nativeVitureModeIsDeferredPastNubiaConsoleProfile() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
-                "1920x1200 120 0\n1920x1200 120 0\n");
+                "1920x1080 120 2\n"
+                        + "1920x1200 120 0\n"
+                        + "1920x1200 60 0\n");
 
-        assertMode(selection.current, 1920, 1200, 120, 0);
+        assertMode(selection.current, 1920, 1080, 120, 2);
         assertMode(selection.target, 1920, 1200, 120, 0);
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
+                selection.vendorSizeType());
+        assertTrue(selection.requiresDeferredVendorMode());
+    }
+
+    @Test
+    public void vitureFullHdModeUsesNubia1080Profile() {
+        final NubiaHdmiModeController.Selection selection = select(
+                "1920x1080@120",
+                "1920x1200 120 0\n"
+                        + "1920x1080 60 0\n"
+                        + "1920x1080 120 2\n");
+
+        assertMode(selection.target, 1920, 1080, 120, 2);
+        assertEquals(
+                NubiaHdmiModeController.VENDOR_SIZE_1080,
+                selection.vendorSizeType());
+        assertFalse(selection.requiresDeferredVendorMode());
     }
 
     @Test
@@ -177,12 +195,6 @@ public final class NubiaHdmiModeControllerTest {
         return NubiaHdmiModeController.select(
                 preferredTiming,
                 NubiaHdmiModeController.parseModes(modes));
-    }
-
-    private static int resolveVendorSize(
-            final int width,
-            final int height) {
-        return NubiaHdmiModeController.resolveVendorSizeType(width, height);
     }
 
     private static void assertMode(
