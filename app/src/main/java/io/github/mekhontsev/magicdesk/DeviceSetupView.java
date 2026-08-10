@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.TextUtils;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -16,7 +17,6 @@ final class DeviceSetupView {
     private final DesktopUiFactory mUi;
 
     private TextView mTitle;
-    private TextView mSubtitle;
     private TextView mSummary;
     private LinearLayout mDetails;
     private LinearLayout mSecondaryRow;
@@ -45,11 +45,17 @@ final class DeviceSetupView {
 
         final LinearLayout page = new LinearLayout(mActivity);
         page.setOrientation(LinearLayout.VERTICAL);
+        final Display display = mActivity.getDisplay();
+        final int displayId = display == null
+                ? Display.DEFAULT_DISPLAY : display.getDisplayId();
+        final int bottomPadding = dp(18)
+                + (displayId == Display.DEFAULT_DISPLAY
+                        ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
         page.setPadding(
                 dp(20),
                 dp(18),
                 dp(20),
-                dp(18 + DesktopShellActivity.TASKBAR_HEIGHT_DP));
+                bottomPadding);
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -61,16 +67,6 @@ final class DeviceSetupView {
         mTitle.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(mTitle);
 
-        mSubtitle = new TextView(mActivity);
-        mSubtitle.setText(R.string.setup_subtitle);
-        mSubtitle.setTextColor(DesktopUiFactory.COLOR_MUTED);
-        mSubtitle.setTextSize(14);
-        final LinearLayout.LayoutParams subtitleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        subtitleParams.setMargins(0, dp(4), 0, 0);
-        header.addView(mSubtitle, subtitleParams);
         page.addView(header);
 
         mSummary = new TextView(mActivity);
@@ -155,7 +151,7 @@ final class DeviceSetupView {
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        restoreNoteParams.setMargins(dp(4), dp(12), dp(4), 0);
+        restoreNoteParams.setMargins(dp(4), dp(8), dp(4), 0);
         actions.addView(mRestoreNote, restoreNoteParams);
 
         mSecondaryRow = new LinearLayout(mActivity);
@@ -199,13 +195,13 @@ final class DeviceSetupView {
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         Gravity.CENTER_HORIZONTAL);
         root.addView(scroll, scrollParams);
+        SystemBarInsets.addToPadding(root);
         return root;
     }
 
     void setDetailed(final boolean detailed) {
         mTitle.setText(detailed
                 ? R.string.setup_title : R.string.setup_title_onboarding);
-        mSubtitle.setVisibility(detailed ? View.VISIBLE : View.GONE);
         mDetails.setVisibility(detailed ? View.VISIBLE : View.GONE);
         mDiagnosticsAction.setVisibility(detailed ? View.VISIBLE : View.GONE);
     }
@@ -281,7 +277,7 @@ final class DeviceSetupView {
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(11), dp(12), dp(11));
+        row.setPadding(dp(12), dp(8), dp(12), dp(8));
 
         final TextView label = new TextView(mActivity);
         label.setText(labelResId);

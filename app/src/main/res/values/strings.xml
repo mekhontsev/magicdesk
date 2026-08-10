@@ -336,7 +336,6 @@
     <string name="shortcut_next_action">Select next app</string>
     <string name="setup_title">Device setup</string>
     <string name="setup_title_onboarding">Set up MagicDesk</string>
-    <string name="setup_subtitle">MagicDesk checks Shizuku, the target display, firmware compatibility, and Android desktop windowing.</string>
     <string name="setup_item_display_target">Desktop display</string>
     <string name="setup_item_device">Device compatibility</string>
     <string name="setup_item_shizuku">Shizuku shell service</string>
@@ -374,7 +373,6 @@
     <string name="setup_status_shizuku_stopped">Enable Developer options and Wireless debugging, then start Shizuku.</string>
     <string name="setup_status_shizuku_permission">Allow MagicDesk in Shizuku. This grants Android shell privileges, not root, when the Shizuku server was started through ADB or wireless debugging.</string>
     <string name="setup_status_shizuku_failed">Shizuku access failed: %1$s</string>
-    <string name="setup_status_shizuku_ready">Device is ready for MagicDesk (Shizuku service UID %1$d).</string>
     <string name="setup_status_ready">MagicDesk is ready to start.</string>
     <string name="setup_status_external_unavailable">No active external desktop display was found; opening on the current display.</string>
     <string name="setup_status_applying">Applying system configuration&#8230;</string>
@@ -395,7 +393,7 @@
     <string name="setup_action_done">Done</string>
     <string name="setup_action_exit">Exit</string>
     <string name="setup_action_restore">Restore defaults</string>
-    <string name="setup_restore_uninstall_note">Uninstalling MagicDesk? Restore the nubia defaults first, then restart the phone. If MagicDesk was already removed, reinstall it to run this action.</string>
+    <string name="setup_restore_uninstall_note">Before uninstalling MagicDesk, restore nubia defaults here and restart the phone.</string>
     <string name="setup_restore_title">Restore nubia defaults?</string>
     <string name="setup_restore_message">This resets the phone display and Android desktop-windowing overrides to the defaults supplied by nubia. Custom display overrides and manually enabled desktop developer options will be reset. Android must be restarted afterward.</string>
     <string name="setup_reboot_title">Restart Android?</string>

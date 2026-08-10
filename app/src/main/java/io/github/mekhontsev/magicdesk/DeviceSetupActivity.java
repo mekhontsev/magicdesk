@@ -281,11 +281,7 @@ public final class DeviceSetupActivity extends Activity {
         }
         mAwaitingOverlayPermission = false;
 
-        mSetupView.summary().setText(mManual
-                ? getString(
-                        R.string.setup_status_shizuku_ready,
-                        audit.shellState.uid)
-                : getString(R.string.setup_status_ready));
+        mSetupView.summary().setText(R.string.setup_status_ready);
         mSetupView.summary().setTextColor(COLOR_CYAN);
         mSetupView.primaryAction().setText(mManual
                 ? R.string.setup_action_done : R.string.setup_action_continue);

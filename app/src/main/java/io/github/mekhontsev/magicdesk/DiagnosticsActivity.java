@@ -55,6 +55,7 @@ public final class DiagnosticsActivity extends Activity {
                 + (getDisplayId() == Display.DEFAULT_DISPLAY
                         ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
         page.setPadding(dp(18), dp(16), dp(18), bottomPadding);
+        SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
         final LinearLayout header = new LinearLayout(this);

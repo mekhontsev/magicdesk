@@ -8,11 +8,9 @@ import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.app.Activity;
-import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
-import android.view.WindowInsets;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -149,24 +147,12 @@ final class PhoneControlPanelController {
         final LinearLayout page = new LinearLayout(mActivity);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(COLOR_BACKGROUND);
-        final int horizontalPadding = dp(18);
-        final int topPadding = dp(16);
-        final int bottomPadding = dp(16);
         page.setPadding(
-                horizontalPadding,
-                topPadding,
-                horizontalPadding,
-                bottomPadding);
-        page.setOnApplyWindowInsetsListener((view, insets) -> {
-            final Insets systemBars = insets.getInsets(
-                    WindowInsets.Type.systemBars());
-            view.setPadding(
-                    horizontalPadding,
-                    topPadding + systemBars.top,
-                    horizontalPadding,
-                    bottomPadding + systemBars.bottom);
-            return insets;
-        });
+                dp(18),
+                dp(16),
+                dp(18),
+                dp(16));
+        SystemBarInsets.addToPadding(page);
 
         page.addView(createHeader(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
