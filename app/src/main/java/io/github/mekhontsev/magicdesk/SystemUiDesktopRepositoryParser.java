@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /** Parses the task IDs retained by WMShell's desktop repository. */
@@ -23,21 +25,30 @@ final class SystemUiDesktopRepositoryParser {
     static Set<Integer> parseTaskIds(
             final String output,
             final int targetDisplayId) {
-        final Set<Integer> taskIds = new LinkedHashSet<>();
+        final Set<Integer> taskIds = parseTaskIdsByDisplay(output).get(
+                Integer.valueOf(targetDisplayId));
+        return taskIds == null
+                ? new LinkedHashSet<>() : new LinkedHashSet<>(taskIds);
+    }
+
+    static Map<Integer, Set<Integer>> parseTaskIdsByDisplay(
+            final String output) {
+        final Map<Integer, Set<Integer>> taskIdsByDisplay =
+                new LinkedHashMap<>();
         if (output == null || output.isEmpty()) {
-            return taskIds;
+            return taskIdsByDisplay;
         }
 
         boolean inRepositories = false;
         boolean inCurrentUserRepository = false;
-        boolean inTargetDisplay = false;
+        Integer currentDisplayId = null;
         int currentUserId = -1;
         for (final String rawLine : output.split("\\R")) {
             final String line = rawLine.trim();
             if (REPOSITORIES.equals(line)) {
                 inRepositories = true;
                 inCurrentUserRepository = false;
-                inTargetDisplay = false;
+                currentDisplayId = null;
                 continue;
             }
             if (!inRepositories || line.isEmpty()) {
@@ -49,7 +60,7 @@ final class SystemUiDesktopRepositoryParser {
             }
             if (REPOSITORY.equals(line)) {
                 inCurrentUserRepository = false;
-                inTargetDisplay = false;
+                currentDisplayId = null;
                 continue;
             }
             if (line.startsWith(USER)) {
@@ -57,28 +68,35 @@ final class SystemUiDesktopRepositoryParser {
                         parseInteger(line.substring(USER.length()));
                 inCurrentUserRepository = currentUserId >= 0
                         && repositoryUserId == currentUserId;
-                inTargetDisplay = false;
+                currentDisplayId = null;
                 continue;
             }
             if (line.startsWith(DISPLAY)) {
                 final int separator = line.indexOf(':', DISPLAY.length());
                 final int displayId = parseInteger(line.substring(
                         DISPLAY.length(), separator < 0 ? line.length() : separator));
-                inTargetDisplay = inCurrentUserRepository
-                        && displayId == targetDisplayId;
+                currentDisplayId = inCurrentUserRepository
+                        ? Integer.valueOf(displayId) : null;
+                if (currentDisplayId != null) {
+                    taskIdsByDisplay.computeIfAbsent(
+                            currentDisplayId,
+                            ignored -> new LinkedHashSet<>());
+                }
                 continue;
             }
-            if (!inTargetDisplay) {
+            if (currentDisplayId == null) {
                 continue;
             }
             for (final String prefix : TASK_LISTS) {
                 if (line.startsWith(prefix)) {
-                    addTaskIds(line.substring(prefix.length()), taskIds);
+                    addTaskIds(
+                            line.substring(prefix.length()),
+                            taskIdsByDisplay.get(currentDisplayId));
                     break;
                 }
             }
         }
-        return taskIds;
+        return taskIdsByDisplay;
     }
 
     private static void addTaskIds(

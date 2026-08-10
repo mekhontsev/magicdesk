@@ -3,7 +3,10 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertEquals;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.Test;
 
@@ -67,5 +70,29 @@ public final class SystemUiDesktopRepositoryParserTest {
                                 + "      activeTasks=[77]\n"
                                 + "      freeformTasksInZOrder=[78]\n",
                         95));
+    }
+
+    @Test
+    public void indexesEveryDisplayForTheCurrentUser() {
+        final Map<Integer, Set<Integer>> expected = new LinkedHashMap<>();
+        expected.put(Integer.valueOf(-1), new LinkedHashSet<>());
+        expected.put(Integer.valueOf(0), new LinkedHashSet<>(
+                Arrays.asList(Integer.valueOf(42))));
+        expected.put(Integer.valueOf(95), new LinkedHashSet<>(
+                Arrays.asList(Integer.valueOf(77), Integer.valueOf(78))));
+
+        assertEquals(expected,
+                SystemUiDesktopRepositoryParser.parseTaskIdsByDisplay(
+                        "DesktopUserRepositories:\n"
+                                + "  currentUserId=0\n"
+                                + "  DesktopRepository\n"
+                                + "    userId=0\n"
+                                + "    Display #-1:\n"
+                                + "      activeTasks=[]\n"
+                                + "    Display #0:\n"
+                                + "      activeTasks=[42]\n"
+                                + "    Display #95:\n"
+                                + "      activeTasks=[77]\n"
+                                + "      minimizedTasks=[78]\n"));
     }
 }

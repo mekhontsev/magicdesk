@@ -207,6 +207,13 @@ final class PhoneDesktopTaskRecovery {
                             + removedDisplayId);
         }
         Map<Integer, PhoneTask> liveTasks = indexPhoneTasks(stack.output);
+        final Set<Integer> unavailableRemovedTaskIds = new LinkedHashSet<>();
+        if (!removedDisplaySettled) {
+            unavailableRemovedTaskIds.addAll(
+                    SystemUiDesktopRepositoryParser.parseTaskIds(
+                            repository.output, removedDisplayId));
+            unavailableRemovedTaskIds.removeAll(liveTasks.keySet());
+        }
         final Set<Integer> phoneRepositoryTaskIds = new LinkedHashSet<>(
                 SystemUiDesktopRepositoryParser.parseTaskIds(
                         repository.output, 0));
@@ -254,8 +261,14 @@ final class PhoneDesktopTaskRecovery {
                 taskIds.add(Integer.valueOf(task.taskId));
             }
         }
-        if (taskIds.isEmpty()) {
+        if (taskIds.isEmpty() && removedDisplayId <= 0) {
             return Result.success("phone-desktop-recovery candidates=0");
+        }
+        if (taskIds.isEmpty() && !unavailableRemovedTaskIds.isEmpty()) {
+            return Result.failure(
+                    "SystemUI retains unavailable tasks for removed display "
+                            + removedDisplayId + ": "
+                            + unavailableRemovedTaskIds);
         }
 
         for (final Integer taskId : taskIds) {
@@ -330,15 +343,17 @@ final class PhoneDesktopTaskRecovery {
             final Map<Integer, PhoneTask> currentTasks =
                     indexPhoneTasks(currentStack.output);
             excludeMagicDeskTasks(remaining, currentTasks);
+            final Set<Integer> unavailableRemovedTaskIdsNow =
+                    new LinkedHashSet<>();
             if (removedDisplayId > 0) {
                 final Set<Integer> removedDisplayTaskIds =
                         new LinkedHashSet<>(
                                 SystemUiDesktopRepositoryParser.parseTaskIds(
                                         currentRepository.output,
                                         removedDisplayId));
-                removedDisplayTaskIds.retainAll(currentTasks.keySet());
-                excludeMagicDeskTasks(removedDisplayTaskIds, currentTasks);
                 remaining.addAll(removedDisplayTaskIds);
+                unavailableRemovedTaskIdsNow.addAll(removedDisplayTaskIds);
+                unavailableRemovedTaskIdsNow.removeAll(currentTasks.keySet());
             }
             for (final PhoneTask task : currentTasks.values()) {
                 if (task.freeform && isRecoverable(task)) {
@@ -349,6 +364,12 @@ final class PhoneDesktopTaskRecovery {
                 return Result.success(
                         "phone-desktop-recovery transitioned="
                                 + taskIds.size());
+            }
+            if (!unavailableRemovedTaskIdsNow.isEmpty()) {
+                return Result.failure(
+                        "SystemUI retains unavailable tasks for removed display "
+                                + removedDisplayId + ": "
+                                + unavailableRemovedTaskIdsNow);
             }
             if (!sleepForStatePoll(continuation)) {
                 return cancelled(continuation)

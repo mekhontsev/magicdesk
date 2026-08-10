@@ -146,7 +146,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
-    public void timeoutIgnoresRepositoryIdsWithoutLiveTasks() {
+    public void timeoutReportsRepositoryIdsWithoutLiveTasks() {
         final FakeEnvironment environment = new FakeEnvironment(false);
         environment.repositoryContainsTask = false;
         environment.removedRepositoryContainsTask = true;
@@ -155,11 +155,30 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
                         95, true, () -> true, environment);
 
-        assertTrue(result.success);
+        assertFalse(result.success);
         assertFalse(result.pending);
         assertFalse(environment.hasMoveToDeskCommand());
         assertFalse(environment.hasFullscreenTransition());
         assertFalse(environment.hasReviveCommand());
+    }
+
+    @Test
+    public void timeoutRecoversLiveTasksBeforeReportingUnavailableIds() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        environment.removedRepositoryContainsSecondTask = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                        95, true, () -> true, environment);
+
+        assertFalse(result.success);
+        assertTrue(environment.hasMoveToDeskCommand());
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.removedRepositoryContainsTask);
+        assertTrue(environment.removedRepositoryContainsSecondTask);
     }
 
     private static final class FakeEnvironment
@@ -270,6 +289,16 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         }
 
         private String repositoryOutput() {
+            final StringBuilder removedTasks = new StringBuilder();
+            if (removedRepositoryContainsTask) {
+                removedTasks.append("42");
+            }
+            if (removedRepositoryContainsSecondTask) {
+                if (removedTasks.length() > 0) {
+                    removedTasks.append(", ");
+                }
+                removedTasks.append("43");
+            }
             return "DesktopUserRepositories:\n"
                     + "  currentUserId=0\n"
                     + "  DesktopRepository\n"
@@ -279,12 +308,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                     + (repositoryContainsTask ? "[42]" : "[]")
                     + "\n"
                     + "    Display #95:\n"
-                    + "      activeTasks="
-                    + (removedRepositoryContainsTask
-                            ? (removedRepositoryContainsSecondTask
-                                    ? "[42, 43]" : "[42]")
-                            : "[]")
-                    + "\n";
+                    + "      activeTasks=[" + removedTasks + "]\n";
         }
     }
 }

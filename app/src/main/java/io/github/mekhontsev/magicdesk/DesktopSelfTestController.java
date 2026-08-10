@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runs a manually requested black-box desktop test on an Android overlay display. */
@@ -72,6 +74,7 @@ final class DesktopSelfTestController {
             }
             requireNoActiveDesktop(result);
             requireNoConfiguredOverlay(result);
+            requireNoStaleDesktopRepositories(result);
 
             lease = require(result,
                     "DISPLAY-001", "Create simulated display lease", () -> {
@@ -326,6 +329,31 @@ final class DesktopSelfTestController {
         } catch (IOException error) {
             failAndAbort(result, "SELFTEST-PRECONDITION-002",
                     "Inspect simulated display setting", usefulMessage(error));
+        }
+    }
+
+    private static void requireNoStaleDesktopRepositories(
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        try {
+            final Map<Integer, Set<Integer>> tasksByDisplay =
+                    SystemUiDesktopRepositoryParser.parseTaskIdsByDisplay(
+                            ShellAccess.run(
+                                    PhoneDesktopTaskRecovery
+                                            .repositoryDumpCommand()));
+            tasksByDisplay.entrySet().removeIf(entry ->
+                    entry.getKey().intValue() <= Display.DEFAULT_DISPLAY
+                            || entry.getValue().isEmpty());
+            if (!tasksByDisplay.isEmpty()) {
+                failAndAbort(result, "SELFTEST-PRECONDITION-003",
+                        "No stale external desktop tasks",
+                        tasksByDisplay.toString());
+            }
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-PRECONDITION-003",
+                    "No stale external desktop tasks", "ready");
+        } catch (IOException error) {
+            failAndAbort(result, "SELFTEST-PRECONDITION-003",
+                    "Inspect external desktop tasks", usefulMessage(error));
         }
     }
 
@@ -603,6 +631,15 @@ final class DesktopSelfTestController {
             }
         }
         if (displayId > Display.DEFAULT_DISPLAY) {
+            if (ShellAccess.isReady()) {
+                try {
+                    removeLaunchAnchorCleanly(displayId);
+                } catch (IOException error) {
+                    clean = false;
+                    detail.append("launch anchor cleanup: ")
+                            .append(usefulMessage(error)).append("; ");
+                }
+            }
             DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
@@ -704,6 +741,30 @@ final class DesktopSelfTestController {
                     "io.github.mekhontsev.magicdesk.TaskControlCommand",
                     "remove " + task.taskId));
         }
+    }
+
+    private static void removeLaunchAnchorCleanly(final int displayId)
+            throws IOException {
+        final String stack = ShellAccess.run(
+                "/system/bin/cmd activity stack list");
+        TaskStackParser.Entry anchor = findTask(
+                stack, displayId, LAUNCH_ANCHOR_CLASS);
+        if (anchor == null) {
+            return;
+        }
+        if ("freeform".equals(anchor.windowingMode)) {
+            ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
+                    displayId, anchor.taskId));
+            anchor = waitForTask(
+                    displayId,
+                    LAUNCH_ANCHOR_CLASS,
+                    entry -> "fullscreen".equals(entry.windowingMode));
+        }
+        ShellAccess.run(AppProcessCommand.run(
+                "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                "remove " + anchor.taskId));
+        waitForTaskAbsent(LAUNCH_ANCHOR_CLASS);
+        waitForDesktopRepositoryEmpty(displayId);
     }
 
     private static int waitForOverlayDisplay() throws IOException {

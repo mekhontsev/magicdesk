@@ -121,6 +121,20 @@ final class ExistingTaskController {
                 "send-behind " + displayId + " " + taskId));
     }
 
+    static void removeFreeformTaskCleanly(final int taskId)
+            throws IOException {
+        TaskInfo task = findTask(taskId);
+        if (task != null && MODE_FREEFORM.equals(task.windowingMode)) {
+            setFullscreen(task, task.displayId);
+            waitForTaskState(taskId, task.displayId, MODE_FULLSCREEN);
+        }
+        runCommand(AppProcessCommand.run(
+                "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                "remove " + taskId));
+        waitForTaskAbsent(taskId);
+        Log.i(TAG, "removed launch-source task=" + taskId);
+    }
+
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
@@ -248,6 +262,19 @@ final class ExistingTaskController {
         throw new IOException("task " + taskId
                 + " did not enter " + windowingMode
                 + " mode on display " + displayId);
+    }
+
+    private static void waitForTaskAbsent(final int taskId)
+            throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + TASK_STATE_TIMEOUT_MILLIS;
+        do {
+            if (findTask(taskId) == null) {
+                return;
+            }
+            SystemClock.sleep(TASK_STATE_POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + taskId + " remained after removal");
     }
 
     private static void bringTaskStackToFrontBestEffort(final TaskInfo task,

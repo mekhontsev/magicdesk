@@ -89,9 +89,17 @@ final class MagicDeskSessionController {
             mActivity.runOnUiThread(mActivity::finishAndRemoveTask);
             return;
         }
-        if (DesktopRuntimeBridge.getDesktopTargetKind(display.getDisplayId())
-                == DesktopDisplayTarget.Kind.WIRELESS) {
-            final int displayId = display.getDisplayId();
+        final int displayId = display.getDisplayId();
+        final DesktopDisplayTarget.Kind targetKind =
+                DesktopRuntimeBridge.getDesktopTargetKind(displayId);
+        FreeformLaunchAnchorActivity.releaseBeforeDisplayRemoval(
+                () -> closeExternalDesktop(displayId, targetKind));
+    }
+
+    private void closeExternalDesktop(
+            final int displayId,
+            final DesktopDisplayTarget.Kind targetKind) {
+        if (targetKind == DesktopDisplayTarget.Kind.WIRELESS) {
             ConsoleModeSwitcher.disconnectWirelessDisplay(
                     success -> {
                         if (success) {

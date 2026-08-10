@@ -61,6 +61,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private static int sStartingDesktopTaskId = -1;
 
     private final ArrayDeque<LaunchRequest> mRequests = new ArrayDeque<>();
+    private final ArrayDeque<Runnable> mCloseCallbacks = new ArrayDeque<>();
     private int mDisplayId = -1;
     private int mDesktopTaskId = -1;
     private boolean mPreparing;
@@ -86,6 +87,19 @@ public final class FreeformLaunchAnchorActivity extends Activity {
 
     static void release() {
         releaseForCleanup();
+    }
+
+    static void releaseBeforeDisplayRemoval(final Runnable completion) {
+        final FreeformLaunchAnchorActivity anchor = sAnchor.get();
+        sAnchor.clear();
+        sStartingDisplayId = -1;
+        sStartingDesktopTaskId = -1;
+        STARTUP_REQUESTS.clear();
+        if (anchor == null) {
+            runCompletion(completion);
+            return;
+        }
+        anchor.closeAnchor(completion);
     }
 
     static boolean isPreparedForDisplay(final int displayId) {
@@ -175,8 +189,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                     + expectedDisplayId + " to display=" + mDisplayId
                     + " targetExists=" + expectedDisplayExists);
             mClosing = true;
-            finishAndRemoveTask();
-            overridePendingTransition(0, 0);
+            removeAnchorTaskCleanly();
             return;
         }
         final FreeformLaunchAnchorActivity previous = sAnchor.get();
@@ -485,6 +498,13 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     }
 
     private void closeAnchor() {
+        closeAnchor(null);
+    }
+
+    private void closeAnchor(final Runnable completion) {
+        if (completion != null) {
+            mCloseCallbacks.addLast(completion);
+        }
         if (mClosing) {
             return;
         }
@@ -493,7 +513,53 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (sAnchor.get() == this) {
             sAnchor.clear();
         }
-        finishAndRemoveTask();
+        removeAnchorTaskCleanly();
+    }
+
+    private void removeAnchorTaskCleanly() {
+        final int taskId = getTaskId();
+        if (taskId < 0 || !ShellAccess.isReady()) {
+            finishAnchorTask();
+            completeCloseCallbacks();
+            return;
+        }
+        LAUNCH_EXECUTOR.execute(() -> {
+            try {
+                ExistingTaskController.removeFreeformTaskCleanly(taskId);
+                MAIN_HANDLER.post(this::completeCloseCallbacks);
+            } catch (IOException | RuntimeException error) {
+                Log.w(TAG, "clean anchor removal failed task=" + taskId,
+                        error);
+                MAIN_HANDLER.post(() -> {
+                    finishAnchorTask();
+                    completeCloseCallbacks();
+                });
+            }
+        });
+    }
+
+    private void completeCloseCallbacks() {
+        Runnable callback;
+        while ((callback = mCloseCallbacks.pollFirst()) != null) {
+            callback.run();
+        }
+    }
+
+    private static void runCompletion(final Runnable completion) {
+        if (completion == null) {
+            return;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            completion.run();
+        } else {
+            MAIN_HANDLER.post(completion);
+        }
+    }
+
+    private void finishAnchorTask() {
+        if (!isFinishing()) {
+            finishAndRemoveTask();
+        }
         overridePendingTransition(0, 0);
     }
 
