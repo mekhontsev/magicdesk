@@ -26,22 +26,53 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        if (ShellAccess.isReady()) {
-            RedmagicHardwareController.restoreChangedState(
-                    success -> {
-                        if (!success) {
-                            abort(
-                                    "REDMAGIC-HW-RESTORE-001",
-                                    mActivity.getString(
-                                            R.string.hardware_restore_failed),
-                                    null);
-                            return;
+        new MagicDeskExitCoordinator(
+                new MagicDeskExitCoordinator.Operations() {
+                    @Override
+                    public void restoreHardware(
+                            final MagicDeskExitCoordinator.Callback callback) {
+                        if (ShellAccess.isReady()) {
+                            RedmagicHardwareController.restoreChangedState(
+                                    callback::onComplete);
+                        } else {
+                            callback.onComplete(true);
                         }
-                        continueExit();
-                    });
-            return;
-        }
-        continueExit();
+                    }
+
+                    @Override
+                    public void restorePhoneScreen(
+                            final MagicDeskExitCoordinator.Callback callback) {
+                        ConsoleModeSwitcher.setPhoneScreenOff(
+                                false, callback::onComplete);
+                    }
+
+                    @Override
+                    public void returnConsoleTasks(
+                            final MagicDeskExitCoordinator.Callback callback) {
+                        ConsoleModeSwitcher.returnConsoleTasksToPhone(
+                                callback::onComplete);
+                    }
+
+                    @Override
+                    public void cleanPhoneTasks(
+                            final MagicDeskExitCoordinator.Callback callback) {
+                        cleanupPhoneTasksBeforeExit(callback::onComplete);
+                    }
+
+                    @Override
+                    public void restoreMirror(
+                            final MagicDeskExitCoordinator.Callback callback) {
+                        ConsoleModeSwitcher.switchToMirror(
+                                callback::onComplete);
+                    }
+
+                    @Override
+                    public void finishExit() {
+                        MagicDeskSessionController.this.finishExit();
+                    }
+                },
+                this::reportExitStepFailure)
+                .start();
     }
 
     void closeDesktop() {
@@ -68,50 +99,19 @@ final class MagicDeskSessionController {
         });
     }
 
-    private void continueExit() {
-        ConsoleModeSwitcher.setPhoneScreenOff(
-                false,
-                success -> {
-                    if (!success) {
-                        abort(
-                                "EXIT-001",
-                                "Could not restore the phone screen",
-                                null);
-                        return;
-                    }
-                    continueConsoleExit();
-                });
-    }
-
-    private void continueConsoleExit() {
-        ConsoleModeSwitcher.returnConsoleTasksToPhone(
-                tasksReturned -> {
-                    if (!tasksReturned) {
-                        abort(
-                                "EXIT-002",
-                                "Could not return Console tasks to the phone",
-                                null);
-                        return;
-                    }
-                    cleanupPhoneTasksBeforeExit(
-                            () -> ConsoleModeSwitcher.switchToMirror(
-                                    mirrorActive -> {
-                                        if (!mirrorActive) {
-                                            abort(
-                                                    "EXIT-003",
-                                                    "Could not restore mirror mode",
-                                                    null);
-                                            return;
-                                        }
-                                        finishExit();
-                                    }));
-                });
-    }
-
     private void finishExit() {
-        KeyboardShortcutWatcher.stop();
-        MagicDeskRuntimeService.stop(mActivity);
-        ShellAccess.disconnect();
+        runExitFinalizer(
+                "EXIT-007",
+                "Could not stop the keyboard input bridge",
+                KeyboardShortcutWatcher::stop);
+        runExitFinalizer(
+                "EXIT-008",
+                "Could not stop the MagicDesk runtime",
+                () -> MagicDeskRuntimeService.stop(mActivity));
+        runExitFinalizer(
+                "EXIT-009",
+                "Could not disconnect the Shizuku service",
+                ShellAccess::disconnect);
         mActivity.runOnUiThread(this::openHomeAndFinishTasks);
     }
 
@@ -121,7 +121,15 @@ final class MagicDeskSessionController {
                     .addCategory(Intent.CATEGORY_HOME)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             mActivity.startActivity(home);
-
+        } catch (RuntimeException error) {
+            reportExitFailure(
+                    "EXIT-004",
+                    mActivity.getString(
+                            R.string.status_exit_failed,
+                            error.getMessage()),
+                    error);
+        }
+        try {
             final ActivityManager activityManager =
                     mActivity.getSystemService(ActivityManager.class);
             if (activityManager == null) {
@@ -130,23 +138,32 @@ final class MagicDeskSessionController {
             }
             for (final ActivityManager.AppTask task
                     : activityManager.getAppTasks()) {
-                task.finishAndRemoveTask();
+                try {
+                    task.finishAndRemoveTask();
+                } catch (RuntimeException error) {
+                    reportExitFailure(
+                            "EXIT-010",
+                            "Could not remove a MagicDesk task",
+                            error);
+                }
             }
         } catch (RuntimeException error) {
-            Log.w(TAG, "full MagicDesk exit failed", error);
-            abort(
-                    "EXIT-004",
-                    mActivity.getString(
-                            R.string.status_exit_failed,
-                            error.getMessage()),
+            reportExitFailure(
+                    "EXIT-010",
+                    "Could not finish MagicDesk tasks",
                     error);
+            try {
+                mActivity.finishAndRemoveTask();
+            } catch (RuntimeException finishError) {
+                Log.w(TAG, "final activity finish failed", finishError);
+            }
         }
     }
 
     private void cleanupPhoneTasksBeforeExit(
-            final Runnable continuation) {
+            final MagicDeskExitCoordinator.Callback continuation) {
         if (!ShellAccess.isReady()) {
-            continuation.run();
+            continuation.onComplete(true);
             return;
         }
         mActivity.runOnUiThread(() -> {
@@ -159,7 +176,7 @@ final class MagicDeskSessionController {
 
     private void recoverPhoneTasksAfterAnchorRelease(
             final int anchorTaskId,
-            final Runnable continuation) {
+            final MagicDeskExitCoordinator.Callback continuation) {
         PhoneDesktopTaskRecovery.recover(anchorTaskId, result -> {
             if (!result.success) {
                 final String detail =
@@ -173,18 +190,74 @@ final class MagicDeskSessionController {
             }
             LocalDesktopNavigationController.release((released, message) -> {
                 if (!released) {
-                    abort(
-                            "EXIT-006",
-                            "Could not restore system navigation: " + message,
-                            null);
-                    return;
+                    Log.w(TAG, "Could not restore system navigation: " + message);
                 }
                 if (result.success) {
                     LocalDesktopSessionState.clearCleanupPending(mActivity);
                 }
-                continuation.run();
+                continuation.onComplete(released);
             });
         });
+    }
+
+    private void reportExitStepFailure(
+            final MagicDeskExitCoordinator.Step step,
+            final Throwable error) {
+        switch (step) {
+            case RESTORE_HARDWARE:
+                reportExitFailure(
+                        "REDMAGIC-HW-RESTORE-001",
+                        mActivity.getString(R.string.hardware_restore_failed),
+                        error);
+                break;
+            case RESTORE_PHONE_SCREEN:
+                reportExitFailure(
+                        "EXIT-001",
+                        "Could not restore the phone screen",
+                        error);
+                break;
+            case RETURN_CONSOLE_TASKS:
+                reportExitFailure(
+                        "EXIT-002",
+                        "Could not return Console tasks to the phone",
+                        error);
+                break;
+            case CLEAN_PHONE_TASKS:
+                reportExitFailure(
+                        "EXIT-006",
+                        "Could not fully restore phone desktop state",
+                        error);
+                break;
+            case RESTORE_MIRROR:
+                reportExitFailure(
+                        "EXIT-003",
+                        "Could not restore mirror mode",
+                        error);
+                break;
+            default:
+                throw new AssertionError(step);
+        }
+    }
+
+    private void runExitFinalizer(
+            final String code,
+            final String message,
+            final Runnable finalizer) {
+        try {
+            finalizer.run();
+        } catch (RuntimeException error) {
+            reportExitFailure(code, message, error);
+        }
+    }
+
+    private void reportExitFailure(
+            final String code,
+            final String message,
+            final Throwable error) {
+        Log.w(TAG, "MagicDesk exit cleanup failed: " + message, error);
+        CompatibilityDiagnostics.record(code, message, "", error);
+        mActivity.runOnUiThread(() ->
+                mHost.showSessionError(code, message, error));
     }
 
     private void abort(
