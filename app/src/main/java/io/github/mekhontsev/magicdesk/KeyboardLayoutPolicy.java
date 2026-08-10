@@ -26,6 +26,14 @@ final class KeyboardLayoutPolicy {
         return -1;
     }
 
+    static boolean selectsCurrentLayout(
+            final List<? extends Layout> layouts,
+            final int selectedIndex,
+            final String current) {
+        return selectedIndex >= 0
+                && selectedIndex == findCurrentIndex(layouts, current);
+    }
+
     static String compactCode(
             final List<? extends Layout> layouts,
             final int selectedIndex) {

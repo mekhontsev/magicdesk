@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -12,10 +14,13 @@ public final class KeyboardLayoutPolicyTest {
     @Test
     public void findsPersistedDescriptor() {
         final List<TestLayout> layouts = Arrays.asList(
-                layout("us", Locale.US), layout("ru", new Locale("ru", "RU")));
+                layout("layout-a", Locale.ENGLISH),
+                layout("layout-b", Locale.FRENCH));
 
-        assertEquals(1, KeyboardLayoutPolicy.findCurrentIndex(layouts, "ru"));
-        assertEquals(-1, KeyboardLayoutPolicy.findCurrentIndex(layouts, "missing"));
+        assertEquals(1, KeyboardLayoutPolicy.findCurrentIndex(
+                layouts, "layout-b"));
+        assertEquals(-1, KeyboardLayoutPolicy.findCurrentIndex(
+                layouts, "missing"));
     }
 
     @Test
@@ -28,6 +33,20 @@ public final class KeyboardLayoutPolicyTest {
         assertEquals("EN-US-1", KeyboardLayoutPolicy.compactCode(layouts, 0));
         assertEquals("EN-GB", KeyboardLayoutPolicy.compactCode(layouts, 1));
         assertEquals("EN-US-2", KeyboardLayoutPolicy.compactCode(layouts, 2));
+    }
+
+    @Test
+    public void recognizesRepeatedSystemImeLayout() {
+        final List<TestLayout> layouts = Arrays.asList(
+                layout("layout-a", Locale.ENGLISH),
+                layout("layout-b", Locale.FRENCH));
+
+        assertTrue(KeyboardLayoutPolicy.selectsCurrentLayout(
+                layouts, 1, "layout-b"));
+        assertFalse(KeyboardLayoutPolicy.selectsCurrentLayout(
+                layouts, 0, "layout-b"));
+        assertFalse(KeyboardLayoutPolicy.selectsCurrentLayout(
+                layouts, -1, "layout-b"));
     }
 
     @Test

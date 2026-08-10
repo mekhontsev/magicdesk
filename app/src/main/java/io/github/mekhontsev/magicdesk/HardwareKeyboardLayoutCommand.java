@@ -79,30 +79,45 @@ public final class HardwareKeyboardLayoutCommand {
                 Class.forName("android.hardware.input.KeyboardLayout");
         final Method getKeyboardLayout = inputManagerInterface.getMethod(
                 "getKeyboardLayout", String.class);
-        if ("next".equals(mode)) {
-            switchInputMethodSubtype();
-        }
-        final ImeState imeState = getImeState();
-        final List<LayoutInfo> layouts = resolveConfiguredLayouts(
-                inputManager, inputManagerInterface, getKeyboardLayout,
-                keyboardLayoutClass, physicalKeyboards.get(0), imeState);
-        if (layouts.isEmpty()) {
-            throw new IllegalStateException(
-                    "no configured hardware keyboard layouts found");
-        }
-        // Virtual keyboard indexes are a protocol shared with the native
-        // bridge, so changing the current IME subtype must not reorder them.
-        layouts.sort(Comparator.comparing(layout -> layout.descriptor));
+        final boolean advance = "next".equals(mode);
+        ImeState imeState = getImeState();
+        int remainingSwitches = advance
+                ? Math.max(1, imeState.layoutMappings.size())
+                : 0;
+        List<LayoutInfo> layouts;
+        int subtypeIndex = -1;
+        do {
+            if (advance) {
+                switchInputMethodSubtype();
+                imeState = getImeState();
+            }
+            layouts = resolveConfiguredLayouts(
+                    inputManager, inputManagerInterface, getKeyboardLayout,
+                    keyboardLayoutClass, physicalKeyboards.get(0), imeState);
+            if (layouts.isEmpty()) {
+                if (advance && --remainingSwitches > 0) {
+                    continue;
+                }
+                throw new IllegalStateException(
+                        "no configured hardware keyboard layouts found");
+            }
+            // Virtual keyboard indexes are a protocol shared with the native
+            // bridge, so IME changes must not reorder them.
+            layouts.sort(Comparator.comparing(layout -> layout.descriptor));
+            subtypeIndex = findSubtypeIndex(
+                    layouts, imeState.currentSubtype);
+        } while (advance
+                && --remainingSwitches > 0
+                && KeyboardLayoutPolicy.selectsCurrentLayout(
+                        layouts, subtypeIndex, persistedCurrent));
 
-        final int subtypeIndex =
-                findSubtypeIndex(layouts, imeState.currentSubtype);
         final int persistedIndex =
                 KeyboardLayoutPolicy.findCurrentIndex(
                         layouts, persistedCurrent);
         final int baseIndex = persistedIndex >= 0
                 ? persistedIndex : Math.max(0, subtypeIndex);
         final int selectedIndex;
-        if (("next".equals(mode) || "ime".equals(mode))
+        if ((advance || "ime".equals(mode))
                 && subtypeIndex >= 0) {
             selectedIndex = subtypeIndex;
         } else {
