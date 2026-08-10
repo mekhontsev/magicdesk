@@ -360,6 +360,13 @@ final class DesktopRuntimeBridge {
                 && activity.isDesktopHostReady();
     }
 
+    static int getDesktopHostIdentity(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                        && activity.getCurrentDisplayId() == displayId
+                ? System.identityHashCode(activity) : 0;
+    }
+
     static boolean isDesktopWindowFocused(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null

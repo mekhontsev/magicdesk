@@ -110,6 +110,41 @@ final class DesktopSelfTestController {
                         return task;
                     }, "fullscreen host ready");
             verifyDesktopViewport(targetDisplayId, result);
+            require(result, "DESKTOP-005", "Recreate desktop activity", () -> {
+                final int previousHostIdentity =
+                        DesktopRuntimeBridge.getDesktopHostIdentity(
+                                targetDisplayId);
+                if (previousHostIdentity == 0) {
+                    throw new IOException("desktop activity is unavailable");
+                }
+                if (!DesktopRuntimeBridge.recreateShellOnDisplay(
+                        targetDisplayId)) {
+                    throw new IOException(
+                            "desktop activity was unavailable for recreation");
+                }
+                final long deadline = SystemClock.uptimeMillis()
+                        + STEP_TIMEOUT_MILLIS;
+                do {
+                    final int hostIdentity =
+                            DesktopRuntimeBridge.getDesktopHostIdentity(
+                                    targetDisplayId);
+                    if (hostIdentity != 0
+                            && hostIdentity != previousHostIdentity
+                            && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
+                                    targetDisplayId)) {
+                        final TaskStackParser.Entry recreated = waitForTask(
+                                targetDisplayId,
+                                DESKTOP_CLASS,
+                                entry -> "fullscreen".equals(
+                                        entry.windowingMode));
+                        return "task=" + recreated.taskId
+                                + ", host=" + hostIdentity;
+                    }
+                    SystemClock.sleep(POLL_MILLIS);
+                } while (SystemClock.uptimeMillis() < deadline);
+                throw new IOException(
+                        "desktop activity did not become ready after recreation");
+            });
             require(result, "DESKTOP-004", "Wait for window launch anchor", () -> {
                 final TaskStackParser.Entry anchor = waitForLaunchAnchor(
                         targetDisplayId, desktopTask.taskId);

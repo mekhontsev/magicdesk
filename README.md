@@ -340,12 +340,19 @@ contents, and the installed-application list.
 compatibility reports. With all desktop sessions closed, it temporarily creates
 a simulated 1920x1080 display and exercises the production desktop, freeform,
 fullscreen, minimize/restore, taskbar geometry, native caption structure, and
-targeted-input paths. It
+targeted-input paths, including recreation of the desktop Activity. It
 also checks the hidden Android and RedMagic APIs that can be inspected without
 connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
 mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
 devices are present. The simulated-display setting is owned by a lifecycle-bound
 Shizuku stream and restored when the test finishes or its process disconnects.
+
+Debug builds expose the same lifecycle check as an instrumentation regression:
+
+```sh
+am instrument -w --user 0 \
+  io.github.mekhontsev.magicdesk/.DesktopLifecycleInstrumentation
+```
 
 **Diagnostics > Console** runs one-off shell commands through the authorized
 Shizuku service. It shows the effective UID, requires confirmation before its

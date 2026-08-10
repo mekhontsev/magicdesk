@@ -766,6 +766,11 @@ NOT TESTED rather than guessed. The last bounded result is included in the
 normal compatibility report; no periodic self-test or diagnostic polling runs
 in the background.
 
+Debug builds also expose this production path through
+`DesktopLifecycleInstrumentation`. It adds Activity recreation to the same
+owned simulated-display session and reports the complete self-test result to
+`am instrument`; it is intentionally not run by host-only CI.
+
 Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk
 reads the current static system wallpaper. A user-selected image is validated
 and atomically copied to `/storage/emulated/0/Desktop/.magicdesk/wallpaper`;

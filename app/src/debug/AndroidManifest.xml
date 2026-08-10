@@ -7,4 +7,8 @@
         android:name=".NubiaVendorProbeInstrumentation"
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />
+    <instrumentation
+        android:name=".DesktopLifecycleInstrumentation"
+        android:functionalTest="true"
+        android:targetPackage="io.github.mekhontsev.magicdesk" />
 </manifest>

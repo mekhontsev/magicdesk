@@ -238,6 +238,7 @@ not supported runtime modes:
   and RedMagic API availability, verifies native caption structure before and
   after fullscreen, restores the prior setting, and includes its bounded result
   in Diagnostics without background polling.
-- [ ] Add an instrumentation regression that opens one freeform task, performs
-  fullscreen/restore through the shell task observer, and verifies the same
-  task ID and Activity instance when CI device coverage becomes available.
+- [x] A debug-only lifecycle instrumentation runs the owned simulated-display
+  regression, recreates the desktop Activity, exercises freeform and fullscreen
+  transitions, and verifies display/task cleanup. CI still needs a compatible
+  physical device before this can run unattended.
