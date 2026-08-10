@@ -29,6 +29,16 @@ public final class ConsoleDisplayControllerTest {
     }
 
     @Test
+    public void wirelessUniqueIdIsResolved() {
+        final String output = "Display id 8: DisplayInfo{type WIFI, "
+                + "uniqueId \"wifi:aa:bb:cc\"}\n";
+
+        assertEquals(
+                "wifi:aa:bb:cc",
+                ConsoleDisplayController.parseDisplayUniqueId(output, 8));
+    }
+
+    @Test
     public void firstPositiveDisplayIdIgnoresDiagnostics() {
         assertEquals(
                 23,

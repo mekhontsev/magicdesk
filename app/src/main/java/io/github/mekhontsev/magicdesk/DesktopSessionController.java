@@ -36,24 +36,28 @@ final class DesktopSessionController {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
         }
+        final DesktopDisplayTarget preparedTarget =
+                DisplayProfileController.prepareTarget(
+                        MagicDeskApplication.applicationContext(), target);
         DesktopStateStore.load();
-        if (!ConsoleDisplayController.displayExists(target.displayId)) {
+        if (!ConsoleDisplayController.displayExists(preparedTarget.displayId)) {
             throw new IOException(
-                    "desktop display no longer exists: " + target.displayId);
+                    "desktop display no longer exists: "
+                            + preparedTarget.displayId);
         }
-        DesktopRuntimeBridge.noteDesktopTarget(target);
+        DesktopRuntimeBridge.noteDesktopTarget(preparedTarget);
         try {
             final Boolean visibleTaskSnapshot =
                     DesktopTaskController.hasVisibleAppTaskSnapshot(
-                            target.displayId);
+                            preparedTarget.displayId);
             final boolean restoreWindows = visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
-            final int desktopTaskId = findDesktopTask(target.displayId);
+            final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
             if (desktopTaskId >= 0) {
                 final String focusOutput = ShellAccess.run(
                         AM + " task focus " + desktopTaskId).trim();
-                Log.i(TAG, "focused desktop kind=" + target.kind
-                        + " display=" + target.displayId
+                Log.i(TAG, "focused desktop kind=" + preparedTarget.kind
+                        + " display=" + preparedTarget.displayId
                         + " task=" + desktopTaskId
                         + " output=" + focusOutput.replace('\n', ' '));
                 if (restoreWindows) {
@@ -63,14 +67,23 @@ final class DesktopSessionController {
             }
 
             final String output = ShellAccess.run(
-                    AM + " start -W --display " + target.displayId
+                    AM + " start -W --display " + preparedTarget.displayId
                             + " --windowingMode 1"
                             + " -f 0x18000000"
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.LAUNCHER"
                             + " --ei "
                             + DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID
-                            + " " + target.displayId
+                            + " " + preparedTarget.displayId
+                            + " --ei "
+                            + DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID
+                            + " " + preparedTarget.profileDisplayId
+                            + " --es "
+                            + DesktopShellActivity.EXTRA_PROFILE_KEY
+                            + " " + shellQuote(preparedTarget.profileKey)
+                            + " --es "
+                            + DesktopShellActivity.EXTRA_TARGET_KIND
+                            + " " + preparedTarget.kind.name()
                             + (restoreWindows
                                     ? " --es " + DesktopShellActivity.EXTRA_ACTION
                                             + " "
@@ -84,22 +97,26 @@ final class DesktopSessionController {
                             "Exception occurred while executing")) {
                 throw new IOException(output);
             }
-            Log.i(TAG, "launched desktop kind=" + target.kind
-                    + " display=" + target.displayId
+            Log.i(TAG, "launched desktop kind=" + preparedTarget.kind
+                    + " display=" + preparedTarget.displayId
                     + " output=" + output.replace('\n', ' '));
-            final boolean ready = waitForDesktopReady(target.displayId);
+            final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
-                DesktopRuntimeBridge.clearDesktopTarget(target);
+                DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
-                        target.displayId);
+                        preparedTarget.displayId);
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
-            DesktopRuntimeBridge.clearDesktopTarget(target);
+            DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
             MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
-                    target.displayId);
+                    preparedTarget.displayId);
             throw error;
         }
+    }
+
+    private static String shellQuote(final String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private static int findDesktopTask(final int displayId)

@@ -134,6 +134,10 @@ final class DisplayProfileController {
         if (mMonitorIdentityRequested) {
             return;
         }
+        final String explicitProfileKey = mActivity.getDesktopProfileKey();
+        if (explicitProfileKey.startsWith("edid:")) {
+            return;
+        }
         final Display profileDisplay = getProfileDisplay();
         if (profileDisplay == null
                 || profileDisplay.getDisplayId() == Display.DEFAULT_DISPLAY
@@ -195,9 +199,8 @@ final class DisplayProfileController {
         return hash;
     }
 
-    static Integer prepareExternalProfile(
-            final Context context, final int physicalDisplayId)
-            throws IOException {
+    static PreparedProfile prepareExternalProfile(
+            final Context context, final int physicalDisplayId) {
         if (context == null || physicalDisplayId <= 0) {
             return null;
         }
@@ -208,10 +211,21 @@ final class DisplayProfileController {
         if (display == null) {
             return null;
         }
-        final String hash =
-                parseSingleConnectedEdidHash(readConnectedEdidHashes());
+        String hash = null;
+        try {
+            hash = parseSingleConnectedEdidHash(readConnectedEdidHashes());
+        } catch (IOException error) {
+            Log.w(TAG, "Cannot read monitor EDID; using display identity", error);
+        }
         if (hash == null) {
-            return Integer.valueOf(initialDpi(display));
+            final String displayKey = stableProfileKey(
+                    DesktopDisplayTarget.Kind.WIRED,
+                    readDisplayUniqueId(physicalDisplayId),
+                    display.getName(),
+                    display.getMode());
+            return new PreparedProfile(
+                    displayKey,
+                    initialDpi(display));
         }
         final String monitorKey =
                 "edid:" + hash.toLowerCase(Locale.ROOT);
@@ -219,8 +233,31 @@ final class DisplayProfileController {
                 profileKey(display), monitorKey);
         final Integer storedDpi =
                 DisplayProfileStore.readStoredDpi(monitorKey);
-        return storedDpi == null
-                ? Integer.valueOf(initialDpi(display)) : storedDpi;
+        return new PreparedProfile(
+                monitorKey,
+                storedDpi == null ? initialDpi(display) : storedDpi);
+    }
+
+    static DesktopDisplayTarget prepareTarget(
+            final Context context,
+            final DesktopDisplayTarget target) {
+        if (target == null || target.hasProfile()) {
+            return target;
+        }
+        final DisplayManager manager = context == null
+                ? null : context.getSystemService(DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(target.profileDisplayId);
+        if (display == null) {
+            return target;
+        }
+        return target.withProfile(
+                target.profileDisplayId,
+                stableProfileKey(
+                        target.kind,
+                        readDisplayUniqueId(target.profileDisplayId),
+                        display.getName(),
+                        display.getMode()));
     }
 
     private static String readConnectedEdidHashes() throws IOException {
@@ -250,6 +287,10 @@ final class DisplayProfileController {
     }
 
     private String resolveProfileKey() {
+        final String explicitProfileKey = mActivity.getDesktopProfileKey();
+        if (!explicitProfileKey.isEmpty()) {
+            return explicitProfileKey;
+        }
         final Display profileDisplay = getProfileDisplay();
         if (profileDisplay == null) {
             return "display:default";
@@ -258,12 +299,38 @@ final class DisplayProfileController {
     }
 
     private static String profileKey(final Display profileDisplay) {
-        final Display.Mode mode = profileDisplay.getMode();
+        return stableProfileKey(
+                null,
+                readDisplayUniqueId(profileDisplay.getDisplayId()),
+                profileDisplay.getName(),
+                profileDisplay.getMode());
+    }
+
+    static String stableProfileKey(
+            final DesktopDisplayTarget.Kind kind,
+            final String uniqueId,
+            final String name,
+            final Display.Mode mode) {
+        final String scope = kind == null
+                ? "local" : kind.name().toLowerCase(Locale.ROOT);
+        if (uniqueId != null && !uniqueId.trim().isEmpty()) {
+            return "display:" + scope + ":" + uniqueId.trim();
+        }
         final String resolution = mode == null
                 ? "unknown"
                 : mode.getPhysicalWidth() + "x" + mode.getPhysicalHeight();
-        return "display-" + profileDisplay.getDisplayId()
-                + "|" + profileDisplay.getName() + "|" + resolution;
+        final String displayName = name == null || name.trim().isEmpty()
+                ? "unknown" : name.trim();
+        return "display:" + scope + ":" + displayName + "|" + resolution;
+    }
+
+    private static String readDisplayUniqueId(final int displayId) {
+        try {
+            return ConsoleDisplayController.getDisplayUniqueId(displayId);
+        } catch (IOException | RuntimeException error) {
+            Log.w(TAG, "Cannot read stable display id=" + displayId, error);
+            return "";
+        }
     }
 
     private Display getProfileDisplay() {
@@ -273,18 +340,11 @@ final class DisplayProfileController {
         if (manager == null) {
             return current;
         }
-        final boolean currentIsVirtual = current != null
-                && current.getName().contains("NubiaAppMirror");
-        if (current != null && !currentIsVirtual) {
-            return current;
-        }
-        final Display[] presentations = manager.getDisplays(
-                DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
-        for (final Display display : presentations) {
-            if (display != null
-                    && !display.getName().contains("NubiaAppMirror")
-                    && display.getState() != Display.STATE_OFF) {
-                return display;
+        final int profileDisplayId = mActivity.getDesktopProfileDisplayId();
+        if (profileDisplayId > Display.DEFAULT_DISPLAY) {
+            final Display profileDisplay = manager.getDisplay(profileDisplayId);
+            if (profileDisplay != null) {
+                return profileDisplay;
             }
         }
         return current;
@@ -392,6 +452,16 @@ final class DisplayProfileController {
             }
             sMonitorIdentityDisplayId = Display.INVALID_DISPLAY;
             sMonitorIdentityAttempts = 0;
+        }
+    }
+
+    static final class PreparedProfile {
+        final String key;
+        final int dpi;
+
+        PreparedProfile(final String key, final int dpi) {
+            this.key = key;
+            this.dpi = dpi;
         }
     }
 

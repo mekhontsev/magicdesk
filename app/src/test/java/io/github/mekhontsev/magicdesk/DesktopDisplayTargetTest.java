@@ -19,6 +19,16 @@ public final class DesktopDisplayTargetTest {
         assertEquals(8, DesktopDisplayTarget.wireless(8).displayId);
     }
 
+    @Test
+    public void profileMetadataIsExplicitAndImmutable() {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7)
+                .withProfile(3, "edid:abc");
+
+        assertEquals(7, target.displayId);
+        assertEquals(3, target.profileDisplayId);
+        assertEquals("edid:abc", target.profileKey);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void secondaryTargetRejectsDefaultDisplay() {
         DesktopDisplayTarget.wireless(0);

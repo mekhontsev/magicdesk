@@ -51,11 +51,19 @@ public abstract class DesktopShellActivity extends Activity
     static final String EXTRA_ACTION = "magicdesk_action";
     static final String EXTRA_EXPECTED_DISPLAY_ID =
             "magicdesk_expected_display_id";
+    static final String EXTRA_PROFILE_DISPLAY_ID =
+            "magicdesk_profile_display_id";
+    static final String EXTRA_PROFILE_KEY = "magicdesk_profile_key";
+    static final String EXTRA_TARGET_KIND = "magicdesk_target_kind";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
     private static final String STATE_EXPECTED_DISPLAY_ID =
             "expected_display_id";
+    private static final String STATE_PROFILE_DISPLAY_ID =
+            "profile_display_id";
+    private static final String STATE_PROFILE_KEY = "profile_key";
+    private static final String STATE_TARGET_KIND = "target_kind";
     private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
             new HashMap<>();
     static final int TASKBAR_HEIGHT_DP = 64;
@@ -91,6 +99,9 @@ public abstract class DesktopShellActivity extends Activity
     private boolean mDesktopWindowFocusable = true;
     private boolean mTaskbarVisible = true;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
+    private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
+    private String mDesktopProfileKey = "";
+    private DesktopDisplayTarget.Kind mDesktopTargetKind;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -108,6 +119,23 @@ public abstract class DesktopShellActivity extends Activity
         EXPECTED_DISPLAY_BY_TASK.put(
                 Integer.valueOf(getTaskId()),
                 Integer.valueOf(mExpectedDisplayId));
+        final Bundle source = savedInstanceState == null
+                ? getIntent().getExtras() : savedInstanceState;
+        if (source != null) {
+            mDesktopProfileDisplayId = source.getInt(
+                    savedInstanceState == null
+                            ? EXTRA_PROFILE_DISPLAY_ID
+                            : STATE_PROFILE_DISPLAY_ID,
+                    Display.INVALID_DISPLAY);
+            mDesktopProfileKey = source.getString(
+                    savedInstanceState == null
+                            ? EXTRA_PROFILE_KEY : STATE_PROFILE_KEY,
+                    "");
+            mDesktopTargetKind = parseTargetKind(source.getString(
+                    savedInstanceState == null
+                            ? EXTRA_TARGET_KIND : STATE_TARGET_KIND,
+                    ""));
+        }
         final DisplayManager displayManager =
                 getSystemService(DisplayManager.class);
         final boolean expectedDisplayExists = displayManager != null
@@ -134,6 +162,15 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         DesktopRuntimeBridge.registerShell(this);
+        if (mDesktopTargetKind != null
+                && mExpectedDisplayId > Display.DEFAULT_DISPLAY) {
+            DesktopRuntimeBridge.noteDesktopTarget(
+                    DesktopDisplayTarget.restore(
+                            mDesktopTargetKind,
+                            mExpectedDisplayId,
+                            mDesktopProfileDisplayId,
+                            mDesktopProfileKey));
+        }
         mUi = new DesktopUiFactory(this);
         mDesktopLayout = new DesktopLayoutController(
                 this,
@@ -226,11 +263,29 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onSaveInstanceState(final Bundle outState) {
         outState.putInt(STATE_EXPECTED_DISPLAY_ID, mExpectedDisplayId);
+        outState.putInt(
+                STATE_PROFILE_DISPLAY_ID, mDesktopProfileDisplayId);
+        outState.putString(STATE_PROFILE_KEY, mDesktopProfileKey);
+        outState.putString(
+                STATE_TARGET_KIND,
+                mDesktopTargetKind == null ? "" : mDesktopTargetKind.name());
         outState.putBoolean(
                 STATE_TOOLS_VISIBLE,
                 mStartMenuController != null
                         && mStartMenuController.isToolsVisible());
         super.onSaveInstanceState(outState);
+    }
+
+    private static DesktopDisplayTarget.Kind parseTargetKind(
+            final String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return DesktopDisplayTarget.Kind.valueOf(value);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     void releaseDesktopOverlays() {
@@ -1397,6 +1452,14 @@ public abstract class DesktopShellActivity extends Activity
     int getCurrentDisplayId() {
         final Display display = getWindowManager().getDefaultDisplay();
         return display == null ? 0 : display.getDisplayId();
+    }
+
+    int getDesktopProfileDisplayId() {
+        return mDesktopProfileDisplayId;
+    }
+
+    String getDesktopProfileKey() {
+        return mDesktopProfileKey;
     }
 
     static void setLaunchWindowingMode(

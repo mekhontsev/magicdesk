@@ -22,6 +22,7 @@ final class ConsoleSessionController {
         boolean seedStarted = false;
         int physicalDisplayId = -1;
         NubiaExternalDisplayModeController.PreparedMode preparedMode = null;
+        DisplayProfileController.PreparedProfile preparedProfile = null;
         try {
             if (consoleDisplayId <= 0) {
                 physicalDisplayId =
@@ -65,12 +66,24 @@ final class ConsoleSessionController {
             }
             ConsoleDisplayController.ensureLandscape(consoleDisplayId);
             if (startedConsoleMode) {
-                prepareConsoleDisplayDensity(
+                preparedProfile = prepareConsoleDisplayDensity(
                         consoleDisplayId, physicalDisplayId);
+            } else {
+                physicalDisplayId =
+                        ConsoleDisplayController.findExternalDisplayId();
+                preparedProfile = DisplayProfileController
+                        .prepareExternalProfile(
+                                MagicDeskApplication.applicationContext(),
+                                physicalDisplayId);
+            }
+            DesktopDisplayTarget target =
+                    DesktopDisplayTarget.wired(consoleDisplayId);
+            if (preparedProfile != null && physicalDisplayId > 0) {
+                target = target.withProfile(
+                        physicalDisplayId, preparedProfile.key);
             }
             final DesktopSessionController.ShowResult desktopResult =
-                    DesktopSessionController.show(
-                            DesktopDisplayTarget.wired(consoleDisplayId));
+                    DesktopSessionController.show(target);
             if (desktopResult.ready && desktopResult.created) {
                 PhoneTouchpadController.open(consoleDisplayId);
             }
@@ -137,18 +150,22 @@ final class ConsoleSessionController {
         }
     }
 
-    private static void prepareConsoleDisplayDensity(
+    private static DisplayProfileController.PreparedProfile
+            prepareConsoleDisplayDensity(
             final int displayId, final int physicalDisplayId) {
         try {
-            final Integer dpi = DisplayProfileController.prepareExternalProfile(
-                    MagicDeskApplication.applicationContext(),
-                    physicalDisplayId);
-            if (dpi != null) {
+            final DisplayProfileController.PreparedProfile profile =
+                    DisplayProfileController.prepareExternalProfile(
+                            MagicDeskApplication.applicationContext(),
+                            physicalDisplayId);
+            if (profile != null) {
                 ConsoleDisplayController.applyStartupDensity(
-                        displayId, dpi.intValue());
+                        displayId, profile.dpi);
             }
-        } catch (IOException | RuntimeException error) {
+            return profile;
+        } catch (RuntimeException error) {
             Log.w(TAG, "Cannot prepare Console display profile", error);
+            return null;
         }
     }
 

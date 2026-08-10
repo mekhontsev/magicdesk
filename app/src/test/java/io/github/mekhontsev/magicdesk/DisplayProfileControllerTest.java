@@ -36,4 +36,26 @@ public final class DisplayProfileControllerTest {
         assertNull(DisplayProfileController.parseSingleConnectedEdidHash(
                 "no connected display"));
     }
+
+    @Test
+    public void stableProfilePrefersDisplayUniqueId() {
+        assertEquals(
+                "display:wireless:wifi:aa:bb:cc",
+                DisplayProfileController.stableProfileKey(
+                        DesktopDisplayTarget.Kind.WIRELESS,
+                        "wifi:aa:bb:cc",
+                        "Living room",
+                        null));
+    }
+
+    @Test
+    public void stableProfileFallbackDoesNotUseLogicalDisplayId() {
+        assertEquals(
+                "display:simulated:MagicDesk test|unknown",
+                DisplayProfileController.stableProfileKey(
+                        DesktopDisplayTarget.Kind.SIMULATED,
+                        "",
+                        "MagicDesk test",
+                        null));
+    }
 }

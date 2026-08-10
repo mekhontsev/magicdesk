@@ -18,8 +18,8 @@ final class ConsoleDisplayController {
     private static final String CONSOLE_DISPLAY_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
     private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
-    private static final Pattern PHYSICAL_DISPLAY_PATTERN = Pattern.compile(
-            "Display id (\\d+):.*?uniqueId \"local:(\\d+)\"");
+    private static final Pattern DISPLAY_UNIQUE_ID_PATTERN = Pattern.compile(
+            "Display id (\\d+):.*?uniqueId \"([^\"]+)\"");
     private static final Pattern WM_SIZE_PATTERN =
             Pattern.compile("(?:Physical|Override) size: (\\d+)x(\\d+)");
     private static final Pattern WM_DENSITY_PATTERN =
@@ -186,20 +186,42 @@ final class ConsoleDisplayController {
             throw new IllegalArgumentException("invalid logical display id");
         }
         final String output = ShellAccess.run(DISPLAY + " get-displays");
-        final String physicalDisplayId = parsePhysicalDisplayId(
-                output, displayId);
-        if (physicalDisplayId == null) {
+        final String uniqueId = parseDisplayUniqueId(output, displayId);
+        if (uniqueId == null || !uniqueId.startsWith("local:")) {
             throw new IOException(
                     "physical display id unavailable for logical display "
                             + displayId);
         }
-        return physicalDisplayId;
+        return uniqueId.substring("local:".length());
     }
 
     static String parsePhysicalDisplayId(
             final String output,
             final int displayId) {
-        final Matcher matcher = PHYSICAL_DISPLAY_PATTERN.matcher(
+        final String uniqueId = parseDisplayUniqueId(output, displayId);
+        return uniqueId != null && uniqueId.startsWith("local:")
+                ? uniqueId.substring("local:".length()) : null;
+    }
+
+    static String getDisplayUniqueId(final int displayId)
+            throws IOException {
+        if (displayId < 0) {
+            throw new IllegalArgumentException("invalid logical display id");
+        }
+        final String uniqueId = parseDisplayUniqueId(
+                ShellAccess.run(DISPLAY + " get-displays"), displayId);
+        if (uniqueId == null || uniqueId.isEmpty()) {
+            throw new IOException(
+                    "display unique id unavailable for logical display "
+                            + displayId);
+        }
+        return uniqueId;
+    }
+
+    static String parseDisplayUniqueId(
+            final String output,
+            final int displayId) {
+        final Matcher matcher = DISPLAY_UNIQUE_ID_PATTERN.matcher(
                 output == null ? "" : output);
         while (matcher.find()) {
             if (Integer.parseInt(matcher.group(1)) == displayId) {
