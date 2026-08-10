@@ -99,12 +99,18 @@ final class PhoneHomeComponents {
         return component.substring(component.indexOf('/') + 1);
     }
 
-    boolean isSecondaryTask(final TaskRepository.TaskEntry task) {
+    boolean hasSecondaryHomeOnTop(
+            final TaskRepository.TaskEntry task) {
         if (task == null || !task.home) {
             return false;
         }
-        return isSecondaryComponent(task.componentName)
-                || isSecondaryComponent(task.topActivityName);
+        return isSecondaryComponent(task.topActivityName);
+    }
+
+    boolean isDedicatedSecondaryTask(
+            final TaskRepository.TaskEntry task) {
+        return hasSecondaryHomeOnTop(task)
+                && isSecondaryComponent(task.componentName);
     }
 
     boolean isSecondaryComponent(final String value) {

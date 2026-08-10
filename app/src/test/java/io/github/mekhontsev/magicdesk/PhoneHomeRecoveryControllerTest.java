@@ -83,17 +83,33 @@ public final class PhoneHomeRecoveryControllerTest {
                 Collections.singletonList(secondaryBase),
                 true,
                 HOME));
-        assertTrue(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+        assertFalse(PhoneHomeRecoveryController
+                .isRemovableSecondaryPhoneHomeTask(
                 secondaryBase, HOME));
     }
 
     @Test
+    public void primaryBaseTaskWithSecondaryOnTopIsRestoredNotRemoved() {
+        final TaskRepository.TaskEntry mixedTask =
+                task(PRIMARY_HOME, true, true, SECONDARY_HOME);
+        assertTrue(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
+                Collections.singletonList(mixedTask),
+                true,
+                HOME));
+        assertFalse(PhoneHomeRecoveryController
+                .isRemovableSecondaryPhoneHomeTask(mixedTask, HOME));
+    }
+
+    @Test
     public void detectsHiddenSecondaryHomeForCleanup() {
-        assertTrue(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+        assertTrue(PhoneHomeRecoveryController
+                .isRemovableSecondaryPhoneHomeTask(
                 task(SECONDARY_HOME, false, true), HOME));
-        assertFalse(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+        assertFalse(PhoneHomeRecoveryController
+                .isRemovableSecondaryPhoneHomeTask(
                 task(SECONDARY_HOME, true, false), HOME));
-        assertFalse(PhoneHomeRecoveryController.isSecondaryPhoneHomeTask(
+        assertFalse(PhoneHomeRecoveryController
+                .isRemovableSecondaryPhoneHomeTask(
                 task(PRIMARY_HOME, false, true), HOME));
     }
 

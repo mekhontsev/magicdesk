@@ -146,7 +146,7 @@ final class PhoneHomeRecoveryController {
             }
             final boolean secondaryHome = task.home
                     && home != null
-                    && home.isSecondaryComponent(task.topActivityName);
+                    && home.hasSecondaryHomeOnTop(task);
             final boolean strandedDesktop =
                     includeStrandedDesktop
                             && MAGICDESK_DESKTOP_ACTIVITY.equals(
@@ -158,14 +158,14 @@ final class PhoneHomeRecoveryController {
         return false;
     }
 
-    static boolean isSecondaryPhoneHomeTask(
+    static boolean isRemovableSecondaryPhoneHomeTask(
             final TaskRepository.TaskEntry task,
             final PhoneHomeComponents home) {
         return task != null
                 && task.displayId == Display.DEFAULT_DISPLAY
                 && task.home
                 && home != null
-                && home.isSecondaryTask(task);
+                && home.isDedicatedSecondaryTask(task);
     }
 
     static boolean isStrandedDesktopTask(
@@ -244,7 +244,7 @@ final class PhoneHomeRecoveryController {
             return;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (!isSecondaryPhoneHomeTask(task, home)) {
+            if (!isRemovableSecondaryPhoneHomeTask(task, home)) {
                 continue;
             }
             try {
@@ -356,7 +356,7 @@ final class PhoneHomeRecoveryController {
                 if (task != null
                         && task.displayId == Display.DEFAULT_DISPLAY
                         && task.visible
-                        && !isSecondaryPhoneHomeTask(task, home)
+                        && !isRemovableSecondaryPhoneHomeTask(task, home)
                         && !isStrandedDesktopTask(
                                 task, localDesktopActive)
                         && !isStrandedSystemDesktopWallpaperTask(

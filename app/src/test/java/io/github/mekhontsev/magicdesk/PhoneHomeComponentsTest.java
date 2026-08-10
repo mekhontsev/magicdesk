@@ -17,9 +17,14 @@ public final class PhoneHomeComponentsTest {
         final PhoneHomeComponents components =
                 PhoneHomeComponents.forTests(PRIMARY, SECONDARY);
 
-        assertTrue(components.isSecondaryTask(task(SECONDARY, true)));
-        assertFalse(components.isSecondaryTask(task(PRIMARY, true)));
-        assertFalse(components.isSecondaryTask(task(SECONDARY, false)));
+        assertTrue(components.hasSecondaryHomeOnTop(
+                task(SECONDARY, SECONDARY, true)));
+        assertTrue(components.isDedicatedSecondaryTask(
+                task(SECONDARY, SECONDARY, true)));
+        assertFalse(components.hasSecondaryHomeOnTop(
+                task(PRIMARY, PRIMARY, true)));
+        assertFalse(components.hasSecondaryHomeOnTop(
+                task(SECONDARY, SECONDARY, false)));
     }
 
     @Test
@@ -27,11 +32,28 @@ public final class PhoneHomeComponentsTest {
         final PhoneHomeComponents components =
                 PhoneHomeComponents.forTests(PRIMARY);
 
-        assertTrue(components.isSecondaryTask(task(SECONDARY, true)));
+        assertTrue(components.hasSecondaryHomeOnTop(
+                task(SECONDARY, SECONDARY, true)));
+    }
+
+    @Test
+    public void mixedPrimaryAndSecondaryTaskIsNotRemoved() {
+        final PhoneHomeComponents components =
+                PhoneHomeComponents.forTests(PRIMARY, SECONDARY);
+
+        assertTrue(components.hasSecondaryHomeOnTop(
+                task(PRIMARY, SECONDARY, true)));
+        assertFalse(components.isDedicatedSecondaryTask(
+                task(PRIMARY, SECONDARY, true)));
+        assertFalse(components.hasSecondaryHomeOnTop(
+                task(SECONDARY, PRIMARY, true)));
+        assertFalse(components.isDedicatedSecondaryTask(
+                task(SECONDARY, PRIMARY, true)));
     }
 
     private static TaskRepository.TaskEntry task(
             final String component,
+            final String topActivity,
             final boolean home) {
         return new TaskRepository.TaskEntry(
                 1,
@@ -39,7 +61,7 @@ public final class PhoneHomeComponentsTest {
                 0,
                 "example.launcher",
                 component,
-                component,
+                topActivity,
                 "fullscreen",
                 new Rect(0, 0, 100, 100),
                 home,

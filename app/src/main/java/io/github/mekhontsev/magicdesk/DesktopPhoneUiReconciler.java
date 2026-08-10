@@ -59,7 +59,7 @@ final class DesktopPhoneUiReconciler {
                 touchpadVisible = true;
             } else if (hasActivity(task, NUBIA_TOUCHPAD_ACTIVITY)) {
                 nubiaPanelVisible = true;
-            } else if (mHomeComponents.isSecondaryTask(task)) {
+            } else if (mHomeComponents.hasSecondaryHomeOnTop(task)) {
                 secondaryHomeVisible = true;
             }
         }
