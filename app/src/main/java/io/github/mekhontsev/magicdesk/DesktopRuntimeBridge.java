@@ -328,6 +328,13 @@ final class DesktopRuntimeBridge {
                 && activity.isDesktopHostReady();
     }
 
+    static boolean isDesktopWindowFocused(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.hasWindowFocus();
+    }
+
     static boolean focusDesktopOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null

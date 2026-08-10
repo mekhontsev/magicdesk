@@ -35,8 +35,8 @@ public final class DesktopSelfTestControllerTest {
     }
 
     @Test
-    public void recognizesOnlyInvisibleFreeformAnchor() {
-        final TaskStackParser.Entry parked = TaskStackParser.parse(
+    public void recognizesPreparedFreeformAnchorRegardlessOfVisibilityHint() {
+        final TaskStackParser.Entry invisible = TaskStackParser.parse(
                 "RootTask id=12 displayId=8\n"
                         + " configuration={mWindowingMode=freeform}\n"
                         + " taskId=22: io.github.mekhontsev.magicdesk/"
@@ -54,10 +54,21 @@ public final class DesktopSelfTestControllerTest {
                         + "topActivity=ComponentInfo{"
                         + "io.github.mekhontsev.magicdesk/"
                         + ".FreeformLaunchAnchorActivity} "
-                        + "visible=true bounds=[1700,860][1920,1080]\n")
+                        + "visible=true bounds=[1872,1048][2092,1268]\n")
+                .get(0);
+        final TaskStackParser.Entry fullscreen = TaskStackParser.parse(
+                "RootTask id=12 displayId=8\n"
+                        + " configuration={mWindowingMode=fullscreen}\n"
+                        + " taskId=22: io.github.mekhontsev.magicdesk/"
+                        + ".FreeformLaunchAnchorActivity "
+                        + "topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".FreeformLaunchAnchorActivity} "
+                        + "visible=false bounds=[0,0][1920,1080]\n")
                 .get(0);
 
-        assertTrue(DesktopSelfTestController.isParkedAnchor(parked));
-        assertFalse(DesktopSelfTestController.isParkedAnchor(visible));
+        assertTrue(DesktopSelfTestController.isReadyAnchorTask(invisible));
+        assertTrue(DesktopSelfTestController.isReadyAnchorTask(visible));
+        assertFalse(DesktopSelfTestController.isReadyAnchorTask(fullscreen));
     }
 }

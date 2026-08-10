@@ -155,6 +155,11 @@ final class DesktopSelfTestController {
                 waitForInputMarker(appContext, token, targetDisplayId);
                 return "tap=" + x + "," + y;
             });
+            require(result, "INPUT-002", "Drag native caption", () ->
+                    dragCaption(
+                            targetDisplayId,
+                            targetFixtureTaskId,
+                            windowBounds));
             require(result, "WINDOW-003", "Enter true fullscreen", () -> {
                 ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
                         targetDisplayId, targetFixtureTaskId));
@@ -180,7 +185,7 @@ final class DesktopSelfTestController {
                         "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
                         "minimize " + targetDisplayId + " "
                                 + targetFixtureTaskId + " " + desktopTask.taskId));
-                waitForTask(targetDisplayId, FIXTURE_CLASS, entry -> !entry.visible);
+                waitForWindowFocus(targetDisplayId, true);
                 return "task=" + targetFixtureTaskId;
             });
             require(result, "WINDOW-006", "Restore minimized window", () -> {
@@ -188,8 +193,8 @@ final class DesktopSelfTestController {
                         "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
                         "restore " + targetDisplayId + " " + targetFixtureTaskId));
                 waitForTask(targetDisplayId, FIXTURE_CLASS,
-                        entry -> entry.visible
-                                && "freeform".equals(entry.windowingMode));
+                        entry -> "freeform".equals(entry.windowingMode));
+                waitForWindowFocus(targetDisplayId, false);
                 return "task=" + targetFixtureTaskId;
             });
         } catch (AbortSelfTest ignored) {
@@ -331,6 +336,79 @@ final class DesktopSelfTestController {
                         + bounds.right + " " + bounds.bottom)).trim();
     }
 
+    private static String dragCaption(
+            final int displayId,
+            final int taskId,
+            final Rect initialBounds) throws IOException {
+        final int startX = initialBounds.centerX();
+        final int startY = initialBounds.top + 16;
+        final int deltaX = 180;
+        final int deltaY = 120;
+        long downTime = 0L;
+        boolean dragStarted = false;
+        try {
+            requirePointerUpdate(
+                    displayId,
+                    startX,
+                    startY,
+                    DesktopPointerInjector.TOUCHPAD_HOVER,
+                    0L);
+            SystemClock.sleep(POLL_MILLIS);
+            downTime = SystemClock.uptimeMillis();
+            requirePointerUpdate(
+                    displayId,
+                    startX,
+                    startY,
+                    DesktopPointerInjector.TOUCHPAD_DRAG_START,
+                    downTime);
+            dragStarted = true;
+            for (int step = 1; step <= 6; step++) {
+                requirePointerUpdate(
+                        displayId,
+                        startX + deltaX * step / 6,
+                        startY + deltaY * step / 6,
+                        DesktopPointerInjector.TOUCHPAD_DRAG_MOVE,
+                        downTime);
+            }
+        } finally {
+            if (dragStarted) {
+                ShellAccess.updateMousePosition(
+                        displayId,
+                        startX + deltaX,
+                        startY + deltaY,
+                        DesktopPointerInjector.TOUCHPAD_DRAG_END,
+                        downTime);
+            }
+        }
+        final TaskStackParser.Entry moved = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> "freeform".equals(entry.windowingMode)
+                        && entry.visible
+                        && entry.bounds.right - entry.bounds.left
+                                == initialBounds.width()
+                        && entry.bounds.bottom - entry.bounds.top
+                                == initialBounds.height()
+                        && Math.abs(entry.bounds.left - initialBounds.left)
+                                >= deltaX / 2
+                        && Math.abs(entry.bounds.top - initialBounds.top)
+                                >= deltaY / 2);
+        return formatBounds(moved.bounds);
+    }
+
+    private static void requirePointerUpdate(
+            final int displayId,
+            final int x,
+            final int y,
+            final int action,
+            final long downTime) throws IOException {
+        if (!ShellAccess.updateMousePosition(
+                displayId, x, y, action, downTime)) {
+            throw new IOException(
+                    "touchpad pointer update was rejected: action=" + action);
+        }
+    }
+
     private static void waitForInputMarker(
             final Context context, final String token, final int displayId)
             throws IOException {
@@ -365,9 +443,28 @@ final class DesktopSelfTestController {
                 + " did not reach the expected state on display " + displayId);
     }
 
+    private static void waitForWindowFocus(
+            final int displayId,
+            final boolean desktopFocused) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopRuntimeBridge.isDesktopWindowFocused(displayId)
+                    == desktopFocused) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(desktopFocused
+                ? "desktop window did not receive focus"
+                : "restored window did not receive focus");
+    }
+
     private static TaskStackParser.Entry waitForLaunchAnchor(
             final int displayId, final int desktopTaskId) throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskStackParser.Entry lastDesktop = null;
+        TaskStackParser.Entry lastAnchor = null;
+        boolean lastPrepared = false;
         do {
             final String stack = ShellAccess.run(
                     "/system/bin/cmd activity stack list");
@@ -375,23 +472,31 @@ final class DesktopSelfTestController {
                     stack, displayId, DESKTOP_CLASS);
             final TaskStackParser.Entry anchor = findTask(
                     stack, displayId, LAUNCH_ANCHOR_CLASS);
+            final boolean prepared = FreeformLaunchAnchorActivity
+                    .isPreparedForDisplay(displayId);
+            lastDesktop = desktop;
+            lastAnchor = anchor;
+            lastPrepared = prepared;
             if (desktop != null
                     && desktop.taskId == desktopTaskId
                     && desktop.visible
-                    && FreeformLaunchAnchorActivity
-                            .isPreparedForDisplay(displayId)
-                    && isParkedAnchor(anchor)) {
+                    && prepared
+                    && isReadyAnchorTask(anchor)) {
                 return anchor;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("freeform launch anchor did not become ready");
+        throw new IOException("freeform launch anchor did not become ready: "
+                + "desktop=" + describeTask(lastDesktop)
+                + ", expectedDesktopTask=" + desktopTaskId
+                + ", anchor=" + describeTask(lastAnchor)
+                + ", prepared=" + lastPrepared);
     }
 
-    static boolean isParkedAnchor(final TaskStackParser.Entry anchor) {
+    static boolean isReadyAnchorTask(final TaskStackParser.Entry anchor) {
         return anchor != null
-                && !anchor.visible
-                && "freeform".equals(anchor.windowingMode);
+                && "freeform".equals(anchor.windowingMode)
+                && !anchor.bounds.isEmpty();
     }
 
     static TaskStackParser.Entry findTask(
@@ -619,6 +724,16 @@ final class DesktopSelfTestController {
     private static String formatBounds(final TaskStackParser.Bounds bounds) {
         return "[" + bounds.left + "," + bounds.top + "]["
                 + bounds.right + "," + bounds.bottom + "]";
+    }
+
+    private static String describeTask(final TaskStackParser.Entry task) {
+        if (task == null) {
+            return "missing";
+        }
+        return "task=" + task.taskId
+                + "/mode=" + task.windowingMode
+                + "/visible=" + task.visible
+                + "/bounds=" + formatBounds(task.bounds);
     }
 
     private static String readFile(final File file) {

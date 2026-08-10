@@ -172,7 +172,7 @@ final class NubiaMouseController {
         return new Point(width, height);
     }
 
-    private static synchronized void rememberPosition(
+    static synchronized void rememberPosition(
             final int displayId,
             final Point position) {
         sKnownMouseDisplayId = displayId;
