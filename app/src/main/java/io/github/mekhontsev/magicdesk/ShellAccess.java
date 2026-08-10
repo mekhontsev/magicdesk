@@ -145,7 +145,7 @@ final class ShellAccess {
         try {
             return requireService().uid();
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
@@ -169,7 +169,7 @@ final class ShellAccess {
         try {
             encoded = requireService().execute(command);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException("Shizuku command service failed: "
                     + usefulMessage(error), error);
         }
@@ -200,7 +200,7 @@ final class ShellAccess {
             }
             return report;
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException("Shizuku capability probe failed: "
                     + usefulMessage(error), error);
         }
@@ -214,13 +214,13 @@ final class ShellAccess {
             return requireService().updateHardwareKeyboardLayout(
                     mode, currentDescriptor);
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku keyboard layout update failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku keyboard layout update failed: "
                             + usefulMessage(error),
@@ -239,7 +239,7 @@ final class ShellAccess {
         try {
             return service.capturePointerPosition();
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return false;
         }
     }
@@ -255,7 +255,7 @@ final class ShellAccess {
         try {
             service.restorePointerPositionIfDisplaced();
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
         }
     }
 
@@ -272,7 +272,7 @@ final class ShellAccess {
         try {
             return service.injectPointerClick(displayId, button);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return false;
         }
     }
@@ -290,7 +290,7 @@ final class ShellAccess {
             return position != null && position.length == 2
                     ? new Point(position[0], position[1]) : null;
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return null;
         }
     }
@@ -312,7 +312,7 @@ final class ShellAccess {
             return service.updateMousePosition(
                     displayId, x, y, action, downTime);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return false;
         }
     }
@@ -335,7 +335,7 @@ final class ShellAccess {
             return service.updateMirrorTextInput(
                     displayId, action, text, arg1, arg2, arg3);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return false;
         }
     }
@@ -351,7 +351,7 @@ final class ShellAccess {
         try {
             return service.beginMirrorTextInput(displayId);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             return false;
         }
     }
@@ -367,7 +367,7 @@ final class ShellAccess {
         try {
             service.endMirrorTextInput(displayId);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
         }
     }
 
@@ -381,7 +381,7 @@ final class ShellAccess {
             }
             return descriptor;
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku wallpaper read failed: "
                             + usefulMessage(error),
@@ -395,7 +395,7 @@ final class ShellAccess {
                     requireService().listDesktopFiles();
             return files == null ? new DesktopFileInfo[0] : files;
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop directory read failed: "
                             + usefulMessage(error),
@@ -419,7 +419,7 @@ final class ShellAccess {
             }
             return descriptor;
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop file open failed: "
                             + usefulMessage(error),
@@ -443,7 +443,7 @@ final class ShellAccess {
             }
             return file;
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop entry read failed: "
                             + usefulMessage(error),
@@ -467,7 +467,7 @@ final class ShellAccess {
             }
             return file;
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop entry creation failed: "
                             + usefulMessage(error),
@@ -492,7 +492,7 @@ final class ShellAccess {
             }
             return file;
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop entry rename failed: "
                             + usefulMessage(error),
@@ -510,7 +510,7 @@ final class ShellAccess {
         try {
             requireService().deleteDesktopEntry(relativePath);
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop entry deletion failed: "
                             + usefulMessage(error),
@@ -538,7 +538,7 @@ final class ShellAccess {
             return handle;
         } catch (RemoteException error) {
             handle.closeAfterStartFailure();
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop folder observer failed: "
                             + usefulMessage(error),
@@ -556,7 +556,7 @@ final class ShellAccess {
         try {
             return requireService().readDesktopState();
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop state read failed: "
                             + usefulMessage(error),
@@ -574,7 +574,7 @@ final class ShellAccess {
         try {
             requireService().writeDesktopState(encodedState);
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop state write failed: "
                             + usefulMessage(error),
@@ -591,7 +591,7 @@ final class ShellAccess {
         try {
             return requireService().openDesktopWallpaper();
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop wallpaper read failed: "
                             + usefulMessage(error),
@@ -609,7 +609,7 @@ final class ShellAccess {
         try {
             requireService().writeDesktopWallpaper(source);
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop wallpaper write failed: "
                             + usefulMessage(error),
@@ -626,7 +626,7 @@ final class ShellAccess {
         try {
             return requireService().deleteDesktopWallpaper();
         } catch (RemoteException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku desktop wallpaper deletion failed: "
                             + usefulMessage(error),
@@ -663,7 +663,7 @@ final class ShellAccess {
             return handle;
         } catch (RemoteException error) {
             handle.closeAfterStartFailure();
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku task observer failed: "
                             + usefulMessage(error),
@@ -699,7 +699,7 @@ final class ShellAccess {
             }
             return new ShellInputRoutingHandle(service, ownerToken, state);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku input routing failed: "
                             + usefulMessage(error),
@@ -711,7 +711,7 @@ final class ShellAccess {
         try {
             return requireService().cleanupInputRouting();
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku input routing cleanup failed: "
                             + usefulMessage(error),
@@ -724,7 +724,7 @@ final class ShellAccess {
         try {
             requireService().startLocalDesktopNavigationGuard(ownerToken);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku local desktop navigation guard failed: "
                             + usefulMessage(error),
@@ -740,7 +740,7 @@ final class ShellAccess {
         try {
             requireService().stopLocalDesktopNavigationGuard(ownerToken);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku local desktop navigation restore failed: "
                             + usefulMessage(error),
@@ -764,7 +764,7 @@ final class ShellAccess {
                     bitrateMbps,
                     ownerToken);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku display recording start failed: "
                             + usefulMessage(error),
@@ -777,7 +777,7 @@ final class ShellAccess {
         try {
             return requireService().stopDisplayRecording(ownerToken);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException(
                     "Shizuku display recording finalization failed: "
                             + usefulMessage(error),
@@ -813,7 +813,7 @@ final class ShellAccess {
                     ownerToken,
                     service);
         } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure();
+            handleServiceFailure(error);
             throw new IOException("Shizuku command stream failed: "
                     + usefulMessage(error), error);
         }
@@ -874,7 +874,14 @@ final class ShellAccess {
         SERVICE_CONNECTION.clear();
     }
 
-    private static void handleServiceFailure() {
+    static boolean isServiceTransportFailure(final Throwable error) {
+        return error instanceof RemoteException;
+    }
+
+    private static void handleServiceFailure(final Throwable error) {
+        if (!isServiceTransportFailure(error)) {
+            return;
+        }
         clearService();
         refresh();
     }

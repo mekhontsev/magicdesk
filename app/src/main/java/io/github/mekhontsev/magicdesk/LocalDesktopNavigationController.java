@@ -38,6 +38,7 @@ final class LocalDesktopNavigationController {
         }
         EXECUTOR.execute(() -> {
             try {
+                DesktopStateStore.load();
                 ShellAccess.startLocalDesktopNavigationGuard(OWNER_TOKEN);
                 complete(
                         callback,

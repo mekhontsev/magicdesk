@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.os.RemoteException;
+
 import org.junit.Test;
 
 public final class ShellAccessSnapshotTest {
@@ -16,6 +18,14 @@ public final class ShellAccessSnapshotTest {
         assertFalse(snapshot(false, true, 2000, 11).isReady());
         assertFalse(snapshot(true, false, 2000, 11).isReady());
         assertFalse(snapshot(true, true, 2000, 10).isReady());
+    }
+
+    @Test
+    public void onlyBinderTransportErrorsInvalidateCommandService() {
+        assertTrue(ShellAccess.isServiceTransportFailure(
+                new RemoteException("binder failed")));
+        assertFalse(ShellAccess.isServiceTransportFailure(
+                new IllegalStateException("operation rejected")));
     }
 
     private static ShellAccess.Snapshot snapshot(

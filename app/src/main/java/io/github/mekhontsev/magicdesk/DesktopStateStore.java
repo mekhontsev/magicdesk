@@ -19,6 +19,7 @@ final class DesktopStateStore {
 
     private static final String TAG = "MagicDeskState";
     private static final Object LOCK = new Object();
+    private static final State UNAVAILABLE_STATE = new State();
 
     private static State sState;
     private static String sEncoded;
@@ -28,14 +29,30 @@ final class DesktopStateStore {
 
     static State get() {
         synchronized (LOCK) {
+            try {
+                ensureLoadedLocked();
+                return sState;
+            } catch (IOException error) {
+                report("Could not load desktop state", error);
+                return UNAVAILABLE_STATE;
+            }
+        }
+    }
+
+    static void load() throws IOException {
+        synchronized (LOCK) {
             ensureLoadedLocked();
-            return sState;
         }
     }
 
     static void save() {
         synchronized (LOCK) {
-            ensureLoadedLocked();
+            try {
+                ensureLoadedLocked();
+            } catch (IOException error) {
+                report("Could not save desktop state", error);
+                return;
+            }
             final String encoded;
             try {
                 encoded = toJson(sState).toString();
@@ -129,15 +146,17 @@ final class DesktopStateStore {
         return toJson(state).toString();
     }
 
-    private static void ensureLoadedLocked() {
+    private static void ensureLoadedLocked() throws IOException {
         if (sState != null) {
             return;
         }
+        final String encoded = ShellAccess.readDesktopState();
         try {
-            sEncoded = ShellAccess.readDesktopState();
-            sState = decode(sEncoded);
-        } catch (IOException | JSONException | RuntimeException error) {
-            report("Could not load desktop state; using defaults", error);
+            final State state = decode(encoded);
+            sEncoded = encoded;
+            sState = state;
+        } catch (JSONException | RuntimeException error) {
+            report("Desktop state is invalid; using defaults", error);
             sState = new State();
             sEncoded = null;
         }

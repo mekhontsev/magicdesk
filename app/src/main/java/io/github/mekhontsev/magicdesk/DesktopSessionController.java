@@ -36,6 +36,7 @@ final class DesktopSessionController {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
         }
+        DesktopStateStore.load();
         if (!ConsoleDisplayController.displayExists(target.displayId)) {
             throw new IOException(
                     "desktop display no longer exists: " + target.displayId);
