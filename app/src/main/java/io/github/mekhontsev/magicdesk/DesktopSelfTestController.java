@@ -31,6 +31,7 @@ final class DesktopSelfTestController {
     private static final int EXPECTED_WIDTH = 1920;
     private static final int EXPECTED_HEIGHT = 1080;
     private static final int EXPECTED_DENSITY = 160;
+    private static final int RESIZE_EDGE_OUTSET_PX = 8;
     private static final long STEP_TIMEOUT_MILLIS = 10_000L;
     private static final long POLL_MILLIS = 100L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
@@ -198,6 +199,14 @@ final class DesktopSelfTestController {
                             targetDisplayId,
                             targetFixtureTaskId,
                             windowBounds));
+            require(result, "INPUT-003", "Resize native window border", () ->
+                    resizeRightEdge(
+                            targetDisplayId,
+                            targetFixtureTaskId));
+            verifyResizeCursor(
+                    result,
+                    targetDisplayId,
+                    targetFixtureTaskId);
             require(result, "WINDOW-003", "Enter true fullscreen", () -> {
                 ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
                         targetDisplayId, targetFixtureTaskId));
@@ -410,12 +419,10 @@ final class DesktopSelfTestController {
         long downTime = 0L;
         boolean dragStarted = false;
         try {
-            requirePointerUpdate(
+            requirePointerHover(
                     displayId,
                     startX,
-                    startY,
-                    DesktopPointerInjector.TOUCHPAD_HOVER,
-                    0L);
+                    startY);
             SystemClock.sleep(POLL_MILLIS);
             downTime = SystemClock.uptimeMillis();
             requirePointerUpdate(
@@ -459,6 +466,84 @@ final class DesktopSelfTestController {
         return formatBounds(moved.bounds);
     }
 
+    private static void verifyResizeCursor(
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int taskId) throws AbortSelfTest {
+        final TaskStackParser.Entry task;
+        try {
+            task = waitForTask(displayId, FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "freeform".equals(entry.windowingMode)
+                            && entry.visible
+                            && !entry.bounds.isEmpty());
+        } catch (IOException error) {
+            failAndAbort(result, "INPUT-004", "Show native resize cursor",
+                    usefulMessage(error));
+            return;
+        }
+        final int centerX = (task.bounds.left + task.bounds.right) / 2;
+        final int centerY = (task.bounds.top + task.bounds.bottom) / 2;
+        try (DesktopCursorTraceProbe probe = DesktopCursorTraceProbe.open()) {
+            requirePointerHover(displayId, centerX, centerY);
+            requirePointerHover(displayId,
+                    task.bounds.right + RESIZE_EDGE_OUTSET_PX, centerY);
+            SystemClock.sleep(POLL_MILLIS);
+            final String transition = probe.readPointerTransition();
+            if (transition == null) {
+                result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                        "INPUT-004", "Show native resize cursor",
+                        "simulated display exposes no visual cursor state and "
+                                + "WMShell did not expose a transition trace");
+            } else if (!DesktopCursorTraceProbe.isPointerType(
+                    transition,
+                    DesktopCursorTraceProbe.HORIZONTAL_RESIZE_POINTER_TYPE)) {
+                failAndAbort(result, "INPUT-004", "Show native resize cursor",
+                        "unexpected cursor transition: " + transition);
+            } else {
+                result.add(DesktopSelfTestResult.State.PASS,
+                        "INPUT-004", "Show native resize cursor", transition);
+            }
+        } catch (IOException | RuntimeException error) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "INPUT-004", "Show native resize cursor",
+                    usefulMessage(error));
+        }
+    }
+
+    private static String resizeRightEdge(
+            final int displayId,
+            final int taskId) throws IOException {
+        final TaskStackParser.Entry initial = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && "freeform".equals(entry.windowingMode)
+                        && entry.visible
+                        && !entry.bounds.isEmpty());
+        // The exact task edge is shared with TaskInputSink. WMShell's native
+        // resize listener owns the narrow region immediately outside it.
+        final int startX = initial.bounds.right + RESIZE_EDGE_OUTSET_PX;
+        final int startY = (initial.bounds.top + initial.bounds.bottom) / 2;
+        final int deltaX = 180;
+        ShellAccess.run(pointerCommand(
+                "drag " + displayId + " " + startX + " " + startY
+                        + " " + (startX + deltaX) + " " + startY + " 400"));
+        final TaskStackParser.Entry resized = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && "freeform".equals(entry.windowingMode)
+                        && entry.visible
+                        && Math.abs(entry.bounds.left - initial.bounds.left) <= 4
+                        && Math.abs(entry.bounds.top - initial.bounds.top) <= 4
+                        && Math.abs(entry.bounds.bottom - initial.bounds.bottom) <= 4
+                        && entry.bounds.right - initial.bounds.right
+                                >= deltaX / 2);
+        return formatBounds(initial.bounds) + " -> "
+                + formatBounds(resized.bounds);
+    }
+
     private static void requirePointerUpdate(
             final int displayId,
             final int x,
@@ -470,6 +555,20 @@ final class DesktopSelfTestController {
             throw new IOException(
                     "touchpad pointer update was rejected: action=" + action);
         }
+    }
+
+    private static void requirePointerHover(
+            final int displayId,
+            final int x,
+            final int y) throws IOException {
+        ShellAccess.run(pointerCommand(
+                "hover " + displayId + " " + x + " " + y));
+    }
+
+    private static String pointerCommand(final String arguments) {
+        return AppProcessCommand.run(
+                "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
+                arguments);
     }
 
     private static void waitForInputMarker(

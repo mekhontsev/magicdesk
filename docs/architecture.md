@@ -346,9 +346,13 @@ temporary setting; closing the stream or losing its owner closes stdin, runs a
 shell `trap`, and restores the prior value. The test then uses production
 session and task controllers to verify the desktop viewport, a deterministic
 freeform Activity, task-local native caption source and geometry,
-display-targeted input, true fullscreen, restore, minimize, and cleanup. It
-rechecks the caption after the fullscreen round trip and closes the desktop
-task before removing the display so WMS
+display-targeted input, caption drag, native border resize, true fullscreen,
+restore, minimize, and cleanup. The test also requests the native horizontal
+resize cursor and verifies WMShell's transition trace when that firmware trace
+is available. A simulated display without a readable pointer controller or
+trace reports the cursor check as `NOT_TESTED` rather than inferring success
+from the resize alone. It rechecks the caption after the fullscreen round trip
+and closes the desktop task before removing the display so WMS
 cannot migrate that task onto the phone launcher.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every

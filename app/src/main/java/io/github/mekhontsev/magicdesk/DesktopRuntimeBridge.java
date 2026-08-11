@@ -74,6 +74,10 @@ final class DesktopRuntimeBridge {
             sShell.clear();
         }
         if (sDesktop.get() == activity) {
+            if (activity.isChangingConfigurations()) {
+                sDesktop.clear();
+                return;
+            }
             final int displayId = activity.getCurrentDisplayId();
             FreeformLaunchAnchorActivity.release();
             sDesktop.clear();

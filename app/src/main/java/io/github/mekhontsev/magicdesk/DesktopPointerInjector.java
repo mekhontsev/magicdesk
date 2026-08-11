@@ -112,6 +112,70 @@ final class DesktopPointerInjector {
         }
     }
 
+    @SuppressLint("BlockedPrivateApi")
+    static void injectMouseHover(
+            final int displayId,
+            final Point position) throws ReflectiveOperationException {
+        validateDisplay(displayId);
+        injectionContext().injectMouseHover(displayId, position);
+    }
+
+    @SuppressLint("BlockedPrivateApi")
+    static void injectMouseDrag(
+            final int displayId,
+            final Point start,
+            final Point end,
+            final long durationMillis) throws ReflectiveOperationException {
+        validateDisplay(displayId);
+        if (durationMillis < 0L) {
+            throw new IllegalArgumentException("negative drag duration");
+        }
+        final InjectionContext context = injectionContext();
+        final long downTime = SystemClock.uptimeMillis();
+        boolean dragStarted = false;
+        try {
+            context.injectMouse(displayId, start, downTime,
+                    MotionEvent.ACTION_DOWN,
+                    MotionEvent.BUTTON_PRIMARY, 0);
+            dragStarted = true;
+            context.injectMouse(displayId, start, downTime,
+                    MotionEvent.ACTION_BUTTON_PRESS,
+                    MotionEvent.BUTTON_PRIMARY,
+                    MotionEvent.BUTTON_PRIMARY);
+            final int steps = 8;
+            for (int step = 1; step <= steps; step++) {
+                if (durationMillis > 0L) {
+                    SystemClock.sleep(durationMillis / steps);
+                }
+                context.injectMouse(displayId,
+                        interpolate(start, end, step, steps),
+                        downTime, MotionEvent.ACTION_MOVE,
+                        MotionEvent.BUTTON_PRIMARY, 0);
+            }
+        } finally {
+            if (dragStarted) {
+                try {
+                    context.injectMouse(displayId, end, downTime,
+                            MotionEvent.ACTION_BUTTON_RELEASE,
+                            0, MotionEvent.BUTTON_PRIMARY);
+                } finally {
+                    context.injectMouse(displayId, end, downTime,
+                            MotionEvent.ACTION_UP, 0, 0);
+                }
+            }
+        }
+    }
+
+    private static Point interpolate(
+            final Point start,
+            final Point end,
+            final int step,
+            final int steps) {
+        return new Point(
+                start.x + (end.x - start.x) * step / steps,
+                start.y + (end.y - start.y) * step / steps);
+    }
+
     private static void validateDisplay(final int displayId) {
         if (displayId <= 0) {
             throw new IllegalArgumentException("missing target display");
@@ -206,6 +270,22 @@ final class DesktopPointerInjector {
                     INJECTION_MODE_ASYNC,
                     magicDeskMouseDeviceId(),
                     0.0f);
+        }
+
+        void injectMouseHover(
+                final int displayId,
+                final Point position) throws ReflectiveOperationException {
+            final long eventTime = SystemClock.uptimeMillis();
+            inject(displayId, position, eventTime,
+                    MotionEvent.ACTION_HOVER_MOVE,
+                    MotionEvent.TOOL_TYPE_MOUSE,
+                    InputDevice.SOURCE_MOUSE,
+                    0,
+                    0,
+                    0.0f,
+                    INJECTION_MODE_WAIT_FOR_RESULT,
+                    magicDeskMouseDeviceId(),
+                    1.0f);
         }
 
         void injectFocusHandoff(final int displayId)

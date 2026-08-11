@@ -273,6 +273,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int[] getMousePosition(final int displayId) {
         try {
             NubiaMouseController.prepareMousePositionControl();
+            // A new display's vendor pointer viewport may settle after input
+            // routing. Refresh at gesture start, once our panel is open.
+            NubiaMouseController.createOrUpdateViewport();
             final Point position = NubiaMouseController.getPosition(displayId);
             return new int[] {position.x, position.y};
         } catch (ReflectiveOperationException | RuntimeException error) {
