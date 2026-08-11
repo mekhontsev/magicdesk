@@ -62,13 +62,14 @@ device and One UI version.
 | Wireless desktop | Verified through the stock SmartCast/Miracast picker and the common MagicDesk desktop session | Supported on compatible Miracast displays |
 | Desktop on the device display | Runs the same desktop implementation directly on the phone or a tablet | Standalone DeX is limited to selected Galaxy tablets and Z TriFold devices |
 | Native overlapping windows | Android freeform tasks with system WMShell captions | Native DeX windows |
-| Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, and exact task switching | Resize, arrange, minimize, maximize, fullscreen, and task switching |
-| Application launch policy | Explicit Auto, Windowed, and Fullscreen modes | Resizable or fixed-size mode according to application compatibility |
+| Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, exact task switching, and proportional window-layout restoration across displays | Resize, arrange, minimize, maximize, fullscreen, and task switching |
+| Application launch policy | Explicit Auto, Windowed, and Fullscreen modes; Auto remembers the last explicit mode and window position | Resizable or fixed-size mode according to application compatibility |
 | Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
 | Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
-| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations plus application drag-and-drop | File workflows are primarily provided through My Files and application drag-and-drop |
+| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files |
+| Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
 | Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
 | Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |

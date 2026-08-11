@@ -115,6 +115,10 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Verify phone-desktop recovery shares the task-command queue, revives a
   missing Recent task before transitioning it, and cancels before mutation
   when a newer local desktop supersedes cleanup.
+- [x] Abruptly disconnect both wired and Miracast desktops with multiple tasks
+  present. Confirm that unavailable removed-display tasks are revived when
+  possible, surviving tasks return to display 0, and launcher navigation is
+  usable after cleanup.
 
 ## Completed: Physical Input
 
@@ -130,6 +134,9 @@ retired prototypes are listed separately and are not current product modes.
   virtual mouse. Right click reaches MagicDesk, Chrome, and Firefox instead of
   becoming Android Back; movement, wheel, left click, and multiple devices
   remain intact.
+- [x] Verify hardware right click uses the live vendor cursor position, and
+  verify both hardware and phone touchpads distinguish desktop-item drag from
+  a stationary long-click context menu.
 - [x] Force-stop the APK and kill the UserService. Binder ownership or pipe EOF
   releases input grabs and removes virtual devices; rebinding recreates both
   bridges.

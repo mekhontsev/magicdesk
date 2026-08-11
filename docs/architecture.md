@@ -593,6 +593,8 @@ one cleanup path:
 - remember the owned display before Nubia can move its desktop host to display
   0, then normalize user tasks that WMShell still indexes under the removed
   wired or Miracast display;
+- revive tasks that remain only in SystemUI's removed-display repository before
+  normalizing them, instead of leaving an unavailable desktop entry behind;
 - remove dead Recent entries retained by the current user's desktop repository
   and restore the phone control panel only after task cleanup completes;
 - recover Quickstep/Home when Nubia reparents its secondary launcher to
@@ -671,11 +673,13 @@ The mouse helper forwards physical movement, wheels, and buttons. It exists
 specifically because RedMagic consumes physical `BTN_RIGHT` as Back.
 `Win+Backspace` remains the explicit system Back shortcut. The phone touchpad
 uses Nubia's absolute mouse-position API for motion and the same virtual pointer
-for clicks and scrolling. Its velocity curve matches the stock Touch Panel and
-re-anchors whenever the acceleration factor changes, avoiding accumulated
-relative-motion error. Physical keyboards and pointing devices may be connected
-or removed while the session is active; the runtime updates their routes
-without recreating the desktop or phone touchpad for keyboard-only
+for clicks and scrolling. A shell-injected click queries the vendor's current
+pointer position at dispatch time, so a hardware mouse and the phone touchpad
+share one authoritative location. Its velocity curve matches the stock Touch
+Panel and re-anchors whenever the acceleration factor changes, avoiding
+accumulated relative-motion error. Physical keyboards and pointing devices may
+be connected or removed while the session is active; the runtime updates their
+routes without recreating the desktop or phone touchpad for keyboard-only
 configuration changes.
 
 Both helpers keep their virtual devices alive for the complete Console session.
