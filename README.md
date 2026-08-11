@@ -341,14 +341,15 @@ compatibility reports. With all desktop sessions closed (the external display
 may remain connected), it temporarily creates a simulated 1920x1080 display
 and exercises the production desktop, freeform,
 fullscreen, minimize/restore, taskbar geometry, native caption structure,
-caption drag, window-border resize, and targeted-input paths, including
+native caption/resize input windows, and targeted application input, including
 recreation of the desktop Activity. It
 also checks the hidden Android and RedMagic APIs that can be inspected without
 connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
 mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
-devices are present. Native resize-cursor selection is checked when WMShell
-exposes its transition trace; otherwise it remains explicitly **NOT TESTED**
-because Android overlay displays do not render a readable hardware cursor.
+devices are present. Native mouse resize-cursor selection is checked when
+WMShell exposes its transition trace; otherwise it remains explicitly
+**NOT TESTED** because Android overlay displays do not render a readable
+hardware cursor.
 The test launches its window through the production temporary task display
 area. A one-shot shell task observer records the new window's first front-state
 and reports any transient fullscreen launch. It also moves an existing

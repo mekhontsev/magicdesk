@@ -213,10 +213,10 @@ final class DesktopSelfTestController {
                                 && equalsBounds(entry.bounds, windowBounds));
                 return formatBounds(task.bounds);
             });
-            require(result, "CAPTION-001", "Verify native caption structure", () ->
+            check(result, "CAPTION-001", "Verify native caption structure", () ->
                     inspectCaptionStructure(
                             targetFixtureTaskId, windowBounds));
-            require(result, "INPUT-001", "Route input to simulated display", () -> {
+            check(result, "INPUT-001", "Route input to simulated display", () -> {
                 final int x = windowBounds.centerX();
                 final int y = windowBounds.centerY();
                 ShellAccess.run("/system/bin/input touchscreen -d "
@@ -224,15 +224,11 @@ final class DesktopSelfTestController {
                 waitForInputMarker(appContext, token, targetDisplayId);
                 return "tap=" + x + "," + y;
             });
-            require(result, "INPUT-002", "Drag native caption", () ->
-                    dragCaption(
-                            targetDisplayId,
-                            targetFixtureTaskId,
-                            windowBounds));
-            require(result, "INPUT-003", "Resize native window border", () ->
-                    resizeRightEdge(
-                            targetDisplayId,
-                            targetFixtureTaskId));
+            verifyNativeInputWindows(
+                    result,
+                    targetDisplayId,
+                    targetFixtureTaskId,
+                    windowBounds);
             verifyResizeCursor(
                     result,
                     targetDisplayId,
@@ -254,7 +250,7 @@ final class DesktopSelfTestController {
                                 && equalsBounds(entry.bounds, windowBounds));
                 return formatBounds(task.bounds);
             });
-            require(result, "CAPTION-002", "Verify restored caption structure", () ->
+            check(result, "CAPTION-002", "Verify restored caption structure", () ->
                     inspectCaptionStructure(
                             targetFixtureTaskId, windowBounds));
             require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
@@ -524,68 +520,32 @@ final class DesktopSelfTestController {
                         + bounds.right + " " + bounds.bottom)).trim();
     }
 
-    private static String dragCaption(
+    private static void verifyNativeInputWindows(
+            final DesktopSelfTestResult result,
             final int displayId,
             final int taskId,
-            final Rect initialBounds) throws IOException {
-        final int startX = initialBounds.centerX();
-        final int startY = initialBounds.top + 16;
-        final int deltaX = 180;
-        final int deltaY = 120;
-        long downTime = 0L;
-        boolean dragStarted = false;
+            final Rect bounds) {
+        final String dump;
         try {
-            requirePointerHover(
-                    displayId,
-                    startX,
-                    startY);
-            SystemClock.sleep(POLL_MILLIS);
-            downTime = SystemClock.uptimeMillis();
-            requirePointerUpdate(
-                    displayId,
-                    startX,
-                    startY,
-                    DesktopPointerInjector.TOUCHPAD_DRAG_START,
-                    downTime);
-            dragStarted = true;
-            for (int step = 1; step <= 6; step++) {
-                requirePointerUpdate(
-                        displayId,
-                        startX + deltaX * step / 6,
-                        startY + deltaY * step / 6,
-                        DesktopPointerInjector.TOUCHPAD_DRAG_MOVE,
-                        downTime);
-            }
-        } finally {
-            if (dragStarted) {
-                ShellAccess.updateMousePosition(
-                        displayId,
-                        startX + deltaX,
-                        startY + deltaY,
-                        DesktopPointerInjector.TOUCHPAD_DRAG_END,
-                        downTime);
-            }
+            dump = ShellAccess.run("/system/bin/dumpsys input");
+        } catch (IOException error) {
+            final String detail = usefulMessage(error);
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "INPUT-002", "Verify native caption input window", detail);
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "INPUT-003", "Verify native resize input window", detail);
+            return;
         }
-        final TaskStackParser.Entry moved = waitForTask(
-                displayId,
-                FIXTURE_CLASS,
-                entry -> "freeform".equals(entry.windowingMode)
-                        && entry.visible
-                        && entry.bounds.right - entry.bounds.left
-                                == initialBounds.width()
-                        && entry.bounds.bottom - entry.bounds.top
-                                == initialBounds.height()
-                        && Math.abs(entry.bounds.left - initialBounds.left)
-                                >= deltaX / 2
-                        && Math.abs(entry.bounds.top - initialBounds.top)
-                                >= deltaY / 2);
-        return formatBounds(moved.bounds);
+        check(result, "INPUT-002", "Verify native caption input window", () ->
+                inspectCaptionInputWindow(dump, displayId, taskId, bounds));
+        check(result, "INPUT-003", "Verify native resize input window", () ->
+                inspectResizeInputWindow(dump, displayId, taskId, bounds));
     }
 
     private static void verifyResizeCursor(
             final DesktopSelfTestResult result,
             final int displayId,
-            final int taskId) throws AbortSelfTest {
+            final int taskId) {
         final TaskStackParser.Entry task;
         try {
             task = waitForTask(displayId, FIXTURE_CLASS,
@@ -594,7 +554,8 @@ final class DesktopSelfTestController {
                             && entry.visible
                             && !entry.bounds.isEmpty());
         } catch (IOException error) {
-            failAndAbort(result, "INPUT-004", "Show native resize cursor",
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "INPUT-004", "Show native mouse resize cursor",
                     usefulMessage(error));
             return;
         }
@@ -608,69 +569,114 @@ final class DesktopSelfTestController {
             final String transition = probe.readPointerTransition();
             if (transition == null) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                        "INPUT-004", "Show native resize cursor",
+                        "INPUT-004", "Show native mouse resize cursor",
                         "simulated display exposes no visual cursor state and "
                                 + "WMShell did not expose a transition trace");
             } else if (!DesktopCursorTraceProbe.isPointerType(
                     transition,
                     DesktopCursorTraceProbe.HORIZONTAL_RESIZE_POINTER_TYPE)) {
-                failAndAbort(result, "INPUT-004", "Show native resize cursor",
+                result.add(DesktopSelfTestResult.State.FAIL,
+                        "INPUT-004", "Show native mouse resize cursor",
                         "unexpected cursor transition: " + transition);
             } else {
                 result.add(DesktopSelfTestResult.State.PASS,
-                        "INPUT-004", "Show native resize cursor", transition);
+                    "INPUT-004", "Show native mouse resize cursor", transition);
             }
         } catch (IOException | RuntimeException error) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                    "INPUT-004", "Show native resize cursor",
+                    "INPUT-004", "Show native mouse resize cursor",
                     usefulMessage(error));
         }
     }
 
-    private static String resizeRightEdge(
+    private static String inspectCaptionInputWindow(
+            final String dump,
             final int displayId,
-            final int taskId) throws IOException {
-        final TaskStackParser.Entry initial = waitForTask(
+            final int taskId,
+            final Rect bounds) throws IOException {
+        final TaskInputWindowParser.Entry entry = requireInputWindow(
+                TaskInputWindowParser.findCaption(dump, taskId),
                 displayId,
-                FIXTURE_CLASS,
-                entry -> entry.taskId == taskId
-                        && "freeform".equals(entry.windowingMode)
-                        && entry.visible
-                        && !entry.bounds.isEmpty());
-        // The exact task edge is shared with TaskInputSink. WMShell's native
-        // resize listener owns the narrow region immediately outside it.
-        final int startX = initial.bounds.right + RESIZE_EDGE_OUTSET_PX;
-        final int startY = (initial.bounds.top + initial.bounds.bottom) / 2;
-        final int deltaX = 180;
-        ShellAccess.run(pointerCommand(
-                "drag " + displayId + " " + startX + " " + startY
-                        + " " + (startX + deltaX) + " " + startY + " 400"));
-        final TaskStackParser.Entry resized = waitForTask(
-                displayId,
-                FIXTURE_CLASS,
-                entry -> entry.taskId == taskId
-                        && "freeform".equals(entry.windowingMode)
-                        && entry.visible
-                        && Math.abs(entry.bounds.left - initial.bounds.left) <= 4
-                        && Math.abs(entry.bounds.top - initial.bounds.top) <= 4
-                        && Math.abs(entry.bounds.bottom - initial.bounds.bottom) <= 4
-                        && entry.bounds.right - initial.bounds.right
-                                >= deltaX / 2);
-        return formatBounds(initial.bounds) + " -> "
-                + formatBounds(resized.bounds);
+                "caption");
+        final boolean displayCoordinates = entry.frame.left == bounds.left
+                && entry.frame.top == bounds.top
+                && entry.frame.right == bounds.right
+                && entry.frame.bottom > entry.frame.top
+                && entry.frame.bottom < bounds.bottom;
+        final boolean taskCoordinates = entry.frame.left == 0
+                && entry.frame.top == 0
+                && entry.frame.right == bounds.width()
+                && entry.frame.bottom > 0
+                && entry.frame.bottom < bounds.height();
+        if (!displayCoordinates && !taskCoordinates) {
+            throw new IOException("caption input frame is misaligned: "
+                    + entry.frame);
+        }
+        return inputWindowDetail(entry,
+                displayCoordinates ? "display" : "task-local");
     }
 
-    private static void requirePointerUpdate(
+    private static String inspectResizeInputWindow(
+            final String dump,
             final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) throws IOException {
-        if (!ShellAccess.updateMousePosition(
-                displayId, x, y, action, downTime)) {
-            throw new IOException(
-                    "touchpad pointer update was rejected: action=" + action);
+            final int taskId,
+            final Rect bounds) throws IOException {
+        final TaskInputWindowParser.Entry entry = requireInputWindow(
+                TaskInputWindowParser.findResize(dump, taskId),
+                displayId,
+                "resize");
+        if (!entry.hasConfig("SPY")) {
+            throw new IOException("resize input window is not a spy window");
         }
+        final boolean displayCoordinates = entry.frame.left == bounds.left
+                && entry.frame.top == bounds.top
+                && entry.frame.right == bounds.right
+                && entry.frame.bottom == bounds.bottom;
+        final boolean taskCoordinates = entry.frame.left == 0
+                && entry.frame.top == 0
+                && entry.frame.right == bounds.width()
+                && entry.frame.bottom == bounds.height();
+        if (!displayCoordinates && !taskCoordinates) {
+            throw new IOException("resize input frame is misaligned: "
+                    + entry.frame);
+        }
+        return inputWindowDetail(entry,
+                displayCoordinates ? "display" : "task-local");
+    }
+
+    private static TaskInputWindowParser.Entry requireInputWindow(
+            final TaskInputWindowParser.Entry entry,
+            final int displayId,
+            final String label) throws IOException {
+        if (entry == null) {
+            throw new IOException(label + " input window is absent");
+        }
+        if (entry.displayId != displayId) {
+            throw new IOException(label + " input window is on display "
+                    + entry.displayId + ", expected " + displayId);
+        }
+        if (entry.hasConfig("NOT_VISIBLE")) {
+            throw new IOException(label + " input window is not visible");
+        }
+        if (!entry.hasConfig("TRUSTED_OVERLAY")) {
+            throw new IOException(label + " input window is not trusted");
+        }
+        if (!entry.hasInputChannel()) {
+            throw new IOException(label + " input channel is unavailable");
+        }
+        if (!entry.hasTouchableRegion()) {
+            throw new IOException(label + " touchable region is empty");
+        }
+        return entry;
+    }
+
+    private static String inputWindowDetail(
+            final TaskInputWindowParser.Entry entry,
+            final String coordinates) {
+        return "display=" + entry.displayId
+                + ", frame=" + entry.frame
+                + ", coordinates=" + coordinates
+                + ", config=" + entry.inputConfig;
     }
 
     private static void requirePointerHover(
@@ -999,6 +1005,20 @@ final class DesktopSelfTestController {
         } catch (Exception error) {
             failAndAbort(result, code, label, usefulMessage(error));
             throw new AssertionError("unreachable");
+        }
+    }
+
+    private static <T> void check(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final CheckedSupplier<T> operation) {
+        try {
+            result.add(DesktopSelfTestResult.State.PASS,
+                    code, label, String.valueOf(operation.run()));
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    code, label, usefulMessage(error));
         }
     }
 

@@ -132,6 +132,9 @@ final class DesktopSelfTestCapabilityAudit {
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-INPUT-001", "Physical keyboard and mouse",
                 "requires connected input hardware");
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "DEVICE-TOUCHPANEL-001", "Phone Touch Panel input routing",
+                "requires a real external desktop display");
         return runnable;
     }
 

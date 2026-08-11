@@ -327,9 +327,12 @@ keyboard port association remains limited to its wired Console display because
 Miracast and simulated displays do not expose the same physical display port
 contract. Simulated sessions deliberately exercise the same phone IME policy,
 keyboard watcher, and virtual input lifecycle as a real desktop. Virtual input
-remains scoped to the session because native caption drag and resize checks use
-the production pointer path; cleanup waits for its removal before the test
-completes.
+remains scoped to the session and cleanup waits for its removal before the test
+completes. The test inspects WMShell's caption and resize input windows after a
+cross-display move, including their display ID, frame, input channel, token, and
+touchable region. Nubia's absolute-pointer API has no viewport for Android
+overlay displays, so actual pointer drag remains a real-display compatibility
+check.
 
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** uses a dedicated task excluded from Recents. The phone
@@ -352,12 +355,12 @@ temporary setting; closing the stream or losing its owner closes stdin, runs a
 shell `trap`, and restores the prior value. The test then uses production
 session and task controllers to verify the desktop viewport, a deterministic
 freeform Activity, task-local native caption source and geometry,
-display-targeted input, caption drag, native border resize, true fullscreen,
-restore, minimize, and cleanup. The test also requests the native horizontal
-resize cursor and verifies WMShell's transition trace when that firmware trace
-is available. A simulated display without a readable pointer controller or
-trace reports the cursor check as `NOT_TESTED` rather than inferring success
-from the resize alone. It rechecks the caption after the fullscreen round trip,
+display-targeted application input, native caption and resize input handles,
+true fullscreen, restore, minimize, and cleanup. The test also requests the
+native horizontal resize cursor and verifies WMShell's transition trace when
+that firmware trace is available. A simulated display without a readable
+pointer controller or trace reports the cursor check as `NOT_TESTED`. It
+rechecks the caption after the fullscreen round trip,
 uses the same target-aware close operation as the user-facing session, and only
 then removes the display so WMS
 cannot migrate that task onto the phone launcher.
