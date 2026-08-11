@@ -485,13 +485,14 @@ final class DesktopWorkspaceController {
                 mActivity.hideAllPanels();
                 mActivity.launchDefault(entry.app);
             });
-            enableDrag(view, entry.itemId);
-            mActivity.registerDesktopAppContextTarget(view, entry.app);
+            mActivity.registerDraggableDesktopAppContextTarget(
+                    view, entry.app);
+            enableDrag(view, entry.itemId, null, true);
         } else if (entry.file != null) {
             view = mViews.file(entry.file);
             view.setOnClickListener(target -> openFile(entry.file));
-            enableDrag(view, entry.itemId, entry.file);
-            mActivity.registerFileContextTarget(view, entry.file);
+            mActivity.registerDraggableFileContextTarget(view, entry.file);
+            enableDrag(view, entry.itemId, entry.file, true);
         } else {
             final AppWidgetHostView widgetView =
                     mWidgets.createView(entry.widget);
@@ -511,7 +512,7 @@ final class DesktopWorkspaceController {
                         0x11000000,
                         mUi.dp(4),
                         DesktopUiFactory.COLOR_CYAN));
-                enableDrag(moveLayer, entry.itemId);
+                enableDrag(moveLayer, entry.itemId, null, false);
                 frame.addView(moveLayer, new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
@@ -527,47 +528,89 @@ final class DesktopWorkspaceController {
         mGrid.addItem(view, entry.itemId, placement);
     }
 
-    // This passive listener detects drag slop and leaves ordinary clicks to the view.
-    private void enableDrag(final View view, final String itemId) {
-        enableDrag(view, itemId, null);
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
     private void enableDrag(
             final View view,
             final String itemId,
-            final DesktopFile file) {
-        final int touchSlop =
-                ViewConfiguration.get(mActivity).getScaledTouchSlop();
-        final float[] down = new float[2];
-        final boolean[] dragging = new boolean[1];
-        view.setOnTouchListener((target, event) -> {
+            final DesktopFile file,
+            final boolean deferContextMenu) {
+        final DragGestureListener listener = new DragGestureListener(
+                itemId, file, deferContextMenu);
+        view.setOnTouchListener(listener);
+        if (deferContextMenu) {
+            view.setOnLongClickListener(listener);
+        }
+    }
+
+    private final class DragGestureListener
+            implements View.OnTouchListener, View.OnLongClickListener {
+        private final String mItemId;
+        private final DesktopFile mFile;
+        private final boolean mDeferContextMenu;
+        private final int mTouchSlop;
+        private float mDownX;
+        private float mDownY;
+        private boolean mDragging;
+        private boolean mContextMenuPending;
+
+        DragGestureListener(
+                final String itemId,
+                final DesktopFile file,
+                final boolean deferContextMenu) {
+            mItemId = itemId;
+            mFile = file;
+            mDeferContextMenu = deferContextMenu;
+            mTouchSlop = ViewConfiguration.get(mActivity)
+                    .getScaledTouchSlop();
+        }
+
+        @Override
+        public boolean onLongClick(final View view) {
+            mContextMenuPending = true;
+            return true;
+        }
+
+        @Override
+        @SuppressLint("ClickableViewAccessibility")
+        public boolean onTouch(final View target, final MotionEvent event) {
             final int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) {
-                down[0] = event.getX();
-                down[1] = event.getY();
-                dragging[0] = false;
+                mDownX = event.getX();
+                mDownY = event.getY();
+                mDragging = false;
+                mContextMenuPending = false;
             } else if (action == MotionEvent.ACTION_MOVE
-                    && !dragging[0]
-                    && (Math.abs(event.getX() - down[0]) > touchSlop
-                            || Math.abs(event.getY() - down[1]) > touchSlop)) {
-                final ClipData data = dragData(itemId, file);
-                final int flags = file == null || file.directory
+                    && !mDragging
+                    && (Math.abs(event.getX() - mDownX) > mTouchSlop
+                            || Math.abs(event.getY() - mDownY) > mTouchSlop)) {
+                target.cancelLongPress();
+                mContextMenuPending = false;
+                final ClipData data = dragData(mItemId, mFile);
+                final int flags = mFile == null || mFile.directory
                         ? 0
                         : View.DRAG_FLAG_GLOBAL
                                 | View.DRAG_FLAG_GLOBAL_URI_READ;
-                dragging[0] = target.startDragAndDrop(
+                mDragging = target.startDragAndDrop(
                         data,
                         new View.DragShadowBuilder(target),
-                        new DesktopGridLayout.DragToken(itemId),
+                        new DesktopGridLayout.DragToken(mItemId),
                         flags);
-                return dragging[0];
-            } else if (action == MotionEvent.ACTION_UP
-                    || action == MotionEvent.ACTION_CANCEL) {
-                dragging[0] = false;
+                return mDragging;
+            } else if (action == MotionEvent.ACTION_UP) {
+                if (!mDragging && mContextMenuPending
+                        && mDeferContextMenu) {
+                    mActivity.showRegisteredContextMenu(target);
+                }
+                reset();
+            } else if (action == MotionEvent.ACTION_CANCEL) {
+                reset();
             }
             return false;
-        });
+        }
+
+        private void reset() {
+            mDragging = false;
+            mContextMenuPending = false;
+        }
     }
 
     private ClipData dragData(

@@ -753,15 +753,15 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.registerTarget(view, app, task);
     }
 
-    void registerDesktopAppContextTarget(
+    void registerDraggableDesktopAppContextTarget(
             final View view, final AppItem app) {
-        mContextMenuController.registerDesktopAppTarget(view, app);
+        mContextMenuController.registerDraggableDesktopAppTarget(view, app);
     }
 
-    void registerFileContextTarget(
+    void registerDraggableFileContextTarget(
             final View view,
             final DesktopFile file) {
-        mContextMenuController.registerFileTarget(view, file);
+        mContextMenuController.registerDraggableFileTarget(view, file);
     }
 
     void registerWidgetContextTarget(
@@ -776,6 +776,10 @@ public abstract class DesktopShellActivity extends Activity
 
     void showDesktopContextMenu(final float x, final float y) {
         mContextMenuController.showDesktopMenu(x, y);
+    }
+
+    void showRegisteredContextMenu(final View view) {
+        mContextMenuController.showForRegisteredView(view);
     }
 
     void onDesktopMetadataChanged(

@@ -38,7 +38,7 @@ final class DesktopPointerInjector {
                     "unsupported pointer button: " + button);
         }
         try {
-            final Point position = NubiaMouseController.getPosition(displayId);
+            final Point position = NubiaMouseController.getPosition();
             final InjectionContext context = injectionContext();
             final long downTime = SystemClock.uptimeMillis();
             context.injectMouse(displayId, position, downTime,

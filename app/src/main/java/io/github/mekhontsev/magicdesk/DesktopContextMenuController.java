@@ -53,18 +53,20 @@ final class DesktopContextMenuController {
         registerTarget(view, ContextTarget.app(app, task));
     }
 
-    void registerFileTarget(final View view, final DesktopFile file) {
+    void registerDraggableFileTarget(final View view, final DesktopFile file) {
         if (view == null || file == null) {
             return;
         }
-        registerTarget(view, ContextTarget.file(file));
+        registerTarget(view, ContextTarget.file(file), false);
     }
 
-    void registerDesktopAppTarget(final View view, final AppItem app) {
+    void registerDraggableDesktopAppTarget(
+            final View view,
+            final AppItem app) {
         if (view == null || app == null) {
             return;
         }
-        registerTarget(view, ContextTarget.desktopApp(app));
+        registerTarget(view, ContextTarget.desktopApp(app), false);
     }
 
     void registerWidgetTarget(
@@ -79,19 +81,29 @@ final class DesktopContextMenuController {
         registerTarget(
                 view,
                 ContextTarget.widget(
-                        appWidgetId, label, configurable, resizeMode));
+                        appWidgetId, label, configurable, resizeMode),
+                true);
     }
 
     private void registerTarget(
             final View view,
             final ContextTarget contextTarget) {
+        registerTarget(view, contextTarget, true);
+    }
+
+    private void registerTarget(
+            final View view,
+            final ContextTarget contextTarget,
+            final boolean installLongClickListener) {
         mTargets.put(view, contextTarget);
         view.setHapticFeedbackEnabled(false);
-        view.setOnLongClickListener(target -> {
-            mActivity.captureInteractionStackForPanel();
-            showForView(target, contextTarget);
-            return true;
-        });
+        if (installLongClickListener) {
+            view.setOnLongClickListener(target -> {
+                mActivity.captureInteractionStackForPanel();
+                showForView(target, contextTarget);
+                return true;
+            });
+        }
         view.setOnHoverListener((hoveredView, event) -> {
             final int action = event.getActionMasked();
             if (action == MotionEvent.ACTION_HOVER_ENTER
@@ -119,6 +131,14 @@ final class DesktopContextMenuController {
             return;
         }
         showDesktopMenu(x, y);
+    }
+
+    void showForRegisteredView(final View view) {
+        final ContextTarget target = mTargets.get(view);
+        if (target != null && view.isAttachedToWindow() && view.isShown()) {
+            mActivity.captureInteractionStackForPanel();
+            showForView(view, target);
+        }
     }
 
     void showDesktopMenu(final float x, final float y) {
