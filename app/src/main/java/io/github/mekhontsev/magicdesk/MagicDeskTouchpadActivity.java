@@ -24,7 +24,6 @@ import android.view.ViewConfiguration;
 import android.view.VelocityTracker;
 import android.view.WindowInsets;
 import android.view.WindowInsetsAnimation;
-import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -212,7 +211,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         super.onCreate(savedInstanceState);
         mDisplayManager = getSystemService(DisplayManager.class);
         updateTargetDisplay(getIntent());
-        setTextInputFocusEnabled(false);
         setContentView(createContent());
         mBackCallback = this::handleBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -463,7 +461,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
         mShowPhoneKeyboardWhenFocused = false;
         bringTaskToFront();
-        setTextInputFocusEnabled(true);
         mMirrorInput.setKeyboardRequested(true);
         if (!mMirrorInput.requestFocus()) {
             clearTextInputProxy();
@@ -520,7 +517,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         if (mMirrorInput != null) {
             mMirrorInput.setKeyboardRequested(false);
         }
-        setTextInputFocusEnabled(false);
         if (hadTextInputProxy) {
             MagicDeskRuntimeService.endDesktopTextInputIfRunning(
                     mTargetDisplayId);
@@ -538,20 +534,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 .getRootWindowInsets();
         return insets != null
                 && insets.isVisible(WindowInsets.Type.ime());
-    }
-
-    private void setTextInputFocusEnabled(final boolean enabled) {
-        if (enabled) {
-            getWindow().clearFlags(
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams
-                                    .FLAG_ALT_FOCUSABLE_IM);
-        } else {
-            getWindow().addFlags(
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams
-                                    .FLAG_ALT_FOCUSABLE_IM);
-        }
     }
 
     private void finishPointerDrag() {
