@@ -40,6 +40,7 @@ final class DesktopTaskController {
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
+    private final AppWindowStateTracker mAppWindowStates;
     private final Runnable mRefreshRunnable = this::runScheduledRefresh;
 
     private Context mWindowContext;
@@ -62,6 +63,7 @@ final class DesktopTaskController {
         mTaskStackChanged = taskStackChanged;
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
                 mApplicationContext);
+        mAppWindowStates = new AppWindowStateTracker(handler);
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
                 handler,
@@ -181,6 +183,25 @@ final class DesktopTaskController {
                     }
 
                     @Override
+                    public void onFreeformBoundsChanged(
+                            final int generation,
+                            final int taskId,
+                            final String packageName,
+                            final int displayId,
+                            final Rect bounds) {
+                        if (!mRunning || displayId != mDisplayId) {
+                            return;
+                        }
+                        mAppWindowStates.observe(
+                                packageName,
+                                displayId,
+                                bounds,
+                                mNativeWindowBounds
+                                        .getTaskbarMaximizedBounds(),
+                                mNativeWindowBounds.getFullscreenBounds());
+                    }
+
+                    @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
                         if (mRunning) {
@@ -234,6 +255,7 @@ final class DesktopTaskController {
         mFocusingTaskId = -1;
         mRestoringLocalDesktop = false;
         mNativeWindowBounds.reset();
+        mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
         clearActiveController(this);
         DesktopTaskStateStore.clear(stoppedDisplayId);

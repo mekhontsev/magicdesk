@@ -5,8 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import android.graphics.Rect;
-
 import org.junit.After;
 import org.junit.Test;
 
@@ -32,6 +30,19 @@ public final class DesktopStateStoreTest {
         source.content.workspaceTarget =
                 AppLaunchTarget.packageDefault("example.workspace");
         source.taskbarPackages.add("example.application");
+        source.desktopPlacements.put(
+                "app:example.application",
+                new GlobalDesktopPlacement(7500, 2500, 1, 2));
+        source.appWindows.put(
+                "example.application",
+                new AppWindowState(
+                        AppWindowState.Mode.FULLSCREEN,
+                        new RelativeWindowBounds(8000, 1000, 4000, 6000)));
+        source.appWindows.put(
+                "example.bounds",
+                new AppWindowState(
+                        null,
+                        new RelativeWindowBounds(1000, 2000, 3000, 4000)));
 
         final DisplayProfileStore.Profile profile =
                 new DisplayProfileStore.Profile("display:primary");
@@ -39,15 +50,6 @@ public final class DesktopStateStoreTest {
         profile.dpiExplicit = true;
         profile.fillDisplay = false;
         profile.outputTiming = "2560x1440@120";
-        profile.workspaceBounds = new Rect();
-        profile.workspaceBounds.left = 10;
-        profile.workspaceBounds.top = 20;
-        profile.workspaceBounds.right = 1010;
-        profile.workspaceBounds.bottom = 720;
-        profile.workspaceBoundsTarget = "example.workspace";
-        profile.placements.put(
-                "app:example.application",
-                new DesktopPlacement(2, 3, 1, 2));
         source.displayProfiles.put(profile.key, profile);
 
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
@@ -58,21 +60,25 @@ public final class DesktopStateStoreTest {
                 source.content.workspaceTarget,
                 decoded.content.workspaceTarget);
         assertEquals(source.taskbarPackages, decoded.taskbarPackages);
+        assertEquals(
+                new GlobalDesktopPlacement(7500, 2500, 1, 2),
+                decoded.desktopPlacements.get("app:example.application"));
+        assertEquals(
+                new AppWindowState(
+                        AppWindowState.Mode.FULLSCREEN,
+                        new RelativeWindowBounds(8000, 1000, 4000, 6000)),
+                decoded.appWindows.get("example.application"));
+        assertEquals(
+                new AppWindowState(
+                        null,
+                        new RelativeWindowBounds(1000, 2000, 3000, 4000)),
+                decoded.appWindows.get("example.bounds"));
         final DisplayProfileStore.Profile decodedProfile =
                 decoded.displayProfiles.get("display:primary");
         assertEquals(160, decodedProfile.dpi);
         assertTrue(decodedProfile.dpiExplicit);
         assertFalse(decodedProfile.fillDisplay);
         assertEquals("2560x1440@120", decodedProfile.outputTiming);
-        assertEquals(10, decodedProfile.workspaceBounds.left);
-        assertEquals(20, decodedProfile.workspaceBounds.top);
-        assertEquals(1010, decodedProfile.workspaceBounds.right);
-        assertEquals(720, decodedProfile.workspaceBounds.bottom);
-        assertEquals(
-                "example.workspace", decodedProfile.workspaceBoundsTarget);
-        assertEquals(
-                new DesktopPlacement(2, 3, 1, 2),
-                decodedProfile.placements.get("app:example.application"));
     }
 
     @Test
@@ -81,12 +87,18 @@ public final class DesktopStateStoreTest {
                 "{\"format\":1,"
                         + "\"shortcuts\":[{\"package\":\"not a package\"}],"
                         + "\"taskbar\":[\"\",\"bad package\"],"
+                        + "\"desktopPlacements\":{"
+                        + "\"bad\":[-1,0,1,1]},"
+                        + "\"appWindows\":{"
+                        + "\"bad package\":{\"mode\":\"windowed\"}},"
                         + "\"displayProfiles\":{\"wrong-key\":{"
                         + "\"key\":\"display:primary\"}}}" );
 
         assertTrue(decoded.content.shortcuts.isEmpty());
         assertNull(decoded.content.workspaceTarget);
         assertTrue(decoded.taskbarPackages.isEmpty());
+        assertTrue(decoded.desktopPlacements.isEmpty());
+        assertTrue(decoded.appWindows.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
     }
 
@@ -151,19 +163,15 @@ public final class DesktopStateStoreTest {
         source.dpi = 160;
         source.fillDisplay = false;
         source.outputTiming = "1920x1080@60";
-        source.placements.put(
-                "app:example", new DesktopPlacement(1, 2, 1, 1));
 
         final DisplayProfileStore.Profile copy = DisplayProfileStore.copy(source);
         copy.dpi = 240;
         copy.fillDisplay = true;
         copy.outputTiming = null;
-        copy.placements.clear();
 
         assertEquals(160, source.dpi);
         assertFalse(source.fillDisplay);
         assertEquals("1920x1080@60", source.outputTiming);
-        assertEquals(1, source.placements.size());
     }
 
     @Test

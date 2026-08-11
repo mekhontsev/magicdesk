@@ -23,6 +23,12 @@ final class DesktopTaskWatcher {
         void onTaskGone(int generation, int taskId);
         void onNativeMaximizeChanged(
                 int generation, int taskId, boolean enteredFullscreen);
+        void onFreeformBoundsChanged(
+                int generation,
+                int taskId,
+                String packageName,
+                int displayId,
+                Rect bounds);
         void onDisconnected(int generation);
     }
 
@@ -247,7 +253,23 @@ final class DesktopTaskWatcher {
             final boolean enteredFullscreen) {
         postIfActive(generation, () ->
                 mListener.onNativeMaximizeChanged(
-                        generation, taskId, enteredFullscreen));
+                    generation, taskId, enteredFullscreen));
+    }
+
+    private void onFreeformBoundsChanged(
+            final int generation,
+            final int taskId,
+            final String packageName,
+            final int displayId,
+            final Rect bounds) {
+        final Rect snapshot = bounds == null ? null : new Rect(bounds);
+        postIfActive(generation, () ->
+                mListener.onFreeformBoundsChanged(
+                        generation,
+                        taskId,
+                        packageName,
+                        displayId,
+                        snapshot));
     }
 
     private void onFocusStackResult(
@@ -381,6 +403,23 @@ final class DesktopTaskWatcher {
         public void onObserverError(final String error)
                 throws RemoteException {
             mOwner.onObserverError(mGeneration, error);
+        }
+
+        @Override
+        public void onFreeformBoundsChanged(
+                final int taskId,
+                final String packageName,
+                final int displayId,
+                final int left,
+                final int top,
+                final int right,
+                final int bottom) throws RemoteException {
+            mOwner.onFreeformBoundsChanged(
+                    mGeneration,
+                    taskId,
+                    packageName,
+                    displayId,
+                    new Rect(left, top, right, bottom));
         }
     }
 }

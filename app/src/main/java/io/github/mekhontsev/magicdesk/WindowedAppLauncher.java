@@ -18,7 +18,10 @@ final class WindowedAppLauncher {
             final String packageName,
             final int displayId,
             final int[] preservedTaskIds,
-            final boolean explicitWindowed) throws IOException {
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds) throws IOException {
+        final Rect bounds = FloatingWindowController.getWindowBounds(
+                displayId, preferredBounds);
         final boolean nativeDesktop = NativeDesktopController.shouldUse();
         final ExistingTaskController.ReuseResult existing = reuse(
                 nativeDesktop,
@@ -26,7 +29,8 @@ final class WindowedAppLauncher {
                 displayId,
                 preservedTaskIds,
                 false,
-                explicitWindowed);
+                explicitWindowed,
+                bounds);
         if (existing.found) {
             return;
         }
@@ -35,8 +39,6 @@ final class WindowedAppLauncher {
         if (component == null) {
             throw new IOException("launcher activity is not explicit");
         }
-        final Rect bounds =
-                FloatingWindowController.getDefaultWindowBounds(displayId);
         final boolean restoreTouchpad =
                 ConsoleModeSwitcher.isTouchpadVisible();
         if (restoreTouchpad) {
@@ -59,7 +61,8 @@ final class WindowedAppLauncher {
                     displayId,
                     preservedTaskIds,
                     true,
-                    false);
+                    false,
+                    bounds);
             if (!launched.found) {
                 throw new IOException("launched task not found");
             }
@@ -80,20 +83,23 @@ final class WindowedAppLauncher {
             final int displayId,
             final int[] preservedTaskIds,
             final boolean waitForTask,
-            final boolean explicitWindowed) throws IOException {
+            final boolean explicitWindowed,
+            final Rect targetBounds) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
                         packageName,
                         displayId,
                         preservedTaskIds,
                         waitForTask,
-                        explicitWindowed)
+                        explicitWindowed,
+                        targetBounds)
                 : ExistingTaskController.reuseFreeformIfExists(
                         packageName,
                         displayId,
                         preservedTaskIds,
                         waitForTask,
-                        explicitWindowed);
+                        explicitWindowed,
+                        targetBounds);
     }
 
     private static int parseTaskId(final String output) throws IOException {

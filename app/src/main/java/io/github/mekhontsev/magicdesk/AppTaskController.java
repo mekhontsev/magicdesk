@@ -31,17 +31,26 @@ final class AppTaskController {
     }
 
     void launchDefault(final AppItem app) {
+        final AppWindowState saved =
+                AppWindowStateStore.load(app.packageName);
         Log.i(TAG, "launch default package=" + app.packageName
                 + " canFloat=" + app.canFloat
                 + " fullscreenReason=" + app.fullscreenReason
                 + " display=" + mActivity.getCurrentDisplayId());
-        if (canControlWindowing()
+        if (saved != null
+                && saved.mode == AppWindowState.Mode.WINDOWED
+                && canControlWindowing()) {
+            launchFloating(app, true, saved.windowBounds);
+        } else if (saved != null
+                && saved.mode == AppWindowState.Mode.FULLSCREEN) {
+            launchFullscreen(app, false);
+        } else if (canControlWindowing()
                 && app.canFloat
                 && AppItem.FULLSCREEN_REASON_NONE.equals(
                         app.fullscreenReason)) {
             launchFloating(app);
         } else {
-            launchFullscreen(app);
+            launchFullscreen(app, false);
         }
     }
 
@@ -56,8 +65,20 @@ final class AppTaskController {
     private void launchFloating(
             final AppItem app,
             final boolean explicitWindowed) {
+        final AppWindowState saved =
+                AppWindowStateStore.load(app.packageName);
+        launchFloating(
+                app,
+                explicitWindowed,
+                saved == null ? null : saved.windowBounds);
+    }
+
+    private void launchFloating(
+            final AppItem app,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds) {
         if (!canControlWindowing()) {
-            launchFullscreen(app);
+            launchFullscreen(app, false);
             return;
         }
         final TaskRepository.TaskEntry existingTask =
@@ -65,6 +86,11 @@ final class AppTaskController {
         if (existingTask != null
                 && existingTask.displayId == mActivity.getCurrentDisplayId()
                 && existingTask.isFreeform()) {
+            if (explicitWindowed) {
+                AppWindowStateStore.rememberMode(
+                        app.packageName,
+                        AppWindowState.Mode.WINDOWED);
+            }
             focusTask(app, existingTask);
             return;
         }
@@ -97,7 +123,13 @@ final class AppTaskController {
                         app.packageName,
                         displayId,
                         getTaskIds(visibleTasks),
-                        explicitWindowed);
+                        explicitWindowed,
+                        preferredBounds);
+                if (explicitWindowed) {
+                    AppWindowStateStore.rememberMode(
+                            app.packageName,
+                            AppWindowState.Mode.WINDOWED);
+                }
                 mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;
@@ -119,6 +151,12 @@ final class AppTaskController {
     }
 
     void launchFullscreen(final AppItem app) {
+        launchFullscreen(app, true);
+    }
+
+    private void launchFullscreen(
+            final AppItem app,
+            final boolean rememberMode) {
         Log.i(TAG, "launch fullscreen package=" + app.packageName
                 + " display=" + mActivity.getCurrentDisplayId());
         final int displayId =
@@ -134,6 +172,11 @@ final class AppTaskController {
                                 mActivity.getCurrentDisplayId(),
                                 false);
                 if (reuseResult.found) {
+                    if (rememberMode) {
+                        AppWindowStateStore.rememberMode(
+                                app.packageName,
+                                AppWindowState.Mode.FULLSCREEN);
+                    }
                     DesktopTaskController.finishFullscreenTransition(
                             displayId, true);
                     Log.i(TAG,
@@ -169,6 +212,11 @@ final class AppTaskController {
             ExistingTaskController.normalizeLaunchedFullscreen(
                     app.packageName,
                     mActivity.getCurrentDisplayId());
+            if (rememberMode) {
+                AppWindowStateStore.rememberMode(
+                        app.packageName,
+                        AppWindowState.Mode.FULLSCREEN);
+            }
             DesktopTaskController.finishFullscreenTransition(
                     displayId, true);
         } catch (IOException e) {
@@ -318,6 +366,7 @@ final class AppTaskController {
     void openTaskFullscreen(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
+        rememberWindowBounds(task);
         final int displayId =
                 beginFullscreenTransition(task.taskId);
         mActivity.setStatus(mActivity.getString(
@@ -329,6 +378,9 @@ final class AppTaskController {
                             displayId, result.success);
                     mActivity.runOnUiThread(() -> {
                         if (result.success) {
+                            AppWindowStateStore.rememberMode(
+                                    app.packageName,
+                                    AppWindowState.Mode.FULLSCREEN);
                             mActivity.setTaskbarVisible(false);
                         }
                         mActivity.setStatus(mActivity.getString(
@@ -343,6 +395,25 @@ final class AppTaskController {
                         mActivity.refreshTaskSnapshot();
                     });
                 });
+    }
+
+    private void rememberWindowBounds(
+            final TaskRepository.TaskEntry task) {
+        if (task == null || !task.isFreeform() || task.bounds.isEmpty()) {
+            return;
+        }
+        try {
+            final RelativeWindowBounds bounds = RelativeWindowBounds.from(
+                    task.bounds,
+                    FloatingWindowController.getWorkAreaBounds(
+                            task.displayId));
+            if (bounds != null) {
+                AppWindowStateStore.rememberWindowBounds(
+                        Collections.singletonMap(task.packageName, bounds));
+            }
+        } catch (IOException ignored) {
+            // The runtime task observer will capture the bounds when available.
+        }
     }
 
     int getOtherDisplayId(final TaskRepository.TaskEntry task) {
@@ -364,6 +435,7 @@ final class AppTaskController {
         if (targetDisplayId < 0) {
             return;
         }
+        rememberWindowBounds(task);
         mActivity.hideAllPanels();
         mActivity.setStatus(mActivity.getString(
                 R.string.status_moving_to_display,
@@ -372,6 +444,7 @@ final class AppTaskController {
         TaskRepository.moveTaskToDisplay(
                 task,
                 targetDisplayId,
+                savedWindowBounds(app.packageName),
                 result -> mActivity.runOnUiThread(() -> {
                     if (result.success) {
                         mActivity.setStatus(mActivity.getString(
@@ -389,6 +462,12 @@ final class AppTaskController {
                     MagicDeskRuntimeService
                             .refreshDesktopTasksIfRunning();
                 }));
+    }
+
+    private static RelativeWindowBounds savedWindowBounds(
+            final String packageName) {
+        final AppWindowState state = AppWindowStateStore.load(packageName);
+        return state == null ? null : state.windowBounds;
     }
 
     void closeTask(

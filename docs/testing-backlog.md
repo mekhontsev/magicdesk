@@ -206,10 +206,10 @@ not supported runtime modes:
 
 ## Pending Hardware Validation
 
-- [ ] On an external desktop, verify the same global files, shortcuts, and
-  widgets appear while their placements remain monitor-specific. Confirm a
-  rename preserves placement on both display profiles and Delete removes stale
-  placement metadata from both.
+- [ ] Across two differently sized external desktops, verify the same files,
+  shortcuts, and widgets retain proportional global placement and widget cell
+  spans. Confirm rename preserves that placement and Delete removes its global
+  placement metadata.
 - [ ] Test first-run Shizuku onboarding on a compatible device that has never
   had root and whose desktop properties retain stock values.
 - [ ] Test another RedMagic/ZTE Android 16 firmware and record every changed

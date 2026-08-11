@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Rect;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -156,6 +155,11 @@ final class DesktopStateStore {
         state.content.workspaceTarget = targetFromJson(
                 root.optJSONObject("workspaceTarget"));
         readPackages(root.optJSONArray("taskbar"), state.taskbarPackages);
+        readDesktopPlacements(
+                root.optJSONObject("desktopPlacements"),
+                state.desktopPlacements);
+        readAppWindows(
+                root.optJSONObject("appWindows"), state.appWindows);
 
         final JSONObject profiles = root.optJSONObject("displayProfiles");
         if (profiles != null) {
@@ -210,6 +214,8 @@ final class DesktopStateStore {
         snapshot.content.shortcuts.addAll(sState.content.shortcuts);
         snapshot.content.workspaceTarget = sState.content.workspaceTarget;
         snapshot.taskbarPackages.addAll(sState.taskbarPackages);
+        snapshot.desktopPlacements.putAll(sState.desktopPlacements);
+        snapshot.appWindows.putAll(sState.appWindows);
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
                 : sState.displayProfiles.entrySet()) {
             snapshot.displayProfiles.put(
@@ -236,6 +242,10 @@ final class DesktopStateStore {
                     targetToJson(state.content.workspaceTarget));
         }
         root.put("taskbar", stringsToJson(state.taskbarPackages));
+        root.put(
+                "desktopPlacements",
+                desktopPlacementsToJson(state.desktopPlacements));
+        root.put("appWindows", appWindowsToJson(state.appWindows));
 
         final JSONObject profiles = new JSONObject();
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
@@ -343,37 +353,6 @@ final class DesktopStateStore {
         if (profile.outputTiming != null && !profile.outputTiming.isEmpty()) {
             json.put("outputTiming", profile.outputTiming);
         }
-        if (profile.workspaceBounds != null
-                && profile.workspaceBounds.right > profile.workspaceBounds.left
-                && profile.workspaceBounds.bottom
-                        > profile.workspaceBounds.top) {
-            final JSONArray bounds = new JSONArray();
-            bounds.put(profile.workspaceBounds.left);
-            bounds.put(profile.workspaceBounds.top);
-            bounds.put(profile.workspaceBounds.right);
-            bounds.put(profile.workspaceBounds.bottom);
-            json.put("workspaceBounds", bounds);
-            if (profile.workspaceBoundsTarget != null) {
-                json.put(
-                        "workspaceBoundsTarget",
-                        profile.workspaceBoundsTarget);
-            }
-        }
-        final JSONObject placements = new JSONObject();
-        for (final Map.Entry<String, DesktopPlacement> entry
-                : profile.placements.entrySet()) {
-            final DesktopPlacement placement = entry.getValue();
-            if (entry.getKey() == null || placement == null) {
-                continue;
-            }
-            final JSONArray values = new JSONArray();
-            values.put(placement.column);
-            values.put(placement.row);
-            values.put(placement.columnSpan);
-            values.put(placement.rowSpan);
-            placements.put(entry.getKey(), values);
-        }
-        json.put("placements", placements);
         return json;
     }
 
@@ -393,45 +372,137 @@ final class DesktopStateStore {
         profile.fillDisplay = json.optBoolean("fillDisplay", true);
         final String outputTiming = json.optString("outputTiming", "");
         profile.outputTiming = outputTiming.isEmpty() ? null : outputTiming;
-        final JSONArray bounds = json.optJSONArray("workspaceBounds");
-        if (bounds != null && bounds.length() == 4) {
-            final int left = bounds.optInt(0);
-            final int top = bounds.optInt(1);
-            final int right = bounds.optInt(2);
-            final int bottom = bounds.optInt(3);
-            if (right > left && bottom > top) {
-                final Rect parsed = new Rect();
-                parsed.left = left;
-                parsed.top = top;
-                parsed.right = right;
-                parsed.bottom = bottom;
-                profile.workspaceBounds = parsed;
-                final String target = json.optString(
-                        "workspaceBoundsTarget", "");
-                profile.workspaceBoundsTarget = target.isEmpty()
-                        ? null : target;
-            }
-        }
-        final JSONObject placements = json.optJSONObject("placements");
-        if (placements != null) {
-            final java.util.Iterator<String> keys = placements.keys();
-            while (keys.hasNext()) {
-                final String itemId = keys.next();
-                final JSONArray values = placements.optJSONArray(itemId);
-                if (itemId.isEmpty() || values == null
-                        || values.length() != 4
-                        || values.optInt(0, -1) < 0
-                        || values.optInt(1, -1) < 0) {
-                    continue;
-                }
-                profile.placements.put(itemId, new DesktopPlacement(
-                        values.optInt(0),
-                        values.optInt(1),
-                        values.optInt(2, 1),
-                        values.optInt(3, 1)));
-            }
-        }
         return profile;
+    }
+
+    private static JSONObject desktopPlacementsToJson(
+            final Map<String, GlobalDesktopPlacement> placements)
+            throws JSONException {
+        final JSONObject json = new JSONObject();
+        for (final Map.Entry<String, GlobalDesktopPlacement> entry
+                : placements.entrySet()) {
+            final String itemId = entry.getKey();
+            final GlobalDesktopPlacement placement = entry.getValue();
+            if (itemId == null || itemId.isEmpty() || placement == null) {
+                continue;
+            }
+            final JSONArray values = new JSONArray();
+            values.put(placement.x);
+            values.put(placement.y);
+            values.put(placement.columnSpan);
+            values.put(placement.rowSpan);
+            json.put(itemId, values);
+        }
+        return json;
+    }
+
+    private static void readDesktopPlacements(
+            final JSONObject json,
+            final Map<String, GlobalDesktopPlacement> destination) {
+        if (json == null) {
+            return;
+        }
+        final java.util.Iterator<String> keys = json.keys();
+        while (keys.hasNext()) {
+            final String itemId = keys.next();
+            final JSONArray values = json.optJSONArray(itemId);
+            if (itemId.isEmpty() || itemId.length() > 2048
+                    || values == null || values.length() != 4
+                    || values.optInt(0, -1) < 0
+                    || values.optInt(1, -1) < 0
+                    || values.optInt(0) > GlobalDesktopPlacement.SCALE
+                    || values.optInt(1) > GlobalDesktopPlacement.SCALE
+                    || values.optInt(2, 0) <= 0
+                    || values.optInt(3, 0) <= 0) {
+                continue;
+            }
+            destination.put(itemId, new GlobalDesktopPlacement(
+                    values.optInt(0),
+                    values.optInt(1),
+                    values.optInt(2),
+                    values.optInt(3)));
+        }
+    }
+
+    private static JSONObject appWindowsToJson(
+            final Map<String, AppWindowState> appWindows)
+            throws JSONException {
+        final JSONObject json = new JSONObject();
+        for (final Map.Entry<String, AppWindowState> entry
+                : appWindows.entrySet()) {
+            final String packageName = entry.getKey();
+            final AppWindowState state = entry.getValue();
+            if (!PackageNameValidator.isSafe(packageName)
+                    || state == null
+                    || (state.mode == null
+                            && state.windowBounds == null)) {
+                continue;
+            }
+            final JSONObject value = new JSONObject();
+            if (state.mode != null) {
+                value.put("mode", state.mode == AppWindowState.Mode.WINDOWED
+                        ? "windowed" : "fullscreen");
+            }
+            if (state.windowBounds != null) {
+                final JSONArray bounds = new JSONArray();
+                bounds.put(state.windowBounds.x);
+                bounds.put(state.windowBounds.y);
+                bounds.put(state.windowBounds.width);
+                bounds.put(state.windowBounds.height);
+                value.put("bounds", bounds);
+            }
+            json.put(packageName, value);
+        }
+        return json;
+    }
+
+    private static void readAppWindows(
+            final JSONObject json,
+            final Map<String, AppWindowState> destination) {
+        if (json == null) {
+            return;
+        }
+        final java.util.Iterator<String> keys = json.keys();
+        while (keys.hasNext()) {
+            final String packageName = keys.next();
+            final JSONObject value = json.optJSONObject(packageName);
+            if (!PackageNameValidator.isSafe(packageName) || value == null) {
+                continue;
+            }
+            final String encodedMode = value.optString("mode", "");
+            final AppWindowState.Mode mode;
+            if ("windowed".equals(encodedMode)) {
+                mode = AppWindowState.Mode.WINDOWED;
+            } else if ("fullscreen".equals(encodedMode)) {
+                mode = AppWindowState.Mode.FULLSCREEN;
+            } else {
+                mode = null;
+            }
+            RelativeWindowBounds bounds = null;
+            final JSONArray encodedBounds = value.optJSONArray("bounds");
+            if (encodedBounds != null && encodedBounds.length() == 4
+                    && isRelativeValue(encodedBounds.optInt(0, -1), false)
+                    && isRelativeValue(encodedBounds.optInt(1, -1), false)
+                    && isRelativeValue(encodedBounds.optInt(2, -1), true)
+                    && isRelativeValue(encodedBounds.optInt(3, -1), true)) {
+                bounds = new RelativeWindowBounds(
+                        encodedBounds.optInt(0),
+                        encodedBounds.optInt(1),
+                        encodedBounds.optInt(2),
+                        encodedBounds.optInt(3));
+            }
+            if (mode == null && bounds == null) {
+                continue;
+            }
+            destination.put(packageName, new AppWindowState(mode, bounds));
+        }
+    }
+
+    private static boolean isRelativeValue(
+            final int value,
+            final boolean positive) {
+        return value >= (positive ? 1 : 0)
+                && value <= RelativeWindowBounds.SCALE;
     }
 
     private static void report(final String message, final Throwable error) {
@@ -457,6 +528,10 @@ final class DesktopStateStore {
         final DesktopContentStore.State content =
                 new DesktopContentStore.State();
         final List<String> taskbarPackages = new ArrayList<>();
+        final Map<String, GlobalDesktopPlacement> desktopPlacements =
+                new LinkedHashMap<>();
+        final Map<String, AppWindowState> appWindows =
+                new LinkedHashMap<>();
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();
     }

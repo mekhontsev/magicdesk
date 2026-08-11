@@ -119,13 +119,13 @@ final class DesktopWorkspaceController {
                 || mGrid.getRowCount() <= 0) {
             return;
         }
-        final List<Entry> entries = collectEntries();
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
+        final Map<String, GlobalDesktopPlacement> storedPlacements =
+                DesktopLayoutStore.snapshot();
+        final List<Entry> entries = collectEntries(storedPlacements);
         final List<DesktopPlacementEngine.Request> requests =
                 new ArrayList<>();
-        addRequests(entries, profile, requests, true);
-        addRequests(entries, profile, requests, false);
+        addRequests(entries, storedPlacements, requests, true);
+        addRequests(entries, storedPlacements, requests, false);
         final Map<String, DesktopPlacement> arranged =
                 DesktopPlacementEngine.arrange(
                         requests,
@@ -171,7 +171,7 @@ final class DesktopWorkspaceController {
             overflow.setOnClickListener(view -> openFolder());
             mGrid.addItem(overflow, "folder:overflow", overflowPlacement);
         }
-        saveArrangedPlacements(profile, entries, arranged);
+        saveArrangedPlacements(storedPlacements, entries, arranged);
     }
 
     boolean isDesktopShortcut(final AppItem app) {
@@ -187,9 +187,7 @@ final class DesktopWorkspaceController {
             }
             added = false;
             final String itemId = appItemId(app.launchTarget);
-            mActivity.getDisplayProfile().placements.remove(itemId);
-            mActivity.saveDisplayProfile();
-            DisplayProfileStore.removePlacementEverywhere(itemId);
+            DesktopLayoutStore.remove(itemId);
         } else {
             if (!mContent.addShortcut(app.launchTarget)) {
                 return;
@@ -224,9 +222,7 @@ final class DesktopWorkspaceController {
 
     void removeWidget(final int appWidgetId) {
         final String itemId = widgetItemId(appWidgetId);
-        mActivity.getDisplayProfile().placements.remove(itemId);
-        mActivity.saveDisplayProfile();
-        DisplayProfileStore.removePlacementEverywhere(itemId);
+        DesktopLayoutStore.remove(itemId);
         mWidgets.remove(appWidgetId);
     }
 
@@ -238,9 +234,14 @@ final class DesktopWorkspaceController {
             return;
         }
         final String itemId = widgetItemId(appWidgetId);
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
-        DesktopPlacement placement = profile.placements.get(itemId);
+        final Map<String, GlobalDesktopPlacement> storedPlacements =
+                DesktopLayoutStore.snapshot();
+        final GlobalDesktopPlacement stored =
+                storedPlacements.get(itemId);
+        DesktopPlacement placement = stored == null
+                ? mRenderedPlacements.get(itemId)
+                : stored.resolve(
+                        mGrid.getColumnCount(), mGrid.getRowCount());
         if (placement == null) {
             placement = new DesktopPlacement(0, 0, 1, 1);
         }
@@ -277,14 +278,17 @@ final class DesktopWorkspaceController {
             }
             break;
         }
-        profile.placements.put(itemId, placement.withSpan(
+        final DesktopPlacement resized = placement.withSpan(
                 Math.max(minimumColumns, Math.min(
                         maximumColumns,
                         placement.columnSpan + columnDelta)),
                 Math.max(minimumRows, Math.min(
                         maximumRows,
-                        placement.rowSpan + rowDelta))));
-        mActivity.saveDisplayProfile();
+                        placement.rowSpan + rowDelta)));
+        final GlobalDesktopPlacement global =
+                GlobalDesktopPlacement.from(resized, columns, rows);
+        DesktopLayoutStore.update(
+                placements -> placements.put(itemId, global));
         render(mApps);
     }
 
@@ -369,16 +373,7 @@ final class DesktopWorkspaceController {
         final String previousItemId = fileItemId(file.relativePath);
         mFolder.rename(file, newName, renamed -> {
             final String newItemId = fileItemId(renamed.relativePath);
-            final DisplayProfileStore.Profile profile =
-                    mActivity.getDisplayProfile();
-            final DesktopPlacement placement =
-                    profile.placements.remove(previousItemId);
-            if (placement != null) {
-                profile.placements.put(newItemId, placement);
-                mActivity.saveDisplayProfile();
-            }
-            DisplayProfileStore.renamePlacementEverywhere(
-                    previousItemId, newItemId);
+            DesktopLayoutStore.rename(previousItemId, newItemId);
             mActivity.setStatus(mActivity.getString(
                     R.string.status_desktop_entry_renamed,
                     renamed.name));
@@ -388,9 +383,7 @@ final class DesktopWorkspaceController {
     void deleteFile(final DesktopFile file) {
         final String itemId = fileItemId(file.relativePath);
         mFolder.delete(file, () -> {
-            mActivity.getDisplayProfile().placements.remove(itemId);
-            mActivity.saveDisplayProfile();
-            DisplayProfileStore.removePlacementEverywhere(itemId);
+            DesktopLayoutStore.remove(itemId);
             mActivity.setStatus(mActivity.getString(
                     R.string.status_desktop_entry_deleted,
                     file.name));
@@ -403,9 +396,7 @@ final class DesktopWorkspaceController {
             return;
         }
         final String itemId = appItemId(app.launchTarget);
-        mActivity.getDisplayProfile().placements.remove(itemId);
-        mActivity.saveDisplayProfile();
-        DisplayProfileStore.removePlacementEverywhere(itemId);
+        DesktopLayoutStore.remove(itemId);
         render(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
                 R.string.status_desktop_shortcut_removed,
@@ -416,7 +407,8 @@ final class DesktopWorkspaceController {
         render(mApps);
     }
 
-    private List<Entry> collectEntries() {
+    private List<Entry> collectEntries(
+            final Map<String, GlobalDesktopPlacement> storedPlacements) {
         final List<Entry> entries = new ArrayList<>();
         for (final AppLaunchTarget target : mContent.shortcuts()) {
             final AppItem app = mActivity.findOrLoadApp(mApps, target);
@@ -426,8 +418,8 @@ final class DesktopWorkspaceController {
         }
         for (final DesktopWidgetController.WidgetEntry widget
                 : mWidgets.widgets()) {
-            final DesktopPlacement stored = mActivity.getDisplayProfile()
-                    .placements.get(widget.itemId());
+            final GlobalDesktopPlacement stored =
+                    storedPlacements.get(widget.itemId());
             final int columnSpan = stored == null
                     ? initialSpan(widget.info.minWidth, mGrid.getCellWidth())
                     : stored.columnSpan;
@@ -446,7 +438,7 @@ final class DesktopWorkspaceController {
 
     private void addRequests(
             final List<Entry> entries,
-            final DisplayProfileStore.Profile profile,
+            final Map<String, GlobalDesktopPlacement> storedPlacements,
             final List<DesktopPlacementEngine.Request> requests,
             final boolean placed) {
         for (int priority = 0; priority <= 2; priority++) {
@@ -454,11 +446,15 @@ final class DesktopWorkspaceController {
                 if (entry.placementPriority() != priority) {
                     continue;
                 }
-                final DesktopPlacement preferred =
-                        profile.placements.get(entry.itemId);
-                if ((preferred != null) != placed) {
+                final GlobalDesktopPlacement stored =
+                        storedPlacements.get(entry.itemId);
+                if ((stored != null) != placed) {
                     continue;
                 }
+                final DesktopPlacement preferred = stored == null
+                        ? null : stored.resolve(
+                                mGrid.getColumnCount(),
+                                mGrid.getRowCount());
                 requests.add(new DesktopPlacementEngine.Request(
                         entry.itemId,
                         entry.columnSpan,
@@ -560,11 +556,14 @@ final class DesktopWorkspaceController {
             final String itemId,
             final int column,
             final int row) {
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
+        final Map<String, GlobalDesktopPlacement> storedPlacements =
+                DesktopLayoutStore.snapshot();
         DesktopPlacement current = mRenderedPlacements.get(itemId);
         if (current == null) {
-            current = profile.placements.get(itemId);
+            final GlobalDesktopPlacement stored =
+                    storedPlacements.get(itemId);
+            current = stored == null ? null : stored.resolve(
+                    mGrid.getColumnCount(), mGrid.getRowCount());
         }
         if (current == null) {
             current = new DesktopPlacement(column, row, 1, 1);
@@ -588,45 +587,48 @@ final class DesktopWorkspaceController {
         if (placement == null) {
             return;
         }
-        profile.placements.put(itemId, placement);
+        final GlobalDesktopPlacement global = GlobalDesktopPlacement.from(
+                placement,
+                mGrid.getColumnCount(),
+                mGrid.getRowCount());
+        DesktopLayoutStore.update(
+                placements -> placements.put(itemId, global));
         mEditingWidgetId = -1;
-        mActivity.saveDisplayProfile();
         render(mApps);
     }
 
     private void saveArrangedPlacements(
-            final DisplayProfileStore.Profile profile,
+            final Map<String, GlobalDesktopPlacement> storedPlacements,
             final List<Entry> entries,
             final Map<String, DesktopPlacement> arranged) {
-        boolean changed = false;
-        final Set<String> validIds = new HashSet<>();
+        boolean hasNewPlacement = false;
         for (final Entry entry : entries) {
-            validIds.add(entry.itemId);
-            final DesktopPlacement placement = arranged.get(entry.itemId);
-            if (placement != null
-                    && !placement.equals(
-                            profile.placements.get(entry.itemId))) {
-                profile.placements.put(entry.itemId, placement);
-                changed = true;
+            if (!storedPlacements.containsKey(entry.itemId)
+                    && arranged.containsKey(entry.itemId)) {
+                hasNewPlacement = true;
+                break;
             }
         }
-        final List<String> stale = new ArrayList<>();
-        for (final String itemId : profile.placements.keySet()) {
-            if ((itemId.startsWith(APP_PREFIX)
-                    || itemId.startsWith("widget:"))
-                    && !validIds.contains(itemId)) {
-                stale.add(itemId);
+        if (!hasNewPlacement) {
+            return;
+        }
+        DesktopLayoutStore.update(placements -> {
+            for (final Entry entry : entries) {
+                if (storedPlacements.containsKey(entry.itemId)) {
+                    continue;
+                }
+                final DesktopPlacement placement =
+                        arranged.get(entry.itemId);
+                final GlobalDesktopPlacement global =
+                        GlobalDesktopPlacement.from(
+                                placement,
+                                mGrid.getColumnCount(),
+                                mGrid.getRowCount());
+                if (global != null) {
+                    placements.put(entry.itemId, global);
+                }
             }
-        }
-        if (!stale.isEmpty()) {
-            changed = true;
-            for (final String itemId : stale) {
-                profile.placements.remove(itemId);
-            }
-        }
-        if (changed) {
-            mActivity.saveDisplayProfile();
-        }
+        });
     }
 
     private void onFilesChanged(
@@ -638,20 +640,22 @@ final class DesktopWorkspaceController {
             for (final DesktopFile file : files) {
                 liveFiles.add(fileItemId(file.relativePath));
             }
-            final DisplayProfileStore.Profile profile =
-                    mActivity.getDisplayProfile();
-            final List<String> stale = new ArrayList<>();
-            for (final String itemId : profile.placements.keySet()) {
+            final Map<String, GlobalDesktopPlacement> storedPlacements =
+                    DesktopLayoutStore.snapshot();
+            boolean hasStaleFiles = false;
+            for (final String itemId : storedPlacements.keySet()) {
                 if (itemId.startsWith(FILE_PREFIX)
                         && !liveFiles.contains(itemId)) {
-                    stale.add(itemId);
+                    hasStaleFiles = true;
+                    break;
                 }
             }
-            for (final String itemId : stale) {
-                profile.placements.remove(itemId);
-            }
-            if (!stale.isEmpty()) {
-                mActivity.saveDisplayProfile();
+            if (hasStaleFiles) {
+                DesktopLayoutStore.update(placements ->
+                        placements.entrySet().removeIf(entry ->
+                                entry.getKey().startsWith(FILE_PREFIX)
+                                        && !liveFiles.contains(
+                                                entry.getKey())));
             }
         }
         render(mApps);

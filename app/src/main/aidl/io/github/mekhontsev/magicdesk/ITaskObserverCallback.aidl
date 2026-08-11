@@ -15,4 +15,8 @@ oneway interface ITaskObserverCallback {
         long sequence, boolean success, int taskCount, String error) = 5;
 
     void onObserverError(String error) = 6;
+
+    void onFreeformBoundsChanged(
+        int taskId, String packageName, int displayId,
+        int left, int top, int right, int bottom) = 7;
 }

@@ -396,7 +396,7 @@ final class DesktopContextMenuController {
                     true,
                     view -> {
                         mActivity.hideAllPanels();
-                        mActivity.launchFloating(app);
+                        mActivity.launchWindowed(app);
                     });
         }
         addAction(

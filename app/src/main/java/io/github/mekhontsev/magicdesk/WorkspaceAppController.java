@@ -2,11 +2,13 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 
+import java.io.IOException;
+import java.util.Collections;
+
 final class WorkspaceAppController {
     private final DesktopShellActivity mActivity;
     private final DesktopContentStore mContent;
     private boolean mRestoreAttempted;
-    private boolean mBoundsRestorePending;
 
     WorkspaceAppController(
             final DesktopShellActivity activity,
@@ -17,16 +19,14 @@ final class WorkspaceAppController {
 
     void resetProfileState() {
         mRestoreAttempted = false;
-        mBoundsRestorePending = false;
     }
 
     void syncSnapshot(final TaskRepository.Snapshot snapshot) {
-        if (!mRestoreAttempted) {
-            mRestoreAttempted = true;
-            restore(snapshot, false);
+        if (mRestoreAttempted) {
             return;
         }
-        updateBounds(snapshot);
+        mRestoreAttempted = true;
+        restore(snapshot, false);
     }
 
     String getWorkspacePackage() {
@@ -43,16 +43,10 @@ final class WorkspaceAppController {
             final AppItem app,
             final TaskRepository.TaskEntry task,
             final boolean keep) {
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
         if (!keep) {
             if (!mContent.setWorkspaceTarget(null)) {
                 return;
             }
-            profile.workspaceBounds.setEmpty();
-            profile.workspaceBoundsTarget = null;
-            mBoundsRestorePending = false;
-            mActivity.saveDisplayProfile();
             mActivity.renderDesktopIcons(mActivity.getLauncherApps());
             mActivity.renderTaskbarPins(mActivity.getLauncherApps());
             mActivity.setStatus(mActivity.getString(
@@ -64,22 +58,13 @@ final class WorkspaceAppController {
         if (!mContent.setWorkspaceTarget(app.launchTarget)) {
             return;
         }
-        profile.workspaceBounds.setEmpty();
-        profile.workspaceBoundsTarget = app.launchTarget.stableKey();
-        if (task != null
-                && task.isFreeform()
-                && !task.bounds.isEmpty()) {
-            profile.workspaceBounds.set(task.bounds);
-        }
-        mActivity.saveDisplayProfile();
+        rememberBounds(task);
         mActivity.renderDesktopIcons(mActivity.getLauncherApps());
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setStatus(mActivity.getString(
                 R.string.status_workspace_app_kept,
                 app.label));
         if (task == null || !task.isFreeform()) {
-            mBoundsRestorePending =
-                    !profile.workspaceBounds.isEmpty();
             mActivity.launchFloating(app);
         }
     }
@@ -87,33 +72,26 @@ final class WorkspaceAppController {
     void restore(
             final TaskRepository.Snapshot snapshot,
             final boolean bringToFront) {
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
         final AppLaunchTarget target = mContent.workspaceTarget();
         if (target == null) {
             return;
         }
-        ensureBoundsBelongToTarget(profile, target);
         final AppItem app = mActivity.findOrLoadApp(
-                mActivity.getLauncherApps(),
-                target);
+                mActivity.getLauncherApps(), target);
         if (app == null) {
             return;
         }
-        final TaskRepository.TaskEntry task =
-                findTask(snapshot);
+        final TaskRepository.TaskEntry task = findTask(snapshot);
         if (task == null || !task.isFreeform()) {
-            mBoundsRestorePending =
-                    !profile.workspaceBounds.isEmpty();
             mActivity.launchFloating(app);
             return;
         }
-        if (!profile.workspaceBounds.isEmpty()
-                && !profile.workspaceBounds.equals(task.bounds)) {
-            final Rect bounds = new Rect(profile.workspaceBounds);
+
+        final Rect desiredBounds = resolveBounds(app.packageName);
+        if (desiredBounds != null && !desiredBounds.equals(task.bounds)) {
             TaskRepository.resizeTaskBounds(
                     task,
-                    bounds,
+                    desiredBounds,
                     result -> mActivity.runOnUiThread(() -> {
                         if (bringToFront) {
                             mActivity.focusTask(app, task);
@@ -122,6 +100,7 @@ final class WorkspaceAppController {
                     }));
             return;
         }
+        rememberBounds(task);
         if (bringToFront && !task.visible) {
             mActivity.focusTask(app, task);
         }
@@ -142,51 +121,35 @@ final class WorkspaceAppController {
         return null;
     }
 
-    private void updateBounds(
-            final TaskRepository.Snapshot snapshot) {
-        final DisplayProfileStore.Profile profile =
-                mActivity.getDisplayProfile();
-        final AppLaunchTarget target = mContent.workspaceTarget();
-        if (target == null) {
-            return;
+    private Rect resolveBounds(final String packageName) {
+        final AppWindowState state = AppWindowStateStore.load(packageName);
+        if (state == null || state.windowBounds == null) {
+            return null;
         }
-        ensureBoundsBelongToTarget(profile, target);
-        final TaskRepository.TaskEntry task = findTask(snapshot);
-        if (task == null
-                || !task.isFreeform()
-                || task.bounds.isEmpty()) {
-            return;
-        }
-        if (mBoundsRestorePending
-                && !profile.workspaceBounds.isEmpty()) {
-            final Rect desiredBounds =
-                    new Rect(profile.workspaceBounds);
-            mBoundsRestorePending = false;
-            if (!desiredBounds.equals(task.bounds)) {
-                TaskRepository.resizeTaskBounds(
-                        task,
-                        desiredBounds,
-                        result -> mActivity.runOnUiThread(
-                                mActivity::refreshTaskSnapshot));
-                return;
-            }
-        }
-        if (!profile.workspaceBounds.equals(task.bounds)) {
-            profile.workspaceBounds.set(task.bounds);
-            mActivity.saveDisplayProfile();
+        try {
+            return state.windowBounds.resolve(
+                    FloatingWindowController.getWorkAreaBounds(
+                            mActivity.getCurrentDisplayId()));
+        } catch (IOException error) {
+            return null;
         }
     }
 
-    private void ensureBoundsBelongToTarget(
-            final DisplayProfileStore.Profile profile,
-            final AppLaunchTarget target) {
-        final String targetKey = target.stableKey();
-        if (targetKey.equals(profile.workspaceBoundsTarget)) {
+    private void rememberBounds(final TaskRepository.TaskEntry task) {
+        if (task == null || !task.isFreeform() || task.bounds.isEmpty()) {
             return;
         }
-        profile.workspaceBounds.setEmpty();
-        profile.workspaceBoundsTarget = targetKey;
-        mBoundsRestorePending = false;
-        mActivity.saveDisplayProfile();
+        try {
+            final RelativeWindowBounds bounds = RelativeWindowBounds.from(
+                    task.bounds,
+                    FloatingWindowController.getWorkAreaBounds(
+                            mActivity.getCurrentDisplayId()));
+            if (bounds != null) {
+                AppWindowStateStore.rememberWindowBounds(
+                        Collections.singletonMap(task.packageName, bounds));
+            }
+        } catch (IOException ignored) {
+            // The runtime task observer will retry once work-area data settles.
+        }
     }
 }

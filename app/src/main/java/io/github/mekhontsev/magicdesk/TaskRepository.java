@@ -259,16 +259,45 @@ final class TaskRepository {
     static void moveTaskToDisplay(
             final TaskEntry task,
             final int targetDisplayId,
+            final RelativeWindowBounds preferredBounds,
             final ActionCallback callback) {
         if (!isUsableTask(task) || targetDisplayId < 0
                 || targetDisplayId == task.displayId) {
             complete(callback, false, "invalid target display");
             return;
         }
-        runAction(
-                CMD + " activity display move-stack "
-                        + task.rootTaskId + " " + targetDisplayId,
-                callback);
+        TaskCommandQueue.execute(() -> {
+            final CommandResult result;
+            try {
+                final String command;
+                if (task.isFreeform()) {
+                    final Rect bounds = FloatingWindowController
+                            .getWindowBounds(
+                                    targetDisplayId, preferredBounds);
+                    command = TaskDisplayAreaLaunchCommand.createMoveCommand(
+                            task.taskId,
+                            task.displayId,
+                            targetDisplayId,
+                            bounds);
+                } else {
+                    command = CMD + " activity display move-stack "
+                            + task.rootTaskId + " " + targetDisplayId;
+                }
+                result = runCommand(command);
+            } catch (IOException | RuntimeException error) {
+                complete(
+                        callback,
+                        false,
+                        error.getMessage() == null
+                                ? error.getClass().getSimpleName()
+                                : error.getMessage());
+                return;
+            }
+            if (callback != null) {
+                callback.onComplete(new ActionResult(
+                        result.success, result.output.trim()));
+            }
+        });
     }
 
     static void forceStop(final String packageName, final ActionCallback callback) {

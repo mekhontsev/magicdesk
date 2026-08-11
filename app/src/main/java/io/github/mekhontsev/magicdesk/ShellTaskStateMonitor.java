@@ -25,12 +25,17 @@ final class ShellTaskStateMonitor implements Closeable {
                 int taskId, boolean requesting, boolean initialSample);
         void onNativeMaximizeChanged(
                 int taskId, boolean enteredFullscreen);
+        void onFreeformBoundsChanged(
+                int taskId, String packageName, int displayId, Rect bounds);
         void onError(String error);
     }
 
     private static final long POLL_INTERVAL_MILLIS = 150;
     private static final int MAX_TASKS_TO_SCAN = 16;
+    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
+    private static final String MAGICDESK_PACKAGE =
+            "io.github.mekhontsev.magicdesk";
 
     private final Object mService;
     private final ActivityManager mActivityManager;
@@ -40,6 +45,8 @@ final class ShellTaskStateMonitor implements Closeable {
     private final Object mLock = new Object();
     private final Map<Integer, Integer> mLastVisibleTypes = new HashMap<>();
     private final Map<Integer, Integer> mLastProcessIds = new HashMap<>();
+    private final Map<Integer, FreeformBoundsState> mLastFreeformBounds =
+            new HashMap<>();
     private final Set<Integer> mFullscreenTasks = new HashSet<>();
     private final Set<Integer> mMaximizedTasks = new HashSet<>();
     private final Thread mThread;
@@ -100,6 +107,7 @@ final class ShellTaskStateMonitor implements Closeable {
             mWorkAreaBounds = new Rect(workAreaBounds);
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
+            mLastFreeformBounds.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
             mSampleGeneration++;
@@ -117,6 +125,7 @@ final class ShellTaskStateMonitor implements Closeable {
             mWorkAreaBounds.setEmpty();
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
+            mLastFreeformBounds.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
             mSampleGeneration++;
@@ -143,6 +152,7 @@ final class ShellTaskStateMonitor implements Closeable {
             mDisplayId = -1;
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
+            mLastFreeformBounds.clear();
             mFullscreenTasks.clear();
             mMaximizedTasks.clear();
             mLock.notifyAll();
@@ -178,7 +188,7 @@ final class ShellTaskStateMonitor implements Closeable {
             try {
                 final List<?> tasks = loadTasks(displayId);
                 mListener.onTasksSampled(displayId, tasks);
-                publishNativeMaximizeTransitions(
+                publishFreeformWindowChanges(
                         displayId, displayBounds, workAreaBounds, tasks);
                 publishImmersiveChanges(displayId, tasks);
                 failureReported = false;
@@ -317,13 +327,16 @@ final class ShellTaskStateMonitor implements Closeable {
                 activity.processName));
     }
 
-    private void publishNativeMaximizeTransitions(
+    private void publishFreeformWindowChanges(
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
             final List<?> tasks) throws ReflectiveOperationException {
         final Set<Integer> fullscreenTasks = new HashSet<>();
         final Set<Integer> maximizedTasks = new HashSet<>();
+        final Set<String> observedPackages = new HashSet<>();
+        final Map<Integer, FreeformBoundsState> freeformBounds =
+                new HashMap<>();
         for (final Object task : tasks) {
             if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
                 continue;
@@ -338,19 +351,36 @@ final class ShellTaskStateMonitor implements Closeable {
             }
             final Rect bounds = (Rect) windowConfiguration.getClass()
                     .getMethod("getBounds").invoke(windowConfiguration);
+            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final String packageName = HiddenTaskApi.getTaskPackage(task);
+            final int activityType =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getActivityType");
+            final Object topActivityInfo = mTopActivityInfo.get(task);
+            final String topPackage = topActivityInfo instanceof ActivityInfo
+                    ? ((ActivityInfo) topActivityInfo).packageName : null;
+            if (activityType == ACTIVITY_TYPE_STANDARD
+                    && PackageNameValidator.isSafe(packageName)
+                    && !MAGICDESK_PACKAGE.equals(packageName)
+                    && (topPackage == null
+                            || packageName.equals(topPackage))
+                    && !bounds.isEmpty()
+                    && observedPackages.add(packageName)) {
+                freeformBounds.put(
+                        Integer.valueOf(taskId),
+                        new FreeformBoundsState(packageName, bounds));
+            }
             if (displayBounds.equals(bounds)) {
-                final Integer taskId = Integer.valueOf(
-                        HiddenTaskApi.getIntField(task, "taskId"));
-                fullscreenTasks.add(taskId);
-                maximizedTasks.add(taskId);
+                fullscreenTasks.add(Integer.valueOf(taskId));
+                maximizedTasks.add(Integer.valueOf(taskId));
             } else if (workAreaBounds.equals(bounds)) {
-                maximizedTasks.add(Integer.valueOf(
-                        HiddenTaskApi.getIntField(task, "taskId")));
+                maximizedTasks.add(Integer.valueOf(taskId));
             }
         }
 
         final List<Integer> enteredFullscreen = new ArrayList<>();
         final List<Integer> exitedMaximize = new ArrayList<>();
+        final List<FreeformBoundsEvent> boundsChanges = new ArrayList<>();
         synchronized (mLock) {
             if (displayId != mDisplayId
                     || !displayBounds.equals(mDisplayBounds)
@@ -368,10 +398,27 @@ final class ShellTaskStateMonitor implements Closeable {
                     exitedMaximize.add(taskId);
                 }
             }
+            for (final Map.Entry<Integer, FreeformBoundsState> entry
+                    : freeformBounds.entrySet()) {
+                if (!entry.getValue().equals(
+                        mLastFreeformBounds.get(entry.getKey()))) {
+                    boundsChanges.add(new FreeformBoundsEvent(
+                            entry.getKey().intValue(), entry.getValue()));
+                }
+            }
             mFullscreenTasks.clear();
             mFullscreenTasks.addAll(fullscreenTasks);
             mMaximizedTasks.clear();
             mMaximizedTasks.addAll(maximizedTasks);
+            mLastFreeformBounds.clear();
+            mLastFreeformBounds.putAll(freeformBounds);
+        }
+        for (final FreeformBoundsEvent event : boundsChanges) {
+            mListener.onFreeformBoundsChanged(
+                    event.taskId,
+                    event.state.packageName,
+                    displayId,
+                    event.state.bounds);
         }
         for (final Integer taskId : enteredFullscreen) {
             mListener.onNativeMaximizeChanged(taskId.intValue(), true);
@@ -418,6 +465,49 @@ final class ShellTaskStateMonitor implements Closeable {
             this.taskId = taskId;
             this.requesting = requesting;
             this.initialSample = initialSample;
+        }
+    }
+
+    private static final class FreeformBoundsEvent {
+        final int taskId;
+        final FreeformBoundsState state;
+
+        FreeformBoundsEvent(
+                final int taskId,
+                final FreeformBoundsState state) {
+            this.taskId = taskId;
+            this.state = state;
+        }
+    }
+
+    private static final class FreeformBoundsState {
+        final String packageName;
+        final Rect bounds;
+
+        FreeformBoundsState(
+                final String packageName,
+                final Rect bounds) {
+            this.packageName = packageName;
+            this.bounds = new Rect(bounds);
+        }
+
+        @Override
+        public boolean equals(final Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof FreeformBoundsState)) {
+                return false;
+            }
+            final FreeformBoundsState state =
+                    (FreeformBoundsState) other;
+            return packageName.equals(state.packageName)
+                    && bounds.equals(state.bounds);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * packageName.hashCode() + bounds.hashCode();
         }
     }
 

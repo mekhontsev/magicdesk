@@ -110,7 +110,7 @@ final class DesktopWindowTransitionController {
             }
             final Integer taskId = Integer.valueOf(task.taskId);
             mManualImmersiveOverrides.add(taskId);
-            restoreFullscreenTask(task);
+            restoreFullscreenTask(task, true);
         }));
     }
 
@@ -279,6 +279,7 @@ final class DesktopWindowTransitionController {
                     mRestoreBounds.put(taskId, restoreBounds);
                     mFullscreenRestoreBounds.remove(taskId);
                     mAppRequestedFullscreenTasks.remove(taskId);
+                    rememberWindowed(task.packageName, targetBounds);
                     mRuntimeState.scheduleRefresh();
                 }));
     }
@@ -327,6 +328,9 @@ final class DesktopWindowTransitionController {
         }
         final int displayId = mRuntimeState.displayId();
         mFullscreenRestoreBounds.put(taskId, new Rect(task.bounds));
+        if (!appRequested) {
+            rememberWindowed(task.packageName, task.bounds);
+        }
         mNativeWindowBounds.clearForFullscreen(task.taskId);
         if (appRequested) {
             mAppRequestedFullscreenTasks.add(taskId);
@@ -358,6 +362,9 @@ final class DesktopWindowTransitionController {
                     }
                     mFullscreenTransitionTasks.remove(taskId);
                     finishWorkspaceTransition(displayId, true);
+                    AppWindowStateStore.rememberMode(
+                            task.packageName,
+                            AppWindowState.Mode.FULLSCREEN);
                 });
         if (appRequested) {
             TaskRepository.setAppRequestedFullscreen(task, callback);
@@ -369,7 +376,8 @@ final class DesktopWindowTransitionController {
     }
 
     private void restoreFullscreenTask(
-            final TaskRepository.TaskEntry task) {
+            final TaskRepository.TaskEntry task,
+            final boolean userRequested) {
         final Integer taskId = Integer.valueOf(task.taskId);
         if (!mFullscreenTransitionTasks.add(taskId)) {
             return;
@@ -392,11 +400,17 @@ final class DesktopWindowTransitionController {
         TaskRepository.setFreeform(
                 task, targetBounds,
                 result -> mHandler.post(() -> finishFullscreenRestore(
-                        task, result.success, result.message)));
+                        task,
+                        targetBounds,
+                        userRequested,
+                        result.success,
+                        result.message)));
     }
 
     private void finishFullscreenRestore(
             final TaskRepository.TaskEntry task,
+            final Rect targetBounds,
+            final boolean userRequested,
             final boolean success,
             final String message) {
         final Integer taskId = Integer.valueOf(task.taskId);
@@ -408,6 +422,9 @@ final class DesktopWindowTransitionController {
         }
         mFullscreenRestoreBounds.remove(taskId);
         mAppRequestedFullscreenTasks.remove(taskId);
+        if (userRequested) {
+            rememberWindowed(task.packageName, targetBounds);
+        }
         mRuntimeState.scheduleRefresh();
     }
 
@@ -441,7 +458,7 @@ final class DesktopWindowTransitionController {
                 mFullscreenRestoreBounds.remove(taskId);
                 continue;
             }
-            restoreFullscreenTask(task);
+            restoreFullscreenTask(task, false);
         }
 
         if (visibleFreeformTasks.isEmpty()) {
@@ -505,6 +522,16 @@ final class DesktopWindowTransitionController {
         if (mRuntimeState.isRunning()
                 && mRuntimeState.displayId() == displayId) {
             mRuntimeState.scheduleRefresh();
+        }
+    }
+
+    private void rememberWindowed(
+            final String packageName,
+            final Rect bounds) {
+        final RelativeWindowBounds relative = RelativeWindowBounds.from(
+                bounds, mNativeWindowBounds.getTaskbarMaximizedBounds());
+        if (relative != null) {
+            AppWindowStateStore.rememberWindowed(packageName, relative);
         }
     }
 

@@ -104,7 +104,11 @@ and selected-display recording.
   providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
 - Keep desktop files, widgets, pins, shortcuts, and recent applications global
-  while storing DPI and desktop/window geometry separately for each monitor.
+  across displays. Desktop-item and application-window positions use relative
+  coordinates so the layout adapts to each display, while output mode, Fill
+  display, and DPI remain per-monitor settings.
+- Remember an application's explicit Windowed or Fullscreen choice and its last
+  freeform position for subsequent Auto launches.
 - Use the phone's current static wallpaper or choose a custom desktop wallpaper,
   center-cropped for the active display.
 

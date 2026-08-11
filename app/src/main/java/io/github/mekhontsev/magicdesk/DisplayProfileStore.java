@@ -1,10 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Rect;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 final class DisplayProfileStore {
     private DisplayProfileStore() {
     }
@@ -33,37 +28,6 @@ final class DisplayProfileStore {
                 state.displayProfiles.put(snapshot.key, snapshot));
     }
 
-    static void removePlacementEverywhere(
-            final String itemId) {
-        updatePlacementEverywhere(itemId, null);
-    }
-
-    static void renamePlacementEverywhere(
-            final String previousItemId,
-            final String newItemId) {
-        if (newItemId == null || newItemId.length() == 0) {
-            return;
-        }
-        updatePlacementEverywhere(previousItemId, newItemId);
-    }
-
-    private static void updatePlacementEverywhere(
-            final String previousItemId,
-            final String newItemId) {
-        if (previousItemId == null || previousItemId.length() == 0) {
-            return;
-        }
-        DesktopStateStore.update(state -> {
-            for (final Profile profile : state.displayProfiles.values()) {
-                final DesktopPlacement placement =
-                        profile.placements.remove(previousItemId);
-                if (placement != null && newItemId != null) {
-                    profile.placements.put(newItemId, placement);
-                }
-            }
-        });
-    }
-
     static Profile copy(final Profile source) {
         if (source == null) {
             return null;
@@ -73,12 +37,6 @@ final class DisplayProfileStore {
         copy.dpiExplicit = source.dpiExplicit;
         copy.fillDisplay = source.fillDisplay;
         copy.outputTiming = source.outputTiming;
-        copy.workspaceBounds.left = source.workspaceBounds.left;
-        copy.workspaceBounds.top = source.workspaceBounds.top;
-        copy.workspaceBounds.right = source.workspaceBounds.right;
-        copy.workspaceBounds.bottom = source.workspaceBounds.bottom;
-        copy.workspaceBoundsTarget = source.workspaceBoundsTarget;
-        copy.placements.putAll(source.placements);
         return copy;
     }
 
@@ -88,11 +46,6 @@ final class DisplayProfileStore {
         boolean dpiExplicit;
         boolean fillDisplay = true;
         String outputTiming;
-        Rect workspaceBounds = new Rect();
-        String workspaceBoundsTarget;
-        final Map<String, DesktopPlacement> placements =
-                new LinkedHashMap<>();
-
         Profile(final String key) {
             this.key = key;
         }

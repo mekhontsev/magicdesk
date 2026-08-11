@@ -25,7 +25,7 @@ final class ExistingTaskController {
     static ReuseResult reuseIfExists(final String packageName, final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, targetFreeform,
-                null, false, false, false);
+                null, false, false, false, null);
     }
 
     static ReuseResult normalizeLaunchedFullscreen(
@@ -57,19 +57,21 @@ final class ExistingTaskController {
     static ReuseResult reuseNativeDesktopIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
-            final boolean explicitWindowed) throws IOException {
+            final boolean explicitWindowed,
+            final Rect targetBounds) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
-                explicitWindowed);
+                explicitWindowed, targetBounds);
     }
 
     static ReuseResult reuseFreeformIfExists(final String packageName,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
-            final boolean explicitWindowed) throws IOException {
+            final boolean explicitWindowed,
+            final Rect targetBounds) throws IOException {
         return reuseIfExists(packageName, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
-                explicitWindowed);
+                explicitWindowed, targetBounds);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -86,7 +88,8 @@ final class ExistingTaskController {
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
             final boolean waitForTask,
-            final boolean explicitWindowed) throws IOException {
+            final boolean explicitWindowed,
+            final Rect targetBounds) throws IOException {
         final TaskInfo task = waitForTask
                 ? waitForBestTask(packageName, targetDisplayId, targetFreeform)
                 : findBestTask(packageName, targetDisplayId, targetFreeform);
@@ -128,8 +131,8 @@ final class ExistingTaskController {
             if (task.displayId != targetDisplayId) {
                 final String command;
                 if (targetFreeform) {
-                    final Rect bounds = FloatingWindowController
-                            .getDefaultWindowBounds(targetDisplayId);
+                    final Rect bounds = resolveTargetBounds(
+                            targetDisplayId, targetBounds);
                     command = TaskDisplayAreaLaunchCommand.createMoveCommand(
                             task.taskId,
                             task.displayId,
@@ -155,12 +158,16 @@ final class ExistingTaskController {
                     NativeDesktopController.moveTaskToDesktop(task.taskId);
                     waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
                 }
+                if (targetBounds != null
+                        && !taskIsFreeform && !movedAsFreeform) {
+                    setBounds(task.taskId, targetBounds);
+                }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
             } else if (targetFreeform
                     && taskIsFullscreen
                     && !movedAsFreeform) {
                 Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
-                setFreeform(task.taskId, targetDisplayId);
+                setFreeform(task.taskId, targetDisplayId, targetBounds);
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
             } else if (!targetFreeform && taskIsFreeform) {
                 Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
@@ -252,11 +259,30 @@ final class ExistingTaskController {
         }
     }
 
-    private static void setFreeform(final int taskId, final int displayId)
+    private static void setFreeform(
+            final int taskId,
+            final int displayId,
+            final Rect targetBounds)
             throws IOException {
-        final Rect bounds = FloatingWindowController.getDefaultWindowBounds(displayId);
+        final Rect bounds = resolveTargetBounds(displayId, targetBounds);
         runCommand(TaskRepository.createFreeformTransitionCommand(
                 displayId, taskId, bounds));
+    }
+
+    private static Rect resolveTargetBounds(
+            final int displayId,
+            final Rect targetBounds) throws IOException {
+        return targetBounds == null || targetBounds.isEmpty()
+                ? FloatingWindowController.getDefaultWindowBounds(displayId)
+                : new Rect(targetBounds);
+    }
+
+    private static void setBounds(
+            final int taskId,
+            final Rect bounds) throws IOException {
+        runCommand("/system/bin/am task resize " + taskId
+                + " " + bounds.left + " " + bounds.top
+                + " " + bounds.right + " " + bounds.bottom);
     }
 
     private static void setFullscreen(final TaskInfo task, final int displayId)

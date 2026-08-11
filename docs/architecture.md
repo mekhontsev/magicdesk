@@ -197,7 +197,8 @@ runtime integration and are not distributed through the same release path.
   `FileObserver`. `DesktopWidgetController` owns the process-wide
   `AppWidgetHost` lifecycle and widget binding/configuration.
 - `DesktopStateStore` is the single typed model for persistent desktop content,
-  taskbar pins, and display profiles. `DesktopContentStore`,
+  taskbar pins, global layout, application window state, and display profiles.
+  `DesktopContentStore`, `DesktopLayoutStore`, `AppWindowStateStore`,
   `DesktopPreferences`, and `DisplayProfileStore` are narrow domain facades over
   that model. `DesktopPlacementEngine` is the platform-independent collision
   and reflow policy.
@@ -427,13 +428,14 @@ roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
 databases, preferences, and files. MagicDesk never edits launcher data.
 
 Each desktop target has a profile keyed by its Android display identity, never
-by the transient logical display ID. Profiles store DPI, wired output timing,
-the Fill display policy, sparse desktop-item placements, widget spans, and
-confirmed window geometry. Files under `/storage/emulated/0/Desktop`,
-system-managed widget bindings, taskbar pins, desktop shortcuts, the kept
-workspace application, and recent-app history are global across displays, so
-the same desktop content follows the user between the phone, a tablet, and
-every monitor while adapting to each viewport.
+by the transient logical display ID. Profiles store only DPI, wired output
+timing, and the Fill display policy. Files under
+`/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
+desktop shortcuts, desktop-item placement, the kept workspace application,
+application window state, and recent-app history are global across displays.
+Desktop items and freeform windows store fixed-point relative anchors rather
+than monitor pixels, so the same layout follows the user between the phone, a
+tablet, and every monitor while adapting to each viewport.
 
 Persistent desktop configuration has one source of truth:
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`. The shell UserService
@@ -443,7 +445,7 @@ metadata directory is excluded from the desktop file model and cannot be
 opened, renamed, or deleted through ordinary desktop-entry operations. Recent
 history, active tasks, diagnostics, and setup/recovery state remain private
 runtime state. Android widget bindings remain system-managed and scoped to the
-installed app and Android user. Display profiles may contain opaque placement
+installed app and Android user. Global layout data may contain opaque placement
 keys for currently bound widgets, but those keys cannot bind or instantiate a
 widget. Configuration can describe only package-default or explicit
 package/activity launch targets with an optional action string; it cannot
@@ -458,8 +460,8 @@ logical cells and row/column spans rather than pixels, so DPI or resolution
 changes only reflow items that no longer fit.
 
 Widget IDs are owned by Android's `AppWidgetHost` and are therefore global to
-the MagicDesk installation. MagicDesk persists only their per-display
-placement and size. Provider clicks remain native; widget movement is entered
+the MagicDesk installation. MagicDesk persists their global logical placement
+and cell span. Provider clicks remain native; widget movement is entered
 explicitly from the context menu so drag handling cannot steal controls or
 scroll gestures from the provider. Binding and optional configuration use the
 system widget activities and do not depend on Shizuku.
@@ -592,6 +594,16 @@ of trusting only Nubia's global state values.
 MagicDesk operates on exact task IDs. Windowed launches and restores use native
 WMShell desktop transitions when available. Snap and maximize reserve the
 MagicDesk taskbar; true fullscreen does not.
+
+`AppWindowStateStore` keeps one stable record per package: the last explicit
+Windowed or Fullscreen choice and, independently, the last confirmed freeform
+bounds. Auto launch honors an explicit choice first and otherwise retains the
+existing application-compatibility policy. The existing Shell task watcher
+emits an event only when the top visible freeform bounds for a package change;
+`AppWindowStateTracker` converts that event to relative bounds and coalesces a
+completed move or resize into one state write. This adds no polling loop.
+Bounds are resolved against the active desktop work area when a task is
+launched, restored, or moved to another display.
 
 The MagicDesk desktop itself is a visually opaque, display-sized standard
 Activity in fullscreen mode. Its task is marked force-translucent through the

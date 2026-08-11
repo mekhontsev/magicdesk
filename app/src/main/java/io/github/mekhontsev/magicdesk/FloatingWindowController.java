@@ -30,10 +30,7 @@ final class FloatingWindowController {
     }
 
     static Rect getDefaultWindowBounds(final int displayId) throws IOException {
-        final Rect desktopWorkArea =
-                DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
-        final Rect display = desktopWorkArea == null
-                ? getDisplayBounds(displayId) : desktopWorkArea;
+        final Rect display = getWorkAreaBounds(displayId);
         final int width = Math.min(1200,
                 Math.max(Math.min(640, display.width()),
                         Math.round(display.width() * 0.625f)));
@@ -45,6 +42,24 @@ final class FloatingWindowController {
         final int top =
                 display.top + (display.height() - height) / 2;
         return new Rect(left, top, left + width, top + height);
+    }
+
+    static Rect getWindowBounds(
+            final int displayId,
+            final RelativeWindowBounds preferred) throws IOException {
+        if (preferred == null) {
+            return getDefaultWindowBounds(displayId);
+        }
+        final Rect resolved = preferred.resolve(getWorkAreaBounds(displayId));
+        return resolved.isEmpty()
+                ? getDefaultWindowBounds(displayId) : resolved;
+    }
+
+    static Rect getWorkAreaBounds(final int displayId) throws IOException {
+        final Rect desktopWorkArea =
+                DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
+        return desktopWorkArea == null || desktopWorkArea.isEmpty()
+                ? getDisplayBounds(displayId) : desktopWorkArea;
     }
 
     private static String runCommand(final String command) throws IOException {
