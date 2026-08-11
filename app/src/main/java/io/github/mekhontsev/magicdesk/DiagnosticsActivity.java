@@ -176,6 +176,15 @@ public final class DiagnosticsActivity extends Activity {
                 || DesktopSelfTestController.isRunning()) {
             return;
         }
+        if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                != Display.INVALID_DISPLAY) {
+            mStatus.setText(R.string.diagnostics_self_test_close_desktop);
+            Toast.makeText(
+                    this,
+                    R.string.diagnostics_self_test_close_desktop,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         mSelfTestRunning = true;
         setActionsEnabled(false);
         mStatus.setText(R.string.diagnostics_self_test_running);

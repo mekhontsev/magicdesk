@@ -413,6 +413,7 @@
     <string name="diagnostics_self_test">Run desktop self-test</string>
     <string name="diagnostics_self_test_running">Running desktop and API self-test&#8230;</string>
     <string name="diagnostics_self_test_complete">Self-test complete: %1$s</string>
+    <string name="diagnostics_self_test_close_desktop">Close Desktop before running the self-test. The display may remain connected.</string>
     <string name="self_test_window_target">MagicDesk self-test window</string>
     <string name="console_title">Console</string>
     <string name="console_description">Run a one-time Android shell command or script. Standard output and errors are shown together.</string>

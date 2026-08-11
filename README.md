@@ -337,8 +337,9 @@ MagicDesk-only logcat entries. It excludes user files, accounts, notification
 contents, and the installed-application list.
 
 **Run desktop self-test** is a manual black-box check for contributors and
-compatibility reports. With all desktop sessions closed, it temporarily creates
-a simulated 1920x1080 display and exercises the production desktop, freeform,
+compatibility reports. With all desktop sessions closed (the external display
+may remain connected), it temporarily creates a simulated 1920x1080 display
+and exercises the production desktop, freeform,
 fullscreen, minimize/restore, taskbar geometry, native caption structure, and
 targeted-input paths, including recreation of the desktop Activity. It
 also checks the hidden Android and RedMagic APIs that can be inspected without
