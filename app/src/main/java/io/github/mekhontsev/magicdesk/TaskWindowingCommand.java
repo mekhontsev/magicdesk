@@ -67,7 +67,10 @@ public final class TaskWindowingCommand {
         if (right <= left || bottom <= top) {
             throw new IllegalArgumentException("invalid bounds");
         }
-        apply(displayId, taskId, WINDOWING_MODE_FREEFORM,
+        applyFreeform(
+                HiddenTaskApi.getService(),
+                displayId,
+                taskId,
                 new Rect(left, top, right, bottom));
         System.out.println("task-freeform=" + taskId);
     }
@@ -131,9 +134,11 @@ public final class TaskWindowingCommand {
         System.out.println("task-stack-restored=" + taskIds.length);
     }
 
-    private static void apply(final int displayId, final int taskId,
-            final int windowingMode, final Rect bounds) throws ReflectiveOperationException {
-        final Object service = HiddenTaskApi.getService();
+    static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
@@ -141,7 +146,10 @@ public final class TaskWindowingCommand {
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction = transactionClass.getConstructor().newInstance();
         transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(windowingMode));
+                .invoke(
+                        transaction,
+                        taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
         transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                 .invoke(transaction, taskToken, bounds);
         transactionClass.getMethod(

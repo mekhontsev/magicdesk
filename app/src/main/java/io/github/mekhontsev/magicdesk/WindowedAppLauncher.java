@@ -46,11 +46,20 @@ final class WindowedAppLauncher {
         }
         int taskId = -1;
         try {
+            final String launchCommand =
+                    DesktopRuntimeBridge.isSimulatedDesktopDisplay(displayId)
+                            ? TaskDisplayAreaLaunchCommand
+                                    .createTemporaryAreaAppLaunchCommand(
+                                            launchIntent,
+                                            displayId,
+                                            bounds)
+                            : TaskDisplayAreaLaunchCommand
+                                    .createDefaultAreaAppLaunchCommand(
+                                            launchIntent,
+                                            displayId,
+                                            bounds);
             final String output = ShellAccess.run(
-                    TaskDisplayAreaLaunchCommand.createAppLaunchCommand(
-                            launchIntent,
-                            displayId,
-                            bounds));
+                    launchCommand);
             taskId = parseTaskId(output);
             if (explicitWindowed) {
                 DesktopTaskController.beginExplicitWindowedLaunch(taskId);

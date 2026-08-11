@@ -90,7 +90,7 @@ final class ExistingTaskController {
             final boolean waitForTask,
             final boolean explicitWindowed,
             final Rect targetBounds) throws IOException {
-        final TaskInfo task = waitForTask
+        TaskInfo task = waitForTask
                 ? waitForBestTask(packageName, targetDisplayId, targetFreeform)
                 : findBestTask(packageName, targetDisplayId, targetFreeform);
         if (task == null) {
@@ -123,14 +123,18 @@ final class ExistingTaskController {
             if (restoreTouchpad) {
                 DesktopTaskController.expectTouchpadDisplacement();
             }
-            final boolean taskIsFreeform =
+            boolean taskIsFreeform =
                     MODE_FREEFORM.equals(task.windowingMode);
-            final boolean taskIsFullscreen =
+            boolean taskIsFullscreen =
                     MODE_FULLSCREEN.equals(task.windowingMode);
             boolean movedAsFreeform = false;
+            boolean movedDisplay = false;
             if (task.displayId != targetDisplayId) {
                 final String command;
-                if (targetFreeform) {
+                if (targetFreeform
+                        && DesktopRuntimeBridge
+                                .isSimulatedDesktopDisplay(
+                                        targetDisplayId)) {
                     final Rect bounds = resolveTargetBounds(
                             targetDisplayId, targetBounds);
                     command = TaskDisplayAreaLaunchCommand.createMoveCommand(
@@ -151,6 +155,18 @@ final class ExistingTaskController {
                     throw new IOException(output.trim());
                 }
                 waitForTaskDisplay(task.taskId, targetDisplayId);
+                movedDisplay = true;
+                final TaskInfo movedTask = findTask(task.taskId);
+                if (movedTask == null) {
+                    throw new IOException(
+                            "moved task " + task.taskId
+                                    + " is unavailable");
+                }
+                task = movedTask;
+                taskIsFreeform =
+                        MODE_FREEFORM.equals(task.windowingMode);
+                taskIsFullscreen =
+                        MODE_FULLSCREEN.equals(task.windowingMode);
             }
 
             if (nativeDesktop) {
@@ -159,7 +175,8 @@ final class ExistingTaskController {
                     waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
                 }
                 if (targetBounds != null
-                        && !taskIsFreeform && !movedAsFreeform) {
+                        && !movedAsFreeform
+                        && (!taskIsFreeform || movedDisplay)) {
                     setBounds(task.taskId, targetBounds);
                 }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);

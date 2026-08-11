@@ -128,7 +128,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mStateMonitor.clearConfiguration();
             return;
         }
-        mFreeformCleanup.configure(displayId);
+        // Nubia's stale DesktopTaskView crash is a phone Quickstep defect.
+        // External tasks must remain outside that recovery path.
+        mFreeformCleanup.configure(
+                displayId == Display.DEFAULT_DISPLAY ? displayId : -1);
         mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);

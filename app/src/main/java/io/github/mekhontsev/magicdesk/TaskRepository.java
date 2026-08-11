@@ -270,7 +270,10 @@ final class TaskRepository {
             final CommandResult result;
             try {
                 final String command;
-                if (task.isFreeform()) {
+                if (task.isFreeform()
+                        && DesktopRuntimeBridge
+                                .isSimulatedDesktopDisplay(
+                                        targetDisplayId)) {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
                                     targetDisplayId, preferredBounds);

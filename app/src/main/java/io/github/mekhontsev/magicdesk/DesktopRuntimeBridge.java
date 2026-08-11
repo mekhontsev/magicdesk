@@ -147,6 +147,11 @@ final class DesktopRuntimeBridge {
                 ? sDesktopSessionKind : null;
     }
 
+    static boolean isSimulatedDesktopDisplay(final int displayId) {
+        return getDesktopTargetKind(displayId)
+                == DesktopDisplayTarget.Kind.SIMULATED;
+    }
+
     static DesktopViewport getDesktopViewport(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || activity.getCurrentDisplayId() != displayId) {

@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Removes orphaned Recents entries for freeform tasks observed during the
- * current desktop session.
+ * Removes orphaned phone Recents entries for freeform tasks observed during
+ * a local desktop session.
  */
 final class ShellFreeformTaskCleanup implements Closeable {
     interface Listener {
