@@ -1,8 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.DragAndDropPermissions;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -221,6 +223,28 @@ final class DesktopFolderController {
         });
     }
 
+    void importFiles(
+            final List<Uri> uris,
+            final DragAndDropPermissions permissions) {
+        if (mReleased || uris == null || uris.isEmpty()) {
+            releasePermissions(permissions);
+            return;
+        }
+        mExecutor.execute(() -> {
+            DesktopFileRepository.ImportResult result;
+            try {
+                result = mFilesRepository.importFiles(uris);
+            } catch (IOException | RuntimeException error) {
+                result = new DesktopFileRepository.ImportResult(
+                        0, uris.size(), error);
+            } finally {
+                releasePermissions(permissions);
+            }
+            final DesktopFileRepository.ImportResult completed = result;
+            mHandler.post(() -> onImportCompleted(uris.size(), completed));
+        });
+    }
+
     private void executeOperation(
             final FileOperation operation,
             final Consumer<DesktopFileInfo> completed) {
@@ -304,6 +328,53 @@ final class DesktopFolderController {
                     "path=" + ShellDesktopDirectory.ABSOLUTE_PATH,
                     error);
         });
+    }
+
+    private void onImportCompleted(
+            final int requested,
+            final DesktopFileRepository.ImportResult result) {
+        if (mReleased) {
+            return;
+        }
+        if (result.failed == 0) {
+            mActivity.setStatus(mActivity.getResources().getQuantityString(
+                    R.plurals.status_desktop_files_copied,
+                    result.copied,
+                    Integer.valueOf(result.copied)));
+        } else {
+            final Throwable error = result.firstFailure == null
+                    ? new IOException("dropped file could not be copied")
+                    : result.firstFailure;
+            final String message = result.copied == 0
+                    ? mActivity.getString(
+                            R.string.status_desktop_file_operation_failed,
+                            ShellAccess.usefulMessage(error))
+                    : mActivity.getResources().getQuantityString(
+                            R.plurals.status_desktop_files_partially_copied,
+                            requested,
+                            Integer.valueOf(result.copied),
+                            Integer.valueOf(requested));
+            mActivity.setErrorStatus(
+                    "FILES-005",
+                    message,
+                    "copied=" + result.copied + " failed=" + result.failed,
+                    error);
+        }
+        if (result.copied > 0) {
+            refresh(true, mThumbnailLimit);
+        }
+    }
+
+    private static void releasePermissions(
+            final DragAndDropPermissions permissions) {
+        if (permissions == null) {
+            return;
+        }
+        try {
+            permissions.release();
+        } catch (RuntimeException ignored) {
+            // The owning activity may already have released the drag grant.
+        }
     }
 
     @FunctionalInterface

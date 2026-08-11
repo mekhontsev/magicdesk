@@ -4,10 +4,13 @@ import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.DocumentsContract;
 import android.util.Log;
+import android.view.DragAndDropPermissions;
+import android.view.DragEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -16,6 +19,7 @@ import android.widget.FrameLayout;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,6 +86,11 @@ final class DesktopWorkspaceController {
                     final int column,
                     final int row) {
                 moveItem(itemId, column, row);
+            }
+
+            @Override
+            public boolean onExternalDrop(final DragEvent event) {
+                return importDroppedFiles(event);
             }
         });
         mGrid = grid;
@@ -481,7 +490,7 @@ final class DesktopWorkspaceController {
         } else if (entry.file != null) {
             view = mViews.file(entry.file);
             view.setOnClickListener(target -> openFile(entry.file));
-            enableDrag(view, entry.itemId);
+            enableDrag(view, entry.itemId, entry.file);
             mActivity.registerFileContextTarget(view, entry.file);
         } else {
             final AppWidgetHostView widgetView =
@@ -519,8 +528,15 @@ final class DesktopWorkspaceController {
     }
 
     // This passive listener detects drag slop and leaves ordinary clicks to the view.
-    @SuppressLint("ClickableViewAccessibility")
     private void enableDrag(final View view, final String itemId) {
+        enableDrag(view, itemId, null);
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private void enableDrag(
+            final View view,
+            final String itemId,
+            final DesktopFile file) {
         final int touchSlop =
                 ViewConfiguration.get(mActivity).getScaledTouchSlop();
         final float[] down = new float[2];
@@ -535,14 +551,16 @@ final class DesktopWorkspaceController {
                     && !dragging[0]
                     && (Math.abs(event.getX() - down[0]) > touchSlop
                             || Math.abs(event.getY() - down[1]) > touchSlop)) {
-                final ClipData data = ClipData.newPlainText(
-                        mActivity.getString(R.string.desktop_drag_label),
-                        itemId);
+                final ClipData data = dragData(itemId, file);
+                final int flags = file == null || file.directory
+                        ? 0
+                        : View.DRAG_FLAG_GLOBAL
+                                | View.DRAG_FLAG_GLOBAL_URI_READ;
                 dragging[0] = target.startDragAndDrop(
                         data,
                         new View.DragShadowBuilder(target),
                         new DesktopGridLayout.DragToken(itemId),
-                        0);
+                        flags);
                 return dragging[0];
             } else if (action == MotionEvent.ACTION_UP
                     || action == MotionEvent.ACTION_CANCEL) {
@@ -550,6 +568,47 @@ final class DesktopWorkspaceController {
             }
             return false;
         });
+    }
+
+    private ClipData dragData(
+            final String itemId,
+            final DesktopFile file) {
+        if (file == null || file.directory) {
+            return ClipData.newPlainText(
+                    mActivity.getString(R.string.desktop_drag_label),
+                    itemId);
+        }
+        final String mimeType = file.mimeType == null
+                ? "application/octet-stream" : file.mimeType;
+        return new ClipData(
+                file.name,
+                new String[]{mimeType, ClipDescription.MIMETYPE_TEXT_URILIST},
+                new ClipData.Item(file.uri));
+    }
+
+    private boolean importDroppedFiles(final DragEvent event) {
+        final ClipData data = event.getClipData();
+        if (data == null) {
+            return false;
+        }
+        final Set<Uri> uniqueUris = new LinkedHashSet<>();
+        for (int index = 0; index < data.getItemCount(); index++) {
+            final Uri uri = data.getItemAt(index).getUri();
+            if (uri != null) {
+                uniqueUris.add(uri);
+            }
+        }
+        if (uniqueUris.isEmpty()) {
+            return false;
+        }
+        DragAndDropPermissions permissions = null;
+        try {
+            permissions = mActivity.requestDragAndDropPermissions(event);
+        } catch (RuntimeException error) {
+            Log.d(TAG, "Drag URI permission was not granted", error);
+        }
+        mFolder.importFiles(new ArrayList<>(uniqueUris), permissions);
+        return true;
     }
 
     private void moveItem(

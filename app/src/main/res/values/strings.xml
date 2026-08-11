@@ -176,6 +176,14 @@
     <string name="status_desktop_folder_failed">Desktop folder unavailable: %1$s</string>
     <string name="status_desktop_folder_open_failed">Cannot open the Desktop folder</string>
     <string name="status_desktop_file_operation_failed">Desktop file operation failed: %1$s</string>
+    <plurals name="status_desktop_files_partially_copied">
+        <item quantity="one">Copied %1$d of %2$d file to Desktop</item>
+        <item quantity="other">Copied %1$d of %2$d files to Desktop</item>
+    </plurals>
+    <plurals name="status_desktop_files_copied">
+        <item quantity="one">%1$d file copied to Desktop</item>
+        <item quantity="other">%1$d files copied to Desktop</item>
+    </plurals>
     <string name="status_desktop_entry_created">%1$s created</string>
     <string name="status_desktop_entry_renamed">Renamed to %1$s</string>
     <string name="status_desktop_entry_deleted">%1$s deleted</string>

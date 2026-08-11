@@ -14,6 +14,8 @@ final class DesktopGridLayout extends ViewGroup {
         void onGridSizeChanged(int columns, int rows);
 
         void onItemDropped(String itemId, int column, int row);
+
+        boolean onExternalDrop(DragEvent event);
     }
 
     private final int mCellWidth;
@@ -77,7 +79,14 @@ final class DesktopGridLayout extends ViewGroup {
             final int offsetY) {
         final Object state = event.getLocalState();
         if (!(state instanceof DragToken)) {
-            return false;
+            if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
+                return mListener != null
+                        && event.getClipDescription() != null;
+            }
+            if (event.getAction() == DragEvent.ACTION_DROP) {
+                return mListener != null && mListener.onExternalDrop(event);
+            }
+            return mListener != null;
         }
         if (event.getAction() == DragEvent.ACTION_DROP && mListener != null) {
             final int column = Math.max(0, Math.min(
