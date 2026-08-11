@@ -79,7 +79,6 @@ final class DesktopRuntimeBridge {
                 return;
             }
             final int displayId = activity.getCurrentDisplayId();
-            FreeformLaunchAnchorActivity.release();
             sDesktop.clear();
             if (displayId == sDesktopSessionDisplayId
                     || sDesktopSessionDisplayId == Display.DEFAULT_DISPLAY) {
@@ -107,7 +106,6 @@ final class DesktopRuntimeBridge {
         sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
         sDesktopSessionKind = null;
         final Runnable close = () -> {
-            FreeformLaunchAnchorActivity.release();
             activity.releaseDesktopOverlays();
             if (!activity.isFinishing()) {
                 activity.finishAndRemoveTask();

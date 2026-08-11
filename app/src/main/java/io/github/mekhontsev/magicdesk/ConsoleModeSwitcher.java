@@ -125,6 +125,47 @@ final class ConsoleModeSwitcher {
         });
     }
 
+    static void closeDesktop(
+            final int displayId,
+            final DesktopDisplayTarget.Kind targetKind,
+            final boolean restorePhonePanel,
+            final ResultCallback callback) {
+        if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
+            complete(callback, true);
+            return;
+        }
+        if (targetKind == DesktopDisplayTarget.Kind.SIMULATED) {
+            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
+            complete(callback, true);
+            return;
+        }
+        if (targetKind == DesktopDisplayTarget.Kind.WIRELESS) {
+            disconnectWirelessDisplay(success -> {
+                if (success && restorePhonePanel) {
+                    MagicDeskRuntimeService
+                            .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
+                                    displayId);
+                }
+                complete(callback, success);
+            });
+            return;
+        }
+        if (restorePhonePanel) {
+            switchToMirrorWithControlPanel(
+                    success -> complete(callback, success));
+        } else {
+            switchToMirror(success -> complete(callback, success));
+        }
+    }
+
+    private static void complete(
+            final ResultCallback callback,
+            final boolean success) {
+        if (callback != null) {
+            callback.onComplete(success);
+        }
+    }
+
     private static void showPreferredDesktop(
             final int knownConsoleDisplayId) {
         if (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY

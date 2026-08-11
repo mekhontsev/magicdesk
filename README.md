@@ -349,6 +349,12 @@ mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
 devices are present. Native resize-cursor selection is checked when WMShell
 exposes its transition trace; otherwise it remains explicitly **NOT TESTED**
 because Android overlay displays do not render a readable hardware cursor.
+The test launches its window through the production temporary task display
+area. A one-shot shell task observer records the new window's first front-state
+and reports any transient fullscreen launch. It also moves an existing
+fullscreen phone task through the same path and verifies that its first state
+on the external display is already freeform. The eventual corrected state is
+never mistaken for the initial one.
 The simulated-display setting is owned by a lifecycle-bound Shizuku stream and
 restored when the test finishes or its process disconnects.
 

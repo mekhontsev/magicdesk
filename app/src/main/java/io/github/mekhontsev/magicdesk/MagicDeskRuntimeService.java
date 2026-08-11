@@ -467,7 +467,6 @@ public final class MagicDeskRuntimeService extends Service {
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
         PhoneDisplayGuard.requestRestore();
-        FreeformLaunchAnchorActivity.release();
         super.onDestroy();
     }
 

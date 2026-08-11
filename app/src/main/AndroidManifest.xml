@@ -136,16 +136,6 @@
             android:resizeableActivity="false"
             android:taskAffinity="${applicationId}.touchpad" />
 
-        <activity
-            android:name=".FreeformLaunchAnchorActivity"
-            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:resizeableActivity="true"
-            android:taskAffinity="${applicationId}.desktoplaunch"
-            android:theme="@style/TransparentActivityTheme" />
-
         <service
             android:name=".MagicDeskRuntimeService"
             android:exported="false"

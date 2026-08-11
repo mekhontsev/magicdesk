@@ -76,17 +76,46 @@ final class AppTaskController {
                 R.string.status_launching_window, app.label));
         final List<TaskRepository.TaskEntry> visibleTasks =
                 takeInteractionVisibleTasks();
-        try {
-            FreeformLaunchAnchorActivity.launch(
-                    mActivity,
-                    app.launchTarget,
-                    getTaskIds(visibleTasks),
-                    explicitWindowed);
-        } catch (RuntimeException e) {
-            TaskRepository.bringStackToFront(
-                    visibleTasks, null, null);
-            mActivity.showLaunchFailure(e);
+        final int displayId = mActivity.getCurrentDisplayId();
+        final Intent launchIntent = app.launchTarget.resolve(
+                mActivity.getPackageManager());
+        if (launchIntent == null) {
+            TaskRepository.bringStackToFront(visibleTasks, null, null);
+            mActivity.setErrorStatus(
+                    "APP-LAUNCH-002",
+                    mActivity.getString(
+                            R.string.status_launch_failed,
+                            "no launcher activity"),
+                    "package=" + app.packageName,
+                    null);
+            return;
         }
+        TaskCommandQueue.execute(() -> {
+            try {
+                WindowedAppLauncher.launch(
+                        launchIntent,
+                        app.packageName,
+                        displayId,
+                        getTaskIds(visibleTasks),
+                        explicitWindowed);
+                mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    mActivity.setStatus(mActivity.getString(
+                            R.string.status_switch_done, app.label));
+                    mActivity.refreshTaskSnapshot();
+                });
+            } catch (IOException | RuntimeException error) {
+                TaskRepository.bringStackToFront(
+                        visibleTasks, null, null);
+                mActivity.runOnUiThread(() -> {
+                    if (!mActivity.isActivityUnavailable()) {
+                        mActivity.showLaunchFailure(error);
+                    }
+                });
+            }
+        });
     }
 
     void launchFullscreen(final AppItem app) {

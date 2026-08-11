@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
+import android.app.TaskStackListener;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.view.Display;
@@ -170,6 +171,28 @@ final class HiddenTaskApi {
     static int getTaskDisplayId(final Object task) {
         final Object value = getOptionalField(task, "displayId");
         return value instanceof Number ? ((Number) value).intValue() : -1;
+    }
+
+    static void registerTaskStackListener(
+            final Object service,
+            final TaskStackListener listener)
+            throws ReflectiveOperationException {
+        final Class<?> listenerClass =
+                Class.forName("android.app.ITaskStackListener");
+        service.getClass().getMethod(
+                "registerTaskStackListener", listenerClass)
+                .invoke(service, listener);
+    }
+
+    static void unregisterTaskStackListener(
+            final Object service,
+            final TaskStackListener listener)
+            throws ReflectiveOperationException {
+        final Class<?> listenerClass =
+                Class.forName("android.app.ITaskStackListener");
+        service.getClass().getMethod(
+                "unregisterTaskStackListener", listenerClass)
+                .invoke(service, listener);
     }
 
     private static Object getOptionalField(final Object target, final String name) {

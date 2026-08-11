@@ -34,7 +34,6 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         final PhoneDesktopTaskRecovery.Result result =
                 PhoneDesktopTaskRecovery.recoverForTest(
-                        -1,
                         () -> environment.commands.size() < 2,
                         environment);
 
@@ -50,7 +49,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         final PhoneDesktopTaskRecovery.Result result =
                 PhoneDesktopTaskRecovery.recoverForTest(
-                        -1, () -> true, environment);
+                        () -> true, environment);
 
         assertTrue(result.success);
         assertFalse(result.cancelled);
@@ -65,7 +64,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         final PhoneDesktopTaskRecovery.Result result =
                 PhoneDesktopTaskRecovery.recoverForTest(
-                        -1, () -> true, environment);
+                        () -> true, environment);
 
         assertTrue(result.success);
         assertTrue(environment.hasReviveCommand());

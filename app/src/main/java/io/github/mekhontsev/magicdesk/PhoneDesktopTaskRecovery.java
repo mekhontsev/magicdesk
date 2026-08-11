@@ -60,43 +60,28 @@ final class PhoneDesktopTaskRecovery {
     }
 
     static void recover(final Callback callback) {
-        recover(-1, -1, false, ALWAYS_CONTINUE, callback);
-    }
-
-    static void recover(
-            final int releasedAnchorTaskId,
-            final Callback callback) {
-        recover(releasedAnchorTaskId, -1, false, ALWAYS_CONTINUE, callback);
+        recover(-1, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recoverRemovedDisplay(
             final int removedDisplayId,
             final Callback callback) {
-        recover(-1, removedDisplayId, false, ALWAYS_CONTINUE, callback);
+        recover(removedDisplayId, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recoverRemovedDisplayAfterTimeout(
             final int removedDisplayId,
             final Callback callback) {
-        recover(-1, removedDisplayId, true, ALWAYS_CONTINUE, callback);
-    }
-
-    static void recover(
-            final int releasedAnchorTaskId,
-            final Continuation continuation,
-            final Callback callback) {
-        recover(releasedAnchorTaskId, -1, false, continuation, callback);
+        recover(removedDisplayId, true, ALWAYS_CONTINUE, callback);
     }
 
     private static void recover(
-            final int releasedAnchorTaskId,
             final int removedDisplayId,
             final boolean allowUnsettledRemoval,
             final Continuation continuation,
             final Callback callback) {
         TaskCommandQueue.execute(() -> {
             final Result result = recoverNow(
-                    releasedAnchorTaskId,
                     removedDisplayId,
                     allowUnsettledRemoval,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
@@ -115,7 +100,6 @@ final class PhoneDesktopTaskRecovery {
         try {
             return TaskCommandQueue.call(() -> recoverNow(
                     -1,
-                    -1,
                     false,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT));
@@ -126,11 +110,9 @@ final class PhoneDesktopTaskRecovery {
     }
 
     static Result recoverForTest(
-            final int releasedAnchorTaskId,
             final Continuation continuation,
             final Environment environment) {
         return recoverNow(
-                releasedAnchorTaskId,
                 -1,
                 false,
                 continuation,
@@ -143,7 +125,6 @@ final class PhoneDesktopTaskRecovery {
             final Continuation continuation,
             final Environment environment) {
         return recoverNow(
-                -1,
                 removedDisplayId,
                 allowUnsettledRemoval,
                 continuation,
@@ -159,7 +140,6 @@ final class PhoneDesktopTaskRecovery {
     }
 
     private static Result recoverNow(
-            final int releasedAnchorTaskId,
             final int removedDisplayId,
             final boolean allowUnsettledRemoval,
             final Continuation continuation,
@@ -170,16 +150,6 @@ final class PhoneDesktopTaskRecovery {
         if (cancelled(continuation)) {
             return Result.cancelled();
         }
-        if (releasedAnchorTaskId >= 0
-                && !waitForPhoneTaskGone(
-                        releasedAnchorTaskId, continuation, environment)) {
-            return cancelled(continuation)
-                    ? Result.cancelled()
-                    : Result.failure(
-                            "MagicDesk launch anchor remains active: "
-                                    + releasedAnchorTaskId);
-        }
-
         final CommandResult stack = runRead(
                 CMD + " activity stack list", continuation, environment);
         if (stack.cancelled) {
@@ -217,7 +187,6 @@ final class PhoneDesktopTaskRecovery {
         final Set<Integer> phoneRepositoryTaskIds = new LinkedHashSet<>(
                 SystemUiDesktopRepositoryParser.parseTaskIds(
                         repository.output, 0));
-        phoneRepositoryTaskIds.remove(Integer.valueOf(releasedAnchorTaskId));
         excludeMagicDeskTasks(phoneRepositoryTaskIds, liveTasks);
         final Set<Integer> missingTaskIds = new LinkedHashSet<>(
                 phoneRepositoryTaskIds);
@@ -339,7 +308,6 @@ final class PhoneDesktopTaskRecovery {
             final Set<Integer> remaining = new LinkedHashSet<>(
                     SystemUiDesktopRepositoryParser.parseTaskIds(
                             currentRepository.output, 0));
-            remaining.remove(Integer.valueOf(releasedAnchorTaskId));
             final Map<Integer, PhoneTask> currentTasks =
                     indexPhoneTasks(currentStack.output);
             excludeMagicDeskTasks(remaining, currentTasks);
@@ -450,27 +418,6 @@ final class PhoneDesktopTaskRecovery {
                     Integer.valueOf(taskId));
             if (task != null
                     && (freeform ? task.freeform : task.fullscreen)) {
-                return true;
-            }
-            if (!sleepForStatePoll(continuation)) {
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private static boolean waitForPhoneTaskGone(
-            final int taskId,
-            final Continuation continuation,
-            final Environment environment) {
-        for (int attempt = 0; attempt < 20; attempt++) {
-            final CommandResult stack = runRead(
-                    CMD + " activity stack list", continuation, environment);
-            if (!stack.success) {
-                return false;
-            }
-            if (!indexPhoneTasks(stack.output).containsKey(
-                    Integer.valueOf(taskId))) {
                 return true;
             }
             if (!sleepForStatePoll(continuation)) {

@@ -342,24 +342,18 @@ final class ShizukuCapabilityProbe {
         }
 
         TaskStackListener listener = null;
-        Method unregister = null;
         try {
-            final Class<?> listenerClass =
-                    Class.forName("android.app.ITaskStackListener");
-            final Method register = service.getClass().getMethod(
-                    "registerTaskStackListener", listenerClass);
-            unregister = service.getClass().getMethod(
-                    "unregisterTaskStackListener", listenerClass);
             listener = new TaskStackListener() {
             };
-            register.invoke(service, listener);
+            HiddenTaskApi.registerTaskStackListener(service, listener);
             append(report, "tasks.listener", "granted", "");
         } catch (Throwable error) {
             append(report, "tasks.listener", "denied", usefulMessage(error));
         } finally {
-            if (service != null && listener != null && unregister != null) {
+            if (service != null && listener != null) {
                 try {
-                    unregister.invoke(service, listener);
+                    HiddenTaskApi.unregisterTaskStackListener(
+                            service, listener);
                 } catch (ReflectiveOperationException | RuntimeException ignored) {
                     // A transient listener is harmless if the process exits first.
                 }

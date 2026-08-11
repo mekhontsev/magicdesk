@@ -247,7 +247,6 @@ public abstract class DesktopShellActivity extends Activity
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
         mTaskbarRevealController.start();
-        FreeformLaunchAnchorActivity.prepare(this);
         mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
         mDesktopControls.start();
@@ -1364,7 +1363,7 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayDensityController.ensurePreferred();
     }
 
-    void showLaunchFailure(final RuntimeException e) {
+    void showLaunchFailure(final Exception e) {
         Log.w(TAG, "launch failed", e);
         final String message = e.getMessage() == null ? e.getClass().getSimpleName()
                 : e.getMessage();

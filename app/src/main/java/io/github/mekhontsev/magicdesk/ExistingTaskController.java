@@ -6,7 +6,6 @@ import android.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -14,8 +13,6 @@ import java.util.Set;
 final class ExistingTaskController {
     private static final String TAG = "MagicDeskTaskReuse";
     private static final String CMD = "/system/bin/cmd";
-    private static final String TASK_WINDOWING_COMMAND =
-            "io.github.mekhontsev.magicdesk.TaskWindowingCommand";
     private static final String MODE_FULLSCREEN = "fullscreen";
     private static final String MODE_FREEFORM = "freeform";
     private static final long TASK_APPEAR_TIMEOUT_MILLIS = 6000;
@@ -85,68 +82,6 @@ final class ExistingTaskController {
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
     }
 
-    static void prepareFreeformLaunchSource(
-            final int taskId,
-            final int displayId,
-            final Rect bounds) throws IOException {
-        if (taskId < 0 || displayId < 0 || bounds == null || bounds.isEmpty()) {
-            throw new IOException("invalid freeform launch source");
-        }
-        runCommand(TaskRepository.createFreeformTransitionCommand(
-                displayId, taskId, bounds));
-        waitForTaskState(taskId, displayId, MODE_FREEFORM);
-    }
-
-    static void focusFreeformLaunchSource(
-            final int taskId,
-            final int displayId) throws IOException {
-        final TaskInfo task = findTask(taskId);
-        if (task == null
-                || task.displayId != displayId
-                || !MODE_FREEFORM.equals(task.windowingMode)) {
-            throw new IOException("freeform launch source unavailable");
-        }
-        runCommand(TaskFocusCommands.createShellCommand(
-                Collections.singletonList(Integer.valueOf(taskId))));
-    }
-
-    static void parkFreeformLaunchSource(
-            final int taskId,
-            final int displayId) throws IOException {
-        if (taskId < 0 || displayId < 0) {
-            throw new IOException("invalid freeform launch source");
-        }
-        runCommand(AppProcessCommand.run(
-                TASK_WINDOWING_COMMAND,
-                "send-behind " + displayId + " " + taskId));
-    }
-
-    static void parkFullscreenLaunchSource(
-            final int taskId,
-            final int displayId) throws IOException {
-        if (taskId < 0 || displayId < 0) {
-            throw new IOException("invalid launch source");
-        }
-        runCommand(AppProcessCommand.run(
-                TASK_WINDOWING_COMMAND,
-                "fullscreen-behind " + displayId + " " + taskId));
-        waitForTaskState(taskId, displayId, MODE_FULLSCREEN);
-    }
-
-    static void removeFreeformTaskCleanly(final int taskId)
-            throws IOException {
-        TaskInfo task = findTask(taskId);
-        if (task != null && MODE_FREEFORM.equals(task.windowingMode)) {
-            setFullscreen(task, task.displayId);
-            waitForTaskState(taskId, task.displayId, MODE_FULLSCREEN);
-        }
-        runCommand(AppProcessCommand.run(
-                "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                "remove " + taskId));
-        waitForTaskAbsent(taskId);
-        Log.i(TAG, "removed launch-source task=" + taskId);
-    }
-
     private static ReuseResult reuseIfExists(final String packageName,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
@@ -189,21 +124,41 @@ final class ExistingTaskController {
                     MODE_FREEFORM.equals(task.windowingMode);
             final boolean taskIsFullscreen =
                     MODE_FULLSCREEN.equals(task.windowingMode);
+            boolean movedAsFreeform = false;
             if (task.displayId != targetDisplayId) {
-                final String command = CMD + " activity display move-stack "
-                        + task.rootTaskId + " " + targetDisplayId;
+                final String command;
+                if (targetFreeform) {
+                    final Rect bounds = FloatingWindowController
+                            .getDefaultWindowBounds(targetDisplayId);
+                    command = TaskDisplayAreaLaunchCommand.createMoveCommand(
+                            task.taskId,
+                            task.displayId,
+                            targetDisplayId,
+                            bounds);
+                    movedAsFreeform = true;
+                } else {
+                    command = CMD + " activity display move-stack "
+                            + task.rootTaskId + " " + targetDisplayId;
+                }
                 Log.i(TAG, "move display: " + command);
-                runCommand(command);
+                final String output = runCommand(command);
+                if (movedAsFreeform
+                        && !output.contains(
+                                "task-display-area-move=" + task.taskId)) {
+                    throw new IOException(output.trim());
+                }
                 waitForTaskDisplay(task.taskId, targetDisplayId);
             }
 
             if (nativeDesktop) {
-                if (!taskIsFreeform) {
+                if (!taskIsFreeform && !movedAsFreeform) {
                     NativeDesktopController.moveTaskToDesktop(task.taskId);
                     waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
                 }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
-            } else if (targetFreeform && taskIsFullscreen) {
+            } else if (targetFreeform
+                    && taskIsFullscreen
+                    && !movedAsFreeform) {
                 Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
                 setFreeform(task.taskId, targetDisplayId);
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
@@ -274,19 +229,6 @@ final class ExistingTaskController {
         throw new IOException("task " + taskId
                 + " did not enter " + windowingMode
                 + " mode on display " + displayId);
-    }
-
-    private static void waitForTaskAbsent(final int taskId)
-            throws IOException {
-        final long deadline = SystemClock.uptimeMillis()
-                + TASK_STATE_TIMEOUT_MILLIS;
-        do {
-            if (findTask(taskId) == null) {
-                return;
-            }
-            SystemClock.sleep(TASK_STATE_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("task " + taskId + " remained after removal");
     }
 
     private static void bringTaskStackToFrontBestEffort(final TaskInfo task,
@@ -394,10 +336,6 @@ final class ExistingTaskController {
         return targetFreeform
                 ? MODE_FREEFORM.equals(task.windowingMode)
                 : MODE_FULLSCREEN.equals(task.windowingMode);
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private static String runCommand(final String command) throws IOException {

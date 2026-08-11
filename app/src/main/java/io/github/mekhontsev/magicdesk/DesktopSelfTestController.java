@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -16,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runs a manually requested black-box desktop test on an Android overlay display. */
@@ -26,11 +29,11 @@ final class DesktopSelfTestController {
             PACKAGE_NAME + ".DesktopSelfTestActivity";
     private static final String DESKTOP_CLASS =
             PACKAGE_NAME + ".DesktopActivity";
-    private static final String LAUNCH_ANCHOR_CLASS =
-            PACKAGE_NAME + ".FreeformLaunchAnchorActivity";
     private static final int EXPECTED_WIDTH = 1920;
     private static final int EXPECTED_HEIGHT = 1080;
     private static final int EXPECTED_DENSITY = 160;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int RESIZE_EDGE_OUTSET_PX = 8;
     private static final long STEP_TIMEOUT_MILLIS = 10_000L;
     private static final long POLL_MILLIS = 100L;
@@ -60,7 +63,6 @@ final class DesktopSelfTestController {
         }
 
         int displayId = Display.INVALID_DISPLAY;
-        int fixtureTaskId = -1;
         SimulatedDisplayLease lease = null;
         try {
             require(result, "API-SHELL-001", "Shizuku command service", () -> {
@@ -148,28 +150,56 @@ final class DesktopSelfTestController {
                 throw new IOException(
                         "desktop activity did not become ready after recreation");
             });
-            require(result, "DESKTOP-004", "Wait for window launch anchor", () -> {
-                final TaskStackParser.Entry anchor = waitForLaunchAnchor(
-                        targetDisplayId, desktopTask.taskId);
-                return "task=" + anchor.taskId;
-            });
-
             require(result, "WINDOW-000", "Clear stale self-test windows", () -> {
                 removeFixtureTasks();
                 return "ready";
             });
             appContext.deleteFile(DesktopSelfTestActivity.MARKER_FILE);
             final String token = Long.toHexString(System.nanoTime());
-            fixtureTaskId = require(result,
-                    "WINDOW-001", "Launch freeform test window", () -> {
-                        launchFixture(targetDisplayId, token);
-                        final TaskStackParser.Entry fixture = waitForTask(
-                                targetDisplayId, FIXTURE_CLASS, null);
-                        return Integer.valueOf(fixture.taskId);
-                    }, null).intValue();
-
-            final int targetFixtureTaskId = fixtureTaskId;
             final Rect windowBounds = new Rect(160, 120, 960, 720);
+            final DesktopTaskLaunchProbe.Observation initialLaunch = require(
+                    result,
+                    "WINDOW-001", "Launch test window through task display area",
+                    () -> launchFixtureAndObserve(
+                            targetDisplayId, token, windowBounds));
+            final int targetFixtureTaskId = initialLaunch.taskId;
+            result.add(initialLaunch.windowingMode == WINDOWING_MODE_FREEFORM
+                            && equalsBounds(initialLaunch, windowBounds)
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    "WINDOW-007", "Initial task window state",
+                    initialLaunch.toString());
+            require(result,
+                    "WINDOW-010",
+                    "Verify direct launch settles as freeform",
+                    () -> {
+                        final TaskStackParser.Entry task = waitForTask(
+                                targetDisplayId,
+                                FIXTURE_CLASS,
+                                entry -> entry.taskId == targetFixtureTaskId
+                                        && "freeform".equals(
+                                                entry.windowingMode)
+                                        && equalsBounds(
+                                                entry.bounds,
+                                                windowBounds));
+                        return "task=" + task.taskId
+                                + ", bounds=" + formatBounds(task.bounds);
+                    });
+            require(result,
+                    "WINDOW-009",
+                    "Move existing task to phone fullscreen",
+                    () -> reopenTask(
+                            Display.DEFAULT_DISPLAY,
+                            targetFixtureTaskId,
+                            null));
+            require(result,
+                    "WINDOW-008",
+                    "Move phone task directly to external freeform",
+                    () -> reopenTaskAsFreeform(
+                            targetDisplayId,
+                            targetFixtureTaskId,
+                            desktopTask.taskId,
+                            windowBounds));
             require(result, "WINDOW-002", "Apply freeform bounds", () -> {
                 ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
                         targetDisplayId, targetFixtureTaskId, windowBounds));
@@ -251,7 +281,7 @@ final class DesktopSelfTestController {
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
-            cleanup(result, displayId, fixtureTaskId, lease);
+            cleanup(result, displayId, lease);
             RUNNING.set(false);
         }
         return finish(result, appContext);
@@ -381,21 +411,107 @@ final class DesktopSelfTestController {
         });
     }
 
-    private static void launchFixture(final int displayId, final String token)
-            throws IOException {
-        final String output = ShellAccess.run(
-                "/system/bin/am start -W"
-                        + " --display " + displayId
-                        + " --windowingMode 5"
-                        + " -f 0x18800000"
-                        + " --ei " + DesktopSelfTestActivity.EXTRA_DISPLAY_ID
-                        + " " + displayId
-                        + " --es " + DesktopSelfTestActivity.EXTRA_TOKEN
-                        + " " + token
-                        + " -n " + PACKAGE_NAME + "/.DesktopSelfTestActivity");
-        if (output.startsWith("Error:")
-                || output.contains("Exception occurred while executing")) {
-            throw new IOException(output.trim());
+    private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
+            final int displayId,
+            final String token,
+            final Rect bounds) throws IOException {
+        final ComponentName component =
+                new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
+        try (DesktopTaskLaunchProbe probe =
+                     DesktopTaskLaunchProbe.open(-1, component)) {
+            final String output = ShellAccess.run(
+                    TaskDisplayAreaLaunchCommand
+                            .createSelfTestLaunchCommand(
+                                    displayId, token, bounds));
+            if (!output.contains("task-display-area-launch=")) {
+                throw new IOException(output.trim());
+            }
+            final DesktopTaskLaunchProbe.Observation observation =
+                    probe.awaitObservation();
+            if (observation.displayId != displayId) {
+                throw new IOException(
+                        "test window launched on the wrong display: "
+                                + observation);
+            }
+            return observation;
+        }
+    }
+
+    private static DesktopTaskLaunchProbe.Observation reopenTaskAsFreeform(
+            final int displayId,
+            final int taskId,
+            final int desktopTaskId,
+            final Rect bounds) throws IOException {
+        ShellAccess.run(TaskFocusCommands.createShellCommand(
+                Collections.singletonList(Integer.valueOf(desktopTaskId))));
+        waitForWindowFocus(displayId, true);
+        return reopenTask(displayId, taskId, bounds);
+    }
+
+    private static DesktopTaskLaunchProbe.Observation reopenTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws IOException {
+        final ComponentName component =
+                new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
+        final boolean freeform = bounds != null;
+        final TaskStackParser.Entry currentTask = findTaskOnAnyDisplay(
+                ShellAccess.run("/system/bin/cmd activity stack list"),
+                FIXTURE_CLASS);
+        if (currentTask == null || currentTask.taskId != taskId) {
+            throw new IOException("task " + taskId + " is unavailable");
+        }
+        if (!freeform) {
+            if (currentTask.displayId != displayId) {
+                ShellAccess.run(
+                        "/system/bin/cmd activity display move-stack "
+                                + currentTask.rootTaskId + " " + displayId);
+                waitForTask(
+                        displayId,
+                        FIXTURE_CLASS,
+                        entry -> entry.taskId == taskId);
+            }
+            ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
+                    displayId, taskId));
+            final TaskStackParser.Entry fullscreenTask = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "fullscreen".equals(entry.windowingMode));
+            return new DesktopTaskLaunchProbe.Observation(
+                    taskId,
+                    displayId,
+                    WINDOWING_MODE_FULLSCREEN,
+                    fullscreenTask.bounds.left,
+                    fullscreenTask.bounds.top,
+                    fullscreenTask.bounds.right,
+                    fullscreenTask.bounds.bottom);
+        }
+        try (DesktopTaskLaunchProbe probe =
+                     DesktopTaskLaunchProbe.open(taskId, component)) {
+            final String output = ShellAccess.run(
+                    TaskDisplayAreaLaunchCommand.createMoveCommand(
+                            taskId,
+                            currentTask.displayId,
+                            displayId,
+                            bounds));
+            final String expectedOutput =
+                    "task-display-area-move=" + taskId;
+            if (!output.contains(expectedOutput)) {
+                throw new IOException(output.trim());
+            }
+            final DesktopTaskLaunchProbe.Observation observation =
+                    probe.awaitObservation();
+            final int expectedMode = freeform
+                    ? WINDOWING_MODE_FREEFORM : WINDOWING_MODE_FULLSCREEN;
+            if (observation.taskId != taskId
+                    || observation.displayId != displayId
+                    || observation.windowingMode != expectedMode
+                    || (freeform && !equalsBounds(observation, bounds))) {
+                throw new IOException(
+                        "unexpected task front-state: " + observation);
+            }
+            return observation;
         }
     }
 
@@ -621,46 +737,6 @@ final class DesktopSelfTestController {
                 : "restored window did not receive focus");
     }
 
-    private static TaskStackParser.Entry waitForLaunchAnchor(
-            final int displayId, final int desktopTaskId) throws IOException {
-        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
-        TaskStackParser.Entry lastDesktop = null;
-        TaskStackParser.Entry lastAnchor = null;
-        boolean lastPrepared = false;
-        do {
-            final String stack = ShellAccess.run(
-                    "/system/bin/cmd activity stack list");
-            final TaskStackParser.Entry desktop = findTask(
-                    stack, displayId, DESKTOP_CLASS);
-            final TaskStackParser.Entry anchor = findTask(
-                    stack, displayId, LAUNCH_ANCHOR_CLASS);
-            final boolean prepared = FreeformLaunchAnchorActivity
-                    .isPreparedForDisplay(displayId);
-            lastDesktop = desktop;
-            lastAnchor = anchor;
-            lastPrepared = prepared;
-            if (desktop != null
-                    && desktop.taskId == desktopTaskId
-                    && desktop.visible
-                    && prepared
-                    && isReadyAnchorTask(anchor)) {
-                return anchor;
-            }
-            SystemClock.sleep(POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("freeform launch anchor did not become ready: "
-                + "desktop=" + describeTask(lastDesktop)
-                + ", expectedDesktopTask=" + desktopTaskId
-                + ", anchor=" + describeTask(lastAnchor)
-                + ", prepared=" + lastPrepared);
-    }
-
-    static boolean isReadyAnchorTask(final TaskStackParser.Entry anchor) {
-        return anchor != null
-                && "freeform".equals(anchor.windowingMode)
-                && !anchor.bounds.isEmpty();
-    }
-
     static TaskStackParser.Entry findTask(
             final String stack, final int displayId, final String className) {
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
@@ -676,15 +752,15 @@ final class DesktopSelfTestController {
     private static void cleanup(
             final DesktopSelfTestResult result,
             final int displayId,
-            final int fixtureTaskId,
             final SimulatedDisplayLease lease) {
         final StringBuilder detail = new StringBuilder();
         boolean clean = true;
-        if (fixtureTaskId >= 0) {
+        if (ShellAccess.isReady()) {
             try {
-                ShellAccess.run(AppProcessCommand.run(
-                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                        "remove " + fixtureTaskId));
+                if (!DesktopSelfTestActivity.finishActiveTask()) {
+                    removeFixtureTasks();
+                }
+                waitForTaskAbsent(FIXTURE_CLASS);
             } catch (IOException error) {
                 clean = false;
                 detail.append("fixture removal: ")
@@ -692,20 +768,16 @@ final class DesktopSelfTestController {
             }
         }
         if (displayId > Display.DEFAULT_DISPLAY) {
-            if (ShellAccess.isReady()) {
-                try {
-                    removeLaunchAnchorCleanly(displayId);
-                } catch (IOException error) {
-                    clean = false;
-                    detail.append("launch anchor cleanup: ")
-                            .append(usefulMessage(error)).append("; ");
-                }
+            try {
+                closeDesktopSession(displayId);
+            } catch (IOException error) {
+                clean = false;
+                detail.append("desktop close: ")
+                        .append(usefulMessage(error)).append("; ");
             }
-            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
                     waitForTaskAbsent(DESKTOP_CLASS);
-                    waitForTaskAbsent(LAUNCH_ANCHOR_CLASS);
                     waitForDesktopRepositoryEmpty(displayId);
                 } catch (IOException error) {
                     clean = false;
@@ -804,28 +876,29 @@ final class DesktopSelfTestController {
         }
     }
 
-    private static void removeLaunchAnchorCleanly(final int displayId)
+    private static void closeDesktopSession(final int displayId)
             throws IOException {
-        final String stack = ShellAccess.run(
-                "/system/bin/cmd activity stack list");
-        TaskStackParser.Entry anchor = findTask(
-                stack, displayId, LAUNCH_ANCHOR_CLASS);
-        if (anchor == null) {
-            return;
+        final CountDownLatch complete = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        ConsoleModeSwitcher.closeDesktop(
+                displayId,
+                DesktopDisplayTarget.Kind.SIMULATED,
+                false,
+                closed -> {
+                    success.set(closed);
+                    complete.countDown();
+                });
+        try {
+            if (!complete.await(STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("desktop close timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("desktop close interrupted", error);
         }
-        if ("freeform".equals(anchor.windowingMode)) {
-            ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
-                    displayId, anchor.taskId));
-            anchor = waitForTask(
-                    displayId,
-                    LAUNCH_ANCHOR_CLASS,
-                    entry -> "fullscreen".equals(entry.windowingMode));
+        if (!success.get()) {
+            throw new IOException("desktop close failed");
         }
-        ShellAccess.run(AppProcessCommand.run(
-                "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                "remove " + anchor.taskId));
-        waitForTaskAbsent(LAUNCH_ANCHOR_CLASS);
-        waitForDesktopRepositoryEmpty(displayId);
     }
 
     private static int waitForOverlayDisplay() throws IOException {
@@ -975,19 +1048,20 @@ final class DesktopSelfTestController {
                 && actual.bottom == expected.bottom;
     }
 
+    private static boolean equalsBounds(
+            final DesktopTaskLaunchProbe.Observation actual,
+            final Rect expected) {
+        return actual != null
+                && expected != null
+                && actual.left == expected.left
+                && actual.top == expected.top
+                && actual.right == expected.right
+                && actual.bottom == expected.bottom;
+    }
+
     private static String formatBounds(final TaskStackParser.Bounds bounds) {
         return "[" + bounds.left + "," + bounds.top + "]["
                 + bounds.right + "," + bounds.bottom + "]";
-    }
-
-    private static String describeTask(final TaskStackParser.Entry task) {
-        if (task == null) {
-            return "missing";
-        }
-        return "task=" + task.taskId
-                + "/mode=" + task.windowingMode
-                + "/visible=" + task.visible
-                + "/bounds=" + formatBounds(task.bounds);
     }
 
     private static String readFile(final File file) {

@@ -15,11 +15,7 @@ public final class DesktopLifecycleInstrumentation extends Instrumentation {
 
     @Override
     public void onStart() {
-        final Thread thread = new Thread(
-                this::runLifecycle,
-                "MagicDeskLifecycleInstrumentation");
-        thread.setDaemon(true);
-        thread.start();
+        runLifecycle();
     }
 
     private void runLifecycle() {

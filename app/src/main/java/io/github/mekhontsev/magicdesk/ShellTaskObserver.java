@@ -93,11 +93,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     }
 
     void start() throws ReflectiveOperationException {
-        final Class<?> listenerClass =
-                Class.forName("android.app.ITaskStackListener");
-        mService.getClass()
-                .getMethod("registerTaskStackListener", listenerClass)
-                .invoke(mService, this);
+        HiddenTaskApi.registerTaskStackListener(mService, this);
         mRegistered = true;
         mStateMonitor.start();
     }
@@ -260,11 +256,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mRegistered = false;
         try {
-            final Class<?> listenerClass =
-                    Class.forName("android.app.ITaskStackListener");
-            mService.getClass()
-                    .getMethod("unregisterTaskStackListener", listenerClass)
-                    .invoke(mService, this);
+            HiddenTaskApi.unregisterTaskStackListener(mService, this);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "failed to unregister task observer", error);
         }

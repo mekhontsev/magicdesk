@@ -232,7 +232,8 @@ runtime integration and are not distributed through the same release path.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
 - `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
   coordinate task actions, Show Desktop, restoration, and exact-task
-  switching.
+  switching. `WindowedAppLauncher` delegates the hidden task-area transaction
+  to the short-lived shell command without retaining another Activity.
 
 ### Platform services
 
@@ -301,7 +302,8 @@ are never persisted as constants.
 `DesktopDisplayTarget` describes a secondary display that is already ready for
 desktop content. `DesktopSessionController` then focuses or creates the same
 `DesktopActivity` task for wired, wireless, and simulated targets. The
-transport-specific code stops at that boundary. Local startup retains its
+transport-specific code stops at that boundary. `ConsoleModeSwitcher` also
+owns the common target-aware close operation. Local startup retains its
 launcher-navigation guard, then starts the same desktop host and controllers.
 
 - `ConsoleSessionController` asks RedMagic firmware to turn a physical USB-C
@@ -323,7 +325,11 @@ desktops. It selects the matching Nubia privacy filter for the active transport;
 simulated displays do not modify vendor SurfaceFlinger state. Nubia's mouse and
 keyboard port association remains limited to its wired Console display because
 Miracast and simulated displays do not expose the same physical display port
-contract.
+contract. Simulated sessions deliberately exercise the same phone IME policy,
+keyboard watcher, and virtual input lifecycle as a real desktop. Virtual input
+remains scoped to the session because native caption drag and resize checks use
+the production pointer path; cleanup waits for its removal before the test
+completes.
 
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** uses a dedicated task excluded from Recents. The phone
@@ -351,9 +357,24 @@ restore, minimize, and cleanup. The test also requests the native horizontal
 resize cursor and verifies WMShell's transition trace when that firmware trace
 is available. A simulated display without a readable pointer controller or
 trace reports the cursor check as `NOT_TESTED` rather than inferring success
-from the resize alone. It rechecks the caption after the fullscreen round trip
-and closes the desktop task before removing the display so WMS
+from the resize alone. It rechecks the caption after the fullscreen round trip,
+uses the same target-aware close operation as the user-facing session, and only
+then removes the display so WMS
 cannot migrate that task onto the phone launcher.
+
+A windowed launch creates a short-lived shell-owned `TaskDisplayArea` beside
+the target display's default task area. A new Activity is launched there with
+its original launcher Intent, freeform mode, and bounds, or an existing task is
+reparented there in one `WindowContainerTransaction`. The task is then
+reparented into the target's default area and the empty temporary area is
+deleted. No persistent launch Activity or launch-source task is retained.
+
+A one-shot shell-UID `TaskStackListener` is registered only around self-test
+fixture transitions. It captures the first `onTaskMovedToFront` configuration,
+so the test distinguishes a true initial freeform launch from a fullscreen task
+that is corrected after it becomes visible. The same probe verifies a direct
+fullscreen-phone to freeform-external move. It is inactive during normal
+desktop operation.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external
@@ -626,8 +647,8 @@ for clicks and scrolling. Its velocity curve matches the stock Touch Panel and
 re-anchors whenever the acceleration factor changes, avoiding accumulated
 relative-motion error. Physical keyboards and pointing devices may be connected
 or removed while the session is active; the runtime updates their routes
-without recreating the desktop, launch anchor, or phone touchpad for
-keyboard-only configuration changes.
+without recreating the desktop or phone touchpad for keyboard-only
+configuration changes.
 
 Both helpers keep their virtual devices alive for the complete Console session.
 InputManager inventory changes replace only the physical source descriptors,

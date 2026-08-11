@@ -96,49 +96,18 @@ final class MagicDeskSessionController {
         final int displayId = display.getDisplayId();
         final DesktopDisplayTarget.Kind targetKind =
                 DesktopRuntimeBridge.getDesktopTargetKind(displayId);
-        FreeformLaunchAnchorActivity.releaseBeforeDisplayRemoval(
-                () -> closeExternalDesktop(
-                        displayId,
-                        targetKind,
-                        true,
-                        success -> finishCloseDesktop(
-                                success,
-                                targetKind == DesktopDisplayTarget.Kind.WIRELESS
-                                        ? "WIRELESS-DISPLAY-002"
-                                        : "NUBIA-CONSOLE-001",
-                                targetKind == DesktopDisplayTarget.Kind.WIRELESS
-                                        ? R.string.status_close_desktop_failed
-                                        : R.string.status_mirror_failed)));
-    }
-
-    private void closeExternalDesktop(
-            final int displayId,
-            final DesktopDisplayTarget.Kind targetKind,
-            final boolean restorePhonePanel,
-            final ConsoleModeSwitcher.ResultCallback callback) {
-        if (targetKind == DesktopDisplayTarget.Kind.SIMULATED) {
-            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
-            callback.onComplete(true);
-            return;
-        }
-        if (targetKind == DesktopDisplayTarget.Kind.WIRELESS) {
-            ConsoleModeSwitcher.disconnectWirelessDisplay(
-                    success -> {
-                        if (success && restorePhonePanel) {
-                            MagicDeskRuntimeService
-                                    .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
-                                            displayId);
-                        }
-                        callback.onComplete(success);
-                    });
-            return;
-        }
-        if (restorePhonePanel) {
-            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                    callback::onComplete);
-        } else {
-            ConsoleModeSwitcher.switchToMirror(callback::onComplete);
-        }
+        ConsoleModeSwitcher.closeDesktop(
+                displayId,
+                targetKind,
+                true,
+                success -> finishCloseDesktop(
+                        success,
+                        targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                                ? "WIRELESS-DISPLAY-002"
+                                : "NUBIA-CONSOLE-001",
+                        targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                                ? R.string.status_close_desktop_failed
+                                : R.string.status_mirror_failed));
     }
 
     private void closeDesktopBeforeExit(
@@ -149,12 +118,11 @@ final class MagicDeskSessionController {
             callback.onComplete(true);
             return;
         }
-        FreeformLaunchAnchorActivity.releaseBeforeDisplayRemoval(
-                () -> closeExternalDesktop(
-                        displayId,
-                        targetKind,
-                        false,
-                        callback::onComplete));
+        ConsoleModeSwitcher.closeDesktop(
+                displayId,
+                targetKind,
+                false,
+                callback::onComplete);
     }
 
     private int resolveExternalDesktopDisplayId() {
@@ -248,18 +216,12 @@ final class MagicDeskSessionController {
             continuation.onComplete(true);
             return;
         }
-        mActivity.runOnUiThread(() -> {
-            final int anchorTaskId =
-                    FreeformLaunchAnchorActivity.releaseForCleanup();
-            recoverPhoneTasksAfterAnchorRelease(
-                    anchorTaskId, continuation);
-        });
+        recoverPhoneTasksBeforeExit(continuation);
     }
 
-    private void recoverPhoneTasksAfterAnchorRelease(
-            final int anchorTaskId,
+    private void recoverPhoneTasksBeforeExit(
             final MagicDeskExitCoordinator.Callback continuation) {
-        PhoneDesktopTaskRecovery.recover(anchorTaskId, result -> {
+        PhoneDesktopTaskRecovery.recover(result -> {
             if (!result.success) {
                 final String detail =
                         "Could not recover phone desktop tasks: "
