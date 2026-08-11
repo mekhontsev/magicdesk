@@ -42,6 +42,11 @@ public final class TaskWindowingCommand {
                         parseInt(args[2], "task id"));
                 return;
             }
+            if (args.length == 3 && "fullscreen-behind".equals(args[0])) {
+                setFullscreenBehind(parseInt(args[1], "display id"),
+                        parseInt(args[2], "task id"));
+                return;
+            }
             if (args.length >= 3 && "restore-stack".equals(args[0])) {
                 final int[] taskIds = new int[args.length - 2];
                 for (int index = 2; index < args.length; index++) {
@@ -54,7 +59,7 @@ public final class TaskWindowingCommand {
                     + "<freeform display task left top right bottom"
                     + "|desktop-host display task"
                     + "|minimize display task focus-task|restore display task"
-                    + "|send-behind display task"
+                    + "|send-behind display task|fullscreen-behind display task"
                     + "|restore-stack display task...>");
             System.exit(64);
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -130,6 +135,13 @@ public final class TaskWindowingCommand {
                 .invoke(transaction, taskToken, Boolean.FALSE);
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
         System.out.println("task-sent-behind=" + taskId);
+    }
+
+    private static void setFullscreenBehind(final int displayId, final int taskId)
+            throws ReflectiveOperationException {
+        TaskFullscreenTransitionCommand.applyFullscreen(
+                displayId, taskId, true, false);
+        System.out.println("task-fullscreen-behind=" + taskId);
     }
 
     private static void restoreStack(final int displayId, final int[] taskIds)

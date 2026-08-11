@@ -68,6 +68,8 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     private volatile boolean mPrepared;
     private boolean mLaunching;
     private volatile boolean mClosing;
+    private boolean mTransientWirelessAnchor;
+    private volatile boolean mFreeformActive;
 
     static void prepare(final Activity desktop) {
         requestAnchor(desktop, null);
@@ -178,6 +180,9 @@ public final class FreeformLaunchAnchorActivity extends Activity {
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mDisplayId = getDisplayId(this);
+        mTransientWirelessAnchor =
+                DesktopRuntimeBridge.getDesktopTargetKind(mDisplayId)
+                        == DesktopDisplayTarget.Kind.WIRELESS;
         final int expectedDisplayId = getIntent().getIntExtra(
                 EXTRA_EXPECTED_DISPLAY_ID, mDisplayId);
         final DisplayManager displayManager =
@@ -287,6 +292,19 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         if (mPrepared || mPreparing || mClosing) {
             return;
         }
+        // A persistent freeform task can outlive an abruptly removed Miracast display
+        // in Nubia's desktop repository. Keep this anchor fullscreen while it is idle.
+        if (mTransientWirelessAnchor) {
+            mPrepared = true;
+            Log.i(TAG, "ready transient task=" + getTaskId()
+                    + " display=" + mDisplayId);
+            if (mRequests.isEmpty()) {
+                parkAnchorAndRestoreDesktopFocus();
+            } else {
+                launchNext();
+            }
+            return;
+        }
         mPreparing = true;
         final int taskId = getTaskId();
         final int displayId = mDisplayId;
@@ -365,6 +383,11 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             final boolean existingTask = ExistingTaskController.taskExists(
                     request.launchTarget.packageName, mDisplayId);
             if (!existingTask) {
+                if (mTransientWirelessAnchor) {
+                    mFreeformActive = true;
+                    ExistingTaskController.prepareFreeformLaunchSource(
+                            getTaskId(), mDisplayId, tinyAnchorBounds());
+                }
                 ExistingTaskController.focusFreeformLaunchSource(
                         getTaskId(), mDisplayId);
             }
@@ -392,7 +415,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
                     showToast(getApplicationContext(),
                             "Window launch failed: " + usefulMessage(error));
                     if (!existingTask) {
-                        restoreDesktopFocus();
+                        parkAnchorAndRestoreDesktopFocus();
                     }
                     finishLaunch(restoreTouchpad);
                 }
@@ -401,7 +424,7 @@ public final class FreeformLaunchAnchorActivity extends Activity {
             MAIN_HANDLER.post(() -> {
                 showToast(getApplicationContext(),
                         "Window launch failed: " + usefulMessage(error));
-                restoreDesktopFocus();
+                parkAnchorAndRestoreDesktopFocus();
                 finishLaunch(restoreTouchpad);
             });
         }
@@ -450,9 +473,16 @@ public final class FreeformLaunchAnchorActivity extends Activity {
         });
     }
 
-    private static void parkAnchorNow(final int taskId, final int displayId) {
+    private void parkAnchorNow(final int taskId, final int displayId) {
         try {
-            ExistingTaskController.parkFreeformLaunchSource(taskId, displayId);
+            if (mTransientWirelessAnchor && mFreeformActive) {
+                ExistingTaskController.parkFullscreenLaunchSource(
+                        taskId, displayId);
+                mFreeformActive = false;
+            } else {
+                ExistingTaskController.parkFreeformLaunchSource(
+                        taskId, displayId);
+            }
         } catch (IOException | RuntimeException error) {
             Log.w(TAG, "cannot park launch anchor task=" + taskId, error);
         }

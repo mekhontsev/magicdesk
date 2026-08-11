@@ -44,6 +44,12 @@ public final class TaskFullscreenTransitionCommand {
     static boolean applyFullscreen(final int displayId, final int taskId,
             final boolean forceTranslucent)
             throws ReflectiveOperationException {
+        return applyFullscreen(displayId, taskId, forceTranslucent, true);
+    }
+
+    static boolean applyFullscreen(final int displayId, final int taskId,
+            final boolean forceTranslucent, final boolean reorderOnTop)
+            throws ReflectiveOperationException {
         final int captionSourceId =
                 TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId);
         final Object service = HiddenTaskApi.getService();
@@ -62,7 +68,8 @@ public final class TaskFullscreenTransitionCommand {
         transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                 .invoke(fullscreenTransaction, taskToken, new Rect());
         transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                .invoke(fullscreenTransaction, taskToken, Boolean.TRUE);
+                .invoke(fullscreenTransaction, taskToken,
+                        Boolean.valueOf(reorderOnTop));
         transactionClass.getMethod(
                 "setForceTranslucent", tokenClass, Boolean.TYPE)
                 .invoke(fullscreenTransaction, taskToken,

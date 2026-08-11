@@ -121,6 +121,18 @@ final class ExistingTaskController {
                 "send-behind " + displayId + " " + taskId));
     }
 
+    static void parkFullscreenLaunchSource(
+            final int taskId,
+            final int displayId) throws IOException {
+        if (taskId < 0 || displayId < 0) {
+            throw new IOException("invalid launch source");
+        }
+        runCommand(AppProcessCommand.run(
+                TASK_WINDOWING_COMMAND,
+                "fullscreen-behind " + displayId + " " + taskId));
+        waitForTaskState(taskId, displayId, MODE_FULLSCREEN);
+    }
+
     static void removeFreeformTaskCleanly(final int taskId)
             throws IOException {
         TaskInfo task = findTask(taskId);
