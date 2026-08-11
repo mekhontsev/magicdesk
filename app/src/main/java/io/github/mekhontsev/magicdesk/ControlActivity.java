@@ -398,6 +398,11 @@ public final class ControlActivity extends Activity
     }
 
     @Override
+    public void showAbout() {
+        AboutDialog.show(this);
+    }
+
+    @Override
     public void exitMagicDesk() {
         mSessionController.exit();
     }

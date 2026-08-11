@@ -53,6 +53,7 @@
     <string name="action_remove_from_workspace">Remove from workspace</string>
     <string name="action_device_setup">Device setup</string>
     <string name="action_diagnostics">Diagnostics</string>
+    <string name="action_about">About</string>
     <string name="action_phone_screen_off">Turn phone screen off</string>
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_switch_to_mirror">Switch to screen mirroring</string>
@@ -72,6 +73,13 @@
     <string name="action_dpi_decrease">Decrease display DPI</string>
     <string name="action_dpi_increase">Increase display DPI</string>
     <string name="action_exit">Exit MagicDesk</string>
+    <string name="about_version">Version %1$s (%2$d)</string>
+    <string name="about_author">Developed by Dmitry Mekhontsev</string>
+    <string name="about_copyright">Copyright &#169; 2026 Dmitry Mekhontsev</string>
+    <string name="about_license">Open source under the MIT License.</string>
+    <string name="about_github">GitHub</string>
+    <string name="about_mit_license">MIT License</string>
+    <string name="about_link_unavailable">No application can open this link.</string>
     <string name="audio_section_title">Audio</string>
     <string name="audio_status">Connected output: %1$s | Media volume %2$d/%3$d</string>
     <string name="audio_mute">Mute</string>
