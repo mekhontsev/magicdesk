@@ -4,38 +4,30 @@ import android.os.IBinder;
 
 import java.lang.reflect.Method;
 
-/** Controls where Android hosts the IME for a secondary display. */
+/** Keeps the software keyboard on the phone during an external desktop. */
 final class DisplayImePolicyController {
-    static final int LOCAL = 0;
-    static final int FALLBACK_TO_PHONE = 1;
+    private static final int FALLBACK_TO_DEFAULT_DISPLAY = 1;
 
     private static volatile Access sAccess;
 
     private DisplayImePolicyController() {
     }
 
-    static void verifyApi() throws ReflectiveOperationException {
-        access();
-    }
-
-    static int set(final int displayId, final int policy)
+    static boolean routeToPhone(final int displayId)
             throws ReflectiveOperationException {
         if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
                     "display IME policy requires a secondary display");
         }
-        if (policy != LOCAL && policy != FALLBACK_TO_PHONE) {
-            throw new IllegalArgumentException(
-                    "unsupported display IME policy: " + policy);
-        }
         final Access access = access();
         access.set.invoke(
                 access.windowManager,
                 Integer.valueOf(displayId),
-                Integer.valueOf(policy));
+                Integer.valueOf(FALLBACK_TO_DEFAULT_DISPLAY));
         return ((Integer) access.get.invoke(
                 access.windowManager,
-                Integer.valueOf(displayId))).intValue();
+                Integer.valueOf(displayId))).intValue()
+                == FALLBACK_TO_DEFAULT_DISPLAY;
     }
 
     private static Access access() throws ReflectiveOperationException {

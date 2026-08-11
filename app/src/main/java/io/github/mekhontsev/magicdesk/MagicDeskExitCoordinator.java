@@ -8,8 +8,8 @@ final class MagicDeskExitCoordinator {
         RESTORE_HARDWARE,
         RESTORE_PHONE_SCREEN,
         RETURN_CONSOLE_TASKS,
-        CLEAN_PHONE_TASKS,
-        RESTORE_MIRROR
+        CLOSE_DESKTOP,
+        CLEAN_PHONE_TASKS
     }
 
     interface Callback {
@@ -27,9 +27,9 @@ final class MagicDeskExitCoordinator {
 
         void returnConsoleTasks(Callback callback);
 
-        void cleanPhoneTasks(Callback callback);
+        void closeDesktop(Callback callback);
 
-        void restoreMirror(Callback callback);
+        void cleanPhoneTasks(Callback callback);
 
         void finishExit();
     }
@@ -59,11 +59,11 @@ final class MagicDeskExitCoordinator {
                                 Step.RETURN_CONSOLE_TASKS,
                                 mOperations::returnConsoleTasks,
                                 () -> runStep(
-                                        Step.CLEAN_PHONE_TASKS,
-                                        mOperations::cleanPhoneTasks,
+                                        Step.CLOSE_DESKTOP,
+                                        mOperations::closeDesktop,
                                         () -> runStep(
-                                                Step.RESTORE_MIRROR,
-                                                mOperations::restoreMirror,
+                                                Step.CLEAN_PHONE_TASKS,
+                                                mOperations::cleanPhoneTasks,
                                                 mOperations::finishExit)))));
     }
 

@@ -33,24 +33,6 @@ final class PhoneTouchpadController {
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
 
-    static boolean isKeyboardRequested(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
-                && MagicDeskTouchpadActivity
-                        .isPhoneKeyboardRequested(displayId);
-    }
-
-    static boolean showKeyboard(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
-                && MagicDeskTouchpadActivity.showPhoneKeyboard(
-                        MagicDeskApplication.applicationContext(),
-                        displayId);
-    }
-
-    static boolean hideKeyboard(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
-                && MagicDeskTouchpadActivity.hidePhoneKeyboard(displayId);
-    }
-
     static boolean shouldRemainVisible(final int displayId) {
         return displayId > Display.DEFAULT_DISPLAY
                 && MagicDeskTouchpadActivity.isRequested(displayId);

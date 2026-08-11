@@ -41,8 +41,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private static final String TAG = "MagicDeskTouchpad";
     private static final String EXTRA_TARGET_DISPLAY_ID =
             "io.github.mekhontsev.magicdesk.extra.TOUCHPAD_DISPLAY_ID";
-    private static final String EXTRA_SHOW_PHONE_KEYBOARD =
-            "io.github.mekhontsev.magicdesk.extra.SHOW_PHONE_KEYBOARD";
     private static final float BASE_POINTER_SCALE = 1.0f;
     private static final float POINTER_SPEED_STEP = 0.1f;
     private static final Object STATE_LOCK = new Object();
@@ -58,21 +56,12 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private int mPointerY;
     private long mPointerDragDownTime;
     private MirrorInputEditText mMirrorInput;
-    private volatile boolean mPhoneKeyboardActive;
-    private volatile boolean mShowPhoneKeyboardWhenFocused;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
     private ScrollView mHelpView;
     private OnBackInvokedCallback mBackCallback;
 
     static void open(final Context context, final int displayId) {
-        open(context, displayId, false);
-    }
-
-    private static void open(
-            final Context context,
-            final int displayId,
-            final boolean showPhoneKeyboard) {
         if (context == null || displayId <= Display.DEFAULT_DISPLAY) {
             return;
         }
@@ -84,8 +73,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(EXTRA_TARGET_DISPLAY_ID, displayId)
-                .putExtra(EXTRA_SHOW_PHONE_KEYBOARD, showPhoneKeyboard);
+                .putExtra(EXTRA_TARGET_DISPLAY_ID, displayId);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         context.startActivity(intent, options.toBundle());
@@ -127,44 +115,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
         open(context, displayId);
         return true;
-    }
-
-    static boolean isPhoneKeyboardRequested(final int displayId) {
-        synchronized (STATE_LOCK) {
-            final MagicDeskTouchpadActivity activity = sVisibleActivity.get();
-            return activity != null
-                    && activity.mTargetDisplayId == displayId
-                    && (activity.mPhoneKeyboardActive
-                            || activity.mShowPhoneKeyboardWhenFocused
-                            || activity.isKeyboardVisible());
-        }
-    }
-
-    static boolean showPhoneKeyboard(
-            final Context context,
-            final int displayId) {
-        final MagicDeskTouchpadActivity activity;
-        synchronized (STATE_LOCK) {
-            activity = sVisibleActivity.get();
-        }
-        if (activity != null && activity.mTargetDisplayId == displayId) {
-            activity.runOnUiThread(activity::showPhoneKeyboard);
-            return true;
-        }
-        open(context, displayId, true);
-        return true;
-    }
-
-    static boolean hidePhoneKeyboard(final int displayId) {
-        final MagicDeskTouchpadActivity activity;
-        synchronized (STATE_LOCK) {
-            activity = sVisibleActivity.get();
-        }
-        if (activity != null && activity.mTargetDisplayId == displayId) {
-            activity.runOnUiThread(activity::hidePhoneKeyboard);
-            return true;
-        }
-        return false;
     }
 
     static boolean bringRequestedTaskToFront(
@@ -241,10 +191,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         if (!hasFocus) {
             return;
         }
-        if (mShowPhoneKeyboardWhenFocused) {
-            mShowPhoneKeyboardWhenFocused = false;
-            showPhoneKeyboard();
-        } else if (hasTextInputProxy()) {
+        if (hasTextInputProxy()) {
             showKeyboardIfReady();
         }
     }
@@ -349,19 +296,13 @@ public final class MagicDeskTouchpadActivity extends Activity {
         keyboard.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         keyboard.setBackgroundColor(Color.TRANSPARENT);
         keyboard.setContentDescription(
-                getString(R.string.touchpad_show_keyboard));
+                getString(R.string.touchpad_toggle_keyboard));
         keyboard.setTooltipText(
-                getString(R.string.touchpad_show_keyboard));
+                getString(R.string.touchpad_toggle_keyboard));
         keyboard.setOnClickListener(view -> {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             hideHelp();
-            if (!MagicDeskRuntimeService
-                    .handleOnScreenKeyboardActionIfRunning(
-                            mTargetDisplayId)) {
-                DesktopRuntimeBridge.showTransientStatus(
-                        getString(R.string.status_on_screen_keyboard_failed),
-                        false);
-            }
+            togglePhoneKeyboard();
         });
         header.addView(keyboard, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
@@ -459,7 +400,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     MotionEvent.BUTTON_PRIMARY);
             return;
         }
-        mShowPhoneKeyboardWhenFocused = false;
         bringTaskToFront();
         mMirrorInput.setKeyboardRequested(true);
         if (!mMirrorInput.requestFocus()) {
@@ -473,8 +413,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         inputMethodManager.restartInput(mMirrorInput);
-        mPhoneKeyboardActive = true;
-        DesktopRuntimeBridge.refreshDesktopControls();
         showKeyboardIfReady();
     }
 
@@ -499,7 +437,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     private void hidePhoneKeyboard() {
         Log.i(TAG, "hide keyboard display=" + mTargetDisplayId);
-        mShowPhoneKeyboardWhenFocused = false;
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
         if (hasTextInputProxy()) {
             final InputMethodManager inputMethodManager =
@@ -512,6 +449,14 @@ public final class MagicDeskTouchpadActivity extends Activity {
         clearTextInputProxy();
     }
 
+    private void togglePhoneKeyboard() {
+        if (isKeyboardVisible()) {
+            hidePhoneKeyboard();
+        } else {
+            showPhoneKeyboard();
+        }
+    }
+
     private void clearTextInputProxy() {
         final boolean hadTextInputProxy = hasTextInputProxy();
         if (mMirrorInput != null) {
@@ -521,8 +466,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
             MagicDeskRuntimeService.endDesktopTextInputIfRunning(
                     mTargetDisplayId);
         }
-        mPhoneKeyboardActive = false;
-        DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     private boolean hasTextInputProxy() {
@@ -556,18 +499,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 : intent.getIntExtra(
                         EXTRA_TARGET_DISPLAY_ID,
                         Display.INVALID_DISPLAY);
-        mShowPhoneKeyboardWhenFocused = intent != null
-                && intent.getBooleanExtra(
-                        EXTRA_SHOW_PHONE_KEYBOARD, false);
-        if (mShowPhoneKeyboardWhenFocused && hasWindowFocus()) {
-            getWindow().getDecorView().post(() -> {
-                if (!mShowPhoneKeyboardWhenFocused) {
-                    return;
-                }
-                mShowPhoneKeyboardWhenFocused = false;
-                showPhoneKeyboard();
-            });
-        }
         finishIfTargetUnavailable();
     }
 
@@ -641,7 +572,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         private boolean mUsedTwoFingers;
         private boolean mScrolling;
         private boolean mLongPressHandled;
-        private boolean mPointerNeedsActivation;
         private boolean mInputResultLogged;
 
         TouchSurface(final Context context) {
@@ -857,18 +787,16 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     pointerScale());
             mPointerX = mPointerMotion.outputX();
             mPointerY = mPointerMotion.outputY();
-            // Drag updates the vendor cursor directly. An activation pulse
-            // would add an unrelated mouse move to the touch stream.
-            mPointerNeedsActivation = !dragging;
             return true;
         }
 
         private void activatePointerAfterPositionUpdate(
                 final boolean positionUpdated) {
-            if (!positionUpdated || !mPointerNeedsActivation) {
+            if (!positionUpdated || mPointerDragActive) {
                 return;
             }
-            mPointerNeedsActivation = false;
+            // The vendor absolute-position API moves the cursor but does not
+            // refresh Android's pointer icon. A neutral relative pulse does.
             MagicDeskRuntimeService.activateDesktopPointerIfRunning(
                     mTargetDisplayId);
         }
@@ -914,7 +842,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
         private void stopPointerMotion() {
             mPointerMotion.stop();
-            mPointerNeedsActivation = false;
             recycleVelocityTracker();
         }
 

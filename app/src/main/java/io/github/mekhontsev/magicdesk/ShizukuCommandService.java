@@ -374,27 +374,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int setDisplayImePolicy(
-            final int displayId,
-            final int policy) {
+    public boolean routeImeToPhone(final int displayId) {
         try {
-            return DisplayImePolicyController.set(displayId, policy);
+            return DisplayImePolicyController.routeToPhone(displayId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
-                    "cannot set display IME policy: "
+                    "cannot route the IME to the phone: "
                             + usefulMessage(error),
                     error);
-        }
-    }
-
-    @Override
-    public boolean focusDisplayForInput(final int displayId) {
-        try {
-            DesktopPointerInjector.focusDisplay(displayId);
-            return true;
-        } catch (RuntimeException error) {
-            Log.e(TAG, "input focus handoff failed", error);
-            return false;
         }
     }
 

@@ -13,8 +13,6 @@ final class DesktopPreferences {
 
     private static final String PREFS = "magicdesk";
     private static final String PREF_RECENT_PACKAGES = "recent_packages";
-    private static final String PREF_ON_SCREEN_KEYBOARD_LOCATION =
-            "on_screen_keyboard_location";
     private static final int MAX_RECENT_PACKAGES = 24;
 
     private DesktopPreferences() {
@@ -68,26 +66,6 @@ final class DesktopPreferences {
                 .putString(PREF_RECENT_PACKAGES, encodePackages(updated))
                 .apply();
         return true;
-    }
-
-    static OnScreenKeyboardLocation onScreenKeyboardLocation(
-            final Context context) {
-        return OnScreenKeyboardLocation.fromStoredValue(
-                preferences(context).getString(
-                        PREF_ON_SCREEN_KEYBOARD_LOCATION,
-                        OnScreenKeyboardLocation.PHONE.storedValue));
-    }
-
-    static void saveOnScreenKeyboardLocation(
-            final Context context,
-            final OnScreenKeyboardLocation location) {
-        preferences(context).edit()
-                .putString(
-                        PREF_ON_SCREEN_KEYBOARD_LOCATION,
-                        (location == null
-                                ? OnScreenKeyboardLocation.PHONE : location)
-                                .storedValue)
-                .apply();
     }
 
     static List<String> updateRecentPackages(

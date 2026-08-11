@@ -106,10 +106,6 @@
     <string name="hardware_restore_failed">Could not restore the hardware state that existed before MagicDesk changed it.</string>
     <string name="hardware_power_section">Power</string>
     <string name="system_display_section">Display</string>
-    <string name="system_input_section">Input</string>
-    <string name="on_screen_keyboard_location">On-screen keyboard</string>
-    <string name="keyboard_location_phone">Phone</string>
-    <string name="keyboard_location_desktop">Desktop</string>
     <string name="hardware_input_section">Input</string>
     <string name="pointer_speed">Pointer speed</string>
     <string name="pointer_speed_value">%1$d</string>
@@ -213,11 +209,7 @@
     <string name="status_close_desktop_failed">Could not close the external desktop</string>
     <string name="status_touchpad_opening">Opening touchpad&#8230;</string>
     <string name="touchpad_title">Touchpad</string>
-    <string name="touchpad_show_keyboard">Show keyboard</string>
-    <string name="action_show_on_screen_keyboard">Show on-screen keyboard</string>
-    <string name="action_hide_on_screen_keyboard">Hide on-screen keyboard</string>
-    <string name="status_desktop_keyboard_failed">The keyboard could not open on this display; using the phone</string>
-    <string name="status_on_screen_keyboard_failed">The on-screen keyboard could not open</string>
+    <string name="touchpad_toggle_keyboard">Show or hide keyboard</string>
     <string name="touchpad_help">Touchpad help</string>
     <string name="touchpad_gestures_title">Touch gestures</string>
     <string name="touchpad_gesture_move">Move</string>

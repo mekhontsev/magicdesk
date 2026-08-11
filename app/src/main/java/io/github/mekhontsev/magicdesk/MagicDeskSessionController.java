@@ -26,6 +26,10 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
+        final int desktopDisplayId = resolveExternalDesktopDisplayId();
+        final DesktopDisplayTarget.Kind targetKind = desktopDisplayId > 0
+                ? DesktopRuntimeBridge.getDesktopTargetKind(desktopDisplayId)
+                : null;
         new MagicDeskExitCoordinator(
                 new MagicDeskExitCoordinator.Operations() {
                     @Override
@@ -54,16 +58,16 @@ final class MagicDeskSessionController {
                     }
 
                     @Override
-                    public void cleanPhoneTasks(
+                    public void closeDesktop(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        cleanupPhoneTasksBeforeExit(callback::onComplete);
+                        closeDesktopBeforeExit(
+                                desktopDisplayId, targetKind, callback);
                     }
 
                     @Override
-                    public void restoreMirror(
+                    public void cleanPhoneTasks(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        ConsoleModeSwitcher.switchToMirror(
-                                callback::onComplete);
+                        cleanupPhoneTasksBeforeExit(callback::onComplete);
                     }
 
                     @Override
@@ -93,33 +97,76 @@ final class MagicDeskSessionController {
         final DesktopDisplayTarget.Kind targetKind =
                 DesktopRuntimeBridge.getDesktopTargetKind(displayId);
         FreeformLaunchAnchorActivity.releaseBeforeDisplayRemoval(
-                () -> closeExternalDesktop(displayId, targetKind));
+                () -> closeExternalDesktop(
+                        displayId,
+                        targetKind,
+                        true,
+                        success -> finishCloseDesktop(
+                                success,
+                                targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                                        ? "WIRELESS-DISPLAY-002"
+                                        : "NUBIA-CONSOLE-001",
+                                targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                                        ? R.string.status_close_desktop_failed
+                                        : R.string.status_mirror_failed)));
     }
 
     private void closeExternalDesktop(
             final int displayId,
-            final DesktopDisplayTarget.Kind targetKind) {
+            final DesktopDisplayTarget.Kind targetKind,
+            final boolean restorePhonePanel,
+            final ConsoleModeSwitcher.ResultCallback callback) {
+        if (targetKind == DesktopDisplayTarget.Kind.SIMULATED) {
+            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
+            callback.onComplete(true);
+            return;
+        }
         if (targetKind == DesktopDisplayTarget.Kind.WIRELESS) {
             ConsoleModeSwitcher.disconnectWirelessDisplay(
                     success -> {
-                        if (success) {
+                        if (success && restorePhonePanel) {
                             MagicDeskRuntimeService
                                     .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
                                             displayId);
                         }
-                        finishCloseDesktop(
-                                success,
-                                "WIRELESS-DISPLAY-002",
-                                R.string.status_close_desktop_failed);
+                        callback.onComplete(success);
                     });
             return;
         }
-        ConsoleModeSwitcher.switchToMirrorWithControlPanel(success -> {
-            finishCloseDesktop(
-                    success,
-                    "NUBIA-CONSOLE-001",
-                    R.string.status_mirror_failed);
-        });
+        if (restorePhonePanel) {
+            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
+                    callback::onComplete);
+        } else {
+            ConsoleModeSwitcher.switchToMirror(callback::onComplete);
+        }
+    }
+
+    private void closeDesktopBeforeExit(
+            final int displayId,
+            final DesktopDisplayTarget.Kind targetKind,
+            final MagicDeskExitCoordinator.Callback callback) {
+        if (displayId <= Display.DEFAULT_DISPLAY) {
+            callback.onComplete(true);
+            return;
+        }
+        FreeformLaunchAnchorActivity.releaseBeforeDisplayRemoval(
+                () -> closeExternalDesktop(
+                        displayId,
+                        targetKind,
+                        false,
+                        callback::onComplete));
+    }
+
+    private int resolveExternalDesktopDisplayId() {
+        final Display display = mActivity.getDisplay();
+        if (display != null
+                && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
+            return display.getDisplayId();
+        }
+        final int activeDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        return activeDisplayId > Display.DEFAULT_DISPLAY
+                ? activeDisplayId : Display.INVALID_DISPLAY;
     }
 
     private void finishCloseDesktop(
@@ -257,16 +304,16 @@ final class MagicDeskSessionController {
                         "Could not return Console tasks to the phone",
                         error);
                 break;
+            case CLOSE_DESKTOP:
+                reportExitFailure(
+                        "EXIT-003",
+                        "Could not close the desktop session",
+                        error);
+                break;
             case CLEAN_PHONE_TASKS:
                 reportExitFailure(
                         "EXIT-006",
                         "Could not fully restore phone desktop state",
-                        error);
-                break;
-            case RESTORE_MIRROR:
-                reportExitFailure(
-                        "EXIT-003",
-                        "Could not restore mirror mode",
                         error);
                 break;
             default:

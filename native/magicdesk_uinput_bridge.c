@@ -30,6 +30,7 @@ struct bridge_state {
     bool started;
     bool pointer_restore_armed;
     bool pointer_moved;
+    int pointer_activation_direction;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -99,10 +100,12 @@ static int emit_wheel_steps(
             || emit_sync(uinput_fd) < 0 ? -1 : 0;
 }
 
-static int activate_pointer(const int uinput_fd) {
-    return emit_relative(uinput_fd, REL_X, 1) < 0
+static int activate_pointer(
+        const int uinput_fd,
+        const int direction) {
+    return emit_relative(uinput_fd, REL_X, direction) < 0
             || emit_sync(uinput_fd) < 0
-            || emit_relative(uinput_fd, REL_X, -1) < 0
+            || emit_relative(uinput_fd, REL_X, -direction) < 0
             || emit_sync(uinput_fd) < 0 ? -1 : 0;
 }
 
@@ -307,7 +310,16 @@ static int handle_control_line(
         return 0;
     }
     if (strcmp(line, "activate-pointer") == 0) {
-        return activate_pointer(state->uinput_fd);
+        const int result = activate_pointer(
+                state->uinput_fd,
+                state->pointer_activation_direction);
+        if (result == 0) {
+            // Alternating the pulse prevents edge clamping from accumulating
+            // a one-way cursor offset during long touchpad sessions.
+            state->pointer_activation_direction =
+                    -state->pointer_activation_direction;
+        }
+        return result;
     }
     if (sscanf(line, "scroll %d", &first) == 1) {
         return emit_wheel_steps(state->uinput_fd, first);
@@ -516,6 +528,7 @@ int main(int argc, char **argv) {
         .source_count = source_count,
         .uinput_fd = uinput_fd,
         .started = true,
+        .pointer_activation_direction = 1,
     };
     printf("MAGICDESK_MOUSE_READY sources=%d uid=%d\n",
             source_count,

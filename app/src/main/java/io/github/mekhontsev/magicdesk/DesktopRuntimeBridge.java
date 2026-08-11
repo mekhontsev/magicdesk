@@ -201,28 +201,6 @@ final class DesktopRuntimeBridge {
         return overlays != null && overlays.hasTextInputTarget();
     }
 
-    static boolean showDesktopKeyboard(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        return activity != null
-                && activity.getCurrentDisplayId() == displayId
-                && activity.showDesktopKeyboard();
-    }
-
-    static void hideDesktopKeyboard(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity != null
-                && activity.getCurrentDisplayId() == displayId) {
-            activity.hideDesktopKeyboard();
-        }
-    }
-
-    static boolean isDesktopKeyboardRequested(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        return activity != null
-                && activity.getCurrentDisplayId() == displayId
-                && activity.isDesktopKeyboardRequested();
-    }
-
     static void showTransientStatus(
             final String message,
             final boolean longDuration) {

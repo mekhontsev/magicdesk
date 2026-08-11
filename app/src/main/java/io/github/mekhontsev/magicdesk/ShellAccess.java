@@ -371,33 +371,15 @@ final class ShellAccess {
         }
     }
 
-    static int setDisplayImePolicy(
-            final int displayId,
-            final int policy) throws IOException {
+    static boolean routeImeToPhone(final int displayId) throws IOException {
         try {
-            return requireService().setDisplayImePolicy(displayId, policy);
+            return requireService().routeImeToPhone(displayId);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku display IME policy update failed: "
+                    "Shizuku display IME routing failed: "
                             + usefulMessage(error),
                     error);
-        }
-    }
-
-    static boolean focusDisplayForInput(final int displayId) {
-        if (!isReady() || displayId <= 0) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            return service.focusDisplayForInput(displayId);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return false;
         }
     }
 

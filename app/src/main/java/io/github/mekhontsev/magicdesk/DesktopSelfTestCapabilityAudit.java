@@ -60,9 +60,6 @@ final class DesktopSelfTestCapabilityAudit {
                 "input.layout_write", "granted",
                 "API-INPUT-005", "Update physical keyboard layouts");
         optional(result, capabilities,
-                "input.display_ime_policy", "present",
-                "API-INPUT-006", "Choose the on-screen keyboard display");
-        optional(result, capabilities,
                 "permission.internal_system_window", "granted",
                 "API-WINDOW-001", "Internal desktop windows");
         optional(result, capabilities,

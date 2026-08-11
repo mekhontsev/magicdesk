@@ -9,7 +9,6 @@ import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import java.util.Collections;
 import java.util.List;
@@ -89,59 +88,6 @@ final class InputMethodMenuController {
             params.setMargins(0, dp(2, 1), 0, dp(2, 1));
             mPanel.addView(button, params);
         }
-        if (DesktopScreenPolicy.isExternalDesktop(
-                mActivity.getCurrentDisplayId())) {
-            addKeyboardLocationControls();
-        }
-    }
-
-    private void addKeyboardLocationControls() {
-        final TextView title = new TextView(mActivity);
-        title.setText(R.string.on_screen_keyboard_location);
-        title.setTextColor(DesktopUiFactory.COLOR_MUTED);
-        title.setTextSize(12);
-        final LinearLayout.LayoutParams titleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, dp(8, 6), 0, dp(3, 2));
-        mPanel.addView(title, titleParams);
-
-        final OnScreenKeyboardLocation location =
-                DesktopPreferences.onScreenKeyboardLocation(mActivity);
-        final boolean desktopAvailable = MagicDeskRuntimeService
-                .isDesktopKeyboardAvailable(
-                        mActivity.getCurrentDisplayId());
-        final boolean desktopSelected = desktopAvailable
-                && location == OnScreenKeyboardLocation.DESKTOP;
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        final Button phone = mUi.actionButton(
-                (!desktopSelected
-                        ? "\u2713 " : "")
-                        + mActivity.getString(
-                                R.string.keyboard_location_phone),
-                DesktopUiFactory.COLOR_CYAN);
-        phone.setOnClickListener(view -> selectLocation(
-                OnScreenKeyboardLocation.PHONE));
-        final Button desktop = mUi.actionButton(
-                (desktopSelected
-                        ? "\u2713 " : "")
-                        + mActivity.getString(
-                                R.string.keyboard_location_desktop),
-                DesktopUiFactory.COLOR_CYAN);
-        desktop.setEnabled(ShellAccess.isReady() && desktopAvailable);
-        desktop.setOnClickListener(view -> selectLocation(
-                OnScreenKeyboardLocation.DESKTOP));
-        row.addView(phone, new LinearLayout.LayoutParams(
-                0, dp(40, 34), 1));
-        final LinearLayout.LayoutParams desktopParams =
-                new LinearLayout.LayoutParams(0, dp(40, 34), 1);
-        desktopParams.setMargins(dp(4, 3), 0, 0, 0);
-        row.addView(desktop, desktopParams);
-        mPanel.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
     private void show(
@@ -177,13 +123,6 @@ final class InputMethodMenuController {
                 Log.w(TAG, "Could not select input method", error);
             }
         }, TAG).start();
-    }
-
-    private void selectLocation(
-            final OnScreenKeyboardLocation location) {
-        mActivity.hideAllPanels();
-        MagicDeskRuntimeService.setOnScreenKeyboardLocation(
-                mActivity, location);
     }
 
     static String shellQuote(final String value) {

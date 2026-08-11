@@ -23,7 +23,7 @@ public final class MagicDeskExitCoordinatorTest {
                 .start();
 
         assertEquals(
-                List.of("hardware", "screen", "tasks", "phone", "mirror", "finish"),
+                List.of("hardware", "screen", "tasks", "close", "phone", "finish"),
                 operations.calls);
         assertEquals(EnumSet.allOf(MagicDeskExitCoordinator.Step.class), failures);
         assertTrue(operations.finished);
@@ -40,7 +40,7 @@ public final class MagicDeskExitCoordinatorTest {
                 .start();
 
         assertEquals(
-                List.of("hardware", "screen", "tasks", "phone", "mirror", "finish"),
+                List.of("hardware", "screen", "tasks", "close", "phone", "finish"),
                 operations.calls);
         assertEquals(
                 List.of(MagicDeskExitCoordinator.Step.RESTORE_HARDWARE),
@@ -80,14 +80,14 @@ public final class MagicDeskExitCoordinatorTest {
         }
 
         @Override
-        public void cleanPhoneTasks(final MagicDeskExitCoordinator.Callback callback) {
-            calls.add("phone");
+        public void closeDesktop(final MagicDeskExitCoordinator.Callback callback) {
+            calls.add("close");
             callback.onComplete(throwFirst);
         }
 
         @Override
-        public void restoreMirror(final MagicDeskExitCoordinator.Callback callback) {
-            calls.add("mirror");
+        public void cleanPhoneTasks(final MagicDeskExitCoordinator.Callback callback) {
+            calls.add("phone");
             callback.onComplete(throwFirst);
         }
 

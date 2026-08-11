@@ -128,7 +128,6 @@ interface IShizukuCommandService {
 
     boolean deleteDesktopWallpaper() = 46;
 
-    int setDisplayImePolicy(int displayId, int policy) = 47;
+    boolean routeImeToPhone(int displayId) = 47;
 
-    boolean focusDisplayForInput(int displayId) = 48;
 }

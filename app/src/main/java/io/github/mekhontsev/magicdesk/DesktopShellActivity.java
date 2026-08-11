@@ -74,7 +74,6 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopLayoutController mDesktopLayout;
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
-    private DesktopImeOverlay mDesktopImeOverlay;
     private DesktopUiFactory mUi;
     private CalendarPanelController mCalendarController;
     private ShortcutHelpController mShortcutHelpController;
@@ -100,7 +99,6 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
     private boolean mTaskbarVisible = true;
-    private boolean mDesktopImeVisible;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
@@ -300,10 +298,6 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void releaseDesktopOverlays() {
-        if (mDesktopImeOverlay != null) {
-            mDesktopImeOverlay.release();
-            mDesktopImeOverlay = null;
-        }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
@@ -405,71 +399,15 @@ public abstract class DesktopShellActivity extends Activity
         return mOverlayPanelController;
     }
 
-    boolean showDesktopKeyboard() {
-        final int displayId = getCurrentDisplayId();
-        final boolean shown = mDesktopImeOverlay != null
-                && mDesktopImeOverlay.show(
-                        (action, text, arg1, arg2, arg3) ->
-                                MagicDeskRuntimeService
-                                        .updateDesktopTextInputIfRunning(
-                                                displayId,
-                                                action,
-                                                text,
-                                                arg1,
-                                                arg2,
-                                                arg3),
-                        this::onDesktopImeInsetsChanged,
-                        () -> MagicDeskRuntimeService
-                                .desktopKeyboardDismissedIfRunning(
-                                        displayId));
-        if (mTaskbarController != null) {
-            mTaskbarController.updateOnScreenKeyboard();
-        }
-        return shown;
-    }
-
-    void hideDesktopKeyboard() {
-        if (mDesktopImeOverlay != null
-                && mDesktopImeOverlay.isRequested()) {
-            mDesktopImeOverlay.hide();
-        } else if (mDesktopImeVisible) {
-            TaskRepository.sendBackToDisplay(
-                    getCurrentDisplayId(), result -> {
-                        if (!result.success) {
-                            Log.w(TAG, "could not hide desktop keyboard: "
-                                    + result.message);
-                        }
-                    });
-        }
-    }
-
-    boolean isDesktopKeyboardRequested() {
-        return mDesktopImeVisible
-                || (mDesktopImeOverlay != null
-                        && mDesktopImeOverlay.isRequested());
-    }
-
-    void toggleOnScreenKeyboardFromTaskbar() {
-        if (!MagicDeskRuntimeService
-                .handleOnScreenKeyboardActionIfRunning(
-                        getCurrentDisplayId())) {
-            setStatus(R.string.status_on_screen_keyboard_failed);
-        }
-    }
-
     private void onDesktopImeInsetsChanged(
             final boolean visible,
             final int bottomInset) {
-        mDesktopImeVisible = visible;
         if (mDesktopLayout != null) {
             mDesktopLayout.setTaskbarBottomInset(
                     visible ? bottomInset : 0);
         }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.setForcedVisible(visible);
-        }
-        if (mTaskbarController != null) {
-            mTaskbarController.updateOnScreenKeyboard();
         }
     }
 
@@ -674,10 +612,6 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopRoot = root;
         mOverlayPanelController = new OverlayPanelController(
                 this, getCurrentDisplayId());
-        if (DesktopScreenPolicy.isExternalDesktop(getCurrentDisplayId())) {
-            mDesktopImeOverlay = new DesktopImeOverlay(
-                    this, getCurrentDisplayId());
-        }
         root.setBackgroundColor(COLOR_BACKGROUND);
         mDesktopLayout.attachDesktopRoot(root);
 

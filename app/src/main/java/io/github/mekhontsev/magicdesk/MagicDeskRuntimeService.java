@@ -73,7 +73,7 @@ public final class MagicDeskRuntimeService extends Service {
     private String mOperationStatus;
     private boolean mShowImeOverrideActive;
     private String mPreviousShowImeWithHardKeyboard;
-    private int mLocalImePolicyDisplayId =
+    private int mPhoneImePolicyDisplayId =
             android.view.Display.INVALID_DISPLAY;
 
     private final ShellAccess.StateListener mShellStateListener =
@@ -313,115 +313,6 @@ public final class MagicDeskRuntimeService extends Service {
         ShellAccess.endMirrorTextInput(displayId);
     }
 
-    static void setOnScreenKeyboardLocation(
-            final Context context,
-            final OnScreenKeyboardLocation location) {
-        if (context == null) {
-            return;
-        }
-        final OnScreenKeyboardLocation selected = location == null
-                ? OnScreenKeyboardLocation.PHONE : location;
-        final int activeDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final boolean reopen = activeDisplayId
-                        > android.view.Display.DEFAULT_DISPLAY
-                && isOnScreenKeyboardRequestedIfRunning(activeDisplayId);
-        if (reopen) {
-            hideOnScreenKeyboardIfRunning(activeDisplayId);
-        }
-        DesktopPreferences.saveOnScreenKeyboardLocation(context, selected);
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service != null && !service.mDestroyed) {
-            service.reconcileDesktopImePolicy();
-        }
-        if (reopen) {
-            handleOnScreenKeyboardActionIfRunning(activeDisplayId);
-        }
-        DesktopRuntimeBridge.refreshDesktopControls();
-    }
-
-    static boolean handleOnScreenKeyboardActionIfRunning(
-            final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null
-                || service.mDestroyed
-                || displayId != service.mOwnedDesktopDisplayId) {
-            return false;
-        }
-        final boolean desktopRequested = DesktopRuntimeBridge
-                .isDesktopKeyboardRequested(displayId);
-        final boolean phoneRequested = PhoneTouchpadController
-                .isKeyboardRequested(displayId);
-        if (isDesktopKeyboardAvailable(displayId)
-                && DesktopPreferences.onScreenKeyboardLocation(service)
-                        == OnScreenKeyboardLocation.DESKTOP) {
-            if (desktopRequested) {
-                return hideOnScreenKeyboardIfRunning(displayId);
-            }
-            if (phoneRequested) {
-                PhoneTouchpadController.hideKeyboard(displayId);
-            }
-            return service.showDesktopKeyboard(displayId);
-        }
-        if (desktopRequested) {
-            DesktopRuntimeBridge.hideDesktopKeyboard(displayId);
-        }
-        return PhoneTouchpadController.showKeyboard(displayId);
-    }
-
-    static boolean isOnScreenKeyboardRequestedIfRunning(
-            final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && displayId == service.mOwnedDesktopDisplayId
-                && (DesktopRuntimeBridge.isDesktopKeyboardRequested(displayId)
-                        || PhoneTouchpadController
-                                .isKeyboardRequested(displayId));
-    }
-
-    private static boolean hideOnScreenKeyboardIfRunning(
-            final int displayId) {
-        boolean hidden = false;
-        if (DesktopRuntimeBridge.isDesktopKeyboardRequested(displayId)) {
-            DesktopRuntimeBridge.hideDesktopKeyboard(displayId);
-            hidden = true;
-        }
-        return PhoneTouchpadController.hideKeyboard(displayId) || hidden;
-    }
-
-    private boolean showDesktopKeyboard(
-            final int displayId) {
-        if (!isDesktopKeyboardAvailable(displayId)
-                || !ensureLocalImePolicy(displayId)) {
-            return false;
-        }
-        if (!ShellAccess.focusDisplayForInput(displayId)) {
-            return false;
-        }
-        beginDesktopTextInputIfRunning(displayId);
-        if (DesktopRuntimeBridge.showDesktopKeyboard(displayId)) {
-            return true;
-        }
-        return false;
-    }
-
-    static void desktopKeyboardDismissedIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed) {
-            return;
-        }
-        ShellAccess.endMirrorTextInput(displayId);
-        service.reconcileDesktopImePolicy();
-        DesktopRuntimeBridge.refreshDesktopControls();
-    }
-
-    static boolean isDesktopKeyboardAvailable(final int displayId) {
-        // Nubia's wired mirror display deliberately redirects IME to display 0.
-        return DesktopRuntimeBridge.getDesktopTargetKind(displayId)
-                != DesktopDisplayTarget.Kind.WIRED;
-    }
-
     static boolean showStartIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null || service.mDestroyed || service.mHandler == null) {
@@ -572,7 +463,6 @@ public final class MagicDeskRuntimeService extends Service {
         if (mDesktopMouseBridge != null) {
             mDesktopMouseBridge.stop();
         }
-        restoreDesktopImePolicy(mLocalImePolicyDisplayId);
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
         RedmagicHardwareController.stop();
@@ -639,7 +529,6 @@ public final class MagicDeskRuntimeService extends Service {
                 desktopKind,
                 activeDesktopRemoved);
         if (displayRemoved) {
-            restoreDesktopImePolicy(displayId);
             PhoneTouchpadController.release(displayId);
             DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
             if (externalDesktopRemoved) {
@@ -948,7 +837,6 @@ public final class MagicDeskRuntimeService extends Service {
         updateDesktopMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            reconcileDesktopImePolicy();
             if (ownsNubiaConsoleDesktop()) {
                 NubiaHostAssistPanelController.hideIfPresent();
             }
@@ -992,16 +880,13 @@ public final class MagicDeskRuntimeService extends Service {
         if (desktopDisplayId == mOwnedDesktopDisplayId
                 && ownsNubiaConsoleDesktop
                         == mOwnsNubiaConsoleDesktop) {
+            updateExternalImePolicy();
             return;
-        }
-        if (mLocalImePolicyDisplayId != android.view.Display.INVALID_DISPLAY
-                && mLocalImePolicyDisplayId != desktopDisplayId) {
-            restoreDesktopImePolicy(mLocalImePolicyDisplayId);
         }
         mOwnedDesktopDisplayId = desktopDisplayId;
         mOwnsNubiaConsoleDesktop = ownsNubiaConsoleDesktop;
         updateShowImeOverride();
-        reconcileDesktopImePolicy();
+        updateExternalImePolicy();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
@@ -1052,7 +937,7 @@ public final class MagicDeskRuntimeService extends Service {
             mShowImeOverrideActive = true;
             Log.i(TAG, "software keyboard enabled for external desktop");
         } catch (IOException error) {
-            Log.w(TAG, "could not enable desktop IME policy", error);
+            Log.w(TAG, "could not enable phone keyboard policy", error);
             CompatibilityDiagnostics.record(
                     "INPUT-IME-001",
                     "Could not enable the on-screen keyboard with hardware input",
@@ -1078,7 +963,7 @@ public final class MagicDeskRuntimeService extends Service {
             mPreviousShowImeWithHardKeyboard = null;
             Log.i(TAG, "software keyboard policy restored");
         } catch (IOException error) {
-            Log.w(TAG, "could not restore desktop IME policy", error);
+            Log.w(TAG, "could not restore phone keyboard policy", error);
             CompatibilityDiagnostics.record(
                     "INPUT-IME-002",
                     "Could not restore the on-screen keyboard policy",
@@ -1087,89 +972,30 @@ public final class MagicDeskRuntimeService extends Service {
         }
     }
 
-    private void reconcileDesktopImePolicy() {
-        if (!ShellAccess.isReady()) {
+    private void updateExternalImePolicy() {
+        if (!ownsExternalDesktop()) {
+            mPhoneImePolicyDisplayId =
+                    android.view.Display.INVALID_DISPLAY;
             return;
         }
-        final int desiredDisplayId = ownsExternalDesktop()
-                        && isDesktopKeyboardAvailable(mOwnedDesktopDisplayId)
-                        && DesktopPreferences.onScreenKeyboardLocation(this)
-                                == OnScreenKeyboardLocation.DESKTOP
-                ? mOwnedDesktopDisplayId
-                : android.view.Display.INVALID_DISPLAY;
-        if (mLocalImePolicyDisplayId
-                != android.view.Display.INVALID_DISPLAY
-                && mLocalImePolicyDisplayId != desiredDisplayId) {
-            restoreDesktopImePolicy(mLocalImePolicyDisplayId);
-        }
-        if (desiredDisplayId > android.view.Display.DEFAULT_DISPLAY) {
-            ensureLocalImePolicy(desiredDisplayId);
-        }
-    }
-
-    private boolean ensureLocalImePolicy(final int displayId) {
         if (!ShellAccess.isReady()
-                || displayId <= android.view.Display.DEFAULT_DISPLAY) {
-            return false;
-        }
-        if (mLocalImePolicyDisplayId == displayId) {
-            return true;
+                || mPhoneImePolicyDisplayId == mOwnedDesktopDisplayId) {
+            return;
         }
         try {
-            final int actual = ShellAccess.setDisplayImePolicy(
-                    displayId,
-                    DisplayImePolicyController.LOCAL);
-            if (actual != DisplayImePolicyController.LOCAL) {
-                throw new IOException(
-                        "requested local policy, actual=" + actual);
+            if (!ShellAccess.routeImeToPhone(mOwnedDesktopDisplayId)) {
+                throw new IOException("the phone fallback was not applied");
             }
-            mLocalImePolicyDisplayId = displayId;
-            Log.i(TAG, "desktop IME policy local display=" + displayId);
-            return true;
+            mPhoneImePolicyDisplayId = mOwnedDesktopDisplayId;
+            Log.i(TAG, "IME routed to phone for desktop display="
+                    + mOwnedDesktopDisplayId);
         } catch (IOException error) {
-            Log.w(TAG, "could not host IME on desktop display", error);
+            Log.w(TAG, "could not route the IME to the phone", error);
             CompatibilityDiagnostics.record(
                     "INPUT-IME-003",
-                    "Could not show the on-screen keyboard on the desktop",
-                    "display=" + displayId + " " + error.getMessage(),
-                    error);
-            return false;
-        }
-    }
-
-    private void restoreDesktopImePolicy(final int displayId) {
-        if (displayId == android.view.Display.INVALID_DISPLAY
-                || displayId != mLocalImePolicyDisplayId) {
-            return;
-        }
-        if (!ShellAccess.isReady()) {
-            return;
-        }
-        if (mDisplayCoordinator != null
-                && !mDisplayCoordinator.hasDisplay(displayId)) {
-            mLocalImePolicyDisplayId =
-                    android.view.Display.INVALID_DISPLAY;
-            Log.i(TAG, "display removed with local IME policy display="
-                    + displayId);
-            return;
-        }
-        try {
-            final int actual = ShellAccess.setDisplayImePolicy(
-                    displayId,
-                    DisplayImePolicyController.FALLBACK_TO_PHONE);
-            if (actual != DisplayImePolicyController.FALLBACK_TO_PHONE) {
-                throw new IOException(
-                        "requested phone fallback policy, actual=" + actual);
-            }
-            mLocalImePolicyDisplayId =
-                    android.view.Display.INVALID_DISPLAY;
-            Log.i(TAG, "desktop IME policy restored display=" + displayId);
-        } catch (IOException error) {
-            Log.w(TAG, "could not restore display IME policy", error);
-            CompatibilityDiagnostics.record(
-                    "INPUT-IME-004",
-                    "Could not restore the standard keyboard location",
-                    "display=" + displayId + " " + error.getMessage(),
+                    "Could not keep the on-screen keyboard on the phone",
+                    "display=" + mOwnedDesktopDisplayId + " "
+                            + error.getMessage(),
                     error);
         }
     }

@@ -82,20 +82,29 @@ final class DesktopPointerInjector {
         final long gestureDownTime = downTime > 0 ? downTime : eventTime;
         switch (action) {
             case TOUCHPAD_HOVER:
-                context.injectMouseAsync(displayId, position, eventTime,
-                        MotionEvent.ACTION_HOVER_MOVE, 0, 0);
+                context.injectTouchpadHoverAsync(
+                        displayId, position, eventTime);
                 return;
             case TOUCHPAD_DRAG_START:
-                context.injectTouchAsync(displayId, position,
-                        gestureDownTime, MotionEvent.ACTION_DOWN, 1.0f);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.BUTTON_PRIMARY, 0);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_BUTTON_PRESS,
+                        MotionEvent.BUTTON_PRIMARY,
+                        MotionEvent.BUTTON_PRIMARY);
                 return;
             case TOUCHPAD_DRAG_MOVE:
-                context.injectTouchAsync(displayId, position,
-                        gestureDownTime, MotionEvent.ACTION_MOVE, 1.0f);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_MOVE,
+                        MotionEvent.BUTTON_PRIMARY, 0);
                 return;
             case TOUCHPAD_DRAG_END:
-                context.injectTouchAsync(displayId, position,
-                        gestureDownTime, MotionEvent.ACTION_UP, 0.0f);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_BUTTON_RELEASE,
+                        0, MotionEvent.BUTTON_PRIMARY);
+                context.injectMouseAsync(displayId, position, gestureDownTime,
+                        MotionEvent.ACTION_UP, 0, 0);
                 return;
             default:
                 throw new IllegalArgumentException(
@@ -156,7 +165,9 @@ final class DesktopPointerInjector {
                     buttonState,
                     actionButton,
                     0.0f,
-                    INJECTION_MODE_WAIT_FOR_RESULT);
+                    INJECTION_MODE_WAIT_FOR_RESULT,
+                    magicDeskMouseDeviceId(),
+                    1.0f);
         }
 
         void injectMouseAsync(
@@ -173,23 +184,28 @@ final class DesktopPointerInjector {
                     buttonState,
                     actionButton,
                     0.0f,
-                    INJECTION_MODE_ASYNC);
+                    INJECTION_MODE_ASYNC,
+                    magicDeskMouseDeviceId(),
+                    1.0f);
         }
 
-        void injectTouchAsync(
+        void injectTouchpadHoverAsync(
                 final int displayId,
                 final Point position,
-                final long downTime,
-                final int action,
-                final float pressure)
+                final long eventTime)
                 throws ReflectiveOperationException {
-            inject(displayId, position, downTime, action,
+            // Nubia's desktop resize listener expects this mouse/finger
+            // combination. Its vendor cursor event has no Android device ID.
+            inject(displayId, position, eventTime,
+                    MotionEvent.ACTION_HOVER_MOVE,
                     MotionEvent.TOOL_TYPE_FINGER,
-                    InputDevice.SOURCE_TOUCHSCREEN,
+                    InputDevice.SOURCE_MOUSE,
                     0,
                     0,
-                    pressure,
-                    INJECTION_MODE_ASYNC);
+                    0.0f,
+                    INJECTION_MODE_ASYNC,
+                    magicDeskMouseDeviceId(),
+                    0.0f);
         }
 
         void injectFocusHandoff(final int displayId)
@@ -222,7 +238,9 @@ final class DesktopPointerInjector {
                 final int buttonState,
                 final int actionButton,
                 final float pressure,
-                final int injectionMode)
+                final int injectionMode,
+                final int deviceId,
+                final float precision)
                 throws ReflectiveOperationException {
             final MotionEvent.PointerProperties properties =
                     new MotionEvent.PointerProperties();
@@ -238,8 +256,8 @@ final class DesktopPointerInjector {
                     downTime, SystemClock.uptimeMillis(), action, 1,
                     new MotionEvent.PointerProperties[] {properties},
                     new MotionEvent.PointerCoords[] {coordinates},
-                    0, buttonState, 1.0f, 1.0f,
-                    magicDeskMouseDeviceId(), 0, source, 0);
+                    0, buttonState, precision, precision,
+                    deviceId, 0, source, 0);
             try {
                 mSetActionButton.invoke(
                         event, Integer.valueOf(actionButton));
