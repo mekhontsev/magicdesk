@@ -182,6 +182,10 @@ retired prototypes are listed separately and are not current product modes.
   delete confirmation, external file opening, system folder opening, and
   immediate `FileObserver` refresh. A duplicate-name failure leaves the same
   shell UserService connected and the next operation succeeds.
+- [x] On a physical external desktop, verify Android global drag-and-drop from
+  MagicDesk into a compatible file manager, from the system file picker into
+  MagicDesk, and between application windows. Confirm that source gestures not
+  published as global Android drag sessions do not reach MagicDesk.
 
 ## Historical Experiments: Retired Paths
 

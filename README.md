@@ -68,7 +68,7 @@ device and One UI version.
 | Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
-| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files and application drag-and-drop |
+| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations plus application drag-and-drop | File workflows are primarily provided through My Files and application drag-and-drop |
 | Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
 | Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
@@ -99,7 +99,9 @@ and selected-display recording.
   fullscreen.
 - Pin applications to the taskbar or place shortcuts on the desktop.
 - Use `/storage/emulated/0/Desktop` as the normal desktop filesystem: create,
-  open, rename, and delete files or folders directly from the desktop.
+  open, rename, and delete files or folders directly from the desktop, and
+  drag files between the desktop and application windows that support
+  Android's global drag-and-drop protocol.
 - Add native Android widgets, move them on the desktop, and resize supported
   providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
@@ -354,12 +356,12 @@ devices are present. Native mouse resize-cursor selection is checked when
 WMShell exposes its transition trace; otherwise it remains explicitly
 **NOT TESTED** because Android overlay displays do not render a readable
 hardware cursor.
-The test launches its window through the production temporary task display
-area. A one-shot shell task observer records the new window's first front-state
-and reports any transient fullscreen launch. It also moves an existing
-fullscreen phone task through the same path and verifies that its first state
-on the external display is already freeform. The eventual corrected state is
-never mistaken for the initial one.
+The test launches its window through the temporary task display area used for
+simulated displays. A one-shot shell task observer records the new window's
+first front-state and reports any transient fullscreen launch. It also moves
+an existing fullscreen phone task through the same path and verifies that its
+first state on the external display is already freeform. The eventual
+corrected state is never mistaken for the initial one.
 The simulated-display setting is owned by a lifecycle-bound Shizuku stream and
 restored when the test finishes or its process disconnects.
 
@@ -424,6 +426,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 
 ## Project
 
+- Author: [Dmitry Mekhontsev](https://github.com/mekhontsev)
 - Main package: `io.github.mekhontsev.magicdesk`
 - Minimum SDK: 36
 - Target SDK: 36

@@ -233,8 +233,8 @@ runtime integration and are not distributed through the same release path.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
 - `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
   coordinate task actions, Show Desktop, restoration, and exact-task
-  switching. `WindowedAppLauncher` delegates the hidden task-area transaction
-  to the short-lived shell command without retaining another Activity.
+  switching. `WindowedAppLauncher` delegates task placement to a short-lived
+  shell command without retaining another Activity.
 
 ### Platform services
 
@@ -366,12 +366,19 @@ uses the same target-aware close operation as the user-facing session, and only
 then removes the display so WMS
 cannot migrate that task onto the phone launcher.
 
-A windowed launch creates a short-lived shell-owned `TaskDisplayArea` beside
-the target display's default task area. A new Activity is launched there with
-its original launcher Intent, freeform mode, and bounds, or an existing task is
-reparented there in one `WindowContainerTransaction`. The task is then
-reparented into the target's default area and the empty temporary area is
-deleted. No persistent launch Activity or launch-source task is retained.
+A simulated-display windowed launch creates a short-lived shell-owned
+`TaskDisplayArea` beside the target display's default task area. A new Activity
+is launched there with its original launcher Intent, freeform mode, and bounds,
+or an existing task is reparented there in one
+`WindowContainerTransaction`. The root task is then moved back to the target's
+default area and the empty temporary area is deleted.
+
+Nubia's wired and Miracast desktop displays use their default task area
+directly. The same short-lived shell process starts the Activity and applies
+the normal freeform-and-bounds `WindowContainerTransaction` as soon as its task
+exists. This avoids a visible fullscreen phase without retaining a launch
+Activity. The distinction follows the explicit `DesktopDisplayTarget.Kind`;
+it never depends on display names, package exceptions, or timing guesses.
 
 A one-shot shell-UID `TaskStackListener` is registered only around self-test
 fixture transitions. It captures the first `onTaskMovedToFront` configuration,
@@ -474,11 +481,17 @@ confirmation; removing an application shortcut or widget never deletes
 application data. MagicDesk does not delete the Desktop directory or its
 contents during Exit or uninstall.
 
-Files opened in another application are exposed through a non-exported,
-read-only `ContentProvider` with a per-Intent URI grant. The receiving
-application never receives Shizuku access or a raw privileged filesystem
-handle. Directory changes are delivered by `FileObserver`; there is no folder
-polling while the desktop is idle.
+Files opened or dragged into another application are exposed through a
+non-exported `ContentProvider` with a temporary URI grant. Drag grants are
+read-only; an explicit open also grants write access so an editor can save the
+file. The receiving application never receives Shizuku access or a raw
+privileged filesystem handle. One or more external URI drops are copied into
+Desktop on the existing folder executor; incomplete targets are removed,
+conflicts gain a numeric suffix, and the incoming drag grant is then released.
+Cross-window import depends on the source publishing an Android global drag
+session; private in-window drag gestures are not visible to MagicDesk.
+Directory changes are delivered by `FileObserver`; there is no folder polling
+while the desktop is idle.
 
 ## External Desktop Activation
 
@@ -844,6 +857,9 @@ These results explain otherwise tempting implementation choices:
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
+- Creating a custom task display area on Nubia's `NubiaAppMirrorDisplay`
+  removes that vendor display; custom task areas remain limited to simulated
+  displays where the complete lifecycle is verified.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
