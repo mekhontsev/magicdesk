@@ -215,6 +215,35 @@ final class PhoneDesktopTaskRecovery {
             }
         }
 
+        if (!unavailableRemovedTaskIds.isEmpty()) {
+            final CommandResult revived = runMutation(
+                    createReviveCommand(unavailableRemovedTaskIds),
+                    continuation,
+                    environment);
+            if (revived.cancelled) {
+                return Result.cancelled();
+            }
+            if (revived.success) {
+                liveTasks = waitForPhoneTasks(
+                        unavailableRemovedTaskIds,
+                        continuation,
+                        environment);
+            } else {
+                final CommandResult currentStack = runRead(
+                        CMD + " activity stack list",
+                        continuation,
+                        environment);
+                if (currentStack.cancelled) {
+                    return Result.cancelled();
+                }
+                if (!currentStack.success) {
+                    return Result.failure(currentStack.output.trim());
+                }
+                liveTasks = indexPhoneTasks(currentStack.output);
+            }
+            unavailableRemovedTaskIds.removeAll(liveTasks.keySet());
+        }
+
         final Set<Integer> taskIds = new LinkedHashSet<>(
                 phoneRepositoryTaskIds);
         if (removedDisplayId > 0) {

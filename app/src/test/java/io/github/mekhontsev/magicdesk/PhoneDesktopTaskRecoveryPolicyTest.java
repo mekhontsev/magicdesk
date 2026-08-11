@@ -145,7 +145,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
-    public void timeoutReportsRepositoryIdsWithoutLiveTasks() {
+    public void timeoutRevivesRepositoryTaskWithoutLiveTask() {
         final FakeEnvironment environment = new FakeEnvironment(false);
         environment.repositoryContainsTask = false;
         environment.removedRepositoryContainsTask = true;
@@ -154,11 +154,12 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
                         95, true, () -> true, environment);
 
-        assertFalse(result.success);
+        assertTrue(result.success);
         assertFalse(result.pending);
-        assertFalse(environment.hasMoveToDeskCommand());
-        assertFalse(environment.hasFullscreenTransition());
-        assertFalse(environment.hasReviveCommand());
+        assertTrue(environment.hasFullscreenTransition());
+        assertTrue(environment.hasReviveCommand());
+        assertTrue(environment.indexOfRevive()
+                < environment.indexOfFullscreenTransition());
     }
 
     @Test
@@ -168,6 +169,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         environment.repositoryContainsTask = false;
         environment.removedRepositoryContainsTask = true;
         environment.removedRepositoryContainsSecondTask = true;
+        environment.reviveMissingTask = false;
 
         final PhoneDesktopTaskRecovery.Result result =
                 PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
@@ -188,6 +190,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean repositoryContainsTask = true;
         boolean removedRepositoryContainsTask;
         boolean removedRepositoryContainsSecondTask;
+        boolean reviveMissingTask = true;
         int stackReads;
         int taskAppearsAfterStackReads = -1;
 
@@ -219,6 +222,10 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                         repositoryOutput());
             }
             if (command.contains("PhoneDesktopTaskRecoveryCommand")) {
+                if (!reviveMissingTask) {
+                    return PhoneDesktopTaskRecovery.CommandResult.failure(
+                            "phone-desktop-recovery unresolved=1");
+                }
                 taskPresent = true;
                 freeform = true;
                 return PhoneDesktopTaskRecovery.CommandResult.success(
