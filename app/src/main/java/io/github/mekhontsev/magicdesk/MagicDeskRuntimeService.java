@@ -352,8 +352,9 @@ public final class MagicDeskRuntimeService extends Service {
                 .isDesktopKeyboardRequested(displayId);
         final boolean phoneRequested = PhoneTouchpadController
                 .isKeyboardRequested(displayId);
-        if (DesktopPreferences.onScreenKeyboardLocation(service)
-                == OnScreenKeyboardLocation.DESKTOP) {
+        if (isDesktopKeyboardAvailable(displayId)
+                && DesktopPreferences.onScreenKeyboardLocation(service)
+                        == OnScreenKeyboardLocation.DESKTOP) {
             if (desktopRequested) {
                 return hideOnScreenKeyboardIfRunning(displayId);
             }
@@ -391,7 +392,8 @@ public final class MagicDeskRuntimeService extends Service {
 
     private boolean showDesktopKeyboard(
             final int displayId) {
-        if (!ensureLocalImePolicy(displayId)) {
+        if (!isDesktopKeyboardAvailable(displayId)
+                || !ensureLocalImePolicy(displayId)) {
             return false;
         }
         if (!ShellAccess.focusDisplayForInput(displayId)) {
@@ -412,6 +414,12 @@ public final class MagicDeskRuntimeService extends Service {
         ShellAccess.endMirrorTextInput(displayId);
         service.reconcileDesktopImePolicy();
         DesktopRuntimeBridge.refreshDesktopControls();
+    }
+
+    static boolean isDesktopKeyboardAvailable(final int displayId) {
+        // Nubia's wired mirror display deliberately redirects IME to display 0.
+        return DesktopRuntimeBridge.getDesktopTargetKind(displayId)
+                != DesktopDisplayTarget.Kind.WIRED;
     }
 
     static boolean showStartIfRunning() {
@@ -1084,6 +1092,7 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         final int desiredDisplayId = ownsExternalDesktop()
+                        && isDesktopKeyboardAvailable(mOwnedDesktopDisplayId)
                         && DesktopPreferences.onScreenKeyboardLocation(this)
                                 == OnScreenKeyboardLocation.DESKTOP
                 ? mOwnedDesktopDisplayId

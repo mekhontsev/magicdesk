@@ -109,10 +109,15 @@ final class InputMethodMenuController {
 
         final OnScreenKeyboardLocation location =
                 DesktopPreferences.onScreenKeyboardLocation(mActivity);
+        final boolean desktopAvailable = MagicDeskRuntimeService
+                .isDesktopKeyboardAvailable(
+                        mActivity.getCurrentDisplayId());
+        final boolean desktopSelected = desktopAvailable
+                && location == OnScreenKeyboardLocation.DESKTOP;
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         final Button phone = mUi.actionButton(
-                (location == OnScreenKeyboardLocation.PHONE
+                (!desktopSelected
                         ? "\u2713 " : "")
                         + mActivity.getString(
                                 R.string.keyboard_location_phone),
@@ -120,12 +125,12 @@ final class InputMethodMenuController {
         phone.setOnClickListener(view -> selectLocation(
                 OnScreenKeyboardLocation.PHONE));
         final Button desktop = mUi.actionButton(
-                (location == OnScreenKeyboardLocation.DESKTOP
+                (desktopSelected
                         ? "\u2713 " : "")
                         + mActivity.getString(
                                 R.string.keyboard_location_desktop),
                 DesktopUiFactory.COLOR_CYAN);
-        desktop.setEnabled(ShellAccess.isReady());
+        desktop.setEnabled(ShellAccess.isReady() && desktopAvailable);
         desktop.setOnClickListener(view -> selectLocation(
                 OnScreenKeyboardLocation.DESKTOP));
         row.addView(phone, new LinearLayout.LayoutParams(

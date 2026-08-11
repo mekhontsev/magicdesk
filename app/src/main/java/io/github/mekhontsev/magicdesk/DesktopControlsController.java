@@ -412,17 +412,23 @@ final class DesktopControlsController {
         }
         final OnScreenKeyboardLocation location =
                 DesktopPreferences.onScreenKeyboardLocation(mActivity);
+        final boolean desktopAvailable = MagicDeskRuntimeService
+                .isDesktopKeyboardAvailable(
+                        mActivity.getCurrentDisplayId());
+        final boolean desktopSelected = desktopAvailable
+                && location == OnScreenKeyboardLocation.DESKTOP;
         mImePhoneButton.setText(
-                (location == OnScreenKeyboardLocation.PHONE
+                (!desktopSelected
                         ? "\u2713 " : "")
                         + mActivity.getString(
                                 R.string.keyboard_location_phone));
         mImeDesktopButton.setText(
-                (location == OnScreenKeyboardLocation.DESKTOP
+                (desktopSelected
                         ? "\u2713 " : "")
                         + mActivity.getString(
                                 R.string.keyboard_location_desktop));
-        mImeDesktopButton.setEnabled(ShellAccess.isReady());
+        mImeDesktopButton.setEnabled(
+                ShellAccess.isReady() && desktopAvailable);
     }
 
     void togglePhoneScreen() {

@@ -463,9 +463,11 @@ final class TaskbarController {
         if (mOnScreenKeyboardButton == null) {
             return;
         }
-        final boolean desktopLocation = DesktopPreferences
-                .onScreenKeyboardLocation(mActivity)
-                == OnScreenKeyboardLocation.DESKTOP;
+        final boolean desktopLocation = MagicDeskRuntimeService
+                .isDesktopKeyboardAvailable(
+                        mActivity.getCurrentDisplayId())
+                && DesktopPreferences.onScreenKeyboardLocation(mActivity)
+                        == OnScreenKeyboardLocation.DESKTOP;
         final boolean requested = desktopLocation
                 && mActivity.isDesktopKeyboardRequested();
         final boolean visible = !mActivity.isCompactDesktopPreview()
