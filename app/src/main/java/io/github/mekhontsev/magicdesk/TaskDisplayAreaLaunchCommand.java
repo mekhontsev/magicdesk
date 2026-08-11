@@ -2,11 +2,15 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
+import android.app.PendingIntent;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 
 import java.lang.reflect.Method;
@@ -24,6 +28,7 @@ public final class TaskDisplayAreaLaunchCommand {
             "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity";
     // Nubia cannot rank an empty nested TDA; use a sibling of the default TDA.
     private static final int FEATURE_ROOT = 0;
+    private static final int TRANSIT_OPEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long TASK_TIMEOUT_MILLIS = 5_000L;
 
@@ -169,10 +174,16 @@ public final class TaskDisplayAreaLaunchCommand {
                         intent.getComponent().getPackageName(),
                         bounds,
                         containerTokenClass,
-                        areaToken);
+                        areaToken,
+                        defaultApp);
                 if (defaultApp) {
-                    TaskWindowingCommand.applyFreeform(
-                            service, displayId, taskId, bounds);
+                    // Compatibility fallback for firmware that accepts the
+                    // launch transaction but ignores its initial bounds.
+                    if (!isTaskFreeformAtBounds(
+                            service, displayId, taskId, bounds)) {
+                        TaskWindowingCommand.applyFreeform(
+                                service, displayId, taskId, bounds);
+                    }
                     waitForTaskWindowingMode(
                             service,
                             displayId,
@@ -246,7 +257,9 @@ public final class TaskDisplayAreaLaunchCommand {
             final String expectedPackage,
             final Rect bounds,
             final Class<?> containerTokenClass,
-            final Object areaToken) throws ReflectiveOperationException {
+            final Object areaToken,
+            final boolean launchInTransition)
+            throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         options.setLaunchBounds(bounds);
@@ -258,7 +271,76 @@ public final class TaskDisplayAreaLaunchCommand {
         ActivityOptions.class.getMethod(
                 "setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
+        final Set<Integer> existingTaskIds = taskIdsOnDisplay(
+                service, displayId);
+        if (launchInTransition) {
+            launchPendingIntentTransition(intent, options);
+        } else {
+            launchActivity(service, intent, options);
+        }
+        return waitForTask(
+                service,
+                displayId,
+                -1,
+                expectedPackage,
+                existingTaskIds);
+    }
 
+    private static void launchPendingIntentTransition(
+            final Intent intent,
+            final ActivityOptions options) throws ReflectiveOperationException {
+        ActivityOptions.class.getMethod(
+                "setPendingIntentBackgroundActivityStartMode", Integer.TYPE)
+                .invoke(options, Integer.valueOf(3));
+        // Match WMShell's launch path and avoid its initial-bounds regression.
+        ActivityOptions.class.getMethod(
+                "setFlexibleLaunchSize", Boolean.TYPE)
+                .invoke(options, Boolean.TRUE);
+        final Context shellContext = createShellContext();
+        final PendingIntent pendingIntent = PendingIntent.getActivity(
+                shellContext,
+                0,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction = transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "sendPendingIntent",
+                PendingIntent.class,
+                Intent.class,
+                Bundle.class)
+                .invoke(transaction, pendingIntent, intent, options.toBundle());
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_OPEN, transactionClass, transaction);
+    }
+
+    private static Context createShellContext()
+            throws ReflectiveOperationException {
+        if (Looper.myLooper() == null) {
+            Looper.prepare();
+        }
+        final Class<?> activityThreadClass =
+                Class.forName("android.app.ActivityThread");
+        final Object activityThread = activityThreadClass
+                .getMethod("systemMain")
+                .invoke(null);
+        final Context systemContext = (Context) activityThreadClass
+                .getMethod("getSystemContext")
+                .invoke(activityThread);
+        try {
+            return systemContext.createPackageContext(
+                    "com.android.shell", Context.CONTEXT_IGNORE_SECURITY);
+        } catch (PackageManager.NameNotFoundException error) {
+            throw new IllegalStateException(
+                    "Android shell package is unavailable", error);
+        }
+    }
+
+    private static void launchActivity(
+            final Object service,
+            final Intent intent,
+            final ActivityOptions options) throws ReflectiveOperationException {
         final Class<?> applicationThreadClass =
                 Class.forName("android.app.IApplicationThread");
         final Class<?> profilerInfoClass =
@@ -276,8 +358,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 Integer.TYPE,
                 profilerInfoClass,
                 Bundle.class);
-        final Set<Integer> existingTaskIds = taskIdsOnDisplay(
-                service, displayId);
         final int startResult = ((Integer) startActivity.invoke(
                 service,
                 null,
@@ -295,12 +375,6 @@ public final class TaskDisplayAreaLaunchCommand {
             throw new IllegalStateException(
                     "startActivity returned " + startResult);
         }
-        return waitForTask(
-                service,
-                displayId,
-                -1,
-                expectedPackage,
-                existingTaskIds);
     }
 
     private static int waitForTask(
@@ -353,6 +427,24 @@ public final class TaskDisplayAreaLaunchCommand {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IllegalStateException(
                 "task did not enter requested windowing mode");
+    }
+
+    private static boolean isTaskFreeformAtBounds(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect expectedBounds) throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        final int windowingMode = HiddenTaskApi.getWindowConfigurationValue(
+                task, "getWindowingMode");
+        final Object windowConfiguration =
+                HiddenTaskApi.getWindowConfiguration(task);
+        final Object bounds = windowConfiguration.getClass()
+                .getMethod("getBounds")
+                .invoke(windowConfiguration);
+        return windowingMode == WINDOWING_MODE_FREEFORM
+                && expectedBounds.equals(bounds);
     }
 
     private static Set<Integer> taskIdsOnDisplay(

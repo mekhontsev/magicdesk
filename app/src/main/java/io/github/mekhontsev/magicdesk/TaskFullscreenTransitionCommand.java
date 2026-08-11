@@ -89,10 +89,16 @@ public final class TaskFullscreenTransitionCommand {
 
     static void startTransition(final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
+        startTransition(TRANSIT_CHANGE, transactionClass, transaction);
+    }
+
+    static void startTransition(final int transitionType,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
         final Class<?> organizerClass = Class.forName("android.window.WindowOrganizer");
         final Object organizer = organizerClass.getConstructor().newInstance();
         organizerClass.getMethod("startNewTransition", Integer.TYPE, transactionClass)
-                .invoke(organizer, Integer.valueOf(TRANSIT_CHANGE), transaction);
+                .invoke(organizer, Integer.valueOf(transitionType), transaction);
     }
 
     static void awaitFullscreen(final Object service, final int displayId,
