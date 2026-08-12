@@ -4,6 +4,16 @@ import java.io.IOException;
 
 /** Firmware-specific part of desktop windowing provisioning. */
 interface PlatformWindowingDriver {
+    boolean requiresMirrorInputFocusSynchronization();
+
+    String restrictionsPropertyKey();
+
+    String roundedCornersPropertyKey();
+
+    boolean requiresRebootForConfiguration(
+            boolean restrictionsDisabled,
+            boolean roundedCornersDisabled);
+
     boolean isReady(
             boolean freeformEnabled,
             boolean resizableEnabled,

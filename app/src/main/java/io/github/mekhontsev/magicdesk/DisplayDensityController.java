@@ -10,7 +10,6 @@ import java.util.Set;
 final class DisplayDensityController {
     private static final String TAG = "MagicDesk";
     private static final String WM = "/system/bin/wm";
-    private static final String SETTINGS = "/system/bin/settings";
     private static final Set<String> APPLY_KEYS =
             Collections.synchronizedSet(new HashSet<String>());
 
@@ -93,7 +92,8 @@ final class DisplayDensityController {
         mApplyStarted = true;
         new Thread(() -> {
             try {
-                final int mirrorDisplayId = getMirrorDisplayId();
+                final int mirrorDisplayId = PlatformDrivers.current()
+                        .projection().activeDesktopDisplayId(mActivity);
                 if (mirrorDisplayId != displayId) {
                     Log.i(TAG,
                             "skip default DPI for non-mirror display "
@@ -197,17 +197,6 @@ final class DisplayDensityController {
             final int parsed = Integer.parseInt(value.trim());
             return parsed > 0 ? parsed : -1;
         } catch (NumberFormatException ignored) {
-            return -1;
-        }
-    }
-
-    private static int getMirrorDisplayId() throws IOException {
-        final String output = runCommand(
-                SETTINGS + " get global app_mirror_displayid");
-        final String trimmed = output == null ? "" : output.trim();
-        try {
-            return Integer.parseInt(trimmed);
-        } catch (NumberFormatException e) {
             return -1;
         }
     }

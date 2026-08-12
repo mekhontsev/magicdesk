@@ -11,6 +11,7 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.Closeable;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -26,7 +27,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Runnable mCallbackFailure;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
-    private final NubiaMirrorInputPanelGuard mInputPanelGuard;
+    private final ShellDesktopFocusController mFocusController;
+    private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
 
@@ -40,7 +42,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Context context,
             final ITaskObserverCallback callback,
             final Runnable callbackFailure,
-            final NubiaMirrorInputPanelGuard.InputOwner inputOwner)
+            final PlatformPhoneUiDriver.InputOwner inputOwner)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
@@ -48,10 +50,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
-        mInputPanelGuard = new NubiaMirrorInputPanelGuard(
+        mFocusController = new ShellDesktopFocusController(
                 mService,
-                inputOwner,
-                PlatformDrivers.current().features().vendorPhoneUi);
+                PlatformDrivers.current().windowing()
+                        .requiresMirrorInputFocusSynchronization(),
+                () -> callCallback(
+                        mCallback::onInputFocusRefreshRequired));
+        mInputPanelGuard = PlatformDrivers.current().phoneUi()
+                .createInputPanelGuard(mService, inputOwner);
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // Nubia's launcher crashes while binding a DesktopTaskView when a
         // finished freeform task remains in Recents and DesktopRepository.
@@ -124,16 +130,21 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalStateException("task observer is closed");
         }
         if (displayId < 0) {
+            mFocusController.configure(-1);
             mFreeformCleanup.configure(-1);
             mInputPanelGuard.configure(-1);
             mTransientBounds.clearConfiguration();
             mStateMonitor.clearConfiguration();
             return;
         }
+        mFocusController.configure(displayId);
         // Nubia's stale DesktopTaskView crash is a phone Quickstep defect.
         // External tasks must remain outside that recovery path.
         mFreeformCleanup.configure(
-                displayId == Display.DEFAULT_DISPLAY ? displayId : -1);
+                PlatformDrivers.current().phoneUi()
+                                .requiresPhoneFreeformCleanup()
+                        && displayId == Display.DEFAULT_DISPLAY
+                                ? displayId : -1);
         mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
@@ -150,6 +161,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 throw new IllegalArgumentException(
                         "invalid task stack focus request");
             }
+            final int[] liveTaskIds = new int[taskIds.length];
             for (int index = 0; index < taskIds.length; index++) {
                 final int taskId = taskIds[index];
                 if (taskId < 0) {
@@ -164,12 +176,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     Log.w(TAG, "task focus skipped stale task=" + taskId);
                     continue;
                 }
-                TaskControlCommand.moveTaskToFront(mService, taskId);
-                appliedTaskCount++;
+                liveTaskIds[appliedTaskCount++] = taskId;
             }
             if (appliedTaskCount == 0) {
                 throw new IllegalStateException("no live tasks to focus");
             }
+            TaskWindowingCommand.focusTasks(
+                    mService,
+                    displayId,
+                    Arrays.copyOf(liveTaskIds, appliedTaskCount));
             signalFocusStackResult(
                     sequence, true, appliedTaskCount, "");
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -256,6 +271,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskFocusChanged(
             final int taskId,
             final boolean focused) {
+        mFocusController.onTaskFocusChanged(taskId, focused);
         signalChange();
     }
 
@@ -268,6 +284,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         synchronized (this) {
             mPreservePhoneTouchpad = false;
         }
+        mFocusController.close();
         mInputPanelGuard.close();
         mFreeformCleanup.close();
         mTransientBounds.close();

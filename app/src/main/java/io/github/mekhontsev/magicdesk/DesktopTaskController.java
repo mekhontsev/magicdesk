@@ -202,6 +202,15 @@ final class DesktopTaskController {
                     }
 
                     @Override
+                    public void onInputFocusRefreshRequired(
+                            final int generation) {
+                        if (mRunning) {
+                            DesktopRuntimeBridge.refreshDesktopInputFocus(
+                                    mDisplayId);
+                        }
+                    }
+
+                    @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
                         if (mRunning) {
@@ -366,7 +375,7 @@ final class DesktopTaskController {
         if (controller == null || !controller.mRunning
                 || !controller.mTaskWatcherReady
                 || controller.mDisplayId != displayId) {
-            TaskRepository.bringTaskToFront(taskId, callback);
+            TaskRepository.bringTaskToFront(displayId, taskId, callback);
             return;
         }
         controller.mTaskWatcher.sendFocusStack(
@@ -646,7 +655,8 @@ final class DesktopTaskController {
             return;
         }
         final boolean shouldRestoreLocalDesktop =
-                LocalDesktopHostRecoveryPolicy.shouldRestore(
+                PlatformDrivers.current().phoneUi()
+                        .shouldRestoreLocalDesktopHost(
                         mDisplayId,
                         snapshot.tasks,
                         MAGICDESK_PACKAGE);

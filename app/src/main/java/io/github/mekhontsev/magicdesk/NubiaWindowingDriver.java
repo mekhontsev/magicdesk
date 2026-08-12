@@ -5,6 +5,28 @@ import java.io.IOException;
 /** Persistent desktop-windowing properties required by ZTE/nubia firmware. */
 final class NubiaWindowingDriver implements PlatformWindowingDriver {
     @Override
+    public boolean requiresMirrorInputFocusSynchronization() {
+        return true;
+    }
+
+    @Override
+    public String restrictionsPropertyKey() {
+        return NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
+    }
+
+    @Override
+    public String roundedCornersPropertyKey() {
+        return NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS.key;
+    }
+
+    @Override
+    public boolean requiresRebootForConfiguration(
+            final boolean restrictionsDisabled,
+            final boolean roundedCornersDisabled) {
+        return !restrictionsDisabled || !roundedCornersDisabled;
+    }
+
+    @Override
     public boolean isReady(
             final boolean freeformEnabled,
             final boolean resizableEnabled,

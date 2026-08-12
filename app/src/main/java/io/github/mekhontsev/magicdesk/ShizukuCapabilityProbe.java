@@ -6,7 +6,6 @@ import android.app.WallpaperManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
-import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
@@ -48,15 +47,6 @@ final class ShizukuCapabilityProbe {
             "android.permission.CHANGE_COMPONENT_ENABLED_STATE"
     };
 
-    private static final String[] REDMAGIC_HARDWARE_NODES = {
-            "/sys/kernel/fan/fan_enable",
-            "/sys/kernel/fan/fan_speed_level",
-            "/sys/kernel/fan/fan_speed_count",
-            "/proc/driver/micropump/enable",
-            "/proc/driver/micropump/freq",
-            "/proc/driver/micropump/speed"
-    };
-
     private ShizukuCapabilityProbe() {
     }
 
@@ -85,80 +75,9 @@ final class ShizukuCapabilityProbe {
         appendInputControlAccess(report);
         appendInputMonitor(report);
         appendTaskAccess(report);
-        appendMethodPresence(
-                report,
-                "vendor.display_command",
-                "android.hardware.display.IDisplayManager",
-                "setCmdToDisplay",
-                int.class,
-                int.class,
-                int.class,
-                Bundle.class);
-        appendOpenResult(
-                report,
-                "vendor.hdmi_modes.read",
-                new File(NubiaHdmiModeController.EDID_MODES),
-                OsConstants.O_RDONLY);
-        appendMethodPresence(
-                report,
-                "vendor.phone_screen",
-                "com.redmagic.os.RedMagicAppManager$Trigger",
-                "openScreenOffTP",
-                boolean.class);
-        appendMousePositionApi(report);
-        appendMirrorInputApis(report);
-        appendService(
-                report,
-                "vendor.redmagic_app_manager",
-                "redmagic.app.manager");
-        appendService(report, "vendor.color_light", "ColorfulLightService");
-        appendService(report, "vendor.power", "VendorPowerManagerService");
+        PlatformDrivers.current().diagnostics().appendCapabilityProbe(report);
         appendSystemWallpaper(report, context);
-        appendHardwareNodes(report);
         return report.toString();
-    }
-
-    private static void appendMousePositionApi(
-            final StringBuilder report) {
-        try {
-            final Class<?> inputManager = Class.forName(
-                    "android.hardware.input.IInputManager");
-            inputManager.getMethod(
-                    "getMousePosition", android.graphics.Point.class);
-            inputManager.getMethod(
-                    "setMousePosition", int.class, int.class);
-            inputManager.getMethod("sendMouseCmd", int.class);
-            append(report, "vendor.mouse_position", "present", "");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            append(report, "vendor.mouse_position", "missing",
-                    usefulMessage(error));
-        }
-    }
-
-    private static void appendMirrorInputApis(
-            final StringBuilder report) {
-        try {
-            DesktopInputRoutingSession.verifyMirrorPanelApi();
-            append(report, "vendor.mirror_panel", "present",
-                    "IDisplayManager#noteMirrorInputPanelStatus");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            append(report, "vendor.mirror_panel", "missing",
-                    usefulMessage(error));
-        }
-
-        try {
-            DesktopMirrorTextInput.verifyApi();
-            append(report, "vendor.mirror_text_input", "present",
-                    "IDisplayManager and IDisplayMirrorWindow signatures");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            append(report, "vendor.mirror_text_input", "missing",
-                    usefulMessage(error));
-        }
-
-        final DesktopMirrorTextInput.RuntimeState runtime =
-                DesktopMirrorTextInput.runtimeState();
-        append(report, "runtime.mirror_text_input",
-                runtime.state, runtime.detail);
     }
 
     private static void appendPermissions(
@@ -195,7 +114,7 @@ final class ShizukuCapabilityProbe {
         appendOpenResult(report, "raw_input.write", device, OsConstants.O_RDWR);
     }
 
-    private static void appendOpenResult(
+    static void appendOpenResult(
             final StringBuilder report,
             final String key,
             final File file,
@@ -361,7 +280,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    private static void appendMethodPresence(
+    static void appendMethodPresence(
             final StringBuilder report,
             final String key,
             final String className,
@@ -375,7 +294,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    private static void appendService(
+    static void appendService(
             final StringBuilder report,
             final String key,
             final String serviceName) {
@@ -389,27 +308,6 @@ final class ShizukuCapabilityProbe {
         } catch (Throwable error) {
             append(report, key, "error", usefulMessage(error));
         }
-    }
-
-    private static void appendHardwareNodes(final StringBuilder report) {
-        int present = 0;
-        boolean readable = false;
-        boolean writable = false;
-        for (final String path : REDMAGIC_HARDWARE_NODES) {
-            final File file = new File(path);
-            if (file.exists()) {
-                present++;
-            }
-            readable |= file.canRead();
-            writable |= file.canWrite();
-        }
-        append(
-                report,
-                "hardware.nodes.present",
-                Integer.toString(present),
-                "expected=" + REDMAGIC_HARDWARE_NODES.length);
-        append(report, "hardware.nodes.read", readable ? "granted" : "denied", "");
-        append(report, "hardware.nodes.write", writable ? "granted" : "denied", "");
     }
 
     @SuppressLint("MissingPermission")
@@ -488,7 +386,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    private static void append(
+    static void append(
             final StringBuilder report,
             final String key,
             final String state,
@@ -501,7 +399,7 @@ final class ShizukuCapabilityProbe {
         report.append('\n');
     }
 
-    private static String usefulMessage(final Throwable source) {
+    static String usefulMessage(final Throwable source) {
         final Throwable error = unwrap(source);
         final String message = clean(error.getMessage());
         return error.getClass().getSimpleName()

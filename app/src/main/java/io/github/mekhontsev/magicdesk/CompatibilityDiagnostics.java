@@ -199,7 +199,8 @@ final class CompatibilityDiagnostics {
                 audit.firmwareSupport
                         != PlatformSupportLevel.UNVERIFIED,
                 "Firmware compatibility profile",
-                firmwareSupportDetail(audit.firmwareSupport, audit.model));
+                audit.platform.diagnostics().supportDetail(
+                        PlatformDevice.current(), audit.firmwareSupport));
         final boolean shellReady = audit.shellReady;
         appendCheck(report, "SHIZUKU-001",
                 shellReady,
@@ -214,7 +215,9 @@ final class CompatibilityDiagnostics {
         appendCheck(report, "WM-RESIZE-001", audit.resizableEnabled,
                 "Force resizable activities setting",
                 expectedValue("1", audit.resizableValue));
-        if (audit.platform.features().vendorWindowingProperties) {
+        if (audit.platform.windowing().restrictionsPropertyKey() != null
+                || audit.platform.windowing()
+                        .roundedCornersPropertyKey() != null) {
             appendCheck(report, "WM-ELIGIBILITY-001",
                     audit.restrictionsDisabled,
                     "Desktop-mode device restriction property",
@@ -263,11 +266,6 @@ final class CompatibilityDiagnostics {
                         : taskControl
                                 ? "privileged transaction backend unavailable"
                                 : "Shizuku runtime unavailable");
-        if (audit.platform.features().vendorInput) {
-            appendCheck(report, "NUBIA-INPUT-001",
-                    hasPackage(context, "cn.nubia.keymapcenter"),
-                    "Nubia mirror input package", "cn.nubia.keymapcenter");
-        }
         final PhoneHomeComponents phoneHome =
                 PhoneHomeComponents.resolve(context);
         appendCheck(report, "LAUNCHER-001",
@@ -284,7 +282,7 @@ final class CompatibilityDiagnostics {
                         : "Shizuku runtime unavailable");
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
-                audit.platform.features().vendorInput
+                audit.platform.pointer().isAvailable()
                         && shellRightClick
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
@@ -309,81 +307,27 @@ final class CompatibilityDiagnostics {
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
-        appendPlatformDetails(report, context, audit.platform.features());
+        appendPlatformDetails(
+                report, context, audit.platform);
         report.append('\n');
     }
 
     private static void appendPlatformDetails(
             final StringBuilder report,
             final Context context,
-            final PlatformFeatures features) {
+            final PlatformDriver platform) {
+        final PlatformFeatures features = platform.features();
         report.append("Platform features: wired=")
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
-                .append(", vendorInput=").append(features.vendorInput)
-                .append(", vendorProjection=")
-                .append(features.vendorProjection)
+                .append(", absolutePointer=")
+                .append(platform.pointer().isAvailable())
+                .append(", projection=")
+                .append(platform.projection().isAvailable())
+                .append(", phoneUi=")
+                .append(platform.phoneUi().isAvailable())
                 .append('\n');
-        if (features.vendorHardware) {
-            report.append("RedMagic charge separation: package=")
-                    .append(ChargeSeparationController.isSupported(context))
-                    .append(", enabled=")
-                    .append(Settings.Global.getInt(
-                            context.getContentResolver(),
-                            ChargeSeparationController.SETTING,
-                            0) == 1)
-                    .append('\n');
-            final RedmagicHardwareSnapshot hardware =
-                    RedmagicHardwareController.snapshot();
-            report.append("RedMagic hardware: fan=")
-                    .append(hardware.fanAvailable)
-                    .append(" enabled=").append(hardware.fanEnabled)
-                    .append(", pump=").append(hardware.pumpAvailable)
-                    .append(" enabled=").append(hardware.pumpEnabled)
-                    .append(" speed=").append(hardware.pumpSpeed)
-                    .append(", cpuMilliC=").append(hardware.cpuMilliCelsius)
-                    .append(", gpuMilliC=").append(hardware.gpuMilliCelsius)
-                    .append(", skinMilliC=").append(hardware.skinMilliCelsius)
-                    .append(", batteryMilliC=")
-                    .append(hardware.batteryMilliCelsius)
-                    .append('\n');
-        }
-        if (!features.vendorProjection) {
-            return;
-        }
-        report.append("Console display setting: ")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(), "app_mirror_displayid"))
-                .append('\n');
-        final int physicalDisplayId =
-                ConsoleDisplayController.findExternalDisplayId();
-        final DisplayProfileStore.Profile displayProfile =
-                DisplayProfileController.prepareExternalProfile(
-                        context, physicalDisplayId);
-        report.append("External display profile: ");
-        if (displayProfile == null) {
-            report.append("not connected");
-        } else {
-            report.append("key=").append(displayProfile.key)
-                    .append(", fill=").append(displayProfile.fillDisplay)
-                    .append(", output=")
-                    .append(displayProfile.outputTiming == null
-                            ? "system" : displayProfile.outputTiming);
-        }
-        report.append('\n')
-                .append("Nubia projection settings: fit=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(), "app_mirror_fit_status"))
-                .append(", sizeType=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(), "app_mirror_size_type"))
-                .append(", support=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(), "nb_app_mirror_support_fit"))
-                .append(", current=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(), "nb_app_mirror_now_fit"))
-                .append('\n');
+        platform.diagnostics().appendCompatibilityReport(report, context);
     }
 
     private static void appendDisplays(final StringBuilder report, final Context context) {
@@ -561,7 +505,7 @@ final class CompatibilityDiagnostics {
         }
     }
 
-    private static void appendCheck(final StringBuilder report, final String code,
+    static void appendCheck(final StringBuilder report, final String code,
             final boolean passed, final String label, final String detail) {
         report.append(passed ? "PASS" : "WARN")
                 .append(" [").append(code).append("] ")
@@ -575,27 +519,7 @@ final class CompatibilityDiagnostics {
                 + (TextUtils.isEmpty(actual) ? "<empty>" : actual);
     }
 
-    private static String firmwareSupportDetail(
-            final PlatformSupportLevel support,
-            final String model) {
-        switch (support) {
-            case MAINTAINER_VERIFIED:
-                return "maintainer-verified RedMagic 11 Pro / NX809J / "
-                        + "20260204.221845";
-            case COMMUNITY_TESTED:
-                if ("NX741J".equalsIgnoreCase(model)) {
-                    return "community-tested nubia Z80 Ultra / NX741J / "
-                            + "20251229.234747";
-                }
-                return "community-tested RedMagic 11 Pro / NX809J-UN / "
-                        + "20260625.022314";
-            case UNVERIFIED:
-            default:
-                return "unverified model or firmware; capability probing is required";
-        }
-    }
-
-    private static boolean hasPackage(final Context context, final String packageName) {
+    static boolean hasPackage(final Context context, final String packageName) {
         try {
             context.getPackageManager().getApplicationInfo(
                     packageName, PackageManager.MATCH_DISABLED_COMPONENTS);

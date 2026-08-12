@@ -1,0 +1,115 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.content.ComponentName;
+import android.content.Context;
+import android.os.IBinder;
+
+import java.util.List;
+
+/** No-op phone UI integration for the Generic Android profile. */
+final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
+    private static final String[] NO_SETTINGS = new String[0];
+
+    @Override
+    public TaskEventGuard createInputPanelGuard(
+            final Object taskService,
+            final InputOwner inputOwner) {
+        return new TaskEventGuard() {
+            @Override
+            public void configure(final int displayId) {
+            }
+
+            @Override
+            public void onTaskAppeared(
+                    final int taskId,
+                    final ComponentName componentName) {
+            }
+
+            @Override
+            public void onTaskRemoved(final int taskId) {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+    }
+
+    @Override
+    public NavigationGuard createNavigationGuard() {
+        return new NavigationGuard() {
+            @Override
+            public void acquire(final IBinder ownerToken) {
+            }
+
+            @Override
+            public void release(final IBinder ownerToken) {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+    }
+
+    @Override
+    public boolean isInputPanelTask(final TaskRepository.TaskEntry task) {
+        return false;
+    }
+
+    @Override
+    public boolean requiresPhoneFreeformCleanup() {
+        return false;
+    }
+
+    @Override
+    public boolean requiresPhoneUiReconciliation() {
+        return false;
+    }
+
+    @Override
+    public boolean shouldRestoreLocalDesktopHost(
+            final int displayId,
+            final List<TaskRepository.TaskEntry> tasks,
+            final String desktopPackage) {
+        return false;
+    }
+
+    @Override
+    public boolean usesMirrorInputPanel() {
+        return false;
+    }
+
+    @Override
+    public boolean isPhoneScreenOff(final Context context) {
+        return false;
+    }
+
+    @Override
+    public boolean isPhoneScreenControlActive() {
+        return false;
+    }
+
+    @Override
+    public boolean setPhoneScreenOff(final boolean screenOff) {
+        return false;
+    }
+
+    @Override
+    public void requestPhoneScreenRestore() {
+    }
+
+    @Override
+    public String[] observedSettingKeys() {
+        return NO_SETTINGS;
+    }
+
+    @Override
+    public void hideExternalAssistPanel() {
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return false;
+    }
+}

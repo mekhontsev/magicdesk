@@ -328,6 +328,10 @@ The trust boundaries are deliberately narrow:
   persistent properties. **Restore defaults** removes those overrides instead of
   guessing firmware values. The RedMagic property writer accepts only those
   two hardcoded boolean/absent properties.
+- Projection, phone-screen and launcher integration, absolute-pointer access,
+  optional firmware app entry points, and vendor diagnostics are selected
+  through the same platform-driver boundary. The Generic Android profile does
+  not probe or invoke ZTE/nubia interfaces.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every

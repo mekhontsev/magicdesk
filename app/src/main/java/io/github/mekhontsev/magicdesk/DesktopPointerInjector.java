@@ -31,17 +31,6 @@ final class DesktopPointerInjector {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectClick(final int displayId, final int button) {
-        try {
-            injectClickAt(
-                    displayId, NubiaMouseController.getPosition(), button);
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException(
-                    "could not read pointer position", error);
-        }
-    }
-
-    @SuppressLint("BlockedPrivateApi")
     static void injectClickAt(
             final int displayId,
             final Point position,

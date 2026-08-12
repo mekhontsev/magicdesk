@@ -23,6 +23,16 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
+    public int captureDisplayId(final DesktopDisplayTarget target) {
+        requireTarget(target);
+        if (!target.hasProfile()) {
+            throw new IllegalStateException("wired capture output is unavailable");
+        }
+        // Nubia hosts tasks on a virtual display backed by this physical output.
+        return target.profileDisplayId;
+    }
+
+    @Override
     public void show(final Activity source, final int displayId) {
         ConsoleSessionController.show(displayId);
     }

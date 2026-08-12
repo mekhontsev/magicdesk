@@ -37,7 +37,6 @@ public final class MagicDeskRuntimeService extends Service {
     private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final long DISPLAY_REMOVAL_WATCHDOG_MILLIS = 2000;
-    private static final String CONSOLE_DISPLAY_STATE = "app_mirror_displayid";
     private static final String SETTINGS = "/system/bin/settings";
     private static final String SHOW_IME_WITH_HARD_KEYBOARD =
             "show_ime_with_hard_keyboard";
@@ -52,7 +51,7 @@ public final class MagicDeskRuntimeService extends Service {
     private String mExternalInputDeviceSignature;
     private boolean mConsoleModeActive;
     private int mOwnedDesktopDisplayId = android.view.Display.INVALID_DISPLAY;
-    private boolean mOwnsNubiaConsoleDesktop;
+    private boolean mOwnsConsoleDesktop;
     private int mConsoleDisplayId;
     private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
@@ -356,14 +355,15 @@ public final class MagicDeskRuntimeService extends Service {
         refreshDesktopOwnership();
         updateShowImeOverride();
         registerConfigurationReceiver();
-        if (PlatformDrivers.current().features().vendorProjection) {
+        if (PlatformDrivers.current().projection()
+                .observedSettingKeys().length > 0) {
             registerConsoleModeObserver();
         }
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
-        } else if (PlatformDrivers.current().features().vendorProjection) {
-            NubiaCaptionVisibilityManager.setTransport(
-                    NubiaCaptionVisibilityManager.Transport.NONE);
+        } else {
+            PlatformDrivers.current().projection().setCaptionTransport(
+                    PlatformProjectionDriver.Transport.NONE);
         }
         updateKeyboardWatcher();
         updateDesktopMouseBridge();
@@ -420,8 +420,8 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        final int displayId = Settings.Global.getInt(
-                getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
+        final int displayId = PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(this);
         if (displayId > 0) {
             options.setLaunchDisplayId(displayId);
         }
@@ -466,7 +466,7 @@ public final class MagicDeskRuntimeService extends Service {
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
         PlatformDrivers.current().stopRuntime();
-        PhoneDisplayGuard.requestRestore();
+        PlatformDrivers.current().phoneUi().requestPhoneScreenRestore();
         super.onDestroy();
     }
 
@@ -573,7 +573,8 @@ public final class MagicDeskRuntimeService extends Service {
                         mInputCoordinator.scheduleRefresh();
                     }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
-                        && PhoneDisplayGuard.isActive()) {
+                        && PlatformDrivers.current().phoneUi()
+                                .isPhoneScreenControlActive()) {
                     ConsoleModeSwitcher.setPhoneScreenOff(false, null);
                 }
             }
@@ -591,10 +592,13 @@ public final class MagicDeskRuntimeService extends Service {
                 handleConsoleStateMaybeChanged();
             }
         };
-        getContentResolver().registerContentObserver(
-                Settings.Global.getUriFor(CONSOLE_DISPLAY_STATE),
-                false,
-                mConsoleModeObserver);
+        for (final String setting : PlatformDrivers.current().projection()
+                .observedSettingKeys()) {
+            getContentResolver().registerContentObserver(
+                    Settings.Global.getUriFor(setting),
+                    false,
+                    mConsoleModeObserver);
+        }
     }
 
     private void handleConsoleStateMaybeChanged() {
@@ -840,19 +844,17 @@ public final class MagicDeskRuntimeService extends Service {
         updateDesktopMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            if (PlatformDrivers.current().features().vendorPhoneUi
-                    && ownsNubiaConsoleDesktop()) {
-                NubiaHostAssistPanelController.hideIfPresent();
+            if (ownsConsoleDesktop()) {
+                PlatformDrivers.current().phoneUi()
+                        .hideExternalAssistPanel();
             }
             updatePlatformCaptionTarget();
             PlatformDrivers.current().startRuntime(this);
             maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
         } else {
-            if (PlatformDrivers.current().features().vendorProjection) {
-                NubiaCaptionVisibilityManager.setTransport(
-                        NubiaCaptionVisibilityManager.Transport.NONE);
-            }
+            PlatformDrivers.current().projection().setCaptionTransport(
+                    PlatformProjectionDriver.Transport.NONE);
             PlatformDrivers.current().stopRuntime();
         }
         updateNotification();
@@ -860,46 +862,36 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private int getConsoleDisplayId() {
-        if (!PlatformDrivers.current().features().vendorProjection) {
+        final int displayId = PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(this);
+        if (mDisplayCoordinator == null
+                || !mDisplayCoordinator.hasDisplay(displayId)) {
             return -1;
         }
-        try {
-            final int displayId = Settings.Global.getInt(
-                    getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
-            if (mDisplayCoordinator == null
-                    || !mDisplayCoordinator.hasDisplay(displayId)) {
-                return -1;
-            }
-            return displayId;
-        } catch (RuntimeException e) {
-            Log.w(TAG, "failed to read Console Mode state", e);
-            return -1;
-        }
+        return displayId;
     }
 
     private void refreshDesktopOwnership() {
         final int desktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final boolean ownsNubiaConsoleDesktop =
+        final boolean ownsConsoleDesktop =
                 desktopDisplayId > android.view.Display.DEFAULT_DISPLAY
                         && mConsoleModeActive
                         && desktopDisplayId == mConsoleDisplayId;
         if (desktopDisplayId == mOwnedDesktopDisplayId
-                && ownsNubiaConsoleDesktop
-                        == mOwnsNubiaConsoleDesktop) {
+                && ownsConsoleDesktop == mOwnsConsoleDesktop) {
             updateExternalImePolicy();
             return;
         }
         mOwnedDesktopDisplayId = desktopDisplayId;
-        mOwnsNubiaConsoleDesktop = ownsNubiaConsoleDesktop;
+        mOwnsConsoleDesktop = ownsConsoleDesktop;
         updateShowImeOverride();
         updateExternalImePolicy();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
-        if (PlatformDrivers.current().features().vendorPhoneUi
-                && ownsNubiaConsoleDesktop()) {
-            NubiaHostAssistPanelController.hideIfPresent();
+        if (ownsConsoleDesktop()) {
+            PlatformDrivers.current().phoneUi().hideExternalAssistPanel();
         }
         updateKeyboardWatcher();
         updateDesktopMouseBridge();
@@ -911,17 +903,14 @@ public final class MagicDeskRuntimeService extends Service {
         }
     }
 
-    private boolean ownsNubiaConsoleDesktop() {
-        return mOwnsNubiaConsoleDesktop;
+    private boolean ownsConsoleDesktop() {
+        return mOwnsConsoleDesktop;
     }
 
     private void updatePlatformCaptionTarget() {
-        if (!PlatformDrivers.current().features().vendorProjection) {
-            return;
-        }
         ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
                 mOwnedDesktopDisplayId,
-                ownsNubiaConsoleDesktop());
+                ownsConsoleDesktop());
     }
 
     private boolean ownsExternalDesktop() {

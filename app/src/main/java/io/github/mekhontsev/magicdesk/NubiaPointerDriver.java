@@ -33,6 +33,20 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
+    public boolean injectClick(final int displayId, final int button) {
+        try {
+            DesktopPointerInjector.injectClickAt(
+                    displayId,
+                    NubiaMouseController.getPosition(),
+                    button);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "pointer click injection failed", error);
+            return false;
+        }
+    }
+
+    @Override
     public boolean updatePosition(
             final int displayId,
             final int x,
@@ -69,5 +83,10 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     @Override
     public void close() {
         mPositionGuard.close();
+    }
+
+    @Override
+    public boolean isAvailable() {
+        return true;
     }
 }

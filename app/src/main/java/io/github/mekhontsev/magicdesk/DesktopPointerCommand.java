@@ -59,9 +59,20 @@ public final class DesktopPointerCommand {
     private static void movePointer(
             final int displayId,
             final Point position) throws ReflectiveOperationException {
-        if (displayId != Display.DEFAULT_DISPLAY) {
-            NubiaMouseController.createOrUpdateViewport();
-            NubiaMouseController.setMousePosition(displayId, position);
+        final PlatformPointerDriver pointer =
+                PlatformDrivers.current().pointer();
+        if (displayId != Display.DEFAULT_DISPLAY
+                && pointer.isAvailable()) {
+            if (!pointer.updatePosition(
+                    displayId,
+                    position.x,
+                    position.y,
+                    DesktopPointerInjector.TOUCHPAD_HOVER,
+                    0L)) {
+                throw new IllegalStateException(
+                        "could not update platform pointer position");
+            }
+            return;
         }
         DesktopPointerInjector.injectMouseHover(displayId, position);
     }

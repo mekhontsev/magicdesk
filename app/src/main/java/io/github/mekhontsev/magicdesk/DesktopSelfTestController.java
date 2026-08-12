@@ -264,6 +264,7 @@ final class DesktopSelfTestController {
                 ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
                         targetDisplayId, targetFixtureTaskId, windowBounds));
                 ShellAccess.run(TaskFocusCommands.createShellCommand(
+                        targetDisplayId,
                         Collections.singletonList(
                                 Integer.valueOf(targetFixtureTaskId))));
                 final TaskStackParser.Entry task = waitForTask(
@@ -606,6 +607,7 @@ final class DesktopSelfTestController {
             final int desktopTaskId,
             final Rect bounds) throws IOException {
         ShellAccess.run(TaskFocusCommands.createShellCommand(
+                displayId,
                 Collections.singletonList(Integer.valueOf(desktopTaskId))));
         waitForWindowFocus(displayId, true);
         return reopenTask(displayId, taskId, bounds);

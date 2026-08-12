@@ -77,7 +77,7 @@ final class LauncherAppRepository {
                     AppLaunchTarget.packageDefault(packageName)));
         }
 
-        addRedmagicEntryPoints(result, addedPackages, universalFreeform);
+        addPlatformEntryPoints(result, addedPackages, universalFreeform);
 
         Collections.sort(result, new Comparator<AppItem>() {
             @Override
@@ -186,13 +186,12 @@ final class LauncherAppRepository {
         }
     }
 
-    private void addRedmagicEntryPoints(
+    private void addPlatformEntryPoints(
             final List<AppItem> result,
             final Set<String> addedPackages,
             final boolean universalFreeform) {
-        for (final RedmagicEntryPointCatalog.EntryPoint entry
-                : RedmagicEntryPointCatalog.entries()) {
-            final AppLaunchTarget target = entry.launchTarget;
+        for (final AppLaunchTarget target
+                : PlatformDrivers.current().additionalLaunchTargets()) {
             if (addedPackages.contains(target.packageName)) {
                 continue;
             }
@@ -230,7 +229,7 @@ final class LauncherAppRepository {
                         target));
                 addedPackages.add(target.packageName);
             } catch (PackageManager.NameNotFoundException error) {
-                Log.d(TAG, "Optional RedMagic entry point is unavailable: "
+                Log.d(TAG, "Optional platform entry point is unavailable: "
                         + target.packageName);
             }
         }

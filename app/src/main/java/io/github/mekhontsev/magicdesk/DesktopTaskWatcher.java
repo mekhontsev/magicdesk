@@ -29,6 +29,7 @@ final class DesktopTaskWatcher {
                 String packageName,
                 int displayId,
                 Rect bounds);
+        void onInputFocusRefreshRequired(int generation);
         void onDisconnected(int generation);
     }
 
@@ -295,6 +296,11 @@ final class DesktopTaskWatcher {
         });
     }
 
+    private void onInputFocusRefreshRequired(final int generation) {
+        postIfActive(generation, () ->
+                mListener.onInputFocusRefreshRequired(generation));
+    }
+
     private void onObserverError(
             final int generation,
             final String error) {
@@ -420,6 +426,12 @@ final class DesktopTaskWatcher {
                     packageName,
                     displayId,
                     new Rect(left, top, right, bottom));
+        }
+
+        @Override
+        public void onInputFocusRefreshRequired()
+                throws RemoteException {
+            mOwner.onInputFocusRefreshRequired(mGeneration);
         }
     }
 }

@@ -1,12 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.SystemClock;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.LinkedHashSet;
@@ -17,12 +16,11 @@ final class DesktopInputRoutingSession implements AutoCloseable {
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
+    private static final long DISPLAY_COMMAND_TIMEOUT_MILLIS = 3_000L;
+    private static final int DISPLAY_COMMAND_OUTPUT_LIMIT_BYTES = 64 * 1024;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
             "magicdesk-keyboard-";
     private static final String DUMPSYS = "/system/bin/dumpsys";
-    private static final String SETTINGS = "/system/bin/settings";
-    private static final String NUBIA_CONSOLE_DISPLAY_SETTING =
-            "app_mirror_displayid";
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
@@ -34,7 +32,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
     private Object mDisplayManager;
     private Method mNotePanelStatus;
     private Binder mPanelToken;
-    private boolean mUsesNubiaConsoleHooks;
+    private boolean mUsesPlatformConsoleHooks;
     private boolean mMouseInputSourceOverride;
     private int mDisplayId = -1;
     private int mKeyboardAssociationCount;
@@ -45,8 +43,13 @@ final class DesktopInputRoutingSession implements AutoCloseable {
     }
 
     static DesktopInputRoutingSession open(
+            final Context context,
             final int displayId,
             final int expectedVirtualKeyboardCount) throws Exception {
+        if (context == null) {
+            throw new IllegalArgumentException(
+                    "input routing requires a service context");
+        }
         if (displayId <= 0) {
             throw new IllegalArgumentException(
                     "input routing requires a secondary display");
@@ -63,7 +66,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         final DesktopInputRoutingSession session =
                 new DesktopInputRoutingSession();
         try {
-            session.start(displayId, keyboards, mice);
+            session.start(context, displayId, keyboards, mice);
             session.mVirtualKeyboardCount =
                     countVirtualKeyboards(keyboards);
             return session;
@@ -113,7 +116,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
 
         final Set<String> remaining =
                 DesktopInputRoutingOwnership.findActiveAssociations(
-                        readInputDump());
+                        InputStateDump.read());
         remaining.retainAll(ownedPorts);
         if (!remaining.isEmpty()) {
             throw new IOException(
@@ -125,6 +128,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
     }
 
     private void start(
+            final Context context,
             final int displayId,
             final List<DesktopKeyboardDevice> keyboards,
             final List<DesktopMouseDevice> mice) throws Exception {
@@ -132,7 +136,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
-        final RoutingTarget target = findRoutingTarget(displayId);
+        final RoutingTarget target = findRoutingTarget(context, displayId);
         mDisplayId = displayId;
         mAssociationTarget = target.associationTarget;
         if (target.physicalPort) {
@@ -148,9 +152,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             mRemoveAssociation = inputManagerInterface.getMethod(
                     "removeUniqueIdAssociationByPort", String.class);
         }
-        mUsesNubiaConsoleHooks =
-                PlatformDrivers.current().features().vendorInput
-                        && target.nubiaConsole;
+        mUsesPlatformConsoleHooks = target.platformConsole;
 
         final Set<String> requestedPorts = new LinkedHashSet<>();
         for (final DesktopKeyboardDevice keyboard : keyboards) {
@@ -173,9 +175,11 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             associatePort(mouse.location);
         }
 
-        initializePanelRegistration();
+        if (PlatformDrivers.current().phoneUi().usesMirrorInputPanel()) {
+            initializePanelRegistration();
+        }
         registerPanelToken();
-        if (mUsesNubiaConsoleHooks) {
+        if (mUsesPlatformConsoleHooks) {
             setMouseInputSourceOverride(true);
         } else {
             PlatformDrivers.current().pointer().refreshViewport();
@@ -273,22 +277,14 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                 enabled ? "mouse" : "none")
                 .redirectErrorStream(true)
                 .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (output.length() > 0) {
-                    output.append('\n');
-                }
-                output.append(line);
-            }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
+        final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
+                process,
+                DISPLAY_COMMAND_TIMEOUT_MILLIS,
+                DISPLAY_COMMAND_OUTPUT_LIMIT_BYTES);
+        if (result.exitCode != 0 || result.truncated) {
             throw new IOException(
                     "display mirror input source failed "
-                            + exitCode + ": " + output);
+                            + result.exitCode + ": " + result.output);
         }
         mMouseInputSourceOverride = enabled;
     }
@@ -301,18 +297,20 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         }
     }
 
-    private static RoutingTarget findRoutingTarget(final int displayId)
+    private static RoutingTarget findRoutingTarget(
+            final Context context,
+            final int displayId)
             throws Exception {
         final Object displayManager = getService(
                 "display", "android.hardware.display.IDisplayManager");
         final Class<?> displayManagerInterface =
                 Class.forName("android.hardware.display.IDisplayManager");
-        if (PlatformDrivers.current().features().vendorProjection
-                && displayId == findNubiaConsoleDisplayId()) {
+        if (displayId == PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(context)) {
             final int physicalPort = findExternalDisplayPort(
                     displayManager, displayManagerInterface);
             if (physicalPort >= 0) {
-                return RoutingTarget.nubiaConsole(physicalPort);
+                return RoutingTarget.platformConsole(physicalPort);
             }
         }
         final Method getDisplayInfo = displayManagerInterface.getMethod(
@@ -380,30 +378,6 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         return -1;
     }
 
-    private static int findNubiaConsoleDisplayId()
-            throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(
-                SETTINGS, "get", "global", NUBIA_CONSOLE_DISPLAY_SETTING)
-                .redirectErrorStream(true)
-                .start();
-        final String value;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            value = reader.readLine();
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            return -1;
-        }
-        try {
-            final int displayId =
-                    Integer.parseInt(value == null ? "" : value.trim());
-            return displayId > 0 ? displayId : -1;
-        } catch (NumberFormatException error) {
-            return -1;
-        }
-    }
-
     @Override
     public synchronized void close() {
         if (mClosed) {
@@ -459,7 +433,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         mPanelToken = null;
         mDisplayId = -1;
         mAssociationTarget = null;
-        mUsesNubiaConsoleHooks = false;
+        mUsesPlatformConsoleHooks = false;
         mKeyboardAssociationCount = 0;
         mVirtualKeyboardCount = 0;
     }
@@ -504,28 +478,6 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         }
     }
 
-    private static String readInputDump()
-            throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(DUMPSYS, "input")
-                .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException(
-                    "dumpsys input failed with exit code "
-                            + exitCode);
-        }
-        return output.toString();
-    }
-
     private static Object getService(
             final String name,
             final String interfaceName) throws Exception {
@@ -555,15 +507,15 @@ final class DesktopInputRoutingSession implements AutoCloseable {
 
     private static final class RoutingTarget {
         final boolean physicalPort;
-        final boolean nubiaConsole;
+        final boolean platformConsole;
         final Object associationTarget;
 
         private RoutingTarget(
                 final boolean physicalPort,
-                final boolean nubiaConsole,
+                final boolean platformConsole,
                 final Object associationTarget) {
             this.physicalPort = physicalPort;
-            this.nubiaConsole = nubiaConsole;
+            this.platformConsole = platformConsole;
             this.associationTarget = associationTarget;
         }
 
@@ -572,7 +524,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                     true, false, Integer.valueOf(displayPort));
         }
 
-        static RoutingTarget nubiaConsole(final int displayPort) {
+        static RoutingTarget platformConsole(final int displayPort) {
             return new RoutingTarget(
                     true, true, Integer.valueOf(displayPort));
         }

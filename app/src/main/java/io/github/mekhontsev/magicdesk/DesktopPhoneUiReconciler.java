@@ -11,21 +11,19 @@ final class DesktopPhoneUiReconciler {
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_TOUCHPAD_ACTIVITY =
             "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
-    private static final String NUBIA_TOUCHPAD_ACTIVITY =
-            "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
     private final PhoneHomeComponents mHomeComponents;
-    private final boolean mVendorPhoneUi;
+    private final PlatformPhoneUiDriver mPhoneUi;
 
     private final Set<Integer> mLastVisibleAppTaskIds = new HashSet<>();
 
     private Boolean mLastTouchpadVisible;
     private volatile boolean mTouchpadPreservationArmed;
     private boolean mTouchpadRestorePending;
-    private boolean mAwaitingNubiaPanelRemoval;
+    private boolean mAwaitingPlatformPanelRemoval;
 
     DesktopPhoneUiReconciler(final Context context) {
         mHomeComponents = PhoneHomeComponents.resolve(context);
-        mVendorPhoneUi = PlatformDrivers.current().features().vendorPhoneUi;
+        mPhoneUi = PlatformDrivers.current().phoneUi();
     }
 
     void reset() {
@@ -33,11 +31,11 @@ final class DesktopPhoneUiReconciler {
         mLastTouchpadVisible = null;
         mTouchpadPreservationArmed = false;
         mTouchpadRestorePending = false;
-        mAwaitingNubiaPanelRemoval = false;
+        mAwaitingPlatformPanelRemoval = false;
     }
 
     void expectTouchpadDisplacement() {
-        if (!mVendorPhoneUi) {
+        if (!mPhoneUi.requiresPhoneUiReconciliation()) {
             return;
         }
         mTouchpadPreservationArmed = true;
@@ -52,11 +50,11 @@ final class DesktopPhoneUiReconciler {
             final List<TaskRepository.TaskEntry> phoneTasks,
             final Set<Integer> visibleAppTaskIds,
             final boolean focusingExternalTask) {
-        if (!mVendorPhoneUi) {
+        if (!mPhoneUi.requiresPhoneUiReconciliation()) {
             return;
         }
         boolean touchpadVisible = false;
-        boolean nubiaPanelVisible = false;
+        boolean platformPanelVisible = false;
         boolean secondaryHomeVisible = false;
         for (final TaskRepository.TaskEntry task : phoneTasks) {
             if (task == null || !task.visible || task.componentName == null) {
@@ -65,24 +63,25 @@ final class DesktopPhoneUiReconciler {
             if (task.componentName.endsWith(
                     MAGICDESK_TOUCHPAD_ACTIVITY)) {
                 touchpadVisible = true;
-            } else if (hasActivity(task, NUBIA_TOUCHPAD_ACTIVITY)) {
-                nubiaPanelVisible = true;
+            } else if (mPhoneUi.isInputPanelTask(task)) {
+                platformPanelVisible = true;
             } else if (mHomeComponents.hasSecondaryHomeOnTop(task)) {
                 secondaryHomeVisible = true;
             }
         }
 
-        if (nubiaPanelVisible
+        if (platformPanelVisible
                 && PhoneTouchpadController.shouldRemainVisible(displayId)) {
-            mAwaitingNubiaPanelRemoval = true;
+            mAwaitingPlatformPanelRemoval = true;
             mTouchpadRestorePending = true;
-        } else if (!nubiaPanelVisible && mAwaitingNubiaPanelRemoval) {
-            mAwaitingNubiaPanelRemoval = false;
+        } else if (!platformPanelVisible
+                && mAwaitingPlatformPanelRemoval) {
+            mAwaitingPlatformPanelRemoval = false;
             attemptPendingTouchpadRestore(displayId);
         }
 
         if (!touchpadVisible
-                && !nubiaPanelVisible
+                && !platformPanelVisible
                 && (mTouchpadPreservationArmed
                         || (Boolean.TRUE.equals(mLastTouchpadVisible)
                                 && PhoneTouchpadController
@@ -120,7 +119,7 @@ final class DesktopPhoneUiReconciler {
 
     private void attemptPendingTouchpadRestore(final int displayId) {
         if (!mTouchpadRestorePending
-                || mAwaitingNubiaPanelRemoval) {
+                || mAwaitingPlatformPanelRemoval) {
             return;
         }
         mTouchpadRestorePending = false;
@@ -129,11 +128,4 @@ final class DesktopPhoneUiReconciler {
         }
     }
 
-    private static boolean hasActivity(
-            final TaskRepository.TaskEntry task,
-            final String activityClassName) {
-        return task.componentName.endsWith(activityClassName)
-                || (task.topActivityName != null
-                        && task.topActivityName.endsWith(activityClassName));
-    }
 }

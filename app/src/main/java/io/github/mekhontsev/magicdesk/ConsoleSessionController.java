@@ -16,12 +16,16 @@ final class ConsoleSessionController {
     }
 
     static void show(final int displayId) {
+        final android.content.Context context =
+                MagicDeskApplication.applicationContext();
+        final PlatformProjectionDriver projection =
+                PlatformDrivers.current().projection();
         int consoleDisplayId = displayId > 0
-                ? displayId : ConsoleDisplayController.getActiveConsoleDisplayId();
+                ? displayId : projection.activeDesktopDisplayId(context);
         boolean startedConsoleMode = false;
         boolean seedStarted = false;
         int physicalDisplayId = -1;
-        NubiaExternalDisplayModeController.PreparedMode preparedMode = null;
+        PlatformProjectionDriver.PreparedMode preparedMode = null;
         DisplayProfileStore.Profile displayProfile = null;
         try {
             if (consoleDisplayId <= 0) {
@@ -33,9 +37,9 @@ final class ConsoleSessionController {
                 }
                 displayProfile = DisplayProfileController
                         .prepareExternalProfile(
-                                MagicDeskApplication.applicationContext(),
+                                context,
                                 physicalDisplayId);
-                if (ConsoleDisplayController.isMirrorMode()
+                if (projection.isMirrorMode()
                         && !hasVisibleAppTask(0)) {
                     seedStarted = startConsoleSeedTask();
                     if (!seedStarted) {
@@ -43,13 +47,13 @@ final class ConsoleSessionController {
                     }
                 }
                 try {
-                    preparedMode = NubiaExternalDisplayModeController.prepare(
-                            MagicDeskApplication.applicationContext(),
+                    preparedMode = projection.prepareExternalDisplay(
+                            context,
                             physicalDisplayId,
                             displayProfile);
                     physicalDisplayId = preparedMode.physicalDisplayId();
                 } catch (IOException | RuntimeException error) {
-                    Log.w(TAG, "Cannot prepare Nubia external display mode", error);
+                    Log.w(TAG, "Cannot prepare external display mode", error);
                     CompatibilityDiagnostics.record(
                             "NUBIA-DISPLAY-001",
                             "Could not apply the external display launch settings",
@@ -57,21 +61,20 @@ final class ConsoleSessionController {
                             error);
                     return;
                 }
-                if (!ConsoleDisplayController.requestConsoleMode(
+                if (!projection.requestDesktopMode(
                         physicalDisplayId)) {
                     return;
                 }
-                consoleDisplayId =
-                        ConsoleDisplayController.waitForConsoleDisplay();
+                consoleDisplayId = projection.waitForDesktopDisplay(context);
                 if (consoleDisplayId <= 0) {
                     throw new IOException(
-                            "Nubia Console Mode did not create an app mirror display");
+                            "projection platform did not create a desktop display");
                 }
                 try {
                     if (preparedMode.applyDeferredMode()) {
                         physicalDisplayId = preparedMode.physicalDisplayId();
                         consoleDisplayId =
-                                ConsoleDisplayController.waitForConsoleDisplay();
+                                projection.waitForDesktopDisplay(context);
                         if (consoleDisplayId <= 0) {
                             throw new IOException(
                                     "Console display disappeared after changing"
@@ -101,7 +104,7 @@ final class ConsoleSessionController {
                         ConsoleDisplayController.findExternalDisplayId();
                 displayProfile = DisplayProfileController
                         .prepareExternalProfile(
-                                MagicDeskApplication.applicationContext(),
+                                context,
                                 physicalDisplayId);
             }
             DesktopDisplayTarget target =
@@ -127,14 +130,6 @@ final class ConsoleSessionController {
             }
             finishConsoleSeedTask(seedStarted);
         }
-    }
-
-    static boolean setExternalTaskCaptionTransport(
-            final NubiaCaptionVisibilityManager.Transport transport) {
-        if (!ShellAccess.isReady()) {
-            return true;
-        }
-        return NubiaCaptionVisibilityManager.setTransport(transport);
     }
 
     private static boolean hasVisibleAppTask(final int displayId)

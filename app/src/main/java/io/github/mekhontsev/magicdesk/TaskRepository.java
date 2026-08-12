@@ -39,21 +39,25 @@ final class TaskRepository {
     }
 
     static void load(final int displayId, final SnapshotCallback callback) {
-        TaskCommandQueue.execute(new Runnable() {
-            @Override
-            public void run() {
-                final CommandResult command = runCommand(CMD + " activity stack list");
-                final List<TaskEntry> tasks = command.success
-                        ? parseTasks(command.output, displayId)
-                        : Collections.<TaskEntry>emptyList();
-                final List<TaskEntry> phoneTasks = command.success && displayId != 0
-                        ? parseTasks(command.output, 0)
-                        : Collections.<TaskEntry>emptyList();
-                if (callback != null) {
-                    callback.onLoaded(new Snapshot(
-                            tasks, phoneTasks, command.success, command.output));
-                }
+        TaskCommandQueue.execute(() -> {
+            if (callback != null) {
+                callback.onLoaded(loadNow(displayId));
             }
+        });
+    }
+
+    static Snapshot loadNow(final int displayId) {
+        return TaskCommandQueue.call(() -> {
+            final CommandResult command = runCommand(
+                    CMD + " activity stack list");
+            final List<TaskEntry> tasks = command.success
+                    ? parseTasks(command.output, displayId)
+                    : Collections.<TaskEntry>emptyList();
+            final List<TaskEntry> phoneTasks = command.success && displayId != 0
+                    ? parseTasks(command.output, 0)
+                    : Collections.<TaskEntry>emptyList();
+            return new Snapshot(
+                    tasks, phoneTasks, command.success, command.output);
         });
     }
 
@@ -62,32 +66,42 @@ final class TaskRepository {
             complete(callback, false, "invalid task");
             return;
         }
-        bringTaskToFront(task.taskId, callback);
+        bringTaskToFront(task.displayId, task.taskId, callback);
     }
 
     static void bringTaskToFront(
+            final int displayId,
             final int taskId,
             final ActionCallback callback) {
-        if (taskId < 0) {
+        if (displayId < 0 || taskId < 0) {
             complete(callback, false, "invalid task");
             return;
         }
-        runAction(TaskFocusCommands.createShellCommand(
+        runAction(TaskFocusCommands.createShellCommand(displayId,
                 Collections.singletonList(Integer.valueOf(taskId))), callback);
     }
 
     static void bringStackToFront(final List<TaskEntry> topFirstTasks,
             final TaskEntry topTask, final ActionCallback callback) {
+        int displayId = isRestorableTask(topTask) ? topTask.displayId : -1;
+        if (displayId < 0 && topFirstTasks != null) {
+            for (final TaskEntry task : topFirstTasks) {
+                if (isRestorableTask(task)) {
+                    displayId = task.displayId;
+                    break;
+                }
+            }
+        }
         final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
         if (topFirstTasks != null) {
             for (int index = topFirstTasks.size() - 1; index >= 0; index--) {
                 final TaskEntry task = topFirstTasks.get(index);
-                if (isRestorableTask(task)) {
+                if (isRestorableTask(task) && task.displayId == displayId) {
                     orderedTaskIds.add(Integer.valueOf(task.taskId));
                 }
             }
         }
-        if (isRestorableTask(topTask)) {
+        if (isRestorableTask(topTask) && topTask.displayId == displayId) {
             orderedTaskIds.remove(Integer.valueOf(topTask.taskId));
             orderedTaskIds.add(Integer.valueOf(topTask.taskId));
         }
@@ -97,7 +111,8 @@ final class TaskRepository {
         }
 
         runAction(
-                TaskFocusCommands.createShellCommand(orderedTaskIds),
+                TaskFocusCommands.createShellCommand(
+                        displayId, orderedTaskIds),
                 callback);
     }
 

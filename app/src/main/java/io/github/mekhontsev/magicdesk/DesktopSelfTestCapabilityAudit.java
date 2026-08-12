@@ -87,14 +87,8 @@ final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "permission.change_component_enabled_state", "granted",
                 "API-LAUNCHER-001", "Launcher component recovery");
-        final PlatformFeatures platformFeatures =
-                PlatformDrivers.current().features();
-        if (platformFeatures.vendorInput
-                || platformFeatures.vendorProjection
-                || platformFeatures.vendorHardware) {
-            auditVendorCapabilities(
-                    context, result, capabilities, platformFeatures);
-        }
+        PlatformDrivers.current().diagnostics().auditSelfTest(
+                context, result, capabilities);
         optional(result, capabilities,
                 "wallpaper.system", "available",
                 "API-WALLPAPER-001", "Static system wallpaper image");
@@ -136,46 +130,6 @@ final class DesktopSelfTestCapabilityAudit {
                 "DEVICE-TOUCHPANEL-001", "Phone Touch Panel input routing",
                 "not exercised by automated input");
         return runnable;
-    }
-
-    private static void auditVendorCapabilities(
-            final Context context,
-            final DesktopSelfTestResult result,
-            final Map<String, ProbeEntry> capabilities,
-            final PlatformFeatures features) {
-        optional(result, capabilities,
-                "vendor.display_command", "present",
-                "API-NUBIA-001", "RedMagic display command signature");
-        optional(result, capabilities,
-                "vendor.hdmi_modes.read", "granted",
-                "API-NUBIA-011", "Vendor HDMI output-mode list");
-        optional(result, capabilities,
-                "vendor.phone_screen", "present",
-                "API-NUBIA-002", "RedMagic phone-screen trigger");
-        optional(result, capabilities,
-                "vendor.redmagic_app_manager", "present",
-                "API-NUBIA-003", "RedMagic property service");
-        optional(result, capabilities,
-                "vendor.power", "present",
-                "API-NUBIA-004", "RedMagic power service");
-        optional(result, capabilities,
-                "vendor.mouse_position", "present",
-                "API-NUBIA-007", "RedMagic absolute pointer positioning");
-        optional(result, capabilities,
-                "vendor.mirror_panel", "present",
-                "API-NUBIA-008", "RedMagic mirror input panel registration");
-        optional(result, capabilities,
-                "vendor.mirror_text_input", "present",
-                "API-NUBIA-009", "RedMagic mirrored text input API");
-        if (features.vendorInput) {
-            mirrorTextInputRuntime(result, capabilities);
-        }
-        if (features.vendorProjection) {
-            optionalComponent(context, result,
-                    "cn.nubia.touping",
-                    "cn.nubia.touping.HomeActivity",
-                    "API-NUBIA-006", "RedMagic SmartCast entry point");
-        }
     }
 
     private static String usefulMessage(final Throwable error) {
@@ -227,7 +181,7 @@ final class DesktopSelfTestCapabilityAudit {
         return available;
     }
 
-    private static void optional(
+    static void optional(
             final DesktopSelfTestResult result,
             final Map<String, ProbeEntry> capabilities,
             final String key,
@@ -249,7 +203,7 @@ final class DesktopSelfTestCapabilityAudit {
                 + (entry.detail.isEmpty() ? "" : " (" + entry.detail + ")");
     }
 
-    private static void mirrorTextInputRuntime(
+    static void mirrorTextInputRuntime(
             final DesktopSelfTestResult result,
             final Map<String, ProbeEntry> capabilities) {
         final ProbeEntry entry = capabilities.get("runtime.mirror_text_input");
@@ -269,7 +223,7 @@ final class DesktopSelfTestCapabilityAudit {
         return DesktopSelfTestResult.State.NOT_TESTED;
     }
 
-    private static void optionalComponent(
+    static void optionalComponent(
             final Context context,
             final DesktopSelfTestResult result,
             final String packageName,

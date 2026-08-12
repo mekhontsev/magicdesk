@@ -47,7 +47,7 @@ final class ConsoleModeSwitcher {
                 int wiredDisplayId,
                 int wirelessDisplayId,
                 DisplayProfileStore.Profile displayProfile,
-                NubiaHdmiModeController.Selection modeSelection);
+                PlatformProjectionDriver.ModeSelection modeSelection);
     }
 
     static void setPhoneScreenOff(final boolean screenOff,
@@ -63,9 +63,8 @@ final class ConsoleModeSwitcher {
                             .restorePointerPositionOnNextMotionIfRunning();
                 }
                 try {
-                    success = screenOff
-                            ? PhoneDisplayGuard.enable()
-                            : PhoneDisplayGuard.disable();
+                    success = PlatformDrivers.current().phoneUi()
+                            .setPhoneScreenOff(screenOff);
                     Log.i(TAG, "Shell phone display off="
                             + screenOff + " success=" + success);
                     if (!success) {
@@ -160,7 +159,9 @@ final class ConsoleModeSwitcher {
                 DesktopDisplayTarget.Kind.WIRELESS);
         if (wiredSupported
                 && (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY
-                || ConsoleDisplayController.getActiveConsoleDisplayId()
+                || PlatformDrivers.current().projection()
+                        .activeDesktopDisplayId(
+                                MagicDeskApplication.applicationContext())
                         > android.view.Display.DEFAULT_DISPLAY
                 || ConsoleDisplayController.findExternalDisplayId()
                         > android.view.Display.DEFAULT_DISPLAY)) {
@@ -198,14 +199,15 @@ final class ConsoleModeSwitcher {
                     ConsoleDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
                     ConsoleDisplayController.findWirelessDisplayId();
-            NubiaHdmiModeController.Selection selection = null;
+            PlatformProjectionDriver.ModeSelection selection = null;
             DisplayProfileStore.Profile displayProfile = null;
             if (wiredDisplayId > 0) {
                 final android.content.Context context =
                         MagicDeskApplication.applicationContext();
                 displayProfile = DisplayProfileController
                         .prepareExternalProfile(context, wiredDisplayId);
-                selection = NubiaHdmiModeController.readSelection(
+                selection = PlatformDrivers.current().projection()
+                        .readExternalDisplayModes(
                         context,
                         wiredDisplayId,
                         displayProfile == null
@@ -240,7 +242,7 @@ final class ConsoleModeSwitcher {
 
     static void restorePhoneAfterExternalDesktop() {
         EXECUTOR.execute(() -> {
-            PhoneDisplayGuard.disable();
+            PlatformDrivers.current().phoneUi().setPhoneScreenOff(false);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
     }
@@ -252,23 +254,23 @@ final class ConsoleModeSwitcher {
 
     static void updateExternalTaskCaptionTarget(
             final int displayId,
-            final boolean nubiaWiredDesktop) {
+            final boolean wiredDesktop) {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
-                final NubiaCaptionVisibilityManager.Transport transport;
+                final PlatformProjectionDriver.Transport transport;
                 if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
-                    transport = NubiaCaptionVisibilityManager.Transport.NONE;
-                } else if (nubiaWiredDesktop) {
-                    transport = NubiaCaptionVisibilityManager.Transport.WIRED;
+                    transport = PlatformProjectionDriver.Transport.NONE;
+                } else if (wiredDesktop) {
+                    transport = PlatformProjectionDriver.Transport.WIRED;
                 } else if (ConsoleDisplayController.findWirelessDisplayId()
                         == displayId) {
-                    transport = NubiaCaptionVisibilityManager.Transport.WIRELESS;
+                    transport = PlatformProjectionDriver.Transport.WIRELESS;
                 } else {
-                    transport = NubiaCaptionVisibilityManager.Transport.NONE;
+                    transport = PlatformProjectionDriver.Transport.NONE;
                 }
-                ConsoleSessionController
-                        .setExternalTaskCaptionTransport(transport);
+                PlatformDrivers.current().projection()
+                        .setCaptionTransport(transport);
             }
         });
     }
@@ -289,17 +291,21 @@ final class ConsoleModeSwitcher {
                     if (getActiveConsoleDisplayId() <= 0) {
                         success = true;
                     } else {
-                        if (ConsoleDisplayController.requestMirrorMode()) {
-                            success = ConsoleDisplayController.waitForConsoleStop();
+                        if (PlatformDrivers.current().projection()
+                                .requestMirrorMode()) {
+                            success = PlatformDrivers.current().projection()
+                                    .waitForDesktopStop(
+                                            MagicDeskApplication
+                                                    .applicationContext());
                             if (!success) {
                                 Log.w(TAG, "Console display remained active after Mirror request");
                             }
                         }
                     }
                     if (success && ShellAccess.isReady()) {
-                        ConsoleSessionController
-                                .setExternalTaskCaptionTransport(
-                                        NubiaCaptionVisibilityManager.Transport.NONE);
+                        PlatformDrivers.current().projection()
+                                .setCaptionTransport(
+                                        PlatformProjectionDriver.Transport.NONE);
                     }
                 } finally {
                     DESKTOP_START_IN_PROGRESS.set(false);
@@ -340,14 +346,16 @@ final class ConsoleModeSwitcher {
         EXECUTOR.execute(() -> {
             boolean success = false;
             try {
-                success = WirelessDisplayController.disconnect()
+                success = PlatformDrivers.current().projection()
+                                .disconnectWirelessDisplay()
                         && ConsoleDisplayController
                                 .waitForWirelessDisplayStop();
                 if (!success) {
                     Log.w(TAG, "Wireless display remained connected");
                 } else if (ShellAccess.isReady()) {
-                    ConsoleSessionController.setExternalTaskCaptionTransport(
-                            NubiaCaptionVisibilityManager.Transport.NONE);
+                    PlatformDrivers.current().projection()
+                            .setCaptionTransport(
+                                    PlatformProjectionDriver.Transport.NONE);
                 }
             } catch (IOException error) {
                 Log.w(TAG, "Wireless display disconnect failed", error);
@@ -495,20 +503,18 @@ final class ConsoleModeSwitcher {
     }
 
     static int getActiveConsoleDisplayId() {
-        return ConsoleDisplayController.getActiveConsoleDisplayId();
+        return PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(
+                        MagicDeskApplication.applicationContext());
     }
 
     private static void captureScreenshotInternal() {
         String path = null;
         try {
-            final int displayId =
-                    DesktopRuntimeBridge.getActiveDesktopDisplayId();
-            if (displayId < 0) {
-                throw new IOException("no active desktop display");
-            }
-            final String physicalDisplayId = displayId == 0
-                    ? null
-                    : ConsoleDisplayController.getPhysicalDisplayId(displayId);
+            final DesktopCaptureTarget capture =
+                    DesktopCaptureTarget.resolveActive();
+            final String physicalDisplayId = capture.desktopDisplayId == 0
+                    ? null : capture.physicalDisplayId;
             final String fileName = "MagicDesk_"
                     + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
                             .format(new Date())

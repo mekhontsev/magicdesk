@@ -124,7 +124,8 @@ final class AppTaskController {
                         displayId,
                         getTaskIds(visibleTasks),
                         explicitWindowed,
-                        preferredBounds);
+                        preferredBounds,
+                        () -> publishConfirmedLaunchSnapshot(displayId));
                 if (explicitWindowed) {
                     AppWindowStateStore.rememberMode(
                             app.packageName,
@@ -146,6 +147,20 @@ final class AppTaskController {
                         mActivity.showLaunchFailure(error);
                     }
                 });
+            }
+        });
+    }
+
+    private void publishConfirmedLaunchSnapshot(final int displayId) {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        if (!snapshot.available) {
+            return;
+        }
+        mActivity.runOnUiThread(() -> {
+            if (!mActivity.isActivityUnavailable()
+                    && displayId == mActivity.getCurrentDisplayId()) {
+                mActivity.syncTaskbarWithSnapshot(snapshot);
             }
         });
     }
@@ -423,8 +438,8 @@ final class AppTaskController {
         if (task.displayId != Display.DEFAULT_DISPLAY) {
             return Display.DEFAULT_DISPLAY;
         }
-        final int externalDisplayId =
-                ConsoleModeState.activeDisplayId(mActivity);
+        final int externalDisplayId = PlatformDrivers.current()
+                .projection().activeDesktopDisplayId(mActivity);
         return externalDisplayId > 0 ? externalDisplayId : -1;
     }
 

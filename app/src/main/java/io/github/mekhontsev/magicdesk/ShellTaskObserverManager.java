@@ -13,13 +13,13 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
-    private final NubiaMirrorInputPanelGuard.InputOwner mInputOwner;
+    private final PlatformPhoneUiDriver.InputOwner mInputOwner;
 
     private Session mSession;
 
     ShellTaskObserverManager(
             final Context context,
-            final NubiaMirrorInputPanelGuard.InputOwner inputOwner) {
+            final PlatformPhoneUiDriver.InputOwner inputOwner) {
         mContext = context;
         mInputOwner = inputOwner;
     }

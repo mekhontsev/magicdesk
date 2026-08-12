@@ -189,7 +189,9 @@ public final class DeviceSetupActivity extends Activity {
     private void renderAudit(final DeviceSetupManager.Audit audit) {
         mSetupView.setDetailed(mManual);
         mSetupView.setVendorWindowingVisible(
-                audit.platform.features().vendorWindowingProperties);
+                audit.platform.windowing().restrictionsPropertyKey() != null
+                        || audit.platform.windowing()
+                                .roundedCornersPropertyKey() != null);
         renderProfileSelection();
         setStatusValue(mSetupView.deviceValue(),
                 audit.compatibleDevice
@@ -686,8 +688,8 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private int activeConsoleDisplayId() {
-        final int configured = Settings.Global.getInt(
-                getContentResolver(), "app_mirror_displayid", -1);
+        final int configured = PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(this);
         final android.hardware.display.DisplayManager displayManager =
                 getSystemService(android.hardware.display.DisplayManager.class);
         if (configured > Display.DEFAULT_DISPLAY

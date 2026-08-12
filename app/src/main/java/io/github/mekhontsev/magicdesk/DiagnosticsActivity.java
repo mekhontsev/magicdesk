@@ -220,18 +220,36 @@ public final class DiagnosticsActivity extends Activity {
             return;
         }
         new Thread(() -> {
-            final int wiredDisplayId =
+            final int activeWiredDisplayId =
+                    ConsoleDisplayController.getActiveConsoleDisplayId();
+            final int physicalWiredDisplayId =
                     ConsoleDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
                     ConsoleDisplayController.findWirelessDisplayId();
+            if (activeWiredDisplayId > Display.DEFAULT_DISPLAY
+                    || physicalWiredDisplayId > Display.DEFAULT_DISPLAY) {
+                final boolean restoreMirror =
+                        activeWiredDisplayId <= Display.DEFAULT_DISPLAY;
+                DesktopDisplayDrivers
+                        .forKind(DesktopDisplayTarget.Kind.WIRED)
+                        .show(null, activeWiredDisplayId);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        waitForPreparedDesktop(
+                                DesktopSelfTestTarget.EXTERNAL,
+                                restoreMirror);
+                    }
+                });
+                return;
+            }
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                if (wiredDisplayId <= Display.DEFAULT_DISPLAY
-                        && wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
+                if (wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
                     finishSelfTestPreparation();
-                    if (WirelessDisplayController.openPicker(this)) {
+                    if (PlatformDrivers.current().projection()
+                            .openWirelessDisplayPicker(this)) {
                         mStatus.setText(
                                 R.string.diagnostics_self_test_connect_wireless);
                     } else {
@@ -240,23 +258,12 @@ public final class DiagnosticsActivity extends Activity {
                     }
                     return;
                 }
-                if (wiredDisplayId > Display.DEFAULT_DISPLAY) {
-                    final boolean restoreMirror =
-                            ConsoleDisplayController
-                                    .getActiveConsoleDisplayId()
-                                    <= Display.DEFAULT_DISPLAY;
-                    ConsoleModeSwitcher.showMagicDesk(wiredDisplayId);
-                    waitForPreparedDesktop(
-                            DesktopSelfTestTarget.EXTERNAL,
-                            restoreMirror);
-                } else {
-                    ConsoleModeSwitcher.showDesktop(
-                            DesktopDisplayTarget.wireless(
-                                    wirelessDisplayId));
-                    waitForPreparedDesktop(
-                            DesktopSelfTestTarget.EXTERNAL,
-                            false);
-                }
+                ConsoleModeSwitcher.showDesktop(
+                        DesktopDisplayTarget.wireless(
+                                wirelessDisplayId));
+                waitForPreparedDesktop(
+                        DesktopSelfTestTarget.EXTERNAL,
+                        false);
             });
         }, "MagicDeskSelfTestDisplayProbe").start();
     }

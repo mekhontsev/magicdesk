@@ -4,6 +4,11 @@ import android.graphics.Point;
 
 final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     @Override
+    public boolean isAvailable() {
+        return false;
+    }
+
+    @Override
     public boolean capturePosition() {
         return false;
     }
@@ -16,6 +21,11 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     public int[] getPosition(final int displayId) {
         throw new IllegalStateException(
                 "absolute pointer control is unavailable on this platform");
+    }
+
+    @Override
+    public boolean injectClick(final int displayId, final int button) {
+        return false;
     }
 
     @Override

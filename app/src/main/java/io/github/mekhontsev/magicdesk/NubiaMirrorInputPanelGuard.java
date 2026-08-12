@@ -4,20 +4,16 @@ import android.content.ComponentName;
 import android.util.Log;
 
 /** Prevents Nubia's phone panel from replacing MagicDesk's active touchpad. */
-final class NubiaMirrorInputPanelGuard implements AutoCloseable {
-    interface InputOwner {
-        boolean isActive();
-        void reclaimInput();
-    }
+final class NubiaMirrorInputPanelGuard
+        implements PlatformPhoneUiDriver.TaskEventGuard {
 
     private static final String TAG = "MagicDeskTouchpad";
     private static final ComponentName PANEL_ACTIVITY = new ComponentName(
             "cn.nubia.keymapcenter",
             "cn.nubia.keymapcenter.mirror.MirrorInputActivity");
 
-    private final InputOwner mInputOwner;
+    private final PlatformPhoneUiDriver.InputOwner mInputOwner;
     private final Object mTaskService;
-    private final boolean mSupported;
 
     private boolean mEnabled;
     private boolean mClosed;
@@ -25,21 +21,21 @@ final class NubiaMirrorInputPanelGuard implements AutoCloseable {
 
     NubiaMirrorInputPanelGuard(
             final Object taskService,
-            final InputOwner inputOwner,
-            final boolean supported) {
+            final PlatformPhoneUiDriver.InputOwner inputOwner) {
         mTaskService = taskService;
         mInputOwner = inputOwner;
-        mSupported = supported;
     }
 
-    synchronized void configure(final int displayId) {
-        mEnabled = mSupported && displayId > 0;
+    @Override
+    public synchronized void configure(final int displayId) {
+        mEnabled = displayId > 0;
         if (!mEnabled) {
             mRemovingTaskId = -1;
         }
     }
 
-    void onTaskAppeared(
+    @Override
+    public void onTaskAppeared(
             final int taskId,
             final ComponentName componentName) {
         if (!PANEL_ACTIVITY.equals(componentName)) {
@@ -72,7 +68,8 @@ final class NubiaMirrorInputPanelGuard implements AutoCloseable {
         }
     }
 
-    void onTaskRemoved(final int taskId) {
+    @Override
+    public void onTaskRemoved(final int taskId) {
         synchronized (this) {
             if (mRemovingTaskId != taskId) {
                 return;

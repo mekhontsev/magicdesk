@@ -98,6 +98,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
     private boolean mDesktopWindowFocusable = true;
+    private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
@@ -555,6 +556,30 @@ public abstract class DesktopShellActivity extends Activity
         } else {
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         }
+    }
+
+    void refreshDesktopInputFocus() {
+        if (mDesktopWindowFocusable || isActivityUnavailable()) {
+            return;
+        }
+        final Window window = getWindow();
+        final View decor = window.getDecorView();
+        final int generation = ++mInputFocusRefreshGeneration;
+
+        // A real window relayout makes Nubia WMS recompute the focused window;
+        // task-level focus operations update only its activity-side state.
+        decor.getViewTreeObserver().registerFrameCommitCallback(() ->
+                decor.post(() -> {
+                    if (generation != mInputFocusRefreshGeneration
+                            || isActivityUnavailable()
+                            || mDesktopWindowFocusable) {
+                        return;
+                    }
+                    window.addFlags(
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+                }));
+        window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        decor.invalidate();
     }
 
     boolean isDesktopHostReady() {

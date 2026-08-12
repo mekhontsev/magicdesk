@@ -9,7 +9,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /** Prevents Nubia Quickstep from opening while phone-display desktop tasks exist. */
-final class SystemNavigationGuard implements AutoCloseable {
+final class SystemNavigationGuard
+        implements PlatformPhoneUiDriver.NavigationGuard {
     private static final String TAG = "MagicDeskSystemNavigation";
     private static final int DISABLE_HOME = 0x00200000;
     private static final int DISABLE_RECENT = 0x01000000;
@@ -22,7 +23,8 @@ final class SystemNavigationGuard implements AutoCloseable {
     private IBinder.DeathRecipient mOwnerDeath;
     private boolean mActive;
 
-    void acquire(final IBinder ownerToken) {
+    @Override
+    public void acquire(final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException("missing navigation guard owner token");
         }
@@ -59,7 +61,8 @@ final class SystemNavigationGuard implements AutoCloseable {
         }
     }
 
-    void release(final IBinder ownerToken) {
+    @Override
+    public void release(final IBinder ownerToken) {
         synchronized (mLock) {
             releaseLocked(ownerToken);
         }

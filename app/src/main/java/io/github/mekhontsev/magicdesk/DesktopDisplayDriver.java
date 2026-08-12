@@ -14,6 +14,14 @@ interface DesktopDisplayDriver {
 
     DesktopDisplayTarget target(int displayId);
 
+    /** Logical display whose compositor output represents this desktop. */
+    default int captureDisplayId(final DesktopDisplayTarget target) {
+        if (target == null || target.kind != kind()) {
+            throw new IllegalArgumentException("matching display target is required");
+        }
+        return target.displayId;
+    }
+
     void show(Activity source, int displayId);
 
     void close(

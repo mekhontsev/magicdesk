@@ -13,24 +13,32 @@ public final class TaskFocusCommandsTest {
     public void createsOrderedShellFocusCommands() {
         assertEquals(
                 AppProcessCommand.run(
-                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                        "focus-stack 17 42"),
-                TaskFocusCommands.createShellCommand(Arrays.asList(17, 42)));
+                        "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
+                        "focus 9 17 42"),
+                TaskFocusCommands.createShellCommand(
+                        9, Arrays.asList(17, 42)));
     }
 
     @Test
     public void rejectsEmptyTaskList() {
-        assertInvalid(Collections.<Integer>emptyList());
+        assertInvalid(9, Collections.<Integer>emptyList());
     }
 
     @Test
     public void rejectsInvalidTaskId() {
-        assertInvalid(Arrays.asList(17, -1));
+        assertInvalid(9, Arrays.asList(17, -1));
     }
 
-    private static void assertInvalid(final Iterable<Integer> taskIds) {
+    @Test
+    public void rejectsInvalidDisplayId() {
+        assertInvalid(-1, Arrays.asList(17));
+    }
+
+    private static void assertInvalid(
+            final int displayId,
+            final Iterable<Integer> taskIds) {
         try {
-            TaskFocusCommands.createShellCommand(taskIds);
+            TaskFocusCommands.createShellCommand(displayId, taskIds);
             fail("invalid task IDs accepted");
         } catch (IllegalArgumentException expected) {
             // Expected.

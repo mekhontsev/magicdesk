@@ -220,6 +220,11 @@ runtime integration and are not distributed through the same release path.
 - `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
   shell UserService. `ShellTaskObserver` registers the framework listener, and
   `ShellTaskStateMonitor` isolates the supplemental bounds/immersive polling.
+- `ShellDesktopFocusController` handles a Nubia mirror-display defect where
+  task focus changes but the InputDispatcher window remains stale. It reports
+  only confirmed mismatches. The UI process then relayouts the existing,
+  non-focusable desktop host across a committed frame, which makes WMS
+  recompute its focused window without moving tasks or synthesizing input.
 - `ShellFreeformTaskCleanup` remembers freeform application tasks observed
   during the active desktop session. If one disappears, it verifies that no
   live task remains and removes only a Recents entry with the same task ID,
@@ -240,14 +245,22 @@ runtime integration and are not distributed through the same release path.
 
 - `PlatformDrivers` selects one firmware platform for the process from an
   immutable `PlatformDevice` identity. `PlatformDriver` exposes only existing
-  variation points: capability groups, windowing provisioning, optional
-  runtime services, and absolute-pointer integration.
-- `NubiaPlatformDriver` owns ZTE/nubia properties, projection/input
-  capabilities, pointer reflection, and hardware monitoring.
+  variation points. `PlatformWindowingDriver` owns provisioning properties;
+  `PlatformProjectionDriver` owns projection state, output modes, and caption
+  transport; `PlatformPhoneUiDriver` owns phone-screen controls, input-panel
+  guards, launcher reconciliation, and local-navigation policy;
+  `PlatformPointerDriver` owns optional absolute-pointer integration; and
+  `PlatformDiagnostics` contributes only the probes for the selected platform.
+- `NubiaPlatformDriver` composes the ZTE/nubia implementations of those
+  contracts and supplies the firmware's additional exported launch targets
+  and hardware runtime. Common projection, input, phone-UI, setup, and
+  diagnostics code does not select Nubia services or settings through feature
+  booleans. Hardware controls remain an explicit optional platform capability.
   `GenericAndroidPlatformDriver` is deliberately conservative: it enables
   only phone and simulated desktops and uses the two standard Android
-  freeform/resizable settings. Unverified wired and wireless backends are not
-  exposed.
+  freeform/resizable settings. Its projection, phone-UI, and absolute-pointer
+  integrations fail closed, and its diagnostics omit vendor probes. Unverified
+  wired and wireless backends are not exposed.
 - Platform and display are independent axes. A platform declares which
   display kinds it supports, while the display driver owns the lifecycle of
   one session type. Do not create platform-by-display combination classes.

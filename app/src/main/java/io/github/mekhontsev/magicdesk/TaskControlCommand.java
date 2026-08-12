@@ -17,30 +17,26 @@ public final class TaskControlCommand {
     }
 
     public static void main(final String[] args) {
-        final boolean focusStack = args.length >= 2 && "focus-stack".equals(args[0]);
         final boolean queryVisibleApp =
                 args.length == 2 && "has-visible-app".equals(args[0]);
         final boolean queryDesktopTaskId =
                 args.length == 2 && "desktop-task-id".equals(args[0]);
         final boolean singleTaskAction = args.length == 2
-                && ("focus".equals(args[0]) || "remove".equals(args[0]));
-        if (!focusStack && !queryVisibleApp && !queryDesktopTaskId
+                && "remove".equals(args[0]);
+        if (!queryVisibleApp && !queryDesktopTaskId
                 && !singleTaskAction) {
             System.err.println("usage: TaskControlCommand "
-                    + "<focus|remove> <task-id> | focus-stack <task-id>... "
-                    + "| has-visible-app <display-id>"
+                    + "remove <task-id> | has-visible-app <display-id>"
                     + "| desktop-task-id <display-id>");
             System.exit(64);
             return;
         }
 
-        final int[] taskIds = new int[args.length - 1];
+        final int taskId;
         try {
-            for (int index = 1; index < args.length; index++) {
-                taskIds[index - 1] = Integer.parseInt(args[index]);
-                if (taskIds[index - 1] < 0) {
-                    throw new NumberFormatException("negative task id");
-                }
+            taskId = Integer.parseInt(args[1]);
+            if (taskId < 0) {
+                throw new NumberFormatException("negative task id");
             }
         } catch (NumberFormatException e) {
             System.err.println("invalid task id");
@@ -52,28 +48,13 @@ public final class TaskControlCommand {
             final Object service = HiddenTaskApi.getService();
             if (queryDesktopTaskId) {
                 System.out.println("desktop-task-id="
-                        + findDesktopTaskId(service, taskIds[0]));
+                        + findDesktopTaskId(service, taskId));
             } else if (queryVisibleApp) {
                 System.out.println("visible-app-task="
-                        + hasVisibleAppTask(service, taskIds[0]));
-            } else if (focusStack) {
-                for (int index = 0; index < taskIds.length; index++) {
-                    try {
-                        moveTaskToFront(service, taskIds[index]);
-                    } catch (ReflectiveOperationException | RuntimeException e) {
-                        if (index == taskIds.length - 1) {
-                            throw e;
-                        }
-                        System.err.println("skipped stale task=" + taskIds[index]);
-                    }
-                }
-                System.out.println("task-stack-focused=" + taskIds.length);
-            } else if ("focus".equals(args[0])) {
-                moveTaskToFront(service, taskIds[0]);
-                System.out.println("task-focused=" + taskIds[0]);
+                        + hasVisibleAppTask(service, taskId));
             } else {
-                final boolean removed = removeTask(service, taskIds[0]);
-                System.out.println("task-removed=" + taskIds[0] + " result=" + removed);
+                final boolean removed = removeTask(service, taskId);
+                System.out.println("task-removed=" + taskId + " result=" + removed);
                 if (!removed) {
                     System.exit(1);
                 }
@@ -82,10 +63,6 @@ public final class TaskControlCommand {
             System.err.println("task control failed: " + usefulFailure(e));
             System.exit(1);
         }
-    }
-
-    static void focusTask(final int taskId) throws ReflectiveOperationException {
-        moveTaskToFront(HiddenTaskApi.getService(), taskId);
     }
 
     static void moveTaskToFront(final Object service, final int taskId)
@@ -143,12 +120,6 @@ public final class TaskControlCommand {
         throw new NoSuchMethodException(
                 "supported moveTaskToFront signature on "
                         + serviceClass.getName());
-    }
-
-    static void setFocusedTask(final Object service, final int taskId)
-            throws ReflectiveOperationException {
-        service.getClass().getMethod("setFocusedTask", Integer.TYPE)
-                .invoke(service, Integer.valueOf(taskId));
     }
 
     static String callingPackageForUid(final int uid) {

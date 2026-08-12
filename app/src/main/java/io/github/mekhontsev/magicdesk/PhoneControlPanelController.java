@@ -65,7 +65,7 @@ final class PhoneControlPanelController {
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
         final boolean fillExternalDisplay;
-        final NubiaHdmiModeController.Selection externalModeSelection;
+        final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final String externalDisplaySummary;
         final ExternalDisplayState externalDisplayState;
         final boolean wiredDisplayConnected;
@@ -83,7 +83,7 @@ final class PhoneControlPanelController {
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
                 final boolean fillExternalDisplay,
-                final NubiaHdmiModeController.Selection externalModeSelection,
+                final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final String externalDisplaySummary,
                 final ExternalDisplayState externalDisplayState,
                 final boolean wiredDisplayConnected,
@@ -128,7 +128,7 @@ final class PhoneControlPanelController {
     private Switch mFillDisplay;
     private Spinner mOutputMode;
     private ArrayAdapter<String> mOutputModeAdapter;
-    private List<NubiaHdmiModeController.Mode> mOutputModes =
+    private List<PlatformProjectionDriver.Mode> mOutputModes =
             Collections.emptyList();
     private boolean mOutputModesConfigurable;
     private boolean mRendering = true;
@@ -387,7 +387,7 @@ final class PhoneControlPanelController {
                 }
                 if (position >= 0 && position < mOutputModes.size()) {
                     mActions.setExternalOutputTiming(
-                            mOutputModes.get(position).timingKey());
+                            mOutputModes.get(position).timingKey);
                 }
             }
 
@@ -402,8 +402,8 @@ final class PhoneControlPanelController {
     }
 
     private void renderOutputModes(
-            final NubiaHdmiModeController.Selection selection) {
-        final List<NubiaHdmiModeController.Mode> modes = selection == null
+            final PlatformProjectionDriver.ModeSelection selection) {
+        final List<PlatformProjectionDriver.Mode> modes = selection == null
                 ? Collections.emptyList() : selection.availableModes;
         final boolean configurable = selection != null
                 && selection.configurable;
@@ -417,12 +417,12 @@ final class PhoneControlPanelController {
                 mOutputModeAdapter.add(
                         mActivity.getString(R.string.external_display_no_modes));
             } else {
-                for (final NubiaHdmiModeController.Mode mode : modes) {
+                for (final PlatformProjectionDriver.Mode mode : modes) {
                     mOutputModeAdapter.add(configurable
-                            ? mode.displayLabel()
+                            ? mode.displayLabel
                             : mActivity.getString(
                                     R.string.external_display_system_mode,
-                                    mode.displayLabel()));
+                                    mode.displayLabel));
                 }
             }
             mOutputModeAdapter.notifyDataSetChanged();
@@ -431,9 +431,9 @@ final class PhoneControlPanelController {
             mOutputMode.setSelection(0, false);
             return;
         }
-        final String selectedTiming = selection.target.timingKey();
+        final String selectedTiming = selection.target.timingKey;
         for (int index = 0; index < mOutputModes.size(); index++) {
-            if (selectedTiming.equals(mOutputModes.get(index).timingKey())) {
+            if (selectedTiming.equals(mOutputModes.get(index).timingKey)) {
                 mOutputMode.setSelection(index, false);
                 return;
             }
@@ -441,8 +441,8 @@ final class PhoneControlPanelController {
     }
 
     private static boolean sameModes(
-            final List<NubiaHdmiModeController.Mode> left,
-            final List<NubiaHdmiModeController.Mode> right) {
+            final List<PlatformProjectionDriver.Mode> left,
+            final List<PlatformProjectionDriver.Mode> right) {
         if (left == right) {
             return true;
         }
@@ -450,8 +450,8 @@ final class PhoneControlPanelController {
             return false;
         }
         for (int index = 0; index < left.size(); index++) {
-            if (!left.get(index).timingKey().equals(
-                    right.get(index).timingKey())) {
+            if (!left.get(index).timingKey.equals(
+                    right.get(index).timingKey)) {
                 return false;
             }
         }

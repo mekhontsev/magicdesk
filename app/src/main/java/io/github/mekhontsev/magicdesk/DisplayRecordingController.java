@@ -101,13 +101,8 @@ final class DisplayRecordingController {
         mExecutor.execute(() -> {
             String outputPath = null;
             try {
-                final int displayId =
-                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
-                if (displayId < 0) {
-                    throw new IOException("no active desktop display");
-                }
-                final String physicalDisplayId =
-                        ConsoleDisplayController.getPhysicalDisplayId(displayId);
+                final DesktopCaptureTarget capture =
+                        DesktopCaptureTarget.resolveActive();
                 final DisplayRecordingSettings.Values settings =
                         DisplayRecordingSettings.load(
                                 MagicDeskApplication.applicationContext());
@@ -116,7 +111,7 @@ final class DisplayRecordingController {
                 if (settings.scalePercent
                         != DisplayRecordingSettings.DEFAULT_SCALE_PERCENT) {
                     final DisplayRecordingSettings.Dimensions source =
-                            displayDimensions(displayId);
+                            displayDimensions(capture.desktopDisplayId);
                     final DisplayRecordingSettings.Dimensions scaled =
                             DisplayRecordingSettings.scaledDimensions(
                                     source.width,
@@ -127,7 +122,7 @@ final class DisplayRecordingController {
                 }
                 outputPath = nextOutputPath();
                 final String startedPath = ShellAccess.startDisplayRecording(
-                        physicalDisplayId,
+                        capture.physicalDisplayId,
                         outputPath,
                         width,
                         height,

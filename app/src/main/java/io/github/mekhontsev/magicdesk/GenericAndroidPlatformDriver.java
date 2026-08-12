@@ -3,14 +3,23 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.Build;
 
+import java.util.Collections;
+import java.util.List;
+
 /** Conservative Android fallback: local and simulated desktops only. */
 final class GenericAndroidPlatformDriver implements PlatformDriver {
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            false, false, false, false, false, false, false);
+            false, false, false);
     private static final PlatformWindowingDriver WINDOWING =
             new GenericAndroidWindowingDriver();
     private static final PlatformPointerDriver POINTER =
             new GenericAndroidPointerDriver();
+    private static final PlatformProjectionDriver PROJECTION =
+            new GenericAndroidProjectionDriver();
+    private static final PlatformPhoneUiDriver PHONE_UI =
+            new GenericAndroidPhoneUiDriver();
+    private static final PlatformDiagnostics DIAGNOSTICS =
+            new GenericAndroidPlatformDiagnostics();
 
     @Override
     public String id() {
@@ -45,6 +54,26 @@ final class GenericAndroidPlatformDriver implements PlatformDriver {
     @Override
     public PlatformPointerDriver pointer() {
         return POINTER;
+    }
+
+    @Override
+    public PlatformProjectionDriver projection() {
+        return PROJECTION;
+    }
+
+    @Override
+    public PlatformPhoneUiDriver phoneUi() {
+        return PHONE_UI;
+    }
+
+    @Override
+    public PlatformDiagnostics diagnostics() {
+        return DIAGNOSTICS;
+    }
+
+    @Override
+    public List<AppLaunchTarget> additionalLaunchTargets() {
+        return Collections.emptyList();
     }
 
     @Override

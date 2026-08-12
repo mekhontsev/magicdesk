@@ -86,6 +86,20 @@ public final class TaskInputWindowParserTest {
     }
 
     @Test
+    public void ignoresInputWindowsClonedToMirrorDisplay() {
+        final String mirrored = DUMP.replace(
+                "displayId=155, inputConfig=",
+                "displayId=265, inputConfig=CLONE | ") + DUMP;
+
+        assertEquals(155,
+                TaskInputWindowParser.findCaption(mirrored, 6362).displayId);
+        assertEquals(155,
+                TaskInputWindowParser.findResize(mirrored, 6362).displayId);
+        assertEquals(155,
+                TaskInputWindowParser.findMaximizeMenu(mirrored, 6362).displayId);
+    }
+
+    @Test
     public void ignoresOtherTasksAndMalformedWindows() {
         assertNull(TaskInputWindowParser.findCaption(DUMP, 99));
         assertNull(TaskInputWindowParser.findResize(
@@ -146,5 +160,69 @@ public final class TaskInputWindowParserTest {
 
         assertFalse(TaskInputWindowParser.isTaskFocused(
                 focusDump, 155, 6362));
+    }
+
+    @Test
+    public void usesFocusedWindowTaskWhenFocusedApplicationIsStale() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=155, name='ActivityRecord{123 u0 "
+                        + "magicdesk/.ConsoleSeedActivity t12}', "
+                        + "dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=155, name='abc example/.Editor'\n"
+                        + "  FocusRequests:\n"
+                        + "  Display: 155\n"
+                        + "    Windows:\n"
+                        + "      0: name=abc example/.Editor, id=42, "
+                        + "displayId=155, inputConfig=0x0, alpha=1, "
+                        + "applicationInfo.name=ActivityRecord{456 u0 "
+                        + "example/.Editor t6362}, applicationInfo.token=x\n";
+
+        assertTrue(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 6362));
+        assertFalse(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 12));
+        assertEquals(6362,
+                TaskInputWindowParser.findFocusedTaskId(focusDump, 155));
+        assertEquals(-1,
+                TaskInputWindowParser.findFocusedTaskId(focusDump, 0));
+    }
+
+    @Test
+    public void doesNotGuessFocusedTaskWithoutWindowMapping() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=155, name='ActivityRecord{123 u0 "
+                        + "example/.Editor t6362}', dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=155, name='abc example/.Editor'\n"
+                        + "  FocusRequests:\n";
+
+        assertTrue(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 6362));
+        assertEquals(-1,
+                TaskInputWindowParser.findFocusedTaskId(focusDump, 155));
+    }
+
+    @Test
+    public void mapsFocusedWindowWithoutTextTitle() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=155, name='abc'\n"
+                        + "  FocusRequests:\n"
+                        + "  Display: 155\n"
+                        + "    Windows:\n"
+                        + "      0: name=abc, id=42, displayId=155, "
+                        + "inputConfig=0x0, alpha=1, "
+                        + "applicationInfo.name=ActivityRecord{456 u0 "
+                        + "example/.Editor t6362}, applicationInfo.token=x\n";
+
+        assertEquals(6362,
+                TaskInputWindowParser.findFocusedTaskId(focusDump, 155));
     }
 }

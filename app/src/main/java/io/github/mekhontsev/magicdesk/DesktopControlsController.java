@@ -395,11 +395,13 @@ final class DesktopControlsController {
     }
 
     private boolean isPhoneScreenOff() {
-        return ConsoleModeState.isPhoneScreenOff(mActivity);
+        return PlatformDrivers.current().phoneUi()
+                .isPhoneScreenOff(mActivity);
     }
 
     private boolean isConsoleModeActive() {
-        return ConsoleModeState.isActive(mActivity);
+        return PlatformDrivers.current().projection()
+                .activeDesktopDisplayId(mActivity) > 0;
     }
 
     private void registerBatteryReceiver() {
@@ -536,8 +538,14 @@ final class DesktopControlsController {
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_STATE);
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_LABEL_STATE);
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_NAME_STATE);
-        registerSetting(ConsoleModeState.PHONE_SCREEN_OFF_SETTING);
-        registerSetting(ConsoleModeState.DISPLAY_ID_SETTING);
+        for (final String setting : PlatformDrivers.current().phoneUi()
+                .observedSettingKeys()) {
+            registerSetting(setting);
+        }
+        for (final String setting : PlatformDrivers.current().projection()
+                .observedSettingKeys()) {
+            registerSetting(setting);
+        }
 
         mInputMethodSubtypeObserver = new ContentObserver(
                 new Handler(Looper.getMainLooper())) {

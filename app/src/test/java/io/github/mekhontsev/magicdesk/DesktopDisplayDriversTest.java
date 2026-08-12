@@ -92,6 +92,22 @@ public final class DesktopDisplayDriversTest {
                 simulated, 195, false));
     }
 
+    @Test
+    public void captureUsesPhysicalProfileBehindWiredVirtualDesktop() {
+        final DesktopDisplayTarget wired = DesktopDisplayTarget.wired(287)
+                .withProfile(265, "display:wired:local:21");
+
+        assertEquals(265, driver(wired).captureDisplayId(wired));
+        assertEquals(
+                0,
+                driver(DesktopDisplayTarget.phone()).captureDisplayId(
+                        DesktopDisplayTarget.phone()));
+        assertEquals(
+                8,
+                driver(DesktopDisplayTarget.wireless(8)).captureDisplayId(
+                        DesktopDisplayTarget.wireless(8)));
+    }
+
     private static DesktopDisplayFeatures features(
             final DesktopDisplayTarget.Kind kind) {
         return DesktopDisplayDrivers.forKind(kind).features();

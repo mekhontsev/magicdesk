@@ -32,7 +32,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final PlatformPointerDriver mPointerDriver;
-    private final SystemNavigationGuard mSystemNavigationGuard;
+    private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final Object mInputRoutingLock = new Object();
@@ -51,7 +51,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
-                new NubiaMirrorInputPanelGuard.InputOwner() {
+                new PlatformPhoneUiDriver.InputOwner() {
                     @Override
                     public boolean isActive() {
                         synchronized (mInputRoutingLock) {
@@ -61,11 +61,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
                     @Override
                     public void reclaimInput() {
-                        reclaimInputAfterNubiaPanel();
+                        reclaimInputAfterPlatformPanel();
                     }
                 });
         mPointerDriver = PlatformDrivers.current().pointer();
-        mSystemNavigationGuard = new SystemNavigationGuard();
+        mNavigationGuard = PlatformDrivers.current().phoneUi()
+                .createNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         Log.i(TAG, "command service started uid=" + Os.getuid());
@@ -260,13 +261,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public boolean injectPointerClick(
             final int displayId,
             final int button) {
-        try {
-            DesktopPointerInjector.injectClick(displayId, button);
-            return true;
-        } catch (RuntimeException error) {
-            Log.e(TAG, "pointer click injection failed", error);
-            return false;
-        }
+        return mPointerDriver.injectClick(displayId, button);
     }
 
     @Override
@@ -386,7 +381,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             boolean ownerLinked = false;
             try {
                 session = DesktopInputRoutingSession.open(
-                        displayId, expectedVirtualKeyboardCount);
+                        mContext,
+                        displayId,
+                        expectedVirtualKeyboardCount);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -458,14 +455,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void startLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mSystemNavigationGuard.acquire(ownerToken);
-        Log.i(TAG, "system Home and Recents disabled for local desktop");
+        mNavigationGuard.acquire(ownerToken);
+        Log.i(TAG, "platform navigation guard acquired for local desktop");
     }
 
     @Override
     public void stopLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mSystemNavigationGuard.release(ownerToken);
-        Log.i(TAG, "system Home and Recents restored after local desktop");
+        mNavigationGuard.release(ownerToken);
+        Log.i(TAG, "platform navigation guard released after local desktop");
     }
 
     @Override
@@ -657,7 +654,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             stopInputRoutingLocked(null);
         }
         try {
-            mSystemNavigationGuard.close();
+            mNavigationGuard.close();
         } catch (RuntimeException error) {
             Log.w(TAG, "system navigation guard cleanup failed", error);
         }
@@ -676,7 +673,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
     }
 
-    private void reclaimInputAfterNubiaPanel() {
+    private void reclaimInputAfterPlatformPanel() {
         final int displayId;
         synchronized (mInputRoutingLock) {
             if (mInputRoutingSession == null) {
@@ -687,7 +684,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mInputRoutingSession.refreshAssociations();
             } catch (Exception error) {
                 Log.w(TAG,
-                        "could not reclaim input routing after Nubia panel",
+                        "could not reclaim input routing after platform panel",
                         error);
                 return;
             }
@@ -702,10 +699,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         DesktopPointerInjector.TOUCHPAD_HOVER,
                         0L);
             }
-            Log.i(TAG, "input reclaimed after Nubia panel task removal");
+            Log.i(TAG, "input reclaimed after platform panel task removal");
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG,
-                    "could not restore pointer after Nubia panel",
+                    "could not restore pointer after platform panel",
                     error);
         }
     }

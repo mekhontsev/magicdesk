@@ -4,27 +4,15 @@ package io.github.mekhontsev.magicdesk;
 final class PlatformFeatures {
     final boolean wiredDesktop;
     final boolean wirelessDesktop;
-    final boolean vendorWindowingProperties;
-    final boolean vendorInput;
-    final boolean vendorProjection;
     final boolean vendorHardware;
-    final boolean vendorPhoneUi;
 
     PlatformFeatures(
             final boolean wiredDesktop,
             final boolean wirelessDesktop,
-            final boolean vendorWindowingProperties,
-            final boolean vendorInput,
-            final boolean vendorProjection,
-            final boolean vendorHardware,
-            final boolean vendorPhoneUi) {
+            final boolean vendorHardware) {
         this.wiredDesktop = wiredDesktop;
         this.wirelessDesktop = wirelessDesktop;
-        this.vendorWindowingProperties = vendorWindowingProperties;
-        this.vendorInput = vendorInput;
-        this.vendorProjection = vendorProjection;
         this.vendorHardware = vendorHardware;
-        this.vendorPhoneUi = vendorPhoneUi;
     }
 
     boolean supportsDisplay(final DesktopDisplayTarget.Kind kind) {

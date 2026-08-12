@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.Build;
 
+import java.util.List;
+
 /** ZTE/nubia firmware implementation of the MagicDesk platform contract. */
 final class NubiaPlatformDriver implements PlatformDriver {
     private static final String MAINTAINER_VERIFIED_NX809J_FINGERPRINT =
@@ -18,11 +20,17 @@ final class NubiaPlatformDriver implements PlatformDriver {
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20251229.234747:user/release-keys";
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            true, true, true, true, true, true, true);
+            true, true, true);
     private static final PlatformWindowingDriver WINDOWING =
             new NubiaWindowingDriver();
     private static final PlatformPointerDriver POINTER =
             new NubiaPointerDriver();
+    private static final PlatformProjectionDriver PROJECTION =
+            new NubiaProjectionDriver();
+    private static final PlatformPhoneUiDriver PHONE_UI =
+            new NubiaPhoneUiDriver();
+    private static final PlatformDiagnostics DIAGNOSTICS =
+            new NubiaPlatformDiagnostics();
 
     @Override
     public String id() {
@@ -76,6 +84,26 @@ final class NubiaPlatformDriver implements PlatformDriver {
     @Override
     public PlatformPointerDriver pointer() {
         return POINTER;
+    }
+
+    @Override
+    public PlatformProjectionDriver projection() {
+        return PROJECTION;
+    }
+
+    @Override
+    public PlatformPhoneUiDriver phoneUi() {
+        return PHONE_UI;
+    }
+
+    @Override
+    public PlatformDiagnostics diagnostics() {
+        return DIAGNOSTICS;
+    }
+
+    @Override
+    public List<AppLaunchTarget> additionalLaunchTargets() {
+        return RedmagicEntryPointCatalog.targets();
     }
 
     @Override

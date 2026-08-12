@@ -57,6 +57,7 @@ final class DesktopSessionController {
             if (desktopTaskId >= 0) {
                 final String focusOutput = ShellAccess.run(
                         TaskFocusCommands.createShellCommand(
+                                preparedTarget.displayId,
                                 Collections.singletonList(
                                         Integer.valueOf(desktopTaskId)))).trim();
                 Log.i(TAG, "focused desktop kind=" + preparedTarget.kind

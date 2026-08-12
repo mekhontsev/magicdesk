@@ -81,11 +81,15 @@ final class PhoneDesktopTaskRecovery {
             final Continuation continuation,
             final Callback callback) {
         TaskCommandQueue.execute(() -> {
-            final Result result = recoverNow(
-                    removedDisplayId,
-                    allowUnsettledRemoval,
-                    continuation == null ? ALWAYS_CONTINUE : continuation,
-                    SYSTEM_ENVIRONMENT);
+            final Result result = requiresRecovery()
+                    ? recoverNow(
+                            removedDisplayId,
+                            allowUnsettledRemoval,
+                            continuation == null
+                                    ? ALWAYS_CONTINUE : continuation,
+                            SYSTEM_ENVIRONMENT)
+                    : Result.success(
+                            "phone desktop recovery is not required");
             if (callback != null) {
                 callback.onComplete(result);
             }
@@ -97,6 +101,9 @@ final class PhoneDesktopTaskRecovery {
     }
 
     static Result recoverBlocking(final Continuation continuation) {
+        if (!requiresRecovery()) {
+            return Result.success("phone desktop recovery is not required");
+        }
         try {
             return TaskCommandQueue.call(() -> recoverNow(
                     -1,
@@ -107,6 +114,11 @@ final class PhoneDesktopTaskRecovery {
             Log.w(TAG, "phone desktop recovery queue failed", error);
             return Result.failure(usefulMessage(error));
         }
+    }
+
+    private static boolean requiresRecovery() {
+        return PlatformDrivers.current().phoneUi()
+                .requiresPhoneUiReconciliation();
     }
 
     static Result recoverForTest(

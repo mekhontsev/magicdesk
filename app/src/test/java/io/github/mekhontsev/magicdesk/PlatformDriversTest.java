@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -15,7 +16,18 @@ public final class PlatformDriversTest {
         assertEquals("nubia", driver.id());
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
-        assertTrue(driver.features().vendorInput);
+        assertTrue(driver.pointer().isAvailable());
+        assertTrue(driver.projection().isAvailable());
+        assertTrue(driver.phoneUi().isAvailable());
+        assertTrue(driver.windowing()
+                .requiresMirrorInputFocusSynchronization());
+        assertEquals(
+                "persist.wm.debug.desktop_mode_enforce_device_restrictions",
+                driver.windowing().restrictionsPropertyKey());
+        assertEquals(
+                "persist.wm.debug.desktop_use_rounded_corners",
+                driver.windowing().roundedCornersPropertyKey());
+        assertEquals(1, driver.additionalLaunchTargets().size());
     }
 
     @Test
@@ -32,6 +44,14 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.WIRED));
         assertFalse(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
+        assertFalse(driver.pointer().isAvailable());
+        assertFalse(driver.projection().isAvailable());
+        assertFalse(driver.phoneUi().isAvailable());
+        assertFalse(driver.windowing()
+                .requiresMirrorInputFocusSynchronization());
+        assertTrue(driver.additionalLaunchTargets().isEmpty());
+        assertNull(driver.windowing().restrictionsPropertyKey());
+        assertNull(driver.windowing().roundedCornersPropertyKey());
     }
 
     @Test

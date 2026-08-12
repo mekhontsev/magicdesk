@@ -25,6 +25,10 @@ public final class ControlActivity extends Activity
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Runnable mDisplayProbe = this::startExternalDisplayProbe;
+    private final PlatformProjectionDriver mProjection =
+            PlatformDrivers.current().projection();
+    private final PlatformPhoneUiDriver mPhoneUi =
+            PlatformDrivers.current().phoneUi();
 
     private PhoneControlPanelController mPanel;
     private MagicDeskSessionController mSessionController;
@@ -44,7 +48,7 @@ public final class ControlActivity extends Activity
     private int mWiredDisplayId = Display.INVALID_DISPLAY;
     private int mWirelessDisplayId = Display.INVALID_DISPLAY;
     private DisplayProfileStore.Profile mExternalDisplayProfile;
-    private NubiaHdmiModeController.Selection mExternalModeSelection;
+    private PlatformProjectionDriver.ModeSelection mExternalModeSelection;
     private String mExternalDisplaySummary;
     private String mStatus;
 
@@ -156,13 +160,13 @@ public final class ControlActivity extends Activity
         mPanel = new PhoneControlPanelController(this, ui, this);
         mSessionController = new MagicDeskSessionController(this);
         mWirelessDisplayAvailable =
-                PlatformDrivers.current().features().wirelessDesktop
-                        && WirelessDisplayController.isAvailable(this);
+                mProjection.isWirelessDisplayAvailable(this);
         mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
-        if (PlatformDrivers.current().features().vendorProjection) {
+        if (mProjection.observedSettingKeys().length > 0
+                || mPhoneUi.observedSettingKeys().length > 0) {
             registerConsoleStateObserver();
         }
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
@@ -265,9 +269,7 @@ public final class ControlActivity extends Activity
             return;
         }
         final int consoleDisplayId =
-                PlatformDrivers.current().features().vendorProjection
-                        ? ConsoleModeState.activeDisplayId(this)
-                        : Display.INVALID_DISPLAY;
+                mProjection.activeDesktopDisplayId(this);
         if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
             mStatus = getString(R.string.status_console_starting);
             refresh();
@@ -297,7 +299,7 @@ public final class ControlActivity extends Activity
             return;
         }
         if (mWirelessDisplayAvailable
-                && WirelessDisplayController.openPicker(this)) {
+                && mProjection.openWirelessDisplayPicker(this)) {
             mAwaitingWirelessDisplay = true;
             mStatus = getString(R.string.status_wireless_display_connecting);
         } else {
@@ -354,7 +356,8 @@ public final class ControlActivity extends Activity
     @Override
     public void switchToMirror() {
         if (!ShellAccess.isReady()
-                || !ConsoleModeState.isActive(this)) {
+                || mProjection.activeDesktopDisplayId(this)
+                        <= Display.DEFAULT_DISPLAY) {
             return;
         }
         mStatus = getString(R.string.status_mirror_switching);
@@ -387,7 +390,7 @@ public final class ControlActivity extends Activity
             return;
         }
         final boolean screenOff =
-                !ConsoleModeState.isPhoneScreenOff(this);
+                !mPhoneUi.isPhoneScreenOff(this);
         mStatus = getString(R.string.status_phone_screen_applying);
         refresh();
         ConsoleModeSwitcher.setPhoneScreenOff(
@@ -462,9 +465,7 @@ public final class ControlActivity extends Activity
             return;
         }
         final int consoleDisplayId =
-                PlatformDrivers.current().features().vendorProjection
-                        ? ConsoleModeState.activeDisplayId(this)
-                        : Display.INVALID_DISPLAY;
+                mProjection.activeDesktopDisplayId(this);
         final boolean consoleModeActive =
                 consoleDisplayId > Display.DEFAULT_DISPLAY;
         final int activeDesktopDisplayId =
@@ -488,7 +489,7 @@ public final class ControlActivity extends Activity
                                 activeDesktopDisplayId),
                 ShellAccess.isReady()
                         && DesktopDisplayDrivers.isExternalDesktopSupported(),
-                ConsoleModeState.isPhoneScreenOff(this),
+                mPhoneUi.isPhoneScreenOff(this),
                 ShellAccess.isReady(),
                 mExternalDisplayProfile == null
                         || mExternalDisplayProfile.fillDisplay,
@@ -516,16 +517,18 @@ public final class ControlActivity extends Activity
                 refresh();
             }
         };
-        getContentResolver().registerContentObserver(
-                android.provider.Settings.Global.getUriFor(
-                        ConsoleModeState.DISPLAY_ID_SETTING),
-                false,
-                mConsoleStateObserver);
-        getContentResolver().registerContentObserver(
-                android.provider.Settings.Global.getUriFor(
-                        ConsoleModeState.PHONE_SCREEN_OFF_SETTING),
-                false,
-                mConsoleStateObserver);
+        for (final String setting : mProjection.observedSettingKeys()) {
+            getContentResolver().registerContentObserver(
+                    android.provider.Settings.Global.getUriFor(setting),
+                    false,
+                    mConsoleStateObserver);
+        }
+        for (final String setting : mPhoneUi.observedSettingKeys()) {
+            getContentResolver().registerContentObserver(
+                    android.provider.Settings.Global.getUriFor(setting),
+                    false,
+                    mConsoleStateObserver);
+        }
     }
 
     private void registerDisplayListener() {
@@ -605,7 +608,7 @@ public final class ControlActivity extends Activity
             final int wiredDisplayId,
             final int wirelessDisplayId,
             final DisplayProfileStore.Profile displayProfile,
-            final NubiaHdmiModeController.Selection selection) {
+            final PlatformProjectionDriver.ModeSelection selection) {
         if (generation != mDisplayProbeGeneration
                 || isActivityUnavailable()) {
             return;
@@ -660,8 +663,8 @@ public final class ControlActivity extends Activity
     }
 
     private boolean isExternalDesktopActive() {
-        if (PlatformDrivers.current().features().vendorProjection
-                && ConsoleModeState.isActive(this)) {
+        if (mProjection.activeDesktopDisplayId(this)
+                > Display.DEFAULT_DISPLAY) {
             return true;
         }
         final int displayId =
@@ -676,7 +679,7 @@ public final class ControlActivity extends Activity
 
     private String describeExternalDisplay(
             final int displayId,
-            final NubiaHdmiModeController.Selection selection) {
+            final PlatformProjectionDriver.ModeSelection selection) {
         String name = null;
         final Display display = mDisplayManager == null
                 ? null : mDisplayManager.getDisplay(displayId);
@@ -690,12 +693,12 @@ public final class ControlActivity extends Activity
                 name = display.getName();
             }
         }
-        final NubiaHdmiModeController.Mode mode = selection == null
+        final PlatformProjectionDriver.Mode mode = selection == null
                 ? null : selection.current;
         if (name == null || name.isEmpty()) {
-            return mode == null ? null : mode.displayLabel();
+            return mode == null ? null : mode.displayLabel;
         }
-        return mode == null ? name : name + " | " + mode.displayLabel();
+        return mode == null ? name : name + " | " + mode.displayLabel;
     }
 
     private int currentDisplayId() {

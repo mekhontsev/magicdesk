@@ -237,6 +237,16 @@ final class DesktopRuntimeBridge {
         activity.runOnUiThread(activity::updateDesktopControls);
     }
 
+    static boolean refreshDesktopInputFocus(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        activity.runOnUiThread(activity::refreshDesktopInputFocus);
+        return true;
+    }
+
     static boolean restoreLastVisibleWindows() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {

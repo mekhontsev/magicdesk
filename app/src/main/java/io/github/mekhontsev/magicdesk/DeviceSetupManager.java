@@ -23,10 +23,6 @@ final class DeviceSetupManager {
 
     private static final String FREEFORM_SETTING = "enable_freeform_support";
     private static final String RESIZABLE_SETTING = "force_resizable_activities";
-    private static final String RESTRICTIONS_PROPERTY =
-            NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
-    private static final String ROUNDED_CORNERS_PROPERTY =
-            NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS.key;
     private DeviceSetupManager() {
     }
 
@@ -42,7 +38,8 @@ final class DeviceSetupManager {
                 platform.supportLevel(device);
         final SharedPreferences preferences = preferences(context);
 
-        Map<String, String> values = readUnprivilegedValues(context);
+        Map<String, String> values = readUnprivilegedValues(
+                context, platform.windowing());
         String runtimeError = "";
         boolean shellReady = false;
         int shizukuUid = -1;
@@ -56,7 +53,8 @@ final class DeviceSetupManager {
                     throw new IOException(
                             "Shizuku service UID is unsupported: " + serviceUid);
                 }
-                values = parseValues(ShellAccess.run(buildAuditCommand()));
+                values = parseValues(ShellAccess.run(
+                        buildAuditCommand(platform.windowing())));
                 shellReady = true;
                 shellState = new ShellAccess.Snapshot(
                         shellState.installed,
@@ -149,10 +147,10 @@ final class DeviceSetupManager {
                 commands,
                 RESIZABLE_SETTING,
                 before.resizableEnabled);
-        final boolean vendorChangeRequired =
-                before.platform.features().vendorWindowingProperties
-                        && (!before.restrictionsDisabled
-                                || !before.roundedCornersDisabled);
+        final boolean vendorChangeRequired = before.platform.windowing()
+                .requiresRebootForConfiguration(
+                        before.restrictionsDisabled,
+                        before.roundedCornersDisabled);
         if (!commands.isEmpty() || vendorChangeRequired) {
             savePendingReboot(preferences, before.bootId);
         }
@@ -281,7 +279,8 @@ final class DeviceSetupManager {
         }
     }
 
-    private static String buildAuditCommand() {
+    private static String buildAuditCommand(
+            final PlatformWindowingDriver windowing) {
         return "printf 'MAGIC_UID='; /system/bin/id -u; "
                 + "printf 'MAGIC_BOOT_ID='; /system/bin/cat "
                 + "/proc/sys/kernel/random/boot_id; "
@@ -289,13 +288,17 @@ final class DeviceSetupManager {
                 + FREEFORM_SETTING + "; "
                 + "printf 'MAGIC_RESIZABLE='; /system/bin/settings get global "
                 + RESIZABLE_SETTING + "; "
-                + "printf 'MAGIC_RESTRICTIONS='; /system/bin/getprop "
-                + RESTRICTIONS_PROPERTY + "; "
-                + "printf 'MAGIC_ROUNDED='; /system/bin/getprop "
-                + ROUNDED_CORNERS_PROPERTY;
+                + propertyAuditCommand(
+                        "RESTRICTIONS",
+                        windowing.restrictionsPropertyKey())
+                + propertyAuditCommand(
+                        "ROUNDED",
+                        windowing.roundedCornersPropertyKey());
     }
 
-    private static Map<String, String> readUnprivilegedValues(final Context context) {
+    private static Map<String, String> readUnprivilegedValues(
+            final Context context,
+            final PlatformWindowingDriver windowing) {
         final Map<String, String> values = new HashMap<>();
         values.put("UID", Integer.toString(android.os.Process.myUid()));
         values.put("BOOT_ID", readFirstLine("/proc/sys/kernel/random/boot_id"));
@@ -304,10 +307,22 @@ final class DeviceSetupManager {
         values.put("RESIZABLE", Settings.Global.getString(
                 context.getContentResolver(), RESIZABLE_SETTING));
         values.put("RESTRICTIONS", runLocalCommand(
-                "/system/bin/getprop", RESTRICTIONS_PROPERTY));
+                "/system/bin/getprop",
+                windowing.restrictionsPropertyKey()));
         values.put("ROUNDED", runLocalCommand(
-                "/system/bin/getprop", ROUNDED_CORNERS_PROPERTY));
+                "/system/bin/getprop",
+                windowing.roundedCornersPropertyKey()));
         return values;
+    }
+
+    private static String propertyAuditCommand(
+            final String name,
+            final String propertyKey) {
+        if (propertyKey == null || propertyKey.isEmpty()) {
+            return "printf 'MAGIC_" + name + "=\\n'; ";
+        }
+        return "printf 'MAGIC_" + name
+                + "='; /system/bin/getprop " + propertyKey + "; ";
     }
 
     private static String readFirstLine(final String path) {
@@ -320,6 +335,9 @@ final class DeviceSetupManager {
     }
 
     private static String runLocalCommand(final String executable, final String argument) {
+        if (argument == null || argument.isEmpty()) {
+            return "";
+        }
         Process process = null;
         try {
             process = new ProcessBuilder(executable, argument)

@@ -10,6 +10,10 @@ import java.io.IOException;
 final class WindowedAppLauncher {
     private static final String LAUNCH_RESULT = "task-display-area-launch=";
 
+    interface TaskReadyCallback {
+        void onTaskReady();
+    }
+
     private WindowedAppLauncher() {
     }
 
@@ -19,7 +23,8 @@ final class WindowedAppLauncher {
             final int displayId,
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
-            final RelativeWindowBounds preferredBounds) throws IOException {
+            final RelativeWindowBounds preferredBounds,
+            final TaskReadyCallback taskReadyCallback) throws IOException {
         final Rect bounds = FloatingWindowController.getWindowBounds(
                 displayId, preferredBounds);
         final boolean nativeDesktop = NativeDesktopController.shouldUse();
@@ -62,6 +67,9 @@ final class WindowedAppLauncher {
             final String output = ShellAccess.run(
                     launchCommand);
             taskId = parseTaskId(output);
+            if (taskReadyCallback != null) {
+                taskReadyCallback.onTaskReady();
+            }
             if (explicitWindowed) {
                 DesktopTaskController.beginExplicitWindowedLaunch(taskId);
             }

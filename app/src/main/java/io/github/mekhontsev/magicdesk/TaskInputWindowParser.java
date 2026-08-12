@@ -10,7 +10,9 @@ final class TaskInputWindowParser {
     private static final Pattern FOCUSED_APPLICATION_PATTERN = Pattern.compile(
             "(?m)^\\s*displayId=(\\d+), name='ActivityRecord\\{[^\\n]*\\st(\\d+)\\}'");
     private static final Pattern FOCUSED_WINDOW_PATTERN = Pattern.compile(
-            "(?m)^\\s*displayId=(\\d+), name='[^']+'");
+            "(?m)^\\s*displayId=(\\d+), name='([^'\\s]+)(?:\\s[^']*)?'");
+    private static final Pattern WINDOW_TASK_PATTERN = Pattern.compile(
+            "applicationInfo\\.name=ActivityRecord\\{[^\\n]*\\st(\\d+)(?:\\s|\\})");
 
     private TaskInputWindowParser() {
     }
@@ -47,18 +49,82 @@ final class TaskInputWindowParser {
                 break;
             }
         }
-        if (!focusedApplication) {
-            return false;
-        }
         final String windows = section(
                 dispatcher, "FocusedWindows:", "FocusRequests:");
+        final int windowTaskId = findFocusedWindowTaskId(
+                dispatcher, windows, displayId);
+        if (windowTaskId >= 0) {
+            return windowTaskId == taskId;
+        }
+        return hasFocusedWindow(windows, displayId) && focusedApplication;
+    }
+
+    static int findFocusedTaskId(final String dump, final int displayId) {
+        final String dispatcher = currentDispatcherState(dump);
+        if (dispatcher.isEmpty()) {
+            return -1;
+        }
+        return findFocusedWindowTaskId(
+                dispatcher,
+                section(dispatcher, "FocusedWindows:", "FocusRequests:"),
+                displayId);
+    }
+
+    private static int findFocusedWindowTaskId(
+            final String dispatcher,
+            final String windows,
+            final int displayId) {
         final Matcher windowMatcher = FOCUSED_WINDOW_PATTERN.matcher(windows);
         while (windowMatcher.find()) {
-            if (Integer.parseInt(windowMatcher.group(1)) == displayId) {
+            if (Integer.parseInt(windowMatcher.group(1)) != displayId) {
+                continue;
+            }
+            final Integer taskId = findWindowTaskId(
+                    dispatcher, displayId, windowMatcher.group(2));
+            return taskId == null ? -1 : taskId.intValue();
+        }
+        return -1;
+    }
+
+    private static boolean hasFocusedWindow(
+            final String windows,
+            final int displayId) {
+        final Matcher matcher = FOCUSED_WINDOW_PATTERN.matcher(windows);
+        while (matcher.find()) {
+            if (Integer.parseInt(matcher.group(1)) == displayId) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static Integer findWindowTaskId(
+            final String dispatcher,
+            final int displayId,
+            final String windowId) {
+        if (windowId == null || windowId.isEmpty()) {
+            return null;
+        }
+        final String nameWithTitle = "name=" + windowId + " ";
+        final String nameWithoutTitle = "name=" + windowId + ",";
+        final String displayMarker = "displayId=" + displayId + ",";
+        for (final String line : dispatcher.split("\\r?\\n")) {
+            if ((!line.contains(nameWithTitle)
+                            && !line.contains(nameWithoutTitle))
+                    || !line.contains(displayMarker)
+                    || !line.contains("applicationInfo.name=ActivityRecord{")) {
+                continue;
+            }
+            final Matcher taskMatcher = WINDOW_TASK_PATTERN.matcher(line);
+            if (taskMatcher.find()) {
+                try {
+                    return Integer.valueOf(taskMatcher.group(1));
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private static String currentDispatcherState(final String dump) {
@@ -103,12 +169,15 @@ final class TaskInputWindowParser {
             if (displayId == null || frame == null) {
                 return null;
             }
-            return new Entry(
+            final Entry entry = new Entry(
                     displayId.intValue(),
                     frame,
                     field(rawLine, "inputConfig=", ", alpha="),
                     field(rawLine, "touchableRegion=", ", ownerPid="),
                     field(rawLine, ", token=", ", touchOcclusionMode="));
+            if (!entry.hasConfig("CLONE")) {
+                return entry;
+            }
         }
         return null;
     }

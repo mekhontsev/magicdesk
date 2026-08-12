@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
     private static final int WINDOWING_MODE_FREEFORM = 5;
+    private static final int TRANSIT_TO_FRONT = 3;
 
     private TaskWindowingCommand() {
     }
@@ -44,6 +45,10 @@ public final class TaskWindowingCommand {
                         parseInt(args[2], "task id"));
                 return;
             }
+            if (args.length >= 3 && "focus".equals(args[0])) {
+                focus(parseInt(args[1], "display id"), args);
+                return;
+            }
             if (args.length >= 7
                     && (args.length - 2) % 5 == 0
                     && "restore-layout".equals(args[0])) {
@@ -54,6 +59,7 @@ public final class TaskWindowingCommand {
                     + "<freeform|bounds display task left top right bottom"
                     + "|desktop-host display task"
                     + "|minimize display task focus-task|restore display task"
+                    + "|focus display task..."
                     + "|restore-layout display task left top right bottom...>");
             System.exit(64);
         } catch (ReflectiveOperationException | RuntimeException e) {
@@ -97,11 +103,18 @@ public final class TaskWindowingCommand {
         if (right <= left || bottom <= top) {
             throw new IllegalArgumentException("invalid bounds");
         }
-        applyTaskLayout(
-                displayId,
-                new int[]{taskId},
-                new Rect[]{new Rect(left, top, right, bottom)},
-                false);
+        final Object service = HiddenTaskApi.getService();
+        HiddenTaskApi.requireTask(service, displayId, taskId);
+        // Match `am task resize`: the task service coordinates this request
+        // with an in-flight native caption transition. A direct synchronous
+        // WCT can race WMShell and leave its resize veil attached.
+        service.getClass().getMethod(
+                "resizeTask", Integer.TYPE, Rect.class, Integer.TYPE)
+                .invoke(
+                        service,
+                        Integer.valueOf(taskId),
+                        new Rect(left, top, right, bottom),
+                        Integer.valueOf(0));
         System.out.println("task-bounds=" + taskId);
     }
 
@@ -127,7 +140,6 @@ public final class TaskWindowingCommand {
                 .invoke(transaction, focusTaskToken, Boolean.TRUE, Boolean.TRUE);
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
-        TaskControlCommand.setFocusedTask(service, focusTaskId);
         System.out.println("task-minimized=" + taskId
                 + " focused=" + focusTaskId);
     }
@@ -139,8 +151,47 @@ public final class TaskWindowingCommand {
 
     private static void restoreStack(final int displayId, final int[] taskIds)
             throws ReflectiveOperationException {
-        applyTaskLayout(displayId, taskIds, null, true);
+        focusTasks(HiddenTaskApi.getService(), displayId, taskIds);
         System.out.println("task-stack-restored=" + taskIds.length);
+    }
+
+    private static void focus(
+            final int displayId,
+            final String[] args) throws ReflectiveOperationException {
+        final int[] taskIds = new int[args.length - 2];
+        for (int index = 0; index < taskIds.length; index++) {
+            taskIds[index] = parseInt(args[index + 2], "task id");
+        }
+        focusTasks(HiddenTaskApi.getService(), displayId, taskIds);
+        System.out.println("task-stack-focused=" + taskIds.length);
+    }
+
+    static void focusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        if (taskIds == null || taskIds.length == 0) {
+            throw new IllegalArgumentException("missing tasks to focus");
+        }
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Method reorderTask = transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE);
+        for (final int taskId : taskIds) {
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            reorderTask.invoke(
+                    transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+        }
+        // WMShell activates desktop tasks through a TO_FRONT transition. A
+        // synchronous organizer transaction can update the focused root task
+        // before InputDispatcher switches its focused window.
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_TO_FRONT, transactionClass, transaction);
     }
 
     private static void restoreLayout(
@@ -170,11 +221,24 @@ public final class TaskWindowingCommand {
             final int[] taskIds,
             final Rect[] bounds,
             final boolean reorder) throws ReflectiveOperationException {
+        applyTaskLayout(
+                HiddenTaskApi.getService(),
+                displayId,
+                taskIds,
+                bounds,
+                reorder);
+    }
+
+    private static void applyTaskLayout(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Rect[] bounds,
+            final boolean reorder) throws ReflectiveOperationException {
         if (taskIds == null || taskIds.length == 0
                 || (bounds != null && bounds.length != taskIds.length)) {
             throw new IllegalArgumentException("invalid task layout");
         }
-        final Object service = HiddenTaskApi.getService();
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");

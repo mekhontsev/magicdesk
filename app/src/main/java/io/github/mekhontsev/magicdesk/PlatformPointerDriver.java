@@ -4,11 +4,15 @@ import android.graphics.Point;
 
 /** Optional absolute-pointer API supplied by a firmware platform. */
 interface PlatformPointerDriver extends AutoCloseable {
+    boolean isAvailable();
+
     boolean capturePosition();
 
     void restorePositionIfDisplaced();
 
     int[] getPosition(int displayId);
+
+    boolean injectClick(int displayId, int button);
 
     boolean updatePosition(
             int displayId,

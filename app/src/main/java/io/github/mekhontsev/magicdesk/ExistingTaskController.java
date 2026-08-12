@@ -131,7 +131,12 @@ final class ExistingTaskController {
             boolean movedDisplay = false;
             if (task.displayId != targetDisplayId) {
                 final String command;
-                if (targetFreeform) {
+                final DesktopDisplayDriver targetDriver =
+                        DesktopDisplayDrivers.forActiveDisplay(
+                                targetDisplayId);
+                if (targetFreeform
+                        && targetDriver.kind()
+                                == DesktopDisplayTarget.Kind.SIMULATED) {
                     final Rect bounds = resolveTargetBounds(
                             targetDisplayId, targetBounds);
                     command = TaskDisplayAreaLaunchCommand.createMoveCommand(
@@ -141,6 +146,8 @@ final class ExistingTaskController {
                             bounds);
                     movedAsFreeform = true;
                 } else {
+                    // Physical projection owns cross-display task transfer.
+                    // Starting its task through a WCT can terminate the session.
                     command = CMD + " activity display move-stack "
                             + task.rootTaskId + " " + targetDisplayId;
                 }
@@ -265,7 +272,8 @@ final class ExistingTaskController {
                 }
             }
             orderedTaskIds.add(Integer.valueOf(task.taskId));
-            runCommand(TaskFocusCommands.createShellCommand(orderedTaskIds));
+            runCommand(TaskFocusCommands.createShellCommand(
+                    task.displayId, orderedTaskIds));
         } catch (IOException ignored) {
             Log.w(TAG, "bring task stack to front failed package=" + task.packageName
                     + " task=" + task.taskId, ignored);

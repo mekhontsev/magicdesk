@@ -6,6 +6,12 @@ ZTE/nubia integration. The conservative Generic Android driver permits only
 phone and simulated desktops; wired and wireless desktop backends remain
 disabled until they are verified on another platform.
 
+The selected driver owns firmware-specific windowing properties, projection
+state and output modes, phone UI recovery, absolute-pointer access, optional
+application entry points, and compatibility probes. Missing vendor interfaces
+therefore appear as unavailable capabilities in Diagnostics instead of sending
+the common runtime through an unrelated Nubia code path.
+
 The platform baseline is not a guarantee that every hook exists on every
 model. Console Mode activation, absolute touchpad positioning,
 external-display input routing, WMShell desktop commands, and several task
