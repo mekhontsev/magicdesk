@@ -117,47 +117,38 @@ final class TaskRepository {
                 }
 
                 final List<TaskEntry> currentTasks = parseTasks(stackResult.output, displayId);
-                final List<TaskEntry> restoredTopFirst = new ArrayList<>();
-                String failure = "";
+                final List<RestoredTask> restoredTopFirst = new ArrayList<>();
                 for (final TaskEntry savedTask : savedTasks) {
                     final TaskEntry currentTask = findMatchingTask(currentTasks, savedTask);
                     if (currentTask == null || !currentTask.isFreeform()
                             || savedTask.bounds.isEmpty()) {
                         continue;
                     }
-                    if (!savedTask.bounds.equals(currentTask.bounds)) {
-                        final Rect bounds = savedTask.bounds;
-                        final CommandResult resizeResult = runCommand(
-                                AM + " task resize " + currentTask.taskId
-                                        + " " + bounds.left + " " + bounds.top
-                                        + " " + bounds.right + " " + bounds.bottom);
-                        if (!resizeResult.success) {
-                            failure = resizeResult.output.trim();
-                            Log.w(TAG, "failed to restore task=" + currentTask.taskId
-                                    + " output=" + failure);
-                            continue;
-                        }
-                    }
-                    restoredTopFirst.add(currentTask);
+                    restoredTopFirst.add(new RestoredTask(
+                            currentTask.taskId, savedTask.bounds));
                 }
 
                 if (restoredTopFirst.isEmpty()) {
-                    complete(callback, failure.length() == 0,
-                            failure.length() == 0 ? "no live windows" : failure);
+                    complete(callback, true, "no live windows");
                     return;
                 }
 
-                final StringBuilder arguments = new StringBuilder("restore-stack ")
+                final StringBuilder arguments = new StringBuilder("restore-layout ")
                         .append(displayId);
                 for (int index = restoredTopFirst.size() - 1; index >= 0; index--) {
-                    arguments.append(' ').append(restoredTopFirst.get(index).taskId);
+                    final RestoredTask restoredTask = restoredTopFirst.get(index);
+                    final Rect bounds = restoredTask.bounds;
+                    arguments.append(' ').append(restoredTask.taskId)
+                            .append(' ').append(bounds.left)
+                            .append(' ').append(bounds.top)
+                            .append(' ').append(bounds.right)
+                            .append(' ').append(bounds.bottom);
                 }
                 final CommandResult restoreResult = runCommand(
                         createTaskWindowingCommand(arguments.toString()));
-                final boolean success = restoreResult.success && failure.length() == 0;
-                complete(callback, success, success
+                complete(callback, restoreResult.success, restoreResult.success
                         ? "restored " + restoredTopFirst.size() + " windows"
-                        : (restoreResult.success ? failure : restoreResult.output.trim()));
+                        : restoreResult.output.trim());
             }
         });
     }
@@ -242,9 +233,8 @@ final class TaskRepository {
             complete(callback, false, "invalid task bounds");
             return;
         }
-        runAction(AM + " task resize " + task.taskId + " "
-                + bounds.left + " " + bounds.top + " "
-                + bounds.right + " " + bounds.bottom, callback);
+        runAction(createBoundsTransactionCommand(
+                task.displayId, task.taskId, bounds), callback);
     }
 
     static void sendBackToDisplay(final int displayId, final ActionCallback callback) {
@@ -336,6 +326,22 @@ final class TaskRepository {
     private static String createTaskWindowingCommand(final String arguments) {
         return AppProcessCommand.run(
                 TASK_WINDOWING_COMMAND, arguments);
+    }
+
+    static String createBoundsTransactionCommand(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) {
+        if (displayId < 0 || taskId < 0
+                || bounds == null
+                || bounds.right <= bounds.left
+                || bounds.bottom <= bounds.top) {
+            throw new IllegalArgumentException("invalid task bounds");
+        }
+        return createTaskWindowingCommand(
+                "bounds " + displayId + " " + taskId
+                        + " " + bounds.left + " " + bounds.top
+                        + " " + bounds.right + " " + bounds.bottom);
     }
 
     static String createFullscreenTransitionCommand(final int displayId,
@@ -463,6 +469,16 @@ final class TaskRepository {
             this.phoneTasks = Collections.unmodifiableList(new ArrayList<>(phoneTasks));
             this.available = available;
             this.error = available ? "" : error;
+        }
+    }
+
+    private static final class RestoredTask {
+        final int taskId;
+        final Rect bounds;
+
+        RestoredTask(final int taskId, final Rect bounds) {
+            this.taskId = taskId;
+            this.bounds = new Rect(bounds);
         }
     }
 

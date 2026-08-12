@@ -177,7 +177,7 @@ final class ExistingTaskController {
                 if (targetBounds != null
                         && !movedAsFreeform
                         && (!taskIsFreeform || movedDisplay)) {
-                    setBounds(task.taskId, targetBounds);
+                    setBounds(targetDisplayId, task.taskId, targetBounds);
                 }
                 setCaptionInsetExcluded(task.taskId, targetDisplayId, false);
             } else if (targetFreeform
@@ -295,11 +295,11 @@ final class ExistingTaskController {
     }
 
     private static void setBounds(
+            final int displayId,
             final int taskId,
             final Rect bounds) throws IOException {
-        runCommand("/system/bin/am task resize " + taskId
-                + " " + bounds.left + " " + bounds.top
-                + " " + bounds.right + " " + bounds.bottom);
+        runCommand(TaskRepository.createBoundsTransactionCommand(
+                displayId, taskId, bounds));
     }
 
     private static void setFullscreen(final TaskInfo task, final int displayId)

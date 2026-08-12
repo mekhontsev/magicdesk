@@ -12,7 +12,9 @@ public final class TaskFocusCommandsTest {
     @Test
     public void createsOrderedShellFocusCommands() {
         assertEquals(
-                "/system/bin/am task focus 17 && /system/bin/am task focus 42",
+                AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                        "focus-stack 17 42"),
                 TaskFocusCommands.createShellCommand(Arrays.asList(17, 42)));
     }
 

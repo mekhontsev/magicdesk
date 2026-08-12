@@ -4,6 +4,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -55,7 +56,9 @@ final class DesktopSessionController {
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
             if (desktopTaskId >= 0) {
                 final String focusOutput = ShellAccess.run(
-                        AM + " task focus " + desktopTaskId).trim();
+                        TaskFocusCommands.createShellCommand(
+                                Collections.singletonList(
+                                        Integer.valueOf(desktopTaskId)))).trim();
                 Log.i(TAG, "focused desktop kind=" + preparedTarget.kind
                         + " display=" + preparedTarget.displayId
                         + " task=" + desktopTaskId

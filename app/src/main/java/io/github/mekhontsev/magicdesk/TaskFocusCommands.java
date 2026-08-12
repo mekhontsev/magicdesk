@@ -1,26 +1,26 @@
 package io.github.mekhontsev.magicdesk;
 
 final class TaskFocusCommands {
-    private static final String AM = "/system/bin/am";
+    private static final String TASK_CONTROL_COMMAND =
+            "io.github.mekhontsev.magicdesk.TaskControlCommand";
 
     private TaskFocusCommands() {
     }
 
     static String createShellCommand(final Iterable<Integer> taskIds) {
-        final StringBuilder command = new StringBuilder();
+        final StringBuilder arguments = new StringBuilder("focus-stack");
+        int taskCount = 0;
         for (final Integer taskId : taskIds) {
             if (taskId == null || taskId.intValue() < 0) {
                 throw new IllegalArgumentException("invalid task id");
             }
-            if (command.length() > 0) {
-                command.append(" && ");
-            }
-            command.append(AM).append(" task focus ")
-                    .append(taskId.intValue());
+            arguments.append(' ').append(taskId.intValue());
+            taskCount++;
         }
-        if (command.length() == 0) {
+        if (taskCount == 0) {
             throw new IllegalArgumentException("no task ids");
         }
-        return command.toString();
+        return AppProcessCommand.run(
+                TASK_CONTROL_COMMAND, arguments.toString());
     }
 }
