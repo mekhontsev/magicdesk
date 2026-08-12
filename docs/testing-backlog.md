@@ -11,29 +11,32 @@ retired prototypes are listed separately and are not current product modes.
 - Firmware build `20260204.221845`
 - Shizuku UserService running as `uid=2000`, `u:r:shell:s0`
 
-## Community-Tested Platform
+## Community-Tested Platforms
 
-- RedMagic 11 Pro (`NX809J-UN` variant)
+### RedMagic 11 Pro (`NX809J-UN` variant)
+
 - Android 16 / API 36, firmware build `20260625.022314`
 - User diagnostics and follow-up confirmation cover desktop startup, external
   sizing, launcher recovery, Mora discovery, output modes, and display recording
 
-## Candidate Community Reports
+### nubia Z80 Ultra (`NX741J`, `PQ85A01-UN`)
 
-- nubia Z80 Ultra (`NX741J`, `PQ85A01-UN`), Android 16 / API 36, MyOS build
-  `MyOS16.0.16_NX741J_NEEA`, firmware `20251229.234747`:
-  `nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys`
-- The 1.5.1 diagnostics report confirms shell UID 2000, WMShell passthrough,
-  task APIs, input injection, raw-input read access, `/dev/uinput`, keyboard
-  layout control, Nubia mouse/input APIs, and a physical HDMI display.
-- Differences observed so far: shell cannot read
-  `/sys/kernel/lcd_enhance/edid_modes`, no RedMagic fan/pump nodes are present,
-  and Android exposes no static system wallpaper image. These are optional
-  capabilities and must degrade to a read-only system output mode, hidden
-  hardware controls, and a desktop wallpaper fallback.
-- Pending before promotion to community-tested: built-in self-test, two-window
-  launch and resize, maximize/restore, right click, key repeat, `Ctrl+Space`,
-  screenshot/recording, Exit MagicDesk, and launcher recovery.
+- Android 16 / API 36, MyOS build `MyOS16.0.16_NX741J_NEEA`, firmware
+  `20251229.234747`
+- The user confirmed that the v1.6 wired desktop and multiple freeform windows
+  are usable and feel more stable than the previous release. The v1.6 built-in
+  simulated desktop self-test completed with 54 checks passed and no failures,
+  covering direct freeform launch, phone-fullscreen to external-freeform
+  transfer, captions, resize input regions, fullscreen restore, minimize, and
+  cleanup.
+- Known differences: shell cannot read
+  `/sys/kernel/lcd_enhance/edid_modes`, so output timing falls back to modes
+  reported by Android; RedMagic fan and pump nodes are absent. Intermittent
+  text-input focus transfer between two windows and occasional desktop latency
+  remain reported but not yet isolated.
+- Still pending from the complete maintainer matrix: Miracast, phone touchpad,
+  physical right click, key repeat, `Ctrl+Space`, recording, and launcher
+  recovery under abrupt disconnect.
 
 ## Completed: Setup And Runtime
 

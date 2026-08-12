@@ -195,7 +195,7 @@ final class CompatibilityDiagnostics {
                 audit.firmwareSupport
                         != DeviceSetupManager.FirmwareSupport.UNVERIFIED,
                 "Firmware compatibility profile",
-                firmwareSupportDetail(audit.firmwareSupport));
+                firmwareSupportDetail(audit.firmwareSupport, audit.model));
         final boolean shellReady = audit.shellReady;
         appendCheck(report, "SHIZUKU-001",
                 shellReady,
@@ -545,12 +545,17 @@ final class CompatibilityDiagnostics {
     }
 
     private static String firmwareSupportDetail(
-            final DeviceSetupManager.FirmwareSupport support) {
+            final DeviceSetupManager.FirmwareSupport support,
+            final String model) {
         switch (support) {
             case MAINTAINER_VERIFIED:
                 return "maintainer-verified RedMagic 11 Pro / NX809J / "
                         + "20260204.221845";
             case COMMUNITY_TESTED:
+                if ("NX741J".equalsIgnoreCase(model)) {
+                    return "community-tested nubia Z80 Ultra / NX741J / "
+                            + "20251229.234747";
+                }
                 return "community-tested RedMagic 11 Pro / NX809J-UN / "
                         + "20260625.022314";
             case UNVERIFIED:

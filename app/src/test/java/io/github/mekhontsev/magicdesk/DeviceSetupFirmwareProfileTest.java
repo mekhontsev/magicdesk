@@ -13,6 +13,10 @@ public final class DeviceSetupFirmwareProfileTest {
             "REDMAGIC/NX809J-UN/NX809J:16/"
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20260625.022314:user/release-keys";
+    private static final String Z80_ULTRA_FINGERPRINT =
+            "nubia/PQ85A01-UN/PQ85A01:16/"
+                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
+                    + "20251229.234747:user/release-keys";
 
     @Test
     public void classifiesExactKnownFirmwareFingerprints() {
@@ -24,6 +28,10 @@ public final class DeviceSetupFirmwareProfileTest {
                 DeviceSetupManager.FirmwareSupport.COMMUNITY_TESTED,
                 DeviceSetupManager.classifyFirmware(
                         "NX809J", "NX809J", GLOBAL_FINGERPRINT));
+        assertEquals(
+                DeviceSetupManager.FirmwareSupport.COMMUNITY_TESTED,
+                DeviceSetupManager.classifyFirmware(
+                        "NX741J", "PQ85A01", Z80_ULTRA_FINGERPRINT));
     }
 
     @Test
@@ -36,5 +44,9 @@ public final class DeviceSetupFirmwareProfileTest {
                 DeviceSetupManager.FirmwareSupport.UNVERIFIED,
                 DeviceSetupManager.classifyFirmware(
                         "NX999J", "NX999J", GLOBAL_FINGERPRINT));
+        assertEquals(
+                DeviceSetupManager.FirmwareSupport.UNVERIFIED,
+                DeviceSetupManager.classifyFirmware(
+                        "NX741J", "PQ85A01", Z80_ULTRA_FINGERPRINT + ".new"));
     }
 }

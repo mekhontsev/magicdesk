@@ -50,9 +50,9 @@ final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "raw_input.read", "granted",
                 "API-INPUT-002", "Read physical input events");
-        optional(result, capabilities,
-                "raw_input.write", "granted",
-                "API-INPUT-003", "Grab physical input devices");
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "API-INPUT-003", "Exclusive physical input capture",
+                "tested only when an external input bridge starts");
         optional(result, capabilities,
                 "input.uinput", "granted",
                 "API-INPUT-004", "Create virtual input devices");
@@ -125,16 +125,16 @@ final class DesktopSelfTestCapabilityAudit {
 
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-DP-001", "Physical DisplayPort and EDID",
-                "requires a connected display");
+                "not exercised by the simulated self-test");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-WIRELESS-001", "Miracast transport",
-                "requires a wireless receiver");
+                "not exercised by the simulated self-test");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-INPUT-001", "Physical keyboard and mouse",
-                "requires connected input hardware");
+                "not exercised by the simulated self-test");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-TOUCHPANEL-001", "Phone Touch Panel input routing",
-                "requires a real external desktop display");
+                "not exercised by the simulated self-test");
         return runnable;
     }
 

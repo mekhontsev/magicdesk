@@ -33,11 +33,13 @@ change without an Android API-level change.
 | --- | --- | --- | --- | --- |
 | RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and launcher recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
 | RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, launcher recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
+| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, multiple freeform windows, window manipulation, and the v1.6 simulated desktop self-test with 54 checks passed and no failures | Intermittent text-input focus transfer and occasional desktop latency reported; vendor HDMI timing node is unavailable to shell |
 
 Exact tested fingerprints:
 
 - `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
 - `REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys`
+- `nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys`
 
 Unverified reports and partially completed test matrices remain in
 [`testing-backlog.md`](testing-backlog.md). They are promoted here only after a
@@ -101,6 +103,11 @@ The Shizuku probe does not read input events, inject a real event, change a
 keyboard layout, alter display state, or write a hardware node. Permissioned
 write paths are tested with rejected null arguments after Android performs its
 permission check.
+
+`raw_input.write` reports whether an event node can be opened with `O_RDWR`.
+It does not test exclusive capture: the input bridge opens physical devices
+read-only and applies `EVIOCGRAB` only when a real external input session
+starts. Direct writes to raw input devices are not required by MagicDesk.
 
 After confirmed Shizuku Device Setup and reboot, the issue report should show
 global freeform and resizable-activity settings enabled, both reviewed

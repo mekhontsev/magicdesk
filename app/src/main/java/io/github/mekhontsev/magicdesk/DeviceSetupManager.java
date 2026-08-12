@@ -35,6 +35,10 @@ final class DeviceSetupManager {
             "REDMAGIC/NX809J-UN/NX809J:16/"
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20260625.022314:user/release-keys";
+    private static final String COMMUNITY_TESTED_NX741J_FINGERPRINT =
+            "nubia/PQ85A01-UN/PQ85A01:16/"
+                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
+                    + "20251229.234747:user/release-keys";
 
     private DeviceSetupManager() {
     }
@@ -517,13 +521,16 @@ final class DeviceSetupManager {
             final String fingerprint) {
         final boolean nx809j = "NX809J".equalsIgnoreCase(model)
                 || "NX809J".equalsIgnoreCase(device);
-        if (!nx809j) {
-            return FirmwareSupport.UNVERIFIED;
-        }
-        if (MAINTAINER_VERIFIED_NX809J_FINGERPRINT.equals(fingerprint)) {
+        if (nx809j
+                && MAINTAINER_VERIFIED_NX809J_FINGERPRINT.equals(fingerprint)) {
             return FirmwareSupport.MAINTAINER_VERIFIED;
         }
-        if (COMMUNITY_TESTED_NX809J_FINGERPRINT.equals(fingerprint)) {
+        final boolean nx741j = "NX741J".equalsIgnoreCase(model)
+                || "PQ85A01".equalsIgnoreCase(device);
+        if ((nx809j
+                && COMMUNITY_TESTED_NX809J_FINGERPRINT.equals(fingerprint))
+                || (nx741j
+                && COMMUNITY_TESTED_NX741J_FINGERPRINT.equals(fingerprint))) {
             return FirmwareSupport.COMMUNITY_TESTED;
         }
         return FirmwareSupport.UNVERIFIED;
