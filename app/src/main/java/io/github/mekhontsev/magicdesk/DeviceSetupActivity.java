@@ -17,6 +17,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class DeviceSetupActivity extends Activity {
     private static final String TAG = "MagicDeskSetup";
@@ -102,18 +104,25 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     void showDisplayTargetChooser(final View ignored) {
-        final SessionProfile.DisplayTarget[] targets = {
+        final List<SessionProfile.DisplayTarget> targetList = new ArrayList<>();
+        final List<String> labelList = new ArrayList<>();
+        addDisplayTarget(targetList, labelList,
                 SessionProfile.DisplayTarget.AUTO,
+                R.string.setup_display_auto);
+        addDisplayTarget(targetList, labelList,
                 SessionProfile.DisplayTarget.PRIMARY,
+                R.string.setup_display_primary);
+        addDisplayTarget(targetList, labelList,
                 SessionProfile.DisplayTarget.CURRENT,
-                SessionProfile.DisplayTarget.EXTERNAL
-        };
-        final String[] labels = {
-                getString(R.string.setup_display_auto),
-                getString(R.string.setup_display_primary),
-                getString(R.string.setup_display_current),
-                getString(R.string.setup_display_external)
-        };
+                R.string.setup_display_current);
+        if (PlatformDrivers.current().features().supportsExternalDesktop()) {
+            addDisplayTarget(targetList, labelList,
+                    SessionProfile.DisplayTarget.EXTERNAL,
+                    R.string.setup_display_external);
+        }
+        final SessionProfile.DisplayTarget[] targets = targetList.toArray(
+                new SessionProfile.DisplayTarget[0]);
+        final String[] labels = labelList.toArray(new String[0]);
         new AlertDialog.Builder(this)
                 .setTitle(R.string.setup_choose_display_target)
                 .setSingleChoiceItems(
@@ -128,6 +137,15 @@ public final class DeviceSetupActivity extends Activity {
                         })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    private void addDisplayTarget(
+            final List<SessionProfile.DisplayTarget> targets,
+            final List<String> labels,
+            final SessionProfile.DisplayTarget target,
+            final int labelResId) {
+        targets.add(target);
+        labels.add(getString(labelResId));
     }
 
     private static <T> int indexOf(final T[] values, final T target) {
@@ -170,6 +188,8 @@ public final class DeviceSetupActivity extends Activity {
 
     private void renderAudit(final DeviceSetupManager.Audit audit) {
         mSetupView.setDetailed(mManual);
+        mSetupView.setVendorWindowingVisible(
+                audit.platform.features().vendorWindowingProperties);
         renderProfileSelection();
         setStatusValue(mSetupView.deviceValue(),
                 audit.compatibleDevice
@@ -305,7 +325,7 @@ public final class DeviceSetupActivity extends Activity {
     }
 
     private static int deviceSupportLabel(
-            final DeviceSetupManager.FirmwareSupport support) {
+            final PlatformSupportLevel support) {
         switch (support) {
             case MAINTAINER_VERIFIED:
                 return R.string.setup_value_supported;
@@ -457,7 +477,7 @@ public final class DeviceSetupActivity extends Activity {
                 .setPositiveButton(R.string.setup_action_restore,
                         (dialog, which) -> runOperation(
                                 R.string.setup_status_restoring,
-                                () -> DeviceSetupManager.restoreNubiaDefaults(
+                                () -> DeviceSetupManager.restoreDefaults(
                                         getApplicationContext(),
                                         mSessionProfile)))
                 .show();

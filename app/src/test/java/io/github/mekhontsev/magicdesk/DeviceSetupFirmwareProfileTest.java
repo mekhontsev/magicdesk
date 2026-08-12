@@ -5,6 +5,8 @@ import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 public final class DeviceSetupFirmwareProfileTest {
+    private static final NubiaPlatformDriver DRIVER =
+            new NubiaPlatformDriver();
     private static final String EEA_FINGERPRINT =
             "REDMAGIC/NX809J-EEA/NX809J:16/"
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
@@ -21,32 +23,42 @@ public final class DeviceSetupFirmwareProfileTest {
     @Test
     public void classifiesExactKnownFirmwareFingerprints() {
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.MAINTAINER_VERIFIED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX809J", "NX809J", EEA_FINGERPRINT));
+                PlatformSupportLevel.MAINTAINER_VERIFIED,
+                DRIVER.supportLevel(device(
+                        "NX809J", "NX809J", EEA_FINGERPRINT)));
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.COMMUNITY_TESTED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX809J", "NX809J", GLOBAL_FINGERPRINT));
+                PlatformSupportLevel.COMMUNITY_TESTED,
+                DRIVER.supportLevel(device(
+                        "NX809J", "NX809J", GLOBAL_FINGERPRINT)));
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.COMMUNITY_TESTED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX741J", "PQ85A01", Z80_ULTRA_FINGERPRINT));
+                PlatformSupportLevel.COMMUNITY_TESTED,
+                DRIVER.supportLevel(device(
+                        "NX741J", "PQ85A01", Z80_ULTRA_FINGERPRINT)));
     }
 
     @Test
     public void treatsModelOrOtaMismatchAsUnverified() {
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.UNVERIFIED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX809J", "NX809J", GLOBAL_FINGERPRINT + ".new"));
+                PlatformSupportLevel.UNVERIFIED,
+                DRIVER.supportLevel(device(
+                        "NX809J", "NX809J", GLOBAL_FINGERPRINT + ".new")));
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.UNVERIFIED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX999J", "NX999J", GLOBAL_FINGERPRINT));
+                PlatformSupportLevel.UNVERIFIED,
+                DRIVER.supportLevel(device(
+                        "NX999J", "NX999J", GLOBAL_FINGERPRINT)));
         assertEquals(
-                DeviceSetupManager.FirmwareSupport.UNVERIFIED,
-                DeviceSetupManager.classifyFirmware(
-                        "NX741J", "PQ85A01", Z80_ULTRA_FINGERPRINT + ".new"));
+                PlatformSupportLevel.UNVERIFIED,
+                DRIVER.supportLevel(device(
+                        "NX741J", "PQ85A01",
+                        Z80_ULTRA_FINGERPRINT + ".new")));
+    }
+
+    private static PlatformDevice device(
+            final String model,
+            final String device,
+            final String fingerprint) {
+        return new PlatformDevice(
+                "nubia", "nubia", model, device, device,
+                fingerprint, 36);
     }
 }

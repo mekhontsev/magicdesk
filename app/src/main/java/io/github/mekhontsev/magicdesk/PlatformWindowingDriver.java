@@ -1,0 +1,18 @@
+package io.github.mekhontsev.magicdesk;
+
+import java.io.IOException;
+
+/** Firmware-specific part of desktop windowing provisioning. */
+interface PlatformWindowingDriver {
+    boolean isReady(
+            boolean freeformEnabled,
+            boolean resizableEnabled,
+            boolean restrictionsDisabled,
+            boolean roundedCornersDisabled);
+
+    void configure(
+            boolean restrictionsDisabled,
+            boolean roundedCornersDisabled) throws IOException;
+
+    void restoreDefaults() throws IOException;
+}

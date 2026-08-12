@@ -112,6 +112,10 @@ final class ConsoleModeSwitcher {
             throw new IllegalArgumentException(
                     "a prepared non-wired display target is required");
         }
+        if (!DesktopDisplayDrivers.isSupported(target.kind)) {
+            throw new IllegalStateException(
+                    "display target is unsupported by the current platform");
+        }
         if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
             Log.i(TAG, "MagicDesk activation is already in progress");
             return;
@@ -150,11 +154,16 @@ final class ConsoleModeSwitcher {
 
     private static void showPreferredDesktop(
             final int knownConsoleDisplayId) {
-        if (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY
+        final boolean wiredSupported = DesktopDisplayDrivers.isSupported(
+                DesktopDisplayTarget.Kind.WIRED);
+        final boolean wirelessSupported = DesktopDisplayDrivers.isSupported(
+                DesktopDisplayTarget.Kind.WIRELESS);
+        if (wiredSupported
+                && (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY
                 || ConsoleDisplayController.getActiveConsoleDisplayId()
                         > android.view.Display.DEFAULT_DISPLAY
                 || ConsoleDisplayController.findExternalDisplayId()
-                        > android.view.Display.DEFAULT_DISPLAY) {
+                        > android.view.Display.DEFAULT_DISPLAY)) {
             DesktopDisplayDrivers
                     .forKind(DesktopDisplayTarget.Kind.WIRED)
                     .show(null, knownConsoleDisplayId);
@@ -162,15 +171,18 @@ final class ConsoleModeSwitcher {
         }
         final int wirelessDisplayId =
                 ConsoleDisplayController.findWirelessDisplayId();
-        if (wirelessDisplayId > android.view.Display.DEFAULT_DISPLAY) {
+        if (wirelessSupported
+                && wirelessDisplayId > android.view.Display.DEFAULT_DISPLAY) {
             DesktopDisplayDrivers
                     .forKind(DesktopDisplayTarget.Kind.WIRELESS)
                     .show(null, wirelessDisplayId);
             return;
         }
-        DesktopDisplayDrivers
-                .forKind(DesktopDisplayTarget.Kind.WIRED)
-                .show(null, knownConsoleDisplayId);
+        if (wiredSupported) {
+            DesktopDisplayDrivers
+                    .forKind(DesktopDisplayTarget.Kind.WIRED)
+                    .show(null, knownConsoleDisplayId);
+        }
     }
 
     static void toggleDesktopWorkspace() {

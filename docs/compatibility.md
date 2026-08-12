@@ -1,11 +1,15 @@
 # Compatibility and issue reports
 
-MagicDesk targets ZTE-family firmware on Android 16 and newer. This is a
-baseline gate, not a guarantee that every vendor hook exists on every model.
-The app uses standard Android APIs where possible, but Console Mode activation,
-absolute touchpad positioning, external-display input routing, WMShell desktop
-commands, and several task transitions depend on undocumented firmware
-behavior.
+MagicDesk primarily targets ZTE-family firmware on Android 16 and newer. A
+platform-driver boundary now separates standard Android desktop behavior from
+ZTE/nubia integration. The conservative Generic Android driver permits only
+phone and simulated desktops; wired and wireless desktop backends remain
+disabled until they are verified on another platform.
+
+The platform baseline is not a guarantee that every hook exists on every
+model. Console Mode activation, absolute touchpad positioning,
+external-display input routing, WMShell desktop commands, and several task
+transitions can depend on undocumented firmware behavior.
 
 ## Support levels
 
@@ -16,11 +20,13 @@ behavior.
   confirmed the relevant fixes and desktop workflows on that exact firmware.
   It is known compatible, but has not received the complete maintainer test
   matrix.
-- **Compatible baseline, unverified** means the device identifies as ZTE,
-  nubia, or RedMagic and runs API 36 or newer. MagicDesk allows startup, probes
-  capabilities, and reports unavailable features individually.
-- **Unsupported platform** means the vendor-family or Android-version baseline
-  is not met. Device Setup does not apply persistent windowing values.
+- **Compatible baseline, unverified** means an Android 16+ platform driver can
+  provide the selected session type. MagicDesk allows startup, probes
+  capabilities, and reports unavailable features individually. On Generic
+  Android this currently covers only phone and simulated sessions.
+- **Unsupported platform** means the Android-version baseline or selected
+  session requirements are not met. Device Setup does not apply unsupported
+  platform-specific properties.
 
 An OTA changes the fingerprint. A previously tested model therefore becomes
 unverified until that firmware has been tested. This is intentional: private

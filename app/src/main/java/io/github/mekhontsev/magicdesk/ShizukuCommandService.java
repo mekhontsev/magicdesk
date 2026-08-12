@@ -31,7 +31,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
-    private final NubiaPointerPositionGuard mPointerPositionGuard;
+    private final PlatformPointerDriver mPointerDriver;
     private final SystemNavigationGuard mSystemNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
@@ -64,7 +64,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         reclaimInputAfterNubiaPanel();
                     }
                 });
-        mPointerPositionGuard = new NubiaPointerPositionGuard();
+        mPointerDriver = PlatformDrivers.current().pointer();
         mSystemNavigationGuard = new SystemNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
@@ -248,12 +248,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public boolean capturePointerPosition() {
-        return mPointerPositionGuard.capture();
+        return mPointerDriver.capturePosition();
     }
 
     @Override
     public void restorePointerPositionIfDisplaced() {
-        mPointerPositionGuard.restoreIfDisplaced();
+        mPointerDriver.restorePositionIfDisplaced();
     }
 
     @Override
@@ -271,17 +271,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public int[] getMousePosition(final int displayId) {
-        try {
-            NubiaMouseController.prepareMousePositionControl();
-            // A new display's vendor pointer viewport may settle after input
-            // routing. Refresh at gesture start, once our panel is open.
-            NubiaMouseController.createOrUpdateViewport();
-            final Point position = NubiaMouseController.getPosition(displayId);
-            return new int[] {position.x, position.y};
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "absolute mouse position is unavailable", error);
-        }
+        return mPointerDriver.getPosition(displayId);
     }
 
     @Override
@@ -291,16 +281,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int y,
             final int action,
             final long downTime) {
-        try {
-            final Point position = new Point(x, y);
-            NubiaMouseController.setMousePosition(displayId, position);
-            DesktopPointerInjector.injectTouchpadMotion(
-                    displayId, position, action, downTime);
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "absolute mouse movement failed", error);
-            return false;
-        }
+        return mPointerDriver.updatePosition(
+                displayId, x, y, action, downTime);
     }
 
     @Override
@@ -679,7 +661,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         } catch (RuntimeException error) {
             Log.w(TAG, "system navigation guard cleanup failed", error);
         }
-        mPointerPositionGuard.close();
+        mPointerDriver.close();
         mTaskObserverManager.close();
         for (final StreamSession session
                 : new ArrayList<>(mStreams.values())) {
@@ -712,7 +694,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         try {
             final Point position =
-                    NubiaMouseController.restoreKnownPosition(displayId);
+                    mPointerDriver.restoreKnownPosition(displayId);
             if (position != null) {
                 DesktopPointerInjector.injectTouchpadMotion(
                         displayId,

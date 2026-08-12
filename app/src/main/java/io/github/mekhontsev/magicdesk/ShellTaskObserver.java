@@ -49,7 +49,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mCallback = callback;
         mCallbackFailure = callbackFailure;
         mInputPanelGuard = new NubiaMirrorInputPanelGuard(
-                mService, inputOwner);
+                mService,
+                inputOwner,
+                PlatformDrivers.current().features().vendorPhoneUi);
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // Nubia's launcher crashes while binding a DesktopTaskView when a
         // finished freeform task remains in Recents and DesktopRepository.

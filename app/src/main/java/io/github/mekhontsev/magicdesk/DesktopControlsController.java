@@ -65,9 +65,11 @@ final class DesktopControlsController {
     void start() {
         registerBatteryReceiver();
         registerSettingsObserver();
-        mChargeSeparation.start();
         mAudio.start();
-        mHardware.start();
+        if (PlatformDrivers.current().features().vendorHardware) {
+            mChargeSeparation.start();
+            mHardware.start();
+        }
         mPointerSpeed.start();
         mCapture.start();
     }
@@ -91,9 +93,11 @@ final class DesktopControlsController {
             }
             mBatteryReceiver = null;
         }
-        mChargeSeparation.stop();
         mAudio.stop();
-        mHardware.stop();
+        if (PlatformDrivers.current().features().vendorHardware) {
+            mChargeSeparation.stop();
+            mHardware.stop();
+        }
         mPointerSpeed.stop();
         mCapture.stop();
     }
@@ -106,7 +110,9 @@ final class DesktopControlsController {
     }
 
     void setHardwarePanelVisible(final boolean visible) {
-        mHardware.setMonitoringActive(visible);
+        if (PlatformDrivers.current().features().vendorHardware) {
+            mHardware.setMonitoringActive(visible);
+        }
     }
 
     void populateTools(final LinearLayout parent, final int spacing) {
@@ -221,50 +227,54 @@ final class DesktopControlsController {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
         addDpiControls(parent);
 
-        final TextView powerTitle = mUi.sectionTitle(
-                R.string.hardware_power_section);
-        final LinearLayout.LayoutParams powerTitleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        powerTitleParams.setMargins(0, spacing, 0, 0);
-        parent.addView(
-                powerTitle,
-                powerTitleParams);
+        if (PlatformDrivers.current().features().vendorHardware) {
+            final TextView powerTitle = mUi.sectionTitle(
+                    R.string.hardware_power_section);
+            final LinearLayout.LayoutParams powerTitleParams =
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT);
+            powerTitleParams.setMargins(0, spacing, 0, 0);
+            parent.addView(
+                    powerTitle,
+                    powerTitleParams);
 
-        mHardwareBatteryStatus = new TextView(mActivity);
-        mHardwareBatteryStatus.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        mHardwareBatteryStatus.setTextSize(14);
-        parent.addView(
-                mHardwareBatteryStatus,
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
-        updateHardwareBatteryStatus(mLastBatteryIntent);
+            mHardwareBatteryStatus = new TextView(mActivity);
+            mHardwareBatteryStatus.setTextColor(DesktopUiFactory.COLOR_TEXT);
+            mHardwareBatteryStatus.setTextSize(14);
+            parent.addView(
+                    mHardwareBatteryStatus,
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT));
+            updateHardwareBatteryStatus(mLastBatteryIntent);
 
-        mChargeSeparationSwitch = new Switch(mActivity);
-        mChargeSeparationSwitch.setText(
-                R.string.charge_separation_label);
-        mChargeSeparationSwitch.setTextColor(
-                DesktopUiFactory.COLOR_TEXT);
-        mChargeSeparationSwitch.setTextSize(14);
-        mChargeSeparationSwitch.setOnCheckedChangeListener(
-                (button, checked) -> {
-                    if (!mUpdatingChargeSeparation) {
-                        setChargeSeparationEnabled(checked);
-                    }
-                });
-        final LinearLayout.LayoutParams chargeParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        chargeParams.setMargins(0, spacing / 2, 0, 0);
-        parent.addView(mChargeSeparationSwitch, chargeParams);
-        updateChargeSeparation(mChargeSeparation.state());
+            mChargeSeparationSwitch = new Switch(mActivity);
+            mChargeSeparationSwitch.setText(
+                    R.string.charge_separation_label);
+            mChargeSeparationSwitch.setTextColor(
+                    DesktopUiFactory.COLOR_TEXT);
+            mChargeSeparationSwitch.setTextSize(14);
+            mChargeSeparationSwitch.setOnCheckedChangeListener(
+                    (button, checked) -> {
+                        if (!mUpdatingChargeSeparation) {
+                            setChargeSeparationEnabled(checked);
+                        }
+                    });
+            final LinearLayout.LayoutParams chargeParams =
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT);
+            chargeParams.setMargins(0, spacing / 2, 0, 0);
+            parent.addView(mChargeSeparationSwitch, chargeParams);
+            updateChargeSeparation(mChargeSeparation.state());
+        }
 
         mPointerSpeed.populate(parent, spacing);
         mAudio.populate(parent, spacing);
-        mHardware.populate(parent, spacing);
+        if (PlatformDrivers.current().features().vendorHardware) {
+            mHardware.populate(parent, spacing);
+        }
     }
 
     void populateCapture(

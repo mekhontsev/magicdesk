@@ -238,6 +238,19 @@ runtime integration and are not distributed through the same release path.
 
 ### Platform services
 
+- `PlatformDrivers` selects one firmware platform for the process from an
+  immutable `PlatformDevice` identity. `PlatformDriver` exposes only existing
+  variation points: capability groups, windowing provisioning, optional
+  runtime services, and absolute-pointer integration.
+- `NubiaPlatformDriver` owns ZTE/nubia properties, projection/input
+  capabilities, pointer reflection, and hardware monitoring.
+  `GenericAndroidPlatformDriver` is deliberately conservative: it enables
+  only phone and simulated desktops and uses the two standard Android
+  freeform/resizable settings. Unverified wired and wireless backends are not
+  exposed.
+- Platform and display are independent axes. A platform declares which
+  display kinds it supports, while the display driver owns the lifecycle of
+  one session type. Do not create platform-by-display combination classes.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
@@ -801,20 +814,28 @@ setting names and vendor services can change across firmware.
 
 ## Device Setup And Recovery
 
-Device Setup requires a compatible ZTE/nubia Android 16+ device and a live,
-authorized Shizuku UserService. It audits:
+Device Setup requires Android 16+, a selected compatible platform driver, and
+a live, authorized Shizuku UserService. Every platform audits the two standard
+Android settings:
 
 ```text
 Settings.Global enable_freeform_support = 1
 Settings.Global force_resizable_activities = 1
+```
+
+The ZTE/nubia platform additionally audits:
+
+```text
 persist.wm.debug.desktop_mode_enforce_device_restrictions = false
 persist.wm.debug.desktop_use_rounded_corners = false
 ```
 
-Shell UID 2000 owns the global settings. The two persistent properties are
-written through the firmware's `redmagic.app.manager` Binder from the ordinary
-APK UID. `NubiaDesktopPropertyManager` exposes a closed enum, permits only
-boolean/absent values, and verifies every write.
+Shell UID 2000 owns the global settings. On supported ZTE/nubia firmware, the
+two persistent properties are written through the firmware's
+`redmagic.app.manager` Binder
+from the ordinary APK UID. `NubiaDesktopPropertyManager` exposes a closed
+enum, permits only boolean/absent values, and verifies every write. Generic
+Android never reads those properties as setup requirements or writes them.
 
 Normal first-run UI exposes only the next required user action: start Shizuku,
 grant MagicDesk through Shizuku, prepare the device, restart, or start

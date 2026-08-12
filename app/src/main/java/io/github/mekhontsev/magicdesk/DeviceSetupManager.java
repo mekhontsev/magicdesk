@@ -27,19 +27,6 @@ final class DeviceSetupManager {
             NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
     private static final String ROUNDED_CORNERS_PROPERTY =
             NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS.key;
-    private static final String MAINTAINER_VERIFIED_NX809J_FINGERPRINT =
-            "REDMAGIC/NX809J-EEA/NX809J:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20260204.221845:user/release-keys";
-    private static final String COMMUNITY_TESTED_NX809J_FINGERPRINT =
-            "REDMAGIC/NX809J-UN/NX809J:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20260625.022314:user/release-keys";
-    private static final String COMMUNITY_TESTED_NX741J_FINGERPRINT =
-            "nubia/PQ85A01-UN/PQ85A01:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20251229.234747:user/release-keys";
-
     private DeviceSetupManager() {
     }
 
@@ -48,9 +35,11 @@ final class DeviceSetupManager {
     }
 
     static Audit audit(final Context context, final SessionProfile sessionProfile) {
-        final boolean compatibleDevice = isZteFamilyDevice();
-        final FirmwareSupport firmwareSupport = classifyFirmware(
-                Build.MODEL, Build.DEVICE, Build.FINGERPRINT);
+        final PlatformDevice device = PlatformDevice.current();
+        final PlatformDriver platform = PlatformDrivers.current();
+        final boolean compatibleDevice = platform.supports(device);
+        final PlatformSupportLevel firmwareSupport =
+                platform.supportLevel(device);
         final SharedPreferences preferences = preferences(context);
 
         Map<String, String> values = readUnprivilegedValues(context);
@@ -107,7 +96,7 @@ final class DeviceSetupManager {
         final boolean resizableEnabled = "1".equals(resizableValue);
         final boolean restrictionsDisabled = "false".equals(restrictionsValue);
         final boolean roundedCornersDisabled = "false".equals(roundedCornersValue);
-        final boolean configurationReady = isFullWindowingConfigurationReady(
+        final boolean configurationReady = platform.windowing().isReady(
                 freeformEnabled,
                 resizableEnabled,
                 restrictionsDisabled,
@@ -119,6 +108,7 @@ final class DeviceSetupManager {
                 shellReady,
                 compatibleDevice,
                 firmwareSupport,
+                platform,
                 Build.MANUFACTURER,
                 Build.MODEL,
                 Build.VERSION.RELEASE,
@@ -146,13 +136,11 @@ final class DeviceSetupManager {
         }
         if (!before.compatibleDevice) {
             throw new IOException(
-                    "requires a ZTE/nubia device with Android 16 or newer");
+                    "requires a supported Android 16 platform");
         }
 
         final SharedPreferences preferences = preferences(context);
         final List<String> commands = new ArrayList<>();
-        final List<NubiaDesktopPropertyManager.Property> properties =
-                new ArrayList<>();
         addGlobalSettingChange(
                 commands,
                 FREEFORM_SETTING,
@@ -161,23 +149,19 @@ final class DeviceSetupManager {
                 commands,
                 RESIZABLE_SETTING,
                 before.resizableEnabled);
-        addNubiaPropertyChange(
-                properties,
-                NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS,
-                before.restrictionsDisabled);
-        addNubiaPropertyChange(
-                properties,
-                NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS,
-                before.roundedCornersDisabled);
-        if (!commands.isEmpty() || !properties.isEmpty()) {
+        final boolean vendorChangeRequired =
+                before.platform.features().vendorWindowingProperties
+                        && (!before.restrictionsDisabled
+                                || !before.roundedCornersDisabled);
+        if (!commands.isEmpty() || vendorChangeRequired) {
             savePendingReboot(preferences, before.bootId);
         }
         if (!commands.isEmpty()) {
             ShellAccess.run(joinCommands(commands));
         }
-        for (final NubiaDesktopPropertyManager.Property property : properties) {
-            NubiaDesktopPropertyManager.write(property, "false");
-        }
+        before.platform.windowing().configure(
+                before.restrictionsDisabled,
+                before.roundedCornersDisabled);
         final Audit after = audit(context, sessionProfile);
         if (!after.configurationReady) {
             throw new IOException(
@@ -186,7 +170,7 @@ final class DeviceSetupManager {
         return audit(context, sessionProfile);
     }
 
-    static Audit restoreNubiaDefaults(
+    static Audit restoreDefaults(
             final Context context,
             final SessionProfile sessionProfile) throws IOException {
         final Audit before = audit(context, sessionProfile);
@@ -196,7 +180,7 @@ final class DeviceSetupManager {
         }
         if (!before.compatibleDevice) {
             throw new IOException(
-                    "requires a ZTE/nubia device with Android 16 or newer");
+                    "requires a supported Android 16 platform");
         }
 
         DeviceSetupRuntimeController.revoke(context);
@@ -204,7 +188,7 @@ final class DeviceSetupManager {
                 PhoneDesktopTaskRecovery.recoverBlocking();
         if (!taskRecovery.success) {
             CompatibilityDiagnostics.record(
-                    "NUBIA-DEFAULTS-001",
+                    "PLATFORM-DEFAULTS-001",
                     "Phone desktop task cleanup was incomplete",
                     taskRecovery.message);
         }
@@ -212,17 +196,12 @@ final class DeviceSetupManager {
                 LocalDesktopNavigationController.releaseBlocking();
         if (!systemNavigationRestored) {
             CompatibilityDiagnostics.record(
-                    "NUBIA-DEFAULTS-002",
+                    "PLATFORM-DEFAULTS-002",
                     "System navigation restoration was incomplete",
                     "Local desktop navigation guard release failed");
         }
-        ShellAccess.run(nubiaDefaultsCommand());
-        NubiaDesktopPropertyManager.write(
-                NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS,
-                "");
-        NubiaDesktopPropertyManager.write(
-                NubiaDesktopPropertyManager.Property.ROUNDED_CORNERS,
-                "");
+        ShellAccess.run(defaultsCommand());
+        before.platform.windowing().restoreDefaults();
         final SharedPreferences preferences = preferences(context);
         if (!preferences.edit().clear().commit()) {
             throw new IOException("could not clear MagicDesk setup state");
@@ -234,7 +213,7 @@ final class DeviceSetupManager {
         return audit(context, sessionProfile);
     }
 
-    static String nubiaDefaultsCommand() {
+    static String defaultsCommand() {
         return "/system/bin/settings delete global " + FREEFORM_SETTING
                 + " && /system/bin/settings delete global " + RESIZABLE_SETTING
                 + " && /system/bin/wm size reset -d 0"
@@ -281,22 +260,6 @@ final class DeviceSetupManager {
         ShellAccess.run("/system/bin/svc power reboot");
     }
 
-    private static boolean isZteFamilyDevice() {
-        return isZteName(Build.MANUFACTURER)
-                || isZteName(Build.BRAND)
-                || isZteName(Build.PRODUCT);
-    }
-
-    private static boolean isZteName(final String value) {
-        if (value == null) {
-            return false;
-        }
-        final String normalized = value.toLowerCase(java.util.Locale.US);
-        return normalized.contains("zte")
-                || normalized.contains("nubia")
-                || normalized.contains("redmagic");
-    }
-
     private static void addGlobalSettingChange(
             final List<String> commands,
             final String setting,
@@ -305,16 +268,6 @@ final class DeviceSetupManager {
             return;
         }
         commands.add("/system/bin/settings put global " + setting + " 1");
-    }
-
-    private static void addNubiaPropertyChange(
-            final List<NubiaDesktopPropertyManager.Property> properties,
-            final NubiaDesktopPropertyManager.Property property,
-            final boolean alreadyConfigured) {
-        if (alreadyConfigured) {
-            return;
-        }
-        properties.add(property);
     }
 
     private static void savePendingReboot(
@@ -438,7 +391,8 @@ final class DeviceSetupManager {
         final SessionProfile sessionProfile;
         final boolean shellReady;
         final boolean compatibleDevice;
-        final FirmwareSupport firmwareSupport;
+        final PlatformSupportLevel firmwareSupport;
+        final PlatformDriver platform;
         final String manufacturer;
         final String model;
         final String androidRelease;
@@ -461,7 +415,8 @@ final class DeviceSetupManager {
                 final SessionProfile sessionProfile,
                 final boolean shellReady,
                 final boolean compatibleDevice,
-                final FirmwareSupport firmwareSupport,
+                final PlatformSupportLevel firmwareSupport,
+                final PlatformDriver platform,
                 final String manufacturer,
                 final String model,
                 final String androidRelease,
@@ -483,6 +438,7 @@ final class DeviceSetupManager {
             this.shellReady = shellReady;
             this.compatibleDevice = compatibleDevice;
             this.firmwareSupport = firmwareSupport;
+            this.platform = platform;
             this.manufacturer = manufacturer;
             this.model = model;
             this.androidRelease = androidRelease;
@@ -509,46 +465,10 @@ final class DeviceSetupManager {
 
     }
 
-    enum FirmwareSupport {
-        MAINTAINER_VERIFIED,
-        COMMUNITY_TESTED,
-        UNVERIFIED
-    }
-
-    static FirmwareSupport classifyFirmware(
-            final String model,
-            final String device,
-            final String fingerprint) {
-        final boolean nx809j = "NX809J".equalsIgnoreCase(model)
-                || "NX809J".equalsIgnoreCase(device);
-        if (nx809j
-                && MAINTAINER_VERIFIED_NX809J_FINGERPRINT.equals(fingerprint)) {
-            return FirmwareSupport.MAINTAINER_VERIFIED;
-        }
-        final boolean nx741j = "NX741J".equalsIgnoreCase(model)
-                || "PQ85A01".equalsIgnoreCase(device);
-        if ((nx809j
-                && COMMUNITY_TESTED_NX809J_FINGERPRINT.equals(fingerprint))
-                || (nx741j
-                && COMMUNITY_TESTED_NX741J_FINGERPRINT.equals(fingerprint))) {
-            return FirmwareSupport.COMMUNITY_TESTED;
-        }
-        return FirmwareSupport.UNVERIFIED;
-    }
-
     static boolean hasRequiredWindowingSettings(
             final boolean freeformEnabled,
             final boolean resizableEnabled) {
         return freeformEnabled && resizableEnabled;
     }
 
-    static boolean isFullWindowingConfigurationReady(
-            final boolean freeformEnabled,
-            final boolean resizableEnabled,
-            final boolean restrictionsDisabled,
-            final boolean roundedCornersDisabled) {
-        return hasRequiredWindowingSettings(freeformEnabled, resizableEnabled)
-                && restrictionsDisabled
-                && roundedCornersDisabled;
-    }
 }

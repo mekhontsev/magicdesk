@@ -156,7 +156,8 @@ and Android user; neither kind of state is written into the desktop folder.
 
 ## Requirements
 
-MagicDesk is intentionally RedMagic/ZTE-specific and requires:
+MagicDesk's verified external-desktop implementation is RedMagic/ZTE-specific
+and requires:
 
 - a ZTE, nubia, or RedMagic device running Android 16 / API 36 or newer;
 - the official Shizuku application with its server running;
@@ -172,6 +173,11 @@ USB-C DisplayPort output is therefore not mandatory. Availability of wired and
 wireless projection depends on the phone model and firmware. **Open desktop
 here** runs the same desktop implementation on the device display without an
 external display.
+
+An experimental Generic Android platform driver is available on Android 16+
+for **Open desktop here** and the simulated self-test. It deliberately does
+not expose wired or wireless desktop startup until a platform-specific
+external-display backend has been verified.
 
 MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
 permission is denied. All privileged operations use the same Shizuku
@@ -238,7 +244,7 @@ automatically while it is being uninstalled.
 If MagicDesk has already been removed, reinstall it, grant Shizuku access, run
 **Restore defaults**, and restart. The action does not depend on saved setup
 history. It removes the desktop-windowing overrides and resets the primary
-display size, density, and scaling to the defaults supplied by nubia.
+display size, density, and scaling to platform defaults.
 
 ### Typical workflow
 
@@ -316,10 +322,12 @@ The trust boundaries are deliberately narrow:
 - The diagnostic Console executes only commands entered and confirmed by the
   user. Those commands are not restricted to MagicDesk's internal allowlists
   and have the effective privileges displayed by the Console.
-- MagicDesk changes only the four desktop settings documented under Device
-  Setup. **Restore defaults** removes those overrides instead of guessing
-  firmware values. The RedMagic property writer accepts only two hardcoded
-  boolean/absent desktop properties.
+- MagicDesk changes only the desktop settings required by the selected
+  platform driver. Every platform uses the two documented Android windowing
+  settings; supported ZTE/nubia firmware additionally uses two documented
+  persistent properties. **Restore defaults** removes those overrides instead of
+  guessing firmware values. The RedMagic property writer accepts only those
+  two hardcoded boolean/absent properties.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every

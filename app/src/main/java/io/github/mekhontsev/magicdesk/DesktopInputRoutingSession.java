@@ -148,7 +148,9 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             mRemoveAssociation = inputManagerInterface.getMethod(
                     "removeUniqueIdAssociationByPort", String.class);
         }
-        mUsesNubiaConsoleHooks = target.nubiaConsole;
+        mUsesNubiaConsoleHooks =
+                PlatformDrivers.current().features().vendorInput
+                        && target.nubiaConsole;
 
         final Set<String> requestedPorts = new LinkedHashSet<>();
         for (final DesktopKeyboardDevice keyboard : keyboards) {
@@ -176,13 +178,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         if (mUsesNubiaConsoleHooks) {
             setMouseInputSourceOverride(true);
         } else {
-            try {
-                NubiaMouseController.createOrUpdateViewport();
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                System.err.println(
-                        "MAGICDESK_INPUT_ROUTING_MOUSE_VIEWPORT unavailable="
-                                + error);
-            }
+            PlatformDrivers.current().pointer().refreshViewport();
         }
     }
 
@@ -311,7 +307,8 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                 "display", "android.hardware.display.IDisplayManager");
         final Class<?> displayManagerInterface =
                 Class.forName("android.hardware.display.IDisplayManager");
-        if (displayId == findNubiaConsoleDisplayId()) {
+        if (PlatformDrivers.current().features().vendorProjection
+                && displayId == findNubiaConsoleDisplayId()) {
             final int physicalPort = findExternalDisplayPort(
                     displayManager, displayManagerInterface);
             if (physicalPort >= 0) {

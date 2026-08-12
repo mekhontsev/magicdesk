@@ -170,6 +170,9 @@ final class CompatibilityDiagnostics {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         report.append("## Runtime profile\n")
+                .append("Platform driver: ")
+                .append(audit.platform.name())
+                .append(" (").append(audit.platform.id()).append(")\n")
                 .append("Shizuku runtime: ")
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
@@ -189,11 +192,12 @@ final class CompatibilityDiagnostics {
                 .append("\n\n")
                 .append("## Capability checks\n");
         appendCheck(report, "PLATFORM-001", audit.compatibleDevice,
-                "ZTE/nubia device running Android 16 or newer",
-                audit.manufacturer + " " + audit.model);
+                "Android 16 platform baseline",
+                audit.platform.name() + "; "
+                        + audit.manufacturer + " " + audit.model);
         appendCheck(report, "PROFILE-001",
                 audit.firmwareSupport
-                        != DeviceSetupManager.FirmwareSupport.UNVERIFIED,
+                        != PlatformSupportLevel.UNVERIFIED,
                 "Firmware compatibility profile",
                 firmwareSupportDetail(audit.firmwareSupport, audit.model));
         final boolean shellReady = audit.shellReady;
@@ -210,12 +214,16 @@ final class CompatibilityDiagnostics {
         appendCheck(report, "WM-RESIZE-001", audit.resizableEnabled,
                 "Force resizable activities setting",
                 expectedValue("1", audit.resizableValue));
-        appendCheck(report, "WM-ELIGIBILITY-001", audit.restrictionsDisabled,
-                "Desktop-mode device restriction property",
-                expectedValue("false", audit.restrictionsValue));
-        appendCheck(report, "WM-CORNERS-001", audit.roundedCornersDisabled,
-                "Desktop rounded-corner property",
-                expectedValue("false", audit.roundedCornersValue));
+        if (audit.platform.features().vendorWindowingProperties) {
+            appendCheck(report, "WM-ELIGIBILITY-001",
+                    audit.restrictionsDisabled,
+                    "Desktop-mode device restriction property",
+                    expectedValue("false", audit.restrictionsValue));
+            appendCheck(report, "WM-CORNERS-001",
+                    audit.roundedCornersDisabled,
+                    "Desktop rounded-corner property",
+                    expectedValue("false", audit.roundedCornersValue));
+        }
         appendCheck(report, "OVERLAY-001", Settings.canDrawOverlays(context),
                 "Application overlays", Settings.canDrawOverlays(context)
                         ? "granted" : "not granted");
@@ -255,12 +263,14 @@ final class CompatibilityDiagnostics {
                         : taskControl
                                 ? "privileged transaction backend unavailable"
                                 : "Shizuku runtime unavailable");
-        appendCheck(report, "NUBIA-INPUT-001",
-                hasPackage(context, "cn.nubia.keymapcenter"),
-                "Nubia mirror input package", "cn.nubia.keymapcenter");
+        if (audit.platform.features().vendorInput) {
+            appendCheck(report, "NUBIA-INPUT-001",
+                    hasPackage(context, "cn.nubia.keymapcenter"),
+                    "Nubia mirror input package", "cn.nubia.keymapcenter");
+        }
         final PhoneHomeComponents phoneHome =
                 PhoneHomeComponents.resolve(context);
-        appendCheck(report, "NUBIA-LAUNCHER-001",
+        appendCheck(report, "LAUNCHER-001",
                 phoneHome.hasPrimary(),
                 "Phone launcher HOME activity",
                 phoneHome.diagnosticDetail());
@@ -274,7 +284,8 @@ final class CompatibilityDiagnostics {
                         : "Shizuku runtime unavailable");
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
-                shellRightClick
+                audit.platform.features().vendorInput
+                        && shellRightClick
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
@@ -298,28 +309,48 @@ final class CompatibilityDiagnostics {
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
-        report.append("RedMagic charge separation: package=")
-                .append(ChargeSeparationController.isSupported(context))
-                .append(", enabled=")
-                .append(Settings.Global.getInt(
-                        context.getContentResolver(),
-                        ChargeSeparationController.SETTING,
-                        0) == 1)
+        appendPlatformDetails(report, context, audit.platform.features());
+        report.append('\n');
+    }
+
+    private static void appendPlatformDetails(
+            final StringBuilder report,
+            final Context context,
+            final PlatformFeatures features) {
+        report.append("Platform features: wired=")
+                .append(features.wiredDesktop)
+                .append(", wireless=").append(features.wirelessDesktop)
+                .append(", vendorInput=").append(features.vendorInput)
+                .append(", vendorProjection=")
+                .append(features.vendorProjection)
                 .append('\n');
-        final RedmagicHardwareSnapshot hardware =
-                RedmagicHardwareController.snapshot();
-        report.append("RedMagic hardware: fan=")
-                .append(hardware.fanAvailable)
-                .append(" enabled=").append(hardware.fanEnabled)
-                .append(", pump=").append(hardware.pumpAvailable)
-                .append(" enabled=").append(hardware.pumpEnabled)
-                .append(" speed=").append(hardware.pumpSpeed)
-                .append(", cpuMilliC=").append(hardware.cpuMilliCelsius)
-                .append(", gpuMilliC=").append(hardware.gpuMilliCelsius)
-                .append(", skinMilliC=").append(hardware.skinMilliCelsius)
-                .append(", batteryMilliC=")
-                .append(hardware.batteryMilliCelsius)
-                .append('\n');
+        if (features.vendorHardware) {
+            report.append("RedMagic charge separation: package=")
+                    .append(ChargeSeparationController.isSupported(context))
+                    .append(", enabled=")
+                    .append(Settings.Global.getInt(
+                            context.getContentResolver(),
+                            ChargeSeparationController.SETTING,
+                            0) == 1)
+                    .append('\n');
+            final RedmagicHardwareSnapshot hardware =
+                    RedmagicHardwareController.snapshot();
+            report.append("RedMagic hardware: fan=")
+                    .append(hardware.fanAvailable)
+                    .append(" enabled=").append(hardware.fanEnabled)
+                    .append(", pump=").append(hardware.pumpAvailable)
+                    .append(" enabled=").append(hardware.pumpEnabled)
+                    .append(" speed=").append(hardware.pumpSpeed)
+                    .append(", cpuMilliC=").append(hardware.cpuMilliCelsius)
+                    .append(", gpuMilliC=").append(hardware.gpuMilliCelsius)
+                    .append(", skinMilliC=").append(hardware.skinMilliCelsius)
+                    .append(", batteryMilliC=")
+                    .append(hardware.batteryMilliCelsius)
+                    .append('\n');
+        }
+        if (!features.vendorProjection) {
+            return;
+        }
         report.append("Console display setting: ")
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "app_mirror_displayid"))
@@ -352,7 +383,7 @@ final class CompatibilityDiagnostics {
                 .append(", current=")
                 .append(Settings.Global.getString(
                         context.getContentResolver(), "nb_app_mirror_now_fit"))
-                .append("\n\n");
+                .append('\n');
     }
 
     private static void appendDisplays(final StringBuilder report, final Context context) {
@@ -545,7 +576,7 @@ final class CompatibilityDiagnostics {
     }
 
     private static String firmwareSupportDetail(
-            final DeviceSetupManager.FirmwareSupport support,
+            final PlatformSupportLevel support,
             final String model) {
         switch (support) {
             case MAINTAINER_VERIFIED:

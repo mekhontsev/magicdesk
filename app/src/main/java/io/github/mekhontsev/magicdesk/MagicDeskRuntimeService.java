@@ -356,12 +356,12 @@ public final class MagicDeskRuntimeService extends Service {
         refreshDesktopOwnership();
         updateShowImeOverride();
         registerConfigurationReceiver();
-        registerConsoleModeObserver();
+        if (PlatformDrivers.current().features().vendorProjection) {
+            registerConsoleModeObserver();
+        }
         if (ShellAccess.isReady()) {
-            ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
-                    mOwnedDesktopDisplayId,
-                    ownsNubiaConsoleDesktop());
-        } else {
+            updatePlatformCaptionTarget();
+        } else if (PlatformDrivers.current().features().vendorProjection) {
             NubiaCaptionVisibilityManager.setTransport(
                     NubiaCaptionVisibilityManager.Transport.NONE);
         }
@@ -372,7 +372,7 @@ public final class MagicDeskRuntimeService extends Service {
             maintainLocalDesktopNavigationGuard();
             scheduleLocalDesktopCleanup();
         }
-        RedmagicHardwareController.start(this);
+        PlatformDrivers.current().startRuntime(this);
         logInputState();
         Log.i(TAG, "started, hardwareKeyboard=" + mHasHardwareKeyboard
                 + " externalMouse=" + mHasExternalMouse);
@@ -465,7 +465,7 @@ public final class MagicDeskRuntimeService extends Service {
         }
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
-        RedmagicHardwareController.stop();
+        PlatformDrivers.current().stopRuntime();
         PhoneDisplayGuard.requestRestore();
         super.onDestroy();
     }
@@ -840,25 +840,29 @@ public final class MagicDeskRuntimeService extends Service {
         updateDesktopMouseBridge();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            if (ownsNubiaConsoleDesktop()) {
+            if (PlatformDrivers.current().features().vendorPhoneUi
+                    && ownsNubiaConsoleDesktop()) {
                 NubiaHostAssistPanelController.hideIfPresent();
             }
-            ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
-                    mOwnedDesktopDisplayId,
-                    ownsNubiaConsoleDesktop());
-            RedmagicHardwareController.start(this);
+            updatePlatformCaptionTarget();
+            PlatformDrivers.current().startRuntime(this);
             maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
         } else {
-            NubiaCaptionVisibilityManager.setTransport(
-                    NubiaCaptionVisibilityManager.Transport.NONE);
-            RedmagicHardwareController.stop();
+            if (PlatformDrivers.current().features().vendorProjection) {
+                NubiaCaptionVisibilityManager.setTransport(
+                        NubiaCaptionVisibilityManager.Transport.NONE);
+            }
+            PlatformDrivers.current().stopRuntime();
         }
         updateNotification();
         DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     private int getConsoleDisplayId() {
+        if (!PlatformDrivers.current().features().vendorProjection) {
+            return -1;
+        }
         try {
             final int displayId = Settings.Global.getInt(
                     getContentResolver(), CONSOLE_DISPLAY_STATE, -1);
@@ -893,15 +897,14 @@ public final class MagicDeskRuntimeService extends Service {
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
-        if (ownsNubiaConsoleDesktop()) {
+        if (PlatformDrivers.current().features().vendorPhoneUi
+                && ownsNubiaConsoleDesktop()) {
             NubiaHostAssistPanelController.hideIfPresent();
         }
         updateKeyboardWatcher();
         updateDesktopMouseBridge();
         if (ShellAccess.isReady()) {
-            ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
-                    mOwnedDesktopDisplayId,
-                    ownsNubiaConsoleDesktop());
+            updatePlatformCaptionTarget();
         }
         if (ownsExternalDesktop()) {
             refreshDesktopInputSources();
@@ -910,6 +913,15 @@ public final class MagicDeskRuntimeService extends Service {
 
     private boolean ownsNubiaConsoleDesktop() {
         return mOwnsNubiaConsoleDesktop;
+    }
+
+    private void updatePlatformCaptionTarget() {
+        if (!PlatformDrivers.current().features().vendorProjection) {
+            return;
+        }
+        ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
+                mOwnedDesktopDisplayId,
+                ownsNubiaConsoleDesktop());
     }
 
     private boolean ownsExternalDesktop() {

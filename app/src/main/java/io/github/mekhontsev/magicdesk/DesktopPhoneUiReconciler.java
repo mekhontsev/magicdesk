@@ -14,6 +14,7 @@ final class DesktopPhoneUiReconciler {
     private static final String NUBIA_TOUCHPAD_ACTIVITY =
             "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
     private final PhoneHomeComponents mHomeComponents;
+    private final boolean mVendorPhoneUi;
 
     private final Set<Integer> mLastVisibleAppTaskIds = new HashSet<>();
 
@@ -24,6 +25,7 @@ final class DesktopPhoneUiReconciler {
 
     DesktopPhoneUiReconciler(final Context context) {
         mHomeComponents = PhoneHomeComponents.resolve(context);
+        mVendorPhoneUi = PlatformDrivers.current().features().vendorPhoneUi;
     }
 
     void reset() {
@@ -35,6 +37,9 @@ final class DesktopPhoneUiReconciler {
     }
 
     void expectTouchpadDisplacement() {
+        if (!mVendorPhoneUi) {
+            return;
+        }
         mTouchpadPreservationArmed = true;
     }
 
@@ -47,6 +52,9 @@ final class DesktopPhoneUiReconciler {
             final List<TaskRepository.TaskEntry> phoneTasks,
             final Set<Integer> visibleAppTaskIds,
             final boolean focusingExternalTask) {
+        if (!mVendorPhoneUi) {
+            return;
+        }
         boolean touchpadVisible = false;
         boolean nubiaPanelVisible = false;
         boolean secondaryHomeVisible = false;

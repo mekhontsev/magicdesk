@@ -16,19 +16,29 @@ public final class DeviceSetupWindowingPolicyTest {
     }
 
     @Test
-    public void fullConfigurationRequiresUserAndPrivilegedSettings() {
-        assertTrue(DeviceSetupManager.isFullWindowingConfigurationReady(
+    public void nubiaConfigurationRequiresUserAndPrivilegedSettings() {
+        final PlatformWindowingDriver windowing =
+                new NubiaWindowingDriver();
+        assertTrue(windowing.isReady(
                 true, true, true, true));
-        assertFalse(DeviceSetupManager.isFullWindowingConfigurationReady(
+        assertFalse(windowing.isReady(
                 true, true, false, true));
-        assertFalse(DeviceSetupManager.isFullWindowingConfigurationReady(
+        assertFalse(windowing.isReady(
                 true, true, true, false));
-        assertFalse(DeviceSetupManager.isFullWindowingConfigurationReady(
+        assertFalse(windowing.isReady(
                 false, true, true, true));
     }
 
     @Test
-    public void nubiaDefaultsRemoveOverridesWithoutAssumedValues() {
+    public void genericConfigurationUsesOnlyStandardAndroidSettings() {
+        final PlatformWindowingDriver windowing =
+                new GenericAndroidWindowingDriver();
+        assertTrue(windowing.isReady(true, true, false, false));
+        assertFalse(windowing.isReady(true, false, true, true));
+    }
+
+    @Test
+    public void defaultsRemoveOverridesWithoutAssumedValues() {
         assertEquals(
                 "/system/bin/settings delete global enable_freeform_support"
                         + " && /system/bin/settings delete global "
@@ -36,6 +46,6 @@ public final class DeviceSetupWindowingPolicyTest {
                         + " && /system/bin/wm size reset -d 0"
                         + " && /system/bin/wm density reset -d 0"
                         + " && /system/bin/wm scaling auto -d 0",
-                DeviceSetupManager.nubiaDefaultsCommand());
+                DeviceSetupManager.defaultsCommand());
     }
 }

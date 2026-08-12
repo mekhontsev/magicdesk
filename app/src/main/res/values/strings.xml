@@ -375,7 +375,7 @@
     <string name="setup_display_external">External display</string>
     <string name="setup_choose_display_target">Desktop display</string>
     <string name="setup_status_checking">Checking device&#8230;</string>
-    <string name="setup_status_unsupported">MagicDesk requires a ZTE/nubia device running Android 16 or newer.</string>
+    <string name="setup_status_unsupported">This Android platform is not supported by MagicDesk.</string>
     <string name="setup_status_configuration_required">System configuration is required before MagicDesk can start.</string>
     <string name="setup_status_reboot_required">Restart Android to activate the new windowing configuration.</string>
     <string name="setup_status_shizuku_not_installed">Enable Developer options by tapping Build number seven times, then install and start the official Shizuku app.</string>
@@ -385,7 +385,7 @@
     <string name="setup_status_ready">MagicDesk is ready to start.</string>
     <string name="setup_status_external_unavailable">No active external desktop display was found; opening on the current display.</string>
     <string name="setup_status_applying">Applying system configuration&#8230;</string>
-    <string name="setup_status_restoring">Restoring nubia defaults&#8230;</string>
+    <string name="setup_status_restoring">Restoring platform defaults&#8230;</string>
     <string name="setup_status_rebooting">Restarting Android&#8230;</string>
     <string name="setup_status_starting">Starting MagicDesk&#8230;</string>
     <string name="setup_action_recheck">Check again</string>
@@ -402,9 +402,9 @@
     <string name="setup_action_done">Done</string>
     <string name="setup_action_exit">Exit</string>
     <string name="setup_action_restore">Restore defaults</string>
-    <string name="setup_restore_uninstall_note">Before uninstalling MagicDesk, restore nubia defaults here and restart the phone.</string>
-    <string name="setup_restore_title">Restore nubia defaults?</string>
-    <string name="setup_restore_message">This resets the phone display and Android desktop-windowing overrides to the defaults supplied by nubia. Custom display overrides and manually enabled desktop developer options will be reset. Android must be restarted afterward.</string>
+    <string name="setup_restore_uninstall_note">Before uninstalling MagicDesk, restore platform defaults here and restart the phone.</string>
+    <string name="setup_restore_title">Restore platform defaults?</string>
+    <string name="setup_restore_message">This resets the phone display and Android desktop-windowing overrides to platform defaults. Custom display overrides and manually enabled desktop developer options will be reset. Android must be restarted afterward.</string>
     <string name="setup_reboot_title">Restart Android?</string>
     <string name="setup_reboot_message">MagicDesk will be available after the device finishes restarting.</string>
     <string name="setup_error_title">Device setup failed</string>

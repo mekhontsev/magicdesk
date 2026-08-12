@@ -206,6 +206,20 @@ final class DeviceSetupView {
         mDiagnosticsAction.setVisibility(detailed ? View.VISIBLE : View.GONE);
     }
 
+    void setVendorWindowingVisible(final boolean visible) {
+        setStatusRowVisible(mRestrictionsValue, visible);
+        setStatusRowVisible(mCornersValue, visible);
+    }
+
+    private static void setStatusRowVisible(
+            final TextView value,
+            final boolean visible) {
+        if (value != null && value.getParent() instanceof View) {
+            ((View) value.getParent()).setVisibility(
+                    visible ? View.VISIBLE : View.GONE);
+        }
+    }
+
     void setSecondaryActionsVisible(
             final boolean secondaryVisible,
             final boolean restoreVisible) {

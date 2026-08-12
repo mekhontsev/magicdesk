@@ -17,6 +17,7 @@ final class NubiaMirrorInputPanelGuard implements AutoCloseable {
 
     private final InputOwner mInputOwner;
     private final Object mTaskService;
+    private final boolean mSupported;
 
     private boolean mEnabled;
     private boolean mClosed;
@@ -24,13 +25,15 @@ final class NubiaMirrorInputPanelGuard implements AutoCloseable {
 
     NubiaMirrorInputPanelGuard(
             final Object taskService,
-            final InputOwner inputOwner) {
+            final InputOwner inputOwner,
+            final boolean supported) {
         mTaskService = taskService;
         mInputOwner = inputOwner;
+        mSupported = supported;
     }
 
     synchronized void configure(final int displayId) {
-        mEnabled = displayId > 0;
+        mEnabled = mSupported && displayId > 0;
         if (!mEnabled) {
             mRemovingTaskId = -1;
         }

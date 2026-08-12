@@ -14,6 +14,14 @@ final class DesktopDisplayDrivers {
     private DesktopDisplayDrivers() {
     }
 
+    static boolean isSupported(final DesktopDisplayTarget.Kind kind) {
+        return PlatformDrivers.current().features().supportsDisplay(kind);
+    }
+
+    static boolean isExternalDesktopSupported() {
+        return PlatformDrivers.current().features().supportsExternalDesktop();
+    }
+
     static DesktopDisplayDriver forKind(
             final DesktopDisplayTarget.Kind kind) {
         if (kind == null) {
