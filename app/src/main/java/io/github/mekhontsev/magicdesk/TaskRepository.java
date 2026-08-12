@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 import android.util.Log;
+import android.view.Display;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -260,10 +261,7 @@ final class TaskRepository {
             final CommandResult result;
             try {
                 final String command;
-                if (task.isFreeform()
-                        && DesktopRuntimeBridge
-                                .isSimulatedDesktopDisplay(
-                                        targetDisplayId)) {
+                if (targetDisplayId != Display.DEFAULT_DISPLAY) {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
                                     targetDisplayId, preferredBounds);
