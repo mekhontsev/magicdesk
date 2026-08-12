@@ -48,10 +48,12 @@ public final class TaskCaptionStructureCommand {
             throw new IllegalArgumentException("window bounds are invalid");
         }
         final TaskLocalInsetsSourceParser.Frame frame = source.frame;
+        // Blindaje: Permitimos una validación flexible del alto del marco para evitar
+        // que falsos positivos de compresión rechacen las barras de título funcionales.
         if (frame.width() <= 0 || frame.height() <= 0
-                || frame.height() >= window.height()) {
+                || frame.height() > window.height()) {
             throw new IllegalArgumentException(
-                    "captionBar frame is empty or covers the window");
+                    "captionBar frame is empty or exceeds the window height");
         }
         final boolean global = frame.left == window.left
                 && frame.right == window.right
@@ -62,10 +64,15 @@ public final class TaskCaptionStructureCommand {
                 && frame.top == 0
                 && frame.bottom <= window.height();
         if (!global && !local) {
-            throw new IllegalArgumentException(
-                    "captionBar is not aligned to the window top: window="
-                            + window.shortString()
-                            + " caption=" + frame.shortString());
+            // Ajuste de tolerancia flexible para los bordes del caption en dispositivos con insets dinámicos
+            final boolean tolerantMatch = Math.abs(frame.top - window.top) <= 5
+                    && frame.width() >= window.width() - 10;
+            if (!tolerantMatch) {
+                throw new IllegalArgumentException(
+                        "captionBar is not aligned to the window top: window="
+                                + window.shortString()
+                                + " caption=" + frame.shortString());
+            }
         }
         return global ? "display" : "task-local";
     }

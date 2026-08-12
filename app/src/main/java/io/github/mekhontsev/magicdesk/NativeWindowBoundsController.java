@@ -70,15 +70,15 @@ final class NativeWindowBoundsController {
         final int middle = workArea.left + workArea.width() / 2;
         return left
                 ? new Rect(
-                        workArea.left,
-                        workArea.top,
-                        middle,
-                        workArea.bottom)
+                workArea.left,
+                workArea.top,
+                middle,
+                workArea.bottom)
                 : new Rect(
-                        middle,
-                        workArea.top,
-                        workArea.right,
-                        workArea.bottom);
+                middle,
+                workArea.top,
+                workArea.right,
+                workArea.bottom);
     }
 
     Rect getFullscreenBounds() {
@@ -107,15 +107,20 @@ final class NativeWindowBoundsController {
     }
 
     Rect getTaskbarMaximizedBounds() {
+        // Partimos siempre de los límites completos de la pantalla/viewport
+        final Rect bounds = getFullscreenBounds();
+
+        // Si hay un workArea válido, lo usamos como base, de lo contrario usamos fullscreen
         final Rect workArea = mRuntimeState.workAreaBounds();
         if (workArea != null && !workArea.isEmpty()) {
-            return new Rect(workArea);
+            bounds.set(workArea);
         }
-        final Rect bounds = getFullscreenBounds();
-        bounds.bottom = Math.max(
-                1,
-                bounds.bottom - dp(
-                        mRuntimeState.windowContext(), TASKBAR_RESERVE_DP));
+
+        // Forzamos estrictamente el recorte inferior restando la altura de la barra de tareas
+        // para garantizar que ninguna aplicación pase por debajo de ella.
+        final int taskbarOffset = dp(mRuntimeState.windowContext(), TASKBAR_RESERVE_DP);
+        bounds.bottom = Math.max(bounds.top + 1, bounds.bottom - taskbarOffset);
+
         return bounds;
     }
 
@@ -261,6 +266,9 @@ final class NativeWindowBoundsController {
     }
 
     private static int dp(final Context context, final int value) {
+        if (context == null) {
+            return value;
+        }
         return Math.round(
                 value * context.getResources().getDisplayMetrics().density);
     }

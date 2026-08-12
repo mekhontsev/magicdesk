@@ -223,7 +223,7 @@ final class ChargeSeparationController {
                     & (ApplicationInfo.FLAG_SYSTEM
                     | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
         } catch (PackageManager.NameNotFoundException
-                | RuntimeException ignored) {
+                 | RuntimeException ignored) {
             return false;
         }
     }
@@ -236,10 +236,10 @@ final class ChargeSeparationController {
         final int percent = level < 0 || scale <= 0
                 ? -1
                 : Math.max(
-                        0,
-                        Math.min(
-                                100,
-                                Math.round(level * 100f / scale)));
+                0,
+                Math.min(
+                        100,
+                        Math.round(level * 100f / scale)));
         mState = new State(
                 mSupported,
                 battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0,

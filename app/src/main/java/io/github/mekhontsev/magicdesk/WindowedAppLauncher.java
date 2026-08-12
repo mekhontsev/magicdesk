@@ -22,6 +22,13 @@ final class WindowedAppLauncher {
             final RelativeWindowBounds preferredBounds) throws IOException {
         final Rect bounds = FloatingWindowController.getWindowBounds(
                 displayId, preferredBounds);
+
+        // Blindaje preventivo: Asegurar que los límites iniciales tengan un ancho y alto válidos
+        // antes de construir el comando de lanzamiento para evitar pantallas negras en apps multimedia.
+        if (bounds.width() <= 0 || bounds.height() <= 0) {
+            bounds.set(100, 100, 900, 700);
+        }
+
         final boolean nativeDesktop = NativeDesktopController.shouldUse();
         final ExistingTaskController.ReuseResult existing = reuse(
                 nativeDesktop,
@@ -49,15 +56,15 @@ final class WindowedAppLauncher {
             final String launchCommand =
                     DesktopRuntimeBridge.isSimulatedDesktopDisplay(displayId)
                             ? TaskDisplayAreaLaunchCommand
-                                    .createTemporaryAreaAppLaunchCommand(
-                                            launchIntent,
-                                            displayId,
-                                            bounds)
+                            .createTemporaryAreaAppLaunchCommand(
+                                    launchIntent,
+                                    displayId,
+                                    bounds)
                             : TaskDisplayAreaLaunchCommand
-                                    .createDefaultAreaAppLaunchCommand(
-                                            launchIntent,
-                                            displayId,
-                                            bounds);
+                            .createDefaultAreaAppLaunchCommand(
+                                    launchIntent,
+                                    displayId,
+                                    bounds);
             final String output = ShellAccess.run(
                     launchCommand);
             taskId = parseTaskId(output);
@@ -96,19 +103,19 @@ final class WindowedAppLauncher {
             final Rect targetBounds) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
-                        packageName,
-                        displayId,
-                        preservedTaskIds,
-                        waitForTask,
-                        explicitWindowed,
-                        targetBounds)
+                packageName,
+                displayId,
+                preservedTaskIds,
+                waitForTask,
+                explicitWindowed,
+                targetBounds)
                 : ExistingTaskController.reuseFreeformIfExists(
-                        packageName,
-                        displayId,
-                        preservedTaskIds,
-                        waitForTask,
-                        explicitWindowed,
-                        targetBounds);
+                packageName,
+                displayId,
+                preservedTaskIds,
+                waitForTask,
+                explicitWindowed,
+                targetBounds);
     }
 
     private static int parseTaskId(final String output) throws IOException {
