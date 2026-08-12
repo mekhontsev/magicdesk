@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -49,7 +50,7 @@ public final class TaskCaptionInsetsCommand {
     }
 
     private static void setCaptionInsetExcluded(final int displayId, final int taskId,
-            final boolean exclude) throws ReflectiveOperationException {
+                                                final boolean exclude) throws ReflectiveOperationException {
         final Object service = HiddenTaskApi.getService();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
@@ -63,17 +64,22 @@ public final class TaskCaptionInsetsCommand {
         final List<?> hierarchyOps = (List<?>) transactionClass
                 .getMethod("getHierarchyOps")
                 .invoke(transaction);
-        final Object hierarchyOp = hierarchyOps.get(hierarchyOps.size() - 1);
-        final int requestedTypes = ((Integer) hierarchyOp.getClass()
-                .getMethod("getExcludeInsetsTypes")
-                .invoke(hierarchyOp)).intValue();
-        System.out.println("caption-inset-types=" + requestedTypes);
+        if (hierarchyOps != null && !hierarchyOps.isEmpty()) {
+            final Object hierarchyOp = hierarchyOps.get(hierarchyOps.size() - 1);
+            final Method getExcludeInsetsTypes = hierarchyOp.getClass()
+                    .getMethod("getExcludeInsetsTypes");
+            if (getExcludeInsetsTypes != null) {
+                final int requestedTypes = ((Integer) getExcludeInsetsTypes
+                        .invoke(hierarchyOp)).intValue();
+                System.out.println("caption-inset-types=" + requestedTypes);
+            }
+        }
         SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
     }
 
     static void addCaptionInsetOperation(final Class<?> transactionClass,
-            final Object transaction, final Class<?> tokenClass,
-            final Object taskToken, final boolean exclude)
+                                         final Object transaction, final Class<?> tokenClass,
+                                         final Object taskToken, final boolean exclude)
             throws ReflectiveOperationException {
         transactionClass.getMethod("setExcludeImeInsets", tokenClass, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.valueOf(exclude));
@@ -83,16 +89,28 @@ public final class TaskCaptionInsetsCommand {
         final List<?> hierarchyOps = (List<?>) transactionClass
                 .getMethod("getHierarchyOps")
                 .invoke(transaction);
+        if (hierarchyOps == null || hierarchyOps.isEmpty()) {
+            return;
+        }
         final Object hierarchyOp = hierarchyOps.get(hierarchyOps.size() - 1);
         final Field excludeInsetsTypes =
                 hierarchyOp.getClass().getDeclaredField("mExcludeInsetsTypes");
         excludeInsetsTypes.setAccessible(true);
-        excludeInsetsTypes.setInt(hierarchyOp, getCaptionBarType());
+
+        int captionBarType = getCaptionBarType();
+        if (captionBarType == 0) {
+            captionBarType = 0x40;
+        }
+        excludeInsetsTypes.setInt(hierarchyOp, captionBarType);
     }
 
     static int getCaptionBarType() throws ReflectiveOperationException {
-        final Class<?> typeClass = Class.forName("android.view.WindowInsets$Type");
-        return ((Integer) typeClass.getMethod("captionBar").invoke(null)).intValue();
+        try {
+            final Class<?> typeClass = Class.forName("android.view.WindowInsets$Type");
+            return ((Integer) typeClass.getMethod("captionBar").invoke(null)).intValue();
+        } catch (Exception e) {
+            return 0x40;
+        }
     }
 
     private static int parseInt(final String value, final String label) {

@@ -34,6 +34,8 @@ final class FloatingWindowController {
         final int width = Math.min(1200,
                 Math.max(Math.min(640, display.width()),
                         Math.round(display.width() * 0.625f)));
+        // Blindaje en las dimensiones de altura inicial para garantizar espacio suficiente
+        // para los marcos y botones de control, evitando pantallas negras o colapsos gráficos en apps multimedia.
         final int height = Math.min(840,
                 Math.max(Math.min(520, display.height()),
                         Math.round(display.height() * 0.72f)));

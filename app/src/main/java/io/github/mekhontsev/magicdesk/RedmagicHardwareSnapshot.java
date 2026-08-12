@@ -60,7 +60,7 @@ final class RedmagicHardwareSnapshot {
                         continue;
                     }
                     final String type = line.substring(
-                            "thermal=".length(), separator)
+                                    "thermal=".length(), separator)
                             .trim().toLowerCase(Locale.ROOT);
                     final int value = parseTemperature(
                             line.substring(separator + 1));
@@ -117,8 +117,9 @@ final class RedmagicHardwareSnapshot {
     }
 
     private static boolean isCpu(final String type) {
-        return type.startsWith("cpullc-")
-                || type.startsWith("cpu-")
+        return type.startsWith("cpu-")
+                || type.startsWith("cpuss-")
+                || type.startsWith("cpullc-")
                 || type.startsWith("qmx-");
     }
 
@@ -127,11 +128,14 @@ final class RedmagicHardwareSnapshot {
     }
 
     private static boolean isSkin(final String type) {
-        return type.equals("skin") || type.startsWith("skin-");
+        return type.equals("skin")
+                || type.startsWith("skin-")
+                || type.equals("skin-msm-therm");
     }
 
     private static boolean isBattery(final String type) {
-        return type.equals("battery");
+        return type.equals("battery")
+                || type.equals("vbat");
     }
 
     private static int parseTemperature(final String value) {

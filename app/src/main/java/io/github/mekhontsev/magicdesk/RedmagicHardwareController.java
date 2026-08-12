@@ -82,7 +82,6 @@ final class RedmagicHardwareController {
     private static volatile FanMode sFanMode = FanMode.SYSTEM;
     private static volatile PumpMode sPumpMode = PumpMode.SYSTEM;
     private static volatile boolean sStopping;
-    // May be set while a previous executor is still completing asynchronous stop.
     private static SharedPreferences sRequestedPreferences;
 
     private RedmagicHardwareController() {
@@ -381,10 +380,10 @@ final class RedmagicHardwareController {
         }
         String monitoringCommand =
                 "for z in /sys/class/thermal/thermal_zone*; do "
-                + "[ -r \"$z/type\" ] && [ -r \"$z/temp\" ] || continue; "
-                + "t=$(tr -d '\\r\\n' < \"$z/type\"); "
-                + "v=$(tr -d '\\r\\n' < \"$z/temp\"); "
-                + "printf 'thermal=%s|%s\\n' \"$t\" \"$v\"; done";
+                        + "[ -r \"$z/type\" ] && [ -r \"$z/temp\" ] || continue; "
+                        + "t=$(tr -d '\\r\\n' < \"$z/type\"); "
+                        + "v=$(tr -d '\\r\\n' < \"$z/temp\"); "
+                        + "printf 'thermal=%s|%s\\n' \"$t\" \"$v\"; done";
         monitoringCommand += vendorMonitoringCommand();
         try {
             return RedmagicHardwareSnapshot.parse(
@@ -481,8 +480,8 @@ final class RedmagicHardwareController {
                         + restoreSetting(VENDOR_FAN_MANUAL, manual),
                 settingEquals(VENDOR_FAN_MODE, expectedSetting(mode))
                         + settingEquals(
-                                VENDOR_FAN_MANUAL,
-                                expectedSetting(manual)));
+                        VENDOR_FAN_MANUAL,
+                        expectedSetting(manual)));
         if (!success) {
             recordVendorRestoreFailure("fan");
             return false;
@@ -513,8 +512,8 @@ final class RedmagicHardwareController {
                         + restoreSetting(VENDOR_PUMP_MAIN, main),
                 settingEquals(VENDOR_PUMP_FLOW, expectedSetting(flow))
                         + settingEquals(
-                                VENDOR_PUMP_MAIN,
-                                expectedSetting(main)));
+                        VENDOR_PUMP_MAIN,
+                        expectedSetting(main)));
         if (!success) {
             recordVendorRestoreFailure("pump");
             return false;
@@ -530,9 +529,9 @@ final class RedmagicHardwareController {
         final SharedPreferences preferences = preferences();
         return ShellAccess.isReady()
                 && (preferences.getBoolean(
-                                OWNER_VENDOR_FAN_ACTIVE, false)
-                        || preferences.getBoolean(
-                                OWNER_VENDOR_PUMP_ACTIVE, false));
+                OWNER_VENDOR_FAN_ACTIVE, false)
+                || preferences.getBoolean(
+                OWNER_VENDOR_PUMP_ACTIVE, false));
     }
 
     private static boolean canControlHardware() {
@@ -547,10 +546,10 @@ final class RedmagicHardwareController {
         }
         final String command =
                 "printf 'setting." + first + "=%s\\n' \"$("
-                        + "/system/bin/settings get system " + first
+                        + "/system/bin/settings get global " + first
                         + ")\"; "
                         + "printf 'setting." + second + "=%s\\n' \"$("
-                        + "/system/bin/settings get system " + second
+                        + "/system/bin/settings get global " + second
                         + ")\"";
         try {
             return ShellAccess.run(command);
@@ -615,7 +614,7 @@ final class RedmagicHardwareController {
         if (!isKnownVendorSetting(key)) {
             throw new IllegalArgumentException("unknown vendor setting");
         }
-        return "/system/bin/settings put system " + key + " "
+        return "/system/bin/settings put global " + key + " "
                 + shellQuote(value) + " && ";
     }
 
@@ -626,7 +625,7 @@ final class RedmagicHardwareController {
             throw new IllegalArgumentException("unknown vendor setting");
         }
         if (ABSENT_SETTING.equals(value)) {
-            return "/system/bin/settings delete system " + key + " && ";
+            return "/system/bin/settings delete global " + key + " && ";
         }
         return settingPut(key, value);
     }
@@ -637,7 +636,7 @@ final class RedmagicHardwareController {
         if (!isKnownVendorSetting(key)) {
             throw new IllegalArgumentException("unknown vendor setting");
         }
-        return "[ \"$(/system/bin/settings get system " + key
+        return "[ \"$(/system/bin/settings get global " + key
                 + ")\" = " + shellQuote(value) + " ] && ";
     }
 

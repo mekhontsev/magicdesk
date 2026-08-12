@@ -14,6 +14,14 @@ android {
         versionName = '1.6.0'
     }
 
+    androidComponents {
+        onVariants(selector().all()) { variant ->
+            variant.outputs.forEach { output ->
+                output.outputFileName.set("MagicDesk 10s Pro 1.6.0.apk")
+            }
+        }
+    }
+
     buildFeatures {
         aidl = true
         buildConfig = true
@@ -50,6 +58,7 @@ def keyboardBridgeSource =
         rootProject.file('native/magicdesk_keyboard_bridge.c')
 def keyboardBridgeOutput = file(
         "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_keyboard_bridge.so")
+
 def resolveNativeCompilerCommand = {
     if (termuxCompiler.isFile()
             && termuxPrefix.startsWith('/data/data/com.termux/')) {
@@ -61,7 +70,17 @@ def resolveNativeCompilerCommand = {
         throw new GradleException(
                 'ANDROID_NDK_HOME is required to build the input helpers')
     }
-    def ndkCompiler = file("${ndkHome}/toolchains/llvm/prebuilt/linux-x86_64"
+
+    // Detección automática del sistema operativo para el NDK
+    def hostTag = 'linux-x86_64'
+    def osName = System.getProperty('os.name').toLowerCase()
+    if (osName.contains('win')) {
+        hostTag = 'windows-x86_64'
+    } else if (osName.contains('mac')) {
+        hostTag = 'darwin-x86_64'
+    }
+
+    def ndkCompiler = file("${ndkHome}/toolchains/llvm/prebuilt/${hostTag}"
             + '/bin/aarch64-linux-android35-clang')
     if (!ndkCompiler.isFile()) {
         throw new GradleException("Android NDK compiler not found: ${ndkCompiler}")
@@ -82,7 +101,12 @@ tasks.register('buildMagicDeskUinputBridge', Exec) {
                 uinputBridgeSource.absolutePath,
                 inputSourcesSource.absolutePath
         ])
-        commandLine compilerCommand
+        if (System.getProperty('os.name').toLowerCase().contains('win')) {
+            commandLine 'cmd', '/c'
+            args compilerCommand
+        } else {
+            commandLine compilerCommand
+        }
     }
 }
 
@@ -99,7 +123,12 @@ tasks.register('buildMagicDeskKeyboardBridge', Exec) {
                 keyboardBridgeSource.absolutePath,
                 inputSourcesSource.absolutePath
         ])
-        commandLine compilerCommand
+        if (System.getProperty('os.name').toLowerCase().contains('win')) {
+            commandLine 'cmd', '/c'
+            args compilerCommand
+        } else {
+            commandLine compilerCommand
+        }
     }
 }
 

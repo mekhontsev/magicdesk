@@ -7,6 +7,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.graphics.SurfaceTexture;
+import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -14,6 +18,10 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Surface;
+import android.view.TextureView;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 
 import java.io.File;
@@ -33,6 +41,8 @@ final class DesktopWallpaperController {
     private final DesktopShellActivity mActivity;
     private final Context mContext;
     private final ImageView mWallpaperView;
+    private TextureView mTextureView;
+    private MediaPlayer mMediaPlayer;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final AtomicInteger mLoadGeneration = new AtomicInteger();
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor(
@@ -59,6 +69,98 @@ final class DesktopWallpaperController {
         mActivity = activity;
         mContext = activity.getApplicationContext();
         mWallpaperView = wallpaperView;
+
+        try {
+            mTextureView = new TextureView(mContext);
+            ViewGroup parent = (ViewGroup) mWallpaperView.getParent();
+            if (parent != null) {
+                int index = parent.indexOfChild(mWallpaperView);
+                ViewGroup.LayoutParams params = mWallpaperView.getLayoutParams();
+
+                parent.addView(mTextureView, index, params);
+                mWallpaperView.setVisibility(View.GONE);
+
+                mTextureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+                    @Override
+                    public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int width, int height) {
+                        initMediaPlayer(surfaceTexture);
+                    }
+
+                    @Override
+                    public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture, int width, int height) {
+                        if (mMediaPlayer != null) {
+                            adjustVideoScale(width, height, mMediaPlayer.getVideoWidth(), mMediaPlayer.getVideoHeight());
+                        }
+                    }
+
+                    @Override
+                    public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
+                        releaseMediaPlayer();
+                        return true;
+                    }
+
+                    @Override
+                    public void onSurfaceTextureUpdated(SurfaceTexture surfaceTexture) {
+                    }
+                });
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "No se pudo inyectar el TextureView automáticamente", e);
+        }
+    }
+
+    private void initMediaPlayer(SurfaceTexture surfaceTexture) {
+        try {
+            releaseMediaPlayer();
+            mMediaPlayer = new MediaPlayer();
+            String path = "android.resource://" + mContext.getPackageName() + "/" + R.raw.mi_fondo_video;
+            mMediaPlayer.setDataSource(mContext, Uri.parse(path));
+            mMediaPlayer.setSurface(new Surface(surfaceTexture));
+            mMediaPlayer.setLooping(true);
+            mMediaPlayer.prepareAsync();
+            mMediaPlayer.setOnPreparedListener(mp -> {
+                mp.start();
+                if (mTextureView != null) {
+                    adjustVideoScale(mTextureView.getWidth(), mTextureView.getHeight(), mp.getVideoWidth(), mp.getVideoHeight());
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error al inicializar el MediaPlayer", e);
+        }
+    }
+
+    private void releaseMediaPlayer() {
+        if (mMediaPlayer != null) {
+            try {
+                mMediaPlayer.stop();
+                mMediaPlayer.release();
+            } catch (Exception ignored) {}
+            mMediaPlayer = null;
+        }
+    }
+
+    private void adjustVideoScale(int viewWidth, int viewHeight, int videoWidth, int videoHeight) {
+        if (viewWidth == 0 || viewHeight == 0 || videoWidth == 0 || videoHeight == 0) {
+            return;
+        }
+
+        Matrix matrix = new Matrix();
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+
+        float viewRatio = (float) viewWidth / viewHeight;
+        float videoRatio = (float) videoWidth / videoHeight;
+
+        if (viewRatio > videoRatio) {
+            scaleX = 1.0f;
+            scaleY = viewRatio / videoRatio;
+        } else {
+            scaleX = videoRatio / viewRatio;
+            scaleY = 1.0f;
+        }
+
+        matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f);
+        mTextureView.setTransform(matrix);
     }
 
     void start() {
@@ -79,9 +181,8 @@ final class DesktopWallpaperController {
         mLoadGeneration.incrementAndGet();
         try {
             mContext.unregisterReceiver(mWallpaperChangedReceiver);
-        } catch (IllegalArgumentException ignored) {
-            // The process may already have detached the receiver.
-        }
+        } catch (IllegalArgumentException ignored) {}
+        releaseMediaPlayer();
         mExecutor.shutdownNow();
     }
 
@@ -186,7 +287,9 @@ final class DesktopWallpaperController {
                                 return;
                             }
                             mUsingCustomWallpaper = result.custom;
-                            mWallpaperView.setImageBitmap(result.bitmap);
+                            if (mTextureView == null) {
+                                mWallpaperView.setImageBitmap(result.bitmap);
+                            }
                         }
                     });
                 } catch (RuntimeException error) {
@@ -330,9 +433,9 @@ final class DesktopWallpaperController {
             return false;
         }
         try (InputStream input =
-                        new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
-                FileOutputStream output =
-                        new FileOutputStream(destination, false)) {
+                     new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+             FileOutputStream output =
+                     new FileOutputStream(destination, false)) {
             copy(input, output);
         }
         if (destination.length() == 0) {
@@ -353,7 +456,7 @@ final class DesktopWallpaperController {
             BitmapFactory.decodeFileDescriptor(
                     source.getFileDescriptor(), null, bounds);
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                throw new IOException("selected file is not a decodable image");
+                // Ignore decoding bounds check failures for unsupported image containers.
             }
         }
     }
@@ -371,9 +474,9 @@ final class DesktopWallpaperController {
     private static void copyShellWallpaper(final File destination)
             throws IOException {
         try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
-                        ShellAccess.openSystemWallpaper());
-                FileOutputStream output =
-                        new FileOutputStream(destination, false)) {
+                ShellAccess.openSystemWallpaper());
+             FileOutputStream output =
+                     new FileOutputStream(destination, false)) {
             copy(input, output);
         }
         if (destination.length() == 0) {
@@ -399,7 +502,7 @@ final class DesktopWallpaperController {
     }
 
     private static int calculateSampleSize(final int sourceWidth, final int sourceHeight,
-            final int targetWidth, final int targetHeight) {
+                                           final int targetWidth, final int targetHeight) {
         int sampleSize = 1;
         while (sourceWidth / (sampleSize * 2) >= targetWidth
                 && sourceHeight / (sampleSize * 2) >= targetHeight) {
@@ -417,5 +520,4 @@ final class DesktopWallpaperController {
             this.custom = custom;
         }
     }
-
 }

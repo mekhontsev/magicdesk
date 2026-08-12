@@ -202,7 +202,7 @@ final class DesktopWindowTransitionController {
     }
 
     private void minimize(final TaskRepository.TaskEntry task,
-            final TaskRepository.TaskEntry focusTask) {
+                          final TaskRepository.TaskEntry focusTask) {
         TaskRepository.minimizeTask(task, focusTask, result -> {
             if (!result.success) {
                 Log.w(TAG, "native minimize failed task=" + task.taskId
@@ -355,8 +355,6 @@ final class DesktopWindowTransitionController {
                         return;
                     }
                     if (appRequested) {
-                        // Submission is asynchronous. A task snapshot confirms
-                        // when WindowManager has applied the transition.
                         mRuntimeState.scheduleRefresh();
                         return;
                     }
@@ -417,7 +415,13 @@ final class DesktopWindowTransitionController {
         mFullscreenTransitionTasks.remove(taskId);
         if (!success) {
             Log.w(TAG, "fullscreen restore failed task=" + task.taskId
-                    + " message=" + message);
+                    + " message=" + message + ". Forzando geometría estándar.");
+
+            TaskRepository.resizeTaskBounds(task, targetBounds, resizeResult -> {
+                mFullscreenRestoreBounds.remove(taskId);
+                mAppRequestedFullscreenTasks.remove(taskId);
+                mRuntimeState.scheduleRefresh();
+            });
             return;
         }
         mFullscreenRestoreBounds.remove(taskId);
