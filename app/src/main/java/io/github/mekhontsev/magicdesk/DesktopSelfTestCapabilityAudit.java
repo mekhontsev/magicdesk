@@ -16,6 +16,13 @@ final class DesktopSelfTestCapabilityAudit {
 
     static boolean run(
             final Context context, final DesktopSelfTestResult result) {
+        return run(context, result, DesktopSelfTestTarget.SIMULATED);
+    }
+
+    static boolean run(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final DesktopSelfTestTarget target) {
         final String output;
         try {
             output = ShellAccess.probeCapabilities();
@@ -123,18 +130,30 @@ final class DesktopSelfTestCapabilityAudit {
                 "cn.nubia.touping.HomeActivity",
                 "API-NUBIA-006", "RedMagic SmartCast entry point");
 
-        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+        final int activeDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final DesktopDisplayTarget.Kind activeKind =
+                DesktopRuntimeBridge.getDesktopTargetKind(activeDisplayId);
+        final boolean wired = target == DesktopSelfTestTarget.EXTERNAL
+                && activeKind == DesktopDisplayTarget.Kind.WIRED;
+        final boolean wireless = target == DesktopSelfTestTarget.EXTERNAL
+                && activeKind == DesktopDisplayTarget.Kind.WIRELESS;
+        result.add(wired ? DesktopSelfTestResult.State.PASS
+                        : DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-DP-001", "Physical DisplayPort and EDID",
-                "not exercised by the simulated self-test");
-        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                wired ? "wired desktop selected"
+                        : "wired display not selected");
+        result.add(wireless ? DesktopSelfTestResult.State.PASS
+                        : DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-WIRELESS-001", "Miracast transport",
-                "not exercised by the simulated self-test");
+                wireless ? "wireless desktop selected"
+                        : "wireless display not selected");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-INPUT-001", "Physical keyboard and mouse",
-                "not exercised by the simulated self-test");
+                "self-test input is injected rather than read from hardware");
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-TOUCHPANEL-001", "Phone Touch Panel input routing",
-                "not exercised by the simulated self-test");
+                "not exercised by automated input");
         return runnable;
     }
 

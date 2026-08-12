@@ -419,6 +419,13 @@
     <string name="diagnostics_copied">Diagnostics report copied</string>
     <string name="diagnostics_copy_failed">Clipboard unavailable</string>
     <string name="diagnostics_self_test">Run desktop self-test</string>
+    <string name="diagnostics_self_test_target">Test display</string>
+    <string name="diagnostics_self_test_simulated">Simulated display</string>
+    <string name="diagnostics_self_test_external">External display</string>
+    <string name="diagnostics_self_test_phone">Phone display</string>
+    <string name="diagnostics_self_test_preparing">Preparing the selected desktop&#8230;</string>
+    <string name="diagnostics_self_test_connect_wireless">Connect a wireless display in SmartCast, then run the self-test again.</string>
+    <string name="diagnostics_self_test_prepare_failed">The selected desktop could not be prepared.</string>
     <string name="diagnostics_self_test_running">Running desktop and API self-test&#8230;</string>
     <string name="diagnostics_self_test_complete">Self-test complete: %1$s</string>
     <string name="diagnostics_self_test_close_desktop">Close Desktop before running the self-test. The display may remain connected.</string>

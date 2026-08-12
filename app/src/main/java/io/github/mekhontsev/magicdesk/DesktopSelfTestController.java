@@ -7,6 +7,7 @@ import android.hardware.display.DisplayManager;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.ViewConfiguration;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -21,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Runs a manually requested black-box desktop test on an Android overlay display. */
+/** Runs a manually requested black-box test on a selected desktop display. */
 final class DesktopSelfTestController {
     private static final String PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk";
@@ -29,19 +30,18 @@ final class DesktopSelfTestController {
             PACKAGE_NAME + ".DesktopSelfTestActivity";
     private static final String DESKTOP_CLASS =
             PACKAGE_NAME + ".DesktopActivity";
-    private static final int EXPECTED_WIDTH = 1920;
-    private static final int EXPECTED_HEIGHT = 1080;
-    private static final int EXPECTED_DENSITY = 160;
+    private static final int SIMULATED_WIDTH = 1920;
+    private static final int SIMULATED_HEIGHT = 1080;
+    private static final int SIMULATED_DENSITY = 160;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int RESIZE_EDGE_OUTSET_PX = 8;
-    // Android 16 WMShell caption dimensions on the fixed 160 dpi display.
+    // Android 16 WMShell caption dimensions, using 160 dpi as the baseline.
     private static final int CAPTION_BUTTON_CENTER_Y_PX = 20;
     private static final int MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX = 82;
     private static final int SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP = 96;
     private static final int SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP = 44;
     private static final int SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP = 46;
-    private static final int PLACEMENT_ALIGNMENT_TOLERANCE_PX = 100;
     private static final long STEP_TIMEOUT_MILLIS = 10_000L;
     private static final long POLL_MILLIS = 100L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
@@ -54,6 +54,19 @@ final class DesktopSelfTestController {
     }
 
     static DesktopSelfTestResult run(final Context context) {
+        return run(context, DesktopSelfTestTarget.SIMULATED);
+    }
+
+    static DesktopSelfTestResult run(
+            final Context context,
+            final DesktopSelfTestTarget requestedTarget) {
+        return run(context, requestedTarget, false);
+    }
+
+    static DesktopSelfTestResult run(
+            final Context context,
+            final DesktopSelfTestTarget requestedTarget,
+            final boolean restoreExternalMirror) {
         final DesktopSelfTestResult result =
                 new DesktopSelfTestResult(System.currentTimeMillis());
         if (context == null) {
@@ -69,9 +82,15 @@ final class DesktopSelfTestController {
             return finish(result, appContext);
         }
 
+        final DesktopSelfTestTarget target = requestedTarget == null
+                ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
         int displayId = Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
         try {
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-TARGET-001",
+                    "Selected test display",
+                    target.name());
             require(result, "API-SHELL-001", "Shizuku command service", () -> {
                 final int uid = ShellAccess.connectAndGetUid();
                 if (!ShellAccess.isSupportedServiceUid(uid)) {
@@ -79,35 +98,41 @@ final class DesktopSelfTestController {
                 }
                 return "uid=" + uid;
             });
-            if (!DesktopSelfTestCapabilityAudit.run(appContext, result)) {
+            if (!DesktopSelfTestCapabilityAudit.run(
+                    appContext, result, target)) {
                 throw new AbortSelfTest();
             }
-            requireNoActiveDesktop(result);
-            requireNoConfiguredOverlay(result);
-            requireNoStaleDesktopRepositories(result);
-
-            lease = require(result,
-                    "DISPLAY-001", "Create simulated display lease", () -> {
-                        final SimulatedDisplayLease opened =
-                                SimulatedDisplayLease.open();
-                        return opened;
-                    }, "owned Shizuku stream with automatic restoration");
-            displayId = require(result,
-                    "DISPLAY-002", "Create simulated display", () -> {
-                        final int created = waitForOverlayDisplay();
-                        if (created <= Display.DEFAULT_DISPLAY) {
-                            throw new IOException(
-                                    "Android did not create "
-                                            + SimulatedDisplayLease.SPEC);
-                        }
-                        return Integer.valueOf(created);
-                    }, null).intValue();
-            verifyDisplayGeometry(appContext, displayId, result);
+            if (target == DesktopSelfTestTarget.SIMULATED) {
+                requireNoActiveDesktop(result);
+                requireNoConfiguredOverlay(result);
+                requireNoStaleDesktopRepositories(result);
+                lease = require(result,
+                        "DISPLAY-001", "Create simulated display lease", () -> {
+                            final SimulatedDisplayLease opened =
+                                    SimulatedDisplayLease.open();
+                            return opened;
+                        }, "owned Shizuku stream with automatic restoration");
+                displayId = require(result,
+                        "DISPLAY-002", "Create simulated display", () -> {
+                            final int created = waitForOverlayDisplay();
+                            if (created <= Display.DEFAULT_DISPLAY) {
+                                throw new IOException(
+                                        "Android did not create "
+                                                + SimulatedDisplayLease.SPEC);
+                            }
+                            return Integer.valueOf(created);
+                        }, null).intValue();
+            } else {
+                displayId = requirePreparedDisplay(target, result);
+            }
+            verifyDisplayGeometry(appContext, displayId, target, result);
 
             final int targetDisplayId = displayId;
-            require(result, "DESKTOP-001", "Launch desktop session", () -> {
-                if (!DesktopSessionController.show(
-                        DesktopDisplayTarget.simulated(targetDisplayId)).ready) {
+            require(result, "DESKTOP-001", "Prepare desktop session", () -> {
+                if (target == DesktopSelfTestTarget.SIMULATED
+                        && !DesktopSessionController.show(
+                                DesktopDisplayTarget.simulated(
+                                        targetDisplayId)).ready) {
                     throw new IOException("desktop did not become ready");
                 }
                 final TaskStackParser.Entry desktop = waitForTask(
@@ -121,7 +146,8 @@ final class DesktopSelfTestController {
                                 entry -> "fullscreen".equals(entry.windowingMode));
                         return task;
                     }, "fullscreen host ready");
-            verifyDesktopViewport(targetDisplayId, result);
+            final DesktopSelfTestGeometry geometry = verifyDesktopViewport(
+                    appContext, targetDisplayId, result);
             require(result, "DESKTOP-005", "Recreate desktop activity", () -> {
                 final int previousHostIdentity =
                         DesktopRuntimeBridge.getDesktopHostIdentity(
@@ -164,20 +190,23 @@ final class DesktopSelfTestController {
             });
             clearTextMarker(appContext);
             final String token = Long.toHexString(System.nanoTime());
-            final Rect windowBounds = new Rect(160, 120, 960, 720);
+            final Rect requestedWindowBounds = geometry.primaryWindow();
             final DesktopTaskLaunchProbe.Observation initialLaunch = require(
                     result,
-                    "WINDOW-001", "Launch test window through task display area",
+                    "WINDOW-001", "Launch test window directly as freeform",
                     () -> launchFixtureAndObserve(
-                            targetDisplayId, token, windowBounds));
+                            targetDisplayId,
+                            token,
+                            requestedWindowBounds));
             final int targetFixtureTaskId = initialLaunch.taskId;
             result.add(initialLaunch.windowingMode == WINDOWING_MODE_FREEFORM
-                            && equalsBounds(initialLaunch, windowBounds)
+                            && geometry.containsWindow(initialLaunch.bounds())
                             ? DesktopSelfTestResult.State.PASS
                             : DesktopSelfTestResult.State.FAIL,
                     "WINDOW-007", "Initial task window state",
-                    initialLaunch.toString());
-            require(result,
+                    initialLaunch + ", requested="
+                            + formatBounds(requestedWindowBounds));
+            final TaskStackParser.Entry settledWindow = require(result,
                     "WINDOW-010",
                     "Verify direct launch settles as freeform",
                     () -> {
@@ -187,27 +216,39 @@ final class DesktopSelfTestController {
                                 entry -> entry.taskId == targetFixtureTaskId
                                         && "freeform".equals(
                                                 entry.windowingMode)
-                                        && equalsBounds(
-                                                entry.bounds,
-                                                windowBounds));
-                        return "task=" + task.taskId
-                                + ", bounds=" + formatBounds(task.bounds);
+                                        && geometry.containsWindow(
+                                                toRect(entry.bounds)));
+                        return task;
                     });
-            require(result,
-                    "WINDOW-009",
-                    "Move existing task to phone fullscreen",
-                    () -> reopenTask(
-                            Display.DEFAULT_DISPLAY,
-                            targetFixtureTaskId,
-                            null));
-            require(result,
-                    "WINDOW-008",
-                    "Move phone task directly to external freeform",
-                    () -> reopenTaskAsFreeform(
-                            targetDisplayId,
-                            targetFixtureTaskId,
-                            desktopTask.taskId,
-                            windowBounds));
+            final Rect windowBounds = toRect(settledWindow.bounds);
+            final DesktopSelfTestGeometry settledGeometry =
+                    geometry.withObservedWindow(windowBounds);
+            if (target == DesktopSelfTestTarget.PHONE) {
+                result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                        "WINDOW-009",
+                        "Move existing task to phone fullscreen",
+                        "the selected desktop already uses display 0");
+                result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                        "WINDOW-008",
+                        "Move phone task directly to external freeform",
+                        "an external display was not selected");
+            } else {
+                require(result,
+                        "WINDOW-009",
+                        "Move existing task to phone fullscreen",
+                        () -> reopenTask(
+                                Display.DEFAULT_DISPLAY,
+                                targetFixtureTaskId,
+                                null));
+                require(result,
+                        "WINDOW-008",
+                        "Move phone task directly to external freeform",
+                        () -> reopenTaskAsFreeform(
+                                targetDisplayId,
+                                targetFixtureTaskId,
+                                desktopTask.taskId,
+                                windowBounds));
+            }
             check(result,
                     "WINDOW-013",
                     "Keep desktop background rendered after task move",
@@ -235,7 +276,7 @@ final class DesktopSelfTestController {
             check(result, "CAPTION-001", "Verify native caption structure", () ->
                     inspectCaptionStructure(
                             targetFixtureTaskId, windowBounds));
-            check(result, "INPUT-001", "Route input to simulated display", () -> {
+            check(result, "INPUT-001", "Route input to selected display", () -> {
                 clearTextMarker(appContext);
                 final int x = windowBounds.centerX();
                 final int y = windowBounds.centerY();
@@ -259,7 +300,8 @@ final class DesktopSelfTestController {
             verifyResizeCursor(
                     result,
                     targetDisplayId,
-                    targetFixtureTaskId);
+                    targetFixtureTaskId,
+                    settledGeometry);
             require(result, "WINDOW-003", "Enter true fullscreen", () -> {
                 ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
                         targetDisplayId, targetFixtureTaskId));
@@ -302,7 +344,8 @@ final class DesktopSelfTestController {
                     result,
                     targetDisplayId,
                     targetFixtureTaskId,
-                    token);
+                    token,
+                    settledGeometry);
         } catch (AbortSelfTest ignored) {
             // The failing required step has already been added to the result.
         } catch (RuntimeException error) {
@@ -310,7 +353,11 @@ final class DesktopSelfTestController {
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
-            cleanup(result, displayId, lease);
+            cleanup(result,
+                    target,
+                    displayId,
+                    lease,
+                    restoreExternalMirror);
             RUNNING.set(false);
         }
         return finish(result, appContext);
@@ -340,6 +387,34 @@ final class DesktopSelfTestController {
         }
         result.add(DesktopSelfTestResult.State.PASS,
                 "SELFTEST-PRECONDITION-001", "No active desktop session", "ready");
+    }
+
+    private static int requirePreparedDisplay(
+            final DesktopSelfTestTarget target,
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        final int displayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final DesktopDisplayTarget.Kind kind =
+                DesktopRuntimeBridge.getDesktopTargetKind(displayId);
+        if (!target.matchesDisplay(displayId, kind)) {
+            failAndAbort(result,
+                    "SELFTEST-PRECONDITION-001",
+                    "Selected desktop session is ready",
+                    "active display=" + displayId + ", target=" + target);
+        }
+        if (target == DesktopSelfTestTarget.EXTERNAL) {
+            if (kind != DesktopDisplayTarget.Kind.WIRED
+                    && kind != DesktopDisplayTarget.Kind.WIRELESS) {
+                failAndAbort(result,
+                        "SELFTEST-PRECONDITION-001",
+                        "Selected desktop session is ready",
+                        "external transport is unavailable: " + kind);
+            }
+        }
+        result.add(DesktopSelfTestResult.State.PASS,
+                "SELFTEST-PRECONDITION-001",
+                "Selected desktop session is ready",
+                "target=" + target + ", display=" + displayId);
+        return displayId;
     }
 
     private static void requireNoConfiguredOverlay(
@@ -388,9 +463,11 @@ final class DesktopSelfTestController {
     }
 
     private static void verifyDisplayGeometry(
-            final Context context, final int displayId,
+            final Context context,
+            final int displayId,
+            final DesktopSelfTestTarget target,
             final DesktopSelfTestResult result) throws AbortSelfTest {
-        require(result, "DISPLAY-003", "Verify simulated display geometry", () -> {
+        require(result, "DISPLAY-003", "Verify selected display geometry", () -> {
             final DisplayManager manager = context.getSystemService(DisplayManager.class);
             if (manager == null) {
                 throw new IOException("DisplayManager unavailable");
@@ -401,23 +478,38 @@ final class DesktopSelfTestController {
                 if (display != null) {
                     final DisplayMetrics metrics = new DisplayMetrics();
                     display.getRealMetrics(metrics);
-                    if (metrics.widthPixels == EXPECTED_WIDTH
-                            && metrics.heightPixels == EXPECTED_HEIGHT
-                            && metrics.densityDpi == EXPECTED_DENSITY) {
+                    final boolean expected =
+                            target != DesktopSelfTestTarget.SIMULATED
+                            || (metrics.widthPixels == SIMULATED_WIDTH
+                                    && metrics.heightPixels == SIMULATED_HEIGHT
+                                    && metrics.densityDpi
+                                            == SIMULATED_DENSITY);
+                    if (metrics.widthPixels > 0
+                            && metrics.heightPixels > 0
+                            && metrics.densityDpi > 0
+                            && expected) {
                         return metrics.widthPixels + "x" + metrics.heightPixels
-                                + "/" + metrics.densityDpi;
+                                + "/" + metrics.densityDpi
+                                + " name=" + display.getName();
                     }
                 }
                 SystemClock.sleep(POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
-            throw new IOException("expected " + SimulatedDisplayLease.SPEC);
+            throw new IOException(target == DesktopSelfTestTarget.SIMULATED
+                    ? "expected " + SimulatedDisplayLease.SPEC
+                    : "selected display geometry is unavailable");
         });
     }
 
-    private static void verifyDesktopViewport(
-            final int displayId, final DesktopSelfTestResult result)
+    private static DesktopSelfTestGeometry verifyDesktopViewport(
+            final Context context,
+            final int displayId,
+            final DesktopSelfTestResult result)
             throws AbortSelfTest {
-        require(result, "DESKTOP-003", "Verify desktop viewport and taskbar", () -> {
+        return require(result,
+                "DESKTOP-003",
+                "Verify desktop viewport and taskbar",
+                () -> {
             final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
             do {
                 final DesktopViewport viewport =
@@ -426,18 +518,35 @@ final class DesktopSelfTestController {
                         DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
                 if (viewport != null && workArea != null) {
                     final Rect display = viewport.displayBounds();
-                    if (display.width() == EXPECTED_WIDTH
-                            && display.height() == EXPECTED_HEIGHT
+                    final int densityDpi = displayDensity(context, displayId);
+                    if (display.width() > 0
+                            && display.height() > 0
                             && workArea.left == display.left
                             && workArea.right == display.right
-                            && workArea.bottom < display.bottom) {
-                        return viewport + ", work=" + workArea.toShortString();
+                            && workArea.top >= display.top
+                            && workArea.bottom < display.bottom
+                            && densityDpi > 0) {
+                        return new DesktopSelfTestGeometry(
+                                display, workArea, densityDpi);
                     }
                 }
                 SystemClock.sleep(POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
             throw new IOException("desktop viewport did not settle");
-        });
+        }, null);
+    }
+
+    private static int displayDensity(
+            final Context context, final int displayId) {
+        final DisplayManager manager = context.getSystemService(
+                DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(displayId);
+        if (display == null) {
+            return 0;
+        }
+        return context.createDisplayContext(display)
+                .getResources().getDisplayMetrics().densityDpi;
     }
 
     private static void verifyDesktopWallpaper(
@@ -472,7 +581,9 @@ final class DesktopSelfTestController {
             final String output = ShellAccess.run(
                     TaskDisplayAreaLaunchCommand
                             .createSelfTestLaunchCommand(
-                                    displayId, token, bounds));
+                                    displayId,
+                                    token,
+                                    bounds));
             if (!output.contains("task-display-area-launch=")) {
                 throw new IOException(output.trim());
             }
@@ -599,7 +710,8 @@ final class DesktopSelfTestController {
     private static void verifyResizeCursor(
             final DesktopSelfTestResult result,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final DesktopSelfTestGeometry geometry) {
         final TaskStackParser.Entry task;
         try {
             task = waitForTask(displayId, FIXTURE_CLASS,
@@ -618,13 +730,16 @@ final class DesktopSelfTestController {
         try (DesktopCursorTraceProbe probe = DesktopCursorTraceProbe.open()) {
             requirePointerHover(displayId, centerX, centerY);
             requirePointerHover(displayId,
-                    task.bounds.right + RESIZE_EDGE_OUTSET_PX, centerY);
+                    task.bounds.right
+                            + geometry.scaleFrom160Dpi(
+                                    RESIZE_EDGE_OUTSET_PX),
+                    centerY);
             SystemClock.sleep(POLL_MILLIS);
             final String transition = probe.readPointerTransition();
             if (transition == null) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
                         "INPUT-004", "Show native mouse resize cursor",
-                        "simulated display exposes no visual cursor state and "
+                        "the selected display exposes no visual cursor state and "
                                 + "WMShell did not expose a transition trace");
             } else if (!DesktopCursorTraceProbe.isPointerType(
                     transition,
@@ -648,9 +763,10 @@ final class DesktopSelfTestController {
             final DesktopSelfTestResult result,
             final int displayId,
             final int firstTaskId,
-            final String firstToken) throws AbortSelfTest {
-        final Rect leftBounds = new Rect(80, 100, 940, 900);
-        final Rect rightBounds = new Rect(980, 100, 1840, 900);
+            final String firstToken,
+            final DesktopSelfTestGeometry geometry) throws AbortSelfTest {
+        final Rect leftBounds = geometry.leftWindow();
+        final Rect rightBounds = geometry.rightWindow();
         final String secondToken = Long.toHexString(System.nanoTime());
         final DesktopTaskLaunchProbe.Observation secondLaunch = require(
                 result,
@@ -659,7 +775,9 @@ final class DesktopSelfTestController {
                 () -> {
                     final DesktopTaskLaunchProbe.Observation observation =
                             launchFixtureAndObserve(
-                                    displayId, secondToken, rightBounds);
+                                    displayId,
+                                    secondToken,
+                                    rightBounds);
                     if (observation.taskId == firstTaskId) {
                         throw new IOException(
                                 "Android reused task " + firstTaskId);
@@ -728,7 +846,8 @@ final class DesktopSelfTestController {
                 firstTaskId,
                 firstToken,
                 secondTaskId,
-                secondToken);
+                secondToken,
+                geometry);
     }
 
     private static void runNativeCaptionPlacementFocusTests(
@@ -738,7 +857,8 @@ final class DesktopSelfTestController {
             final int firstTaskId,
             final String firstToken,
             final int secondTaskId,
-            final String secondToken) {
+            final String secondToken,
+            final DesktopSelfTestGeometry geometry) {
         final TaskStackParser.Entry left = captionSnap(
                 context,
                 result,
@@ -746,7 +866,8 @@ final class DesktopSelfTestController {
                 "Place first window left through native caption",
                 displayId,
                 firstTaskId,
-                true);
+                true,
+                geometry);
         final TaskStackParser.Entry right = captionSnap(
                 context,
                 result,
@@ -754,7 +875,8 @@ final class DesktopSelfTestController {
                 "Place second window right through native caption",
                 displayId,
                 secondTaskId,
-                false);
+                false,
+                geometry);
         if (left == null || right == null) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "FOCUS-006",
@@ -772,7 +894,7 @@ final class DesktopSelfTestController {
                 "NATIVE-SNAP-003",
                 "Verify native side-by-side placement",
                 () -> inspectSideBySidePlacement(
-                        leftBounds, rightBounds));
+                        leftBounds, rightBounds, geometry));
         check(result,
                 "FOCUS-006",
                 "Switch mouse focus after native caption placement",
@@ -801,20 +923,36 @@ final class DesktopSelfTestController {
             final String label,
             final int displayId,
             final int taskId,
-            final boolean left) {
+            final boolean left,
+            final DesktopSelfTestGeometry geometry) {
         try {
-            final TaskStackParser.Entry before = waitForTask(
+            TaskStackParser.Entry before = waitForTask(
                     displayId,
                     FIXTURE_CLASS,
                     task -> task.taskId == taskId
                             && "freeform".equals(task.windowingMode)
                             && task.visible);
+            final Rect captionBounds = geometry.captionControlsWindow(!left);
+            if (!equalsBounds(before.bounds, captionBounds)) {
+                ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
+                        displayId, taskId, captionBounds));
+                before = waitForTask(
+                        displayId,
+                        FIXTURE_CLASS,
+                        task -> task.taskId == taskId
+                                && "freeform".equals(task.windowingMode)
+                                && task.visible
+                                && equalsBounds(task.bounds, captionBounds));
+            }
+            focusTaskThroughDesktop(displayId, taskId);
+            waitForFrontTask(displayId, taskId);
+            waitForCaptionInputFrame(displayId, taskId, captionBounds);
             final Rect beforeBounds = toRect(before.bounds);
-            openNativeMaximizeMenu(displayId, before.bounds);
+            openNativeMaximizeMenu(
+                    displayId, before.bounds, geometry);
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
                     displayId, taskId);
-            // The detached SystemUI menu uses phone density even though its
-            // caption belongs to the 160 dpi simulated display.
+            // The detached SystemUI menu is laid out in phone-display density.
             final float menuDensity = defaultDisplayDensity(context);
             final int x = menu.frame.right - Math.round(menuDensity * (left
                     ? SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP
@@ -833,7 +971,8 @@ final class DesktopSelfTestController {
                                 && "freeform".equals(task.windowingMode)
                                 && task.visible
                                 && !equalsBounds(task.bounds, beforeBounds)
-                                && isSnapped(task.bounds, left));
+                                && geometry.isSnapped(
+                                        toRect(task.bounds), left));
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
@@ -854,11 +993,14 @@ final class DesktopSelfTestController {
 
     private static void openNativeMaximizeMenu(
             final int displayId,
-            final TaskStackParser.Bounds bounds) throws IOException {
+            final TaskStackParser.Bounds bounds,
+            final DesktopSelfTestGeometry geometry) throws IOException {
         final int x = bounds.right
-                - MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX;
-        final int y = bounds.top + CAPTION_BUTTON_CENTER_Y_PX;
-        requirePointerHover(displayId, x, y);
+                - geometry.scaleFrom160Dpi(
+                        MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
+        final int y = bounds.top + geometry.scaleFrom160Dpi(
+                CAPTION_BUTTON_CENTER_Y_PX);
+        requireTouchLongPress(displayId, x, y);
     }
 
     private static float defaultDisplayDensity(final Context context)
@@ -900,32 +1042,11 @@ final class DesktopSelfTestController {
                 "native maximize menu did not open for task " + taskId);
     }
 
-    private static boolean isSnapped(
-            final TaskStackParser.Bounds bounds,
-            final boolean left) {
-        if (bounds == null || bounds.isEmpty()) {
-            return false;
-        }
-        final int midpoint = EXPECTED_WIDTH / 2;
-        final int edgeTolerance = EXPECTED_WIDTH / 10;
-        return left
-                ? bounds.left <= edgeTolerance
-                        && Math.abs(bounds.right - midpoint) <= edgeTolerance
-                : bounds.right >= EXPECTED_WIDTH - edgeTolerance
-                        && Math.abs(bounds.left - midpoint) <= edgeTolerance;
-    }
-
     private static String inspectSideBySidePlacement(
             final Rect left,
-            final Rect right) throws IOException {
-        if (left == null || right == null
-                || left.isEmpty() || right.isEmpty()
-                || left.left >= right.left
-                || left.right > right.left
-                || Math.abs(left.top - right.top)
-                        > PLACEMENT_ALIGNMENT_TOLERANCE_PX
-                || Math.abs(left.bottom - right.bottom)
-                        > PLACEMENT_ALIGNMENT_TOLERANCE_PX) {
+            final Rect right,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        if (!geometry.isNativeSideBySide(left, right)) {
             throw new IOException("unexpected native placement: left="
                     + left + ", right=" + right);
         }
@@ -985,6 +1106,45 @@ final class DesktopSelfTestController {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("input focus did not settle on task "
                 + taskId + " on display " + displayId);
+    }
+
+    private static void waitForCaptionInputFrame(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        TaskInputWindowParser.Entry lastCaption = null;
+        do {
+            final TaskInputWindowParser.Entry caption =
+                    TaskInputWindowParser.findCaption(
+                            ShellAccess.run("/system/bin/dumpsys input"),
+                            taskId);
+            lastCaption = caption;
+            if (caption != null
+                    && caption.displayId == displayId
+                    && caption.hasInputChannel()
+                    && caption.hasTouchableRegion()
+                    && ((caption.frame.left == bounds.left
+                            && caption.frame.top == bounds.top
+                            && caption.frame.right == bounds.right)
+                        || (caption.frame.left == 0
+                            && caption.frame.top == 0
+                            && caption.frame.right == bounds.width()))) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("caption did not settle for task " + taskId
+                + " at " + bounds + "; last="
+                + (lastCaption == null
+                        ? "unavailable"
+                        : "display=" + lastCaption.displayId
+                                + ", frame=" + lastCaption.frame
+                                + ", channel="
+                                + lastCaption.hasInputChannel()
+                                + ", touchable="
+                                + lastCaption.hasTouchableRegion()));
     }
 
     private static void focusTaskThroughDesktop(
@@ -1173,6 +1333,16 @@ final class DesktopSelfTestController {
                 "hover " + displayId + " " + x + " " + y));
     }
 
+    private static void requireTouchLongPress(
+            final int displayId,
+            final int x,
+            final int y) throws IOException {
+        final long duration = ViewConfiguration.getLongPressTimeout() + 200L;
+        ShellAccess.run(pointerCommand(
+                "long-press " + displayId + " " + x + " " + y
+                        + " " + duration));
+    }
+
     private static String pointerCommand(final String arguments) {
         return AppProcessCommand.run(
                 "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
@@ -1266,13 +1436,14 @@ final class DesktopSelfTestController {
 
     private static void cleanup(
             final DesktopSelfTestResult result,
+            final DesktopSelfTestTarget target,
             final int displayId,
-            final SimulatedDisplayLease lease) {
+            final SimulatedDisplayLease lease,
+            final boolean restoreExternalMirror) {
         final StringBuilder detail = new StringBuilder();
         boolean clean = true;
         if (ShellAccess.isReady()) {
             try {
-                DesktopSelfTestActivity.finishActiveTask();
                 removeFixtureTasks();
                 waitForTaskAbsent(FIXTURE_CLASS);
             } catch (IOException error) {
@@ -1281,23 +1452,44 @@ final class DesktopSelfTestController {
                         .append(usefulMessage(error)).append("; ");
             }
         }
-        if (displayId > Display.DEFAULT_DISPLAY) {
-            try {
-                closeDesktopSession(displayId);
-            } catch (IOException error) {
-                clean = false;
-                detail.append("desktop close: ")
-                        .append(usefulMessage(error)).append("; ");
+        if (displayId >= Display.DEFAULT_DISPLAY) {
+            if (target == DesktopSelfTestTarget.EXTERNAL) {
+                PhoneTouchpadController.release(displayId);
             }
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
                     waitForTaskAbsent(DESKTOP_CLASS);
-                    waitForDesktopRepositoryEmpty(displayId);
+                    if (target == DesktopSelfTestTarget.PHONE) {
+                        waitForLocalDesktopCleanup();
+                    }
                 } catch (IOException error) {
                     clean = false;
                     detail.append("desktop task quiescence: ")
                             .append(usefulMessage(error)).append("; ");
                 }
+            }
+        }
+        if (ShellAccess.isReady()
+                && displayId >= Display.DEFAULT_DISPLAY
+                && (target == DesktopSelfTestTarget.PHONE
+                        || target == DesktopSelfTestTarget.SIMULATED)) {
+            try {
+                waitForDesktopRepositoryEmpty(displayId);
+            } catch (IOException error) {
+                clean = false;
+                detail.append("desktop repository cleanup: ")
+                        .append(usefulMessage(error)).append("; ");
+            }
+        }
+        if (target == DesktopSelfTestTarget.EXTERNAL
+                && restoreExternalMirror) {
+            try {
+                restoreMirrorMode();
+            } catch (IOException error) {
+                clean = false;
+                detail.append("mirror restore: ")
+                        .append(usefulMessage(error)).append("; ");
             }
         }
         if (lease != null) {
@@ -1309,7 +1501,8 @@ final class DesktopSelfTestController {
                         .append(usefulMessage(error)).append("; ");
             }
         }
-        if (displayId > Display.DEFAULT_DISPLAY) {
+        if (target == DesktopSelfTestTarget.SIMULATED
+                && displayId > Display.DEFAULT_DISPLAY) {
             final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
             boolean removed = false;
             do {
@@ -1356,25 +1549,27 @@ final class DesktopSelfTestController {
                 detail.append("stale fixture cleanup: ")
                         .append(usefulMessage(error)).append("; ");
             }
-            try {
-                final String configured = ShellAccess.run(
-                        "/system/bin/settings get global "
-                                + SimulatedDisplayLease.SETTING).trim();
-                if (!configured.isEmpty() && !"null".equals(configured)) {
+            if (target == DesktopSelfTestTarget.SIMULATED) {
+                try {
+                    final String configured = ShellAccess.run(
+                            "/system/bin/settings get global "
+                                    + SimulatedDisplayLease.SETTING).trim();
+                    if (!configured.isEmpty() && !"null".equals(configured)) {
+                        clean = false;
+                        detail.append(SimulatedDisplayLease.SETTING).append('=')
+                                .append(configured).append("; ");
+                    }
+                } catch (IOException error) {
                     clean = false;
-                    detail.append(SimulatedDisplayLease.SETTING).append('=')
-                            .append(configured).append("; ");
+                    detail.append("setting verification: ")
+                            .append(usefulMessage(error)).append("; ");
                 }
-            } catch (IOException error) {
-                clean = false;
-                detail.append("setting verification: ")
-                        .append(usefulMessage(error)).append("; ");
             }
         }
         result.add(clean ? DesktopSelfTestResult.State.PASS
                         : DesktopSelfTestResult.State.FAIL,
-                "CLEANUP-001", "Restore simulated-display state",
-                clean ? "complete" : detail.toString());
+                "CLEANUP-001", "Restore self-test environment",
+                clean ? "target=" + target + ", complete" : detail.toString());
     }
 
     private static void removeFixtureTasks() throws IOException {
@@ -1384,34 +1579,61 @@ final class DesktopSelfTestController {
                     && !hasClass(task.topActivityName, FIXTURE_CLASS)) {
                 continue;
             }
-            ShellAccess.run(AppProcessCommand.run(
-                    "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                    "remove " + task.taskId));
+            try {
+                ShellAccess.run(AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                        "remove " + task.taskId));
+            } catch (IOException error) {
+                if (taskExists(task.taskId)) {
+                    throw error;
+                }
+            }
+            waitForTaskAbsentFromDesktopRepository(
+                    task.displayId, task.taskId);
         }
     }
 
-    private static void closeDesktopSession(final int displayId)
-            throws IOException {
+    private static boolean taskExists(final int taskId) throws IOException {
+        final String stack = ShellAccess.run(
+                "/system/bin/cmd activity stack list");
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
+            if (task.taskId == taskId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void waitForLocalDesktopCleanup() throws IOException {
+        final Context context = MagicDeskApplication.applicationContext();
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            if (!LocalDesktopSessionState.isCleanupPending(context)) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("phone desktop cleanup did not complete");
+    }
+
+    private static void restoreMirrorMode() throws IOException {
         final CountDownLatch complete = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();
-        ConsoleModeSwitcher.closeDesktop(
-                displayId,
-                DesktopDisplayTarget.Kind.SIMULATED,
-                false,
-                closed -> {
-                    success.set(closed);
-                    complete.countDown();
-                });
+        ConsoleModeSwitcher.switchToMirror(restored -> {
+            success.set(restored);
+            complete.countDown();
+        });
         try {
-            if (!complete.await(STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                throw new IOException("desktop close timed out");
+            if (!complete.await(
+                    STEP_TIMEOUT_MILLIS * 2L, TimeUnit.MILLISECONDS)) {
+                throw new IOException("mirror restore timed out");
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new IOException("desktop close interrupted", error);
+            throw new IOException("mirror restore interrupted", error);
         }
         if (!success.get()) {
-            throw new IOException("desktop close failed");
+            throw new IOException("mirror restore failed");
         }
     }
 
@@ -1477,6 +1699,25 @@ final class DesktopSelfTestController {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("SystemUI retained tasks for display "
                 + displayId);
+    }
+
+    private static void waitForTaskAbsentFromDesktopRepository(
+            final int displayId,
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            final Set<Integer> taskIds =
+                    SystemUiDesktopRepositoryParser.parseTaskIds(
+                            ShellAccess.run(
+                                    PhoneDesktopTaskRecovery.repositoryDumpCommand()),
+                            displayId);
+            if (!taskIds.contains(Integer.valueOf(taskId))) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("SystemUI retained task " + taskId
+                + " for display " + displayId);
     }
 
     private static TaskStackParser.Entry findTaskOnAnyDisplay(
@@ -1593,6 +1834,11 @@ final class DesktopSelfTestController {
     }
 
     private static String formatBounds(final TaskStackParser.Bounds bounds) {
+        return "[" + bounds.left + "," + bounds.top + "]["
+                + bounds.right + "," + bounds.bottom + "]";
+    }
+
+    private static String formatBounds(final Rect bounds) {
         return "[" + bounds.left + "," + bounds.top + "]["
                 + bounds.right + "," + bounds.bottom + "]";
     }

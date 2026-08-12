@@ -92,11 +92,11 @@ final class DesktopRuntimeBridge {
         }
     }
 
-    static void closeExternalDesktopSession(final int externalDisplayId) {
+    static void closeDesktopSession(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
-                || externalDisplayId <= Display.DEFAULT_DISPLAY
-                || sDesktopSessionDisplayId != externalDisplayId) {
+                || displayId < Display.DEFAULT_DISPLAY
+                || sDesktopSessionDisplayId != displayId) {
             return;
         }
         sDesktop.clear();
@@ -111,6 +111,9 @@ final class DesktopRuntimeBridge {
                 activity.finishAndRemoveTask();
             }
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+            }
         };
         if (Looper.myLooper() == Looper.getMainLooper()) {
             close.run();
@@ -150,6 +153,11 @@ final class DesktopRuntimeBridge {
     static boolean isSimulatedDesktopDisplay(final int displayId) {
         return getDesktopTargetKind(displayId)
                 == DesktopDisplayTarget.Kind.SIMULATED;
+    }
+
+    static boolean usesTemporaryLaunchArea(final int displayId) {
+        return displayId == Display.DEFAULT_DISPLAY
+                || isSimulatedDesktopDisplay(displayId);
     }
 
     static DesktopViewport getDesktopViewport(final int displayId) {

@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
+import android.graphics.Rect;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
@@ -144,6 +145,10 @@ final class DesktopTaskLaunchProbe implements Closeable {
             this.top = top;
             this.right = right;
             this.bottom = bottom;
+        }
+
+        Rect bounds() {
+            return new Rect(left, top, right, bottom);
         }
 
         @Override

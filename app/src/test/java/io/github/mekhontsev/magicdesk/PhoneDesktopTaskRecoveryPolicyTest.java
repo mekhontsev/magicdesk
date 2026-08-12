@@ -74,6 +74,20 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void revivedMagicDeskTaskIsExcludedFromRecovery() {
+        final FakeEnvironment environment = new FakeEnvironment(false);
+        environment.packageName = "io.github.mekhontsev.magicdesk";
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasReviveCommand());
+        assertFalse(environment.hasFullscreenTransition());
+    }
+
+    @Test
     public void taskMigratedFromRemovedDisplayIsReconciled() {
         final FakeEnvironment environment = new FakeEnvironment(true);
         environment.freeform = false;
@@ -191,6 +205,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean removedRepositoryContainsTask;
         boolean removedRepositoryContainsSecondTask;
         boolean reviveMissingTask = true;
+        String packageName = "net.sf.golly";
         int stackReads;
         int taskAppearsAfterStackReads = -1;
 
@@ -280,17 +295,24 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         }
 
         private String stackOutput() {
-            return stackOutput(freeform);
+            return stackOutput(freeform, packageName);
         }
 
         private static String stackOutput(final boolean freeform) {
+            return stackOutput(freeform, "net.sf.golly");
+        }
+
+        private static String stackOutput(
+                final boolean freeform,
+                final String packageName) {
             return "RootTask id=42 bounds=[0,0][1080,2400]"
                     + " displayId=0 userId=0\n"
                     + " configuration={mWindowingMode="
                     + (freeform ? "freeform" : "fullscreen")
                     + " mActivityType=standard}\n"
-                    + " taskId=42: net.sf.golly/.MainActivity "
-                    + "topActivity=ComponentInfo{net.sf.golly/.MainActivity} "
+                    + " taskId=42: " + packageName + "/.MainActivity "
+                    + "topActivity=ComponentInfo{" + packageName
+                    + "/.MainActivity} "
                     + "visible=true bounds=[100,100][800,1200]\n";
         }
 

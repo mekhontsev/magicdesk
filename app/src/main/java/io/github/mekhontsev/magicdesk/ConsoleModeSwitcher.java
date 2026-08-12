@@ -135,7 +135,7 @@ final class ConsoleModeSwitcher {
             return;
         }
         if (targetKind == DesktopDisplayTarget.Kind.SIMULATED) {
-            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
             complete(callback, true);
             return;
         }

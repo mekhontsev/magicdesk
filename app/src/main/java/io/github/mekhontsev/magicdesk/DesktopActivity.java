@@ -16,7 +16,6 @@ public final class DesktopActivity extends DesktopShellActivity {
     static Intent createLaunchIntent(final Context context) {
         return new Intent(context, DesktopActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }

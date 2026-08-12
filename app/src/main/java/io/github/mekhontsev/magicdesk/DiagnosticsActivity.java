@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -9,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.Display;
 import android.view.View;
@@ -132,7 +134,7 @@ public final class DiagnosticsActivity extends Activity {
 
         mSelfTest = createButton(
                 R.string.diagnostics_self_test, COLOR_AMBER);
-        mSelfTest.setOnClickListener(view -> runDesktopSelfTest());
+        mSelfTest.setOnClickListener(view -> chooseDesktopSelfTestTarget());
         final LinearLayout.LayoutParams selfTestParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
@@ -171,26 +173,185 @@ public final class DiagnosticsActivity extends Activity {
         }, "MagicDeskDiagnostics").start();
     }
 
-    private void runDesktopSelfTest() {
+    private void chooseDesktopSelfTestTarget() {
         if (mLoading || mSelfTestRunning
                 || DesktopSelfTestController.isRunning()) {
             return;
         }
+        final String[] choices = {
+                getString(R.string.diagnostics_self_test_simulated),
+                getString(R.string.diagnostics_self_test_external),
+                getString(R.string.diagnostics_self_test_phone)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.diagnostics_self_test_target)
+                .setItems(choices, (dialog, which) -> {
+                    if (which == 0) {
+                        prepareSimulatedSelfTest();
+                    } else if (which == 1) {
+                        prepareExternalSelfTest();
+                    } else {
+                        preparePhoneSelfTest();
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void prepareSimulatedSelfTest() {
+        if (beginSelfTestPreparation()) {
+            runDesktopSelfTest(
+                    DesktopSelfTestTarget.SIMULATED, false);
+        }
+    }
+
+    private void preparePhoneSelfTest() {
+        if (!beginSelfTestPreparation()) {
+            return;
+        }
+        DesktopActivity.launchOnDisplay(this, Display.DEFAULT_DISPLAY);
+        waitForPreparedDesktop(DesktopSelfTestTarget.PHONE, false);
+    }
+
+    private void prepareExternalSelfTest() {
+        if (!beginSelfTestPreparation()) {
+            return;
+        }
+        new Thread(() -> {
+            final int wiredDisplayId =
+                    ConsoleDisplayController.findExternalDisplayId();
+            final int wirelessDisplayId =
+                    ConsoleDisplayController.findWirelessDisplayId();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (wiredDisplayId <= Display.DEFAULT_DISPLAY
+                        && wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
+                    finishSelfTestPreparation();
+                    if (WirelessDisplayController.openPicker(this)) {
+                        mStatus.setText(
+                                R.string.diagnostics_self_test_connect_wireless);
+                    } else {
+                        mStatus.setText(
+                                R.string.status_external_display_unavailable);
+                    }
+                    return;
+                }
+                if (wiredDisplayId > Display.DEFAULT_DISPLAY) {
+                    final boolean restoreMirror =
+                            ConsoleDisplayController
+                                    .getActiveConsoleDisplayId()
+                                    <= Display.DEFAULT_DISPLAY;
+                    ConsoleModeSwitcher.showMagicDesk(wiredDisplayId);
+                    waitForPreparedDesktop(
+                            DesktopSelfTestTarget.EXTERNAL,
+                            restoreMirror);
+                } else {
+                    ConsoleModeSwitcher.showDesktop(
+                            DesktopDisplayTarget.wireless(
+                                    wirelessDisplayId));
+                    waitForPreparedDesktop(
+                            DesktopSelfTestTarget.EXTERNAL,
+                            false);
+                }
+            });
+        }, "MagicDeskSelfTestDisplayProbe").start();
+    }
+
+    private boolean beginSelfTestPreparation() {
         if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
                 != Display.INVALID_DISPLAY) {
             mStatus.setText(R.string.diagnostics_self_test_close_desktop);
-            Toast.makeText(
-                    this,
-                    R.string.diagnostics_self_test_close_desktop,
-                    Toast.LENGTH_LONG).show();
-            return;
+            return false;
         }
         mSelfTestRunning = true;
         setActionsEnabled(false);
+        mStatus.setText(R.string.diagnostics_self_test_preparing);
+        return true;
+    }
+
+    private void finishSelfTestPreparation() {
+        mSelfTestRunning = false;
+        setActionsEnabled(true);
+    }
+
+    private void waitForPreparedDesktop(
+            final DesktopSelfTestTarget target,
+            final boolean restoreExternalMirror) {
+        new Thread(() -> {
+            final long deadline = SystemClock.uptimeMillis()
+                    + ConsoleDisplayController.START_TIMEOUT_MS * 2L;
+            boolean ready = false;
+            do {
+                final int displayId =
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                if (target.matchesDisplay(
+                                displayId,
+                                DesktopRuntimeBridge.getDesktopTargetKind(
+                                        displayId))
+                        && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
+                                displayId)) {
+                    ready = true;
+                    break;
+                }
+                SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+            } while (SystemClock.uptimeMillis() < deadline);
+            final boolean prepared = ready;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (prepared) {
+                    runDesktopSelfTest(target, restoreExternalMirror);
+                } else {
+                    abortSelfTestPreparation(
+                            target, restoreExternalMirror);
+                }
+            });
+        }, "MagicDeskSelfTestDesktopWait").start();
+    }
+
+    private void abortSelfTestPreparation(
+            final DesktopSelfTestTarget target,
+            final boolean restoreExternalMirror) {
+        final int displayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        if (target.matchesDisplay(
+                displayId,
+                DesktopRuntimeBridge.getDesktopTargetKind(displayId))) {
+            if (target == DesktopSelfTestTarget.EXTERNAL) {
+                PhoneTouchpadController.release(displayId);
+            }
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
+        }
+        if (target == DesktopSelfTestTarget.EXTERNAL
+                && restoreExternalMirror) {
+            ConsoleModeSwitcher.switchToMirror(success -> runOnUiThread(() -> {
+                finishSelfTestPreparation();
+                mStatus.setText(
+                        R.string.diagnostics_self_test_prepare_failed);
+            }));
+            return;
+        }
+        finishSelfTestPreparation();
+        mStatus.setText(R.string.diagnostics_self_test_prepare_failed);
+    }
+
+    private void runDesktopSelfTest(
+            final DesktopSelfTestTarget target,
+            final boolean restoreExternalMirror) {
+        if (!mSelfTestRunning) {
+            mSelfTestRunning = true;
+            setActionsEnabled(false);
+        }
         mStatus.setText(R.string.diagnostics_self_test_running);
         new Thread(() -> {
             final DesktopSelfTestResult result =
-                    DesktopSelfTestController.run(getApplicationContext());
+                    DesktopSelfTestController.run(
+                            getApplicationContext(),
+                            target,
+                            restoreExternalMirror);
             final String report =
                     CompatibilityDiagnostics.buildReport(getApplicationContext());
             runOnUiThread(() -> {
@@ -202,8 +363,7 @@ public final class DiagnosticsActivity extends Activity {
                 mStatus.setText(getString(
                         R.string.diagnostics_self_test_complete,
                         result.summary()));
-                mSelfTestRunning = false;
-                setActionsEnabled(true);
+                finishSelfTestPreparation();
             });
         }, "MagicDeskDesktopSelfTest").start();
     }

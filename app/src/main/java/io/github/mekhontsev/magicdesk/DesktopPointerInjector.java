@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.graphics.Point;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
@@ -31,6 +32,20 @@ final class DesktopPointerInjector {
 
     @SuppressLint("BlockedPrivateApi")
     static void injectClick(final int displayId, final int button) {
+        try {
+            injectClickAt(
+                    displayId, NubiaMouseController.getPosition(), button);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException(
+                    "could not read pointer position", error);
+        }
+    }
+
+    @SuppressLint("BlockedPrivateApi")
+    static void injectClickAt(
+            final int displayId,
+            final Point position,
+            final int button) {
         validateDisplay(displayId);
         if (button != MotionEvent.BUTTON_PRIMARY
                 && button != MotionEvent.BUTTON_SECONDARY) {
@@ -38,7 +53,6 @@ final class DesktopPointerInjector {
                     "unsupported pointer button: " + button);
         }
         try {
-            final Point position = NubiaMouseController.getPosition();
             final InjectionContext context = injectionContext();
             final long downTime = SystemClock.uptimeMillis();
             context.injectMouse(displayId, position, downTime,
@@ -121,6 +135,31 @@ final class DesktopPointerInjector {
     }
 
     @SuppressLint("BlockedPrivateApi")
+    static void injectTouchLongPress(
+            final int displayId,
+            final Point position,
+            final long durationMillis) throws ReflectiveOperationException {
+        validateDisplay(displayId);
+        if (durationMillis < 0L) {
+            throw new IllegalArgumentException("negative press duration");
+        }
+        final InjectionContext context = injectionContext();
+        final long downTime = SystemClock.uptimeMillis();
+        boolean pressed = false;
+        try {
+            context.injectTouch(displayId, position, downTime,
+                    MotionEvent.ACTION_DOWN, 1.0f);
+            pressed = true;
+            SystemClock.sleep(durationMillis);
+        } finally {
+            if (pressed) {
+                context.injectTouch(displayId, position, downTime,
+                        MotionEvent.ACTION_UP, 0.0f);
+            }
+        }
+    }
+
+    @SuppressLint("BlockedPrivateApi")
     static void injectMouseDrag(
             final int displayId,
             final Point start,
@@ -177,7 +216,7 @@ final class DesktopPointerInjector {
     }
 
     private static void validateDisplay(final int displayId) {
-        if (displayId <= 0) {
+        if (displayId < 0) {
             throw new IllegalArgumentException("missing target display");
         }
     }
@@ -230,7 +269,7 @@ final class DesktopPointerInjector {
                     actionButton,
                     0.0f,
                     INJECTION_MODE_WAIT_FOR_RESULT,
-                    magicDeskMouseDeviceId(),
+                    pointerDeviceId(displayId),
                     1.0f);
         }
 
@@ -249,7 +288,7 @@ final class DesktopPointerInjector {
                     actionButton,
                     0.0f,
                     INJECTION_MODE_ASYNC,
-                    magicDeskMouseDeviceId(),
+                    pointerDeviceId(displayId),
                     1.0f);
         }
 
@@ -268,7 +307,7 @@ final class DesktopPointerInjector {
                     0,
                     0.0f,
                     INJECTION_MODE_ASYNC,
-                    magicDeskMouseDeviceId(),
+                    pointerDeviceId(displayId),
                     0.0f);
         }
 
@@ -284,7 +323,24 @@ final class DesktopPointerInjector {
                     0,
                     0.0f,
                     INJECTION_MODE_WAIT_FOR_RESULT,
-                    magicDeskMouseDeviceId(),
+                    pointerDeviceId(displayId),
+                    1.0f);
+        }
+
+        void injectTouch(
+                final int displayId,
+                final Point position,
+                final long downTime,
+                final int action,
+                final float pressure) throws ReflectiveOperationException {
+            inject(displayId, position, downTime, action,
+                    MotionEvent.TOOL_TYPE_FINGER,
+                    InputDevice.SOURCE_TOUCHSCREEN,
+                    0,
+                    0,
+                    pressure,
+                    INJECTION_MODE_WAIT_FOR_RESULT,
+                    inputDeviceId(InputDevice.SOURCE_TOUCHSCREEN),
                     1.0f);
         }
 
@@ -386,6 +442,25 @@ final class DesktopPointerInjector {
         }
         throw new IllegalStateException(
                 "MagicDesk mouse input device is unavailable");
+    }
+
+    private static int pointerDeviceId(final int displayId) {
+        // Display 0 uses Android's normal synthetic input path. External
+        // displays need MagicDesk's uinput mouse for Nubia cursor semantics.
+        if (displayId != Display.DEFAULT_DISPLAY) {
+            return magicDeskMouseDeviceId();
+        }
+        return inputDeviceId(InputDevice.SOURCE_MOUSE);
+    }
+
+    private static int inputDeviceId(final int source) {
+        for (final int deviceId : InputDevice.getDeviceIds()) {
+            final InputDevice device = InputDevice.getDevice(deviceId);
+            if (device != null && device.supportsSource(source)) {
+                return deviceId;
+            }
+        }
+        return 0;
     }
 
     private static boolean isMagicDeskMouse(final InputDevice device) {

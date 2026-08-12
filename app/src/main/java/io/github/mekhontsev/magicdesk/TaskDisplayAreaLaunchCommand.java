@@ -89,8 +89,11 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra(
                         DesktopSelfTestActivity.EXTRA_ALLOW_DISPLAY_MOVE,
                         true);
-        return createTemporaryAreaAppLaunchCommand(
-                intent, displayId, bounds);
+        return DesktopRuntimeBridge.usesTemporaryLaunchArea(displayId)
+                ? createTemporaryAreaAppLaunchCommand(
+                        intent, displayId, bounds)
+                : createDefaultAreaAppLaunchCommand(
+                        intent, displayId, bounds);
     }
 
     static String createMoveCommand(
@@ -508,12 +511,21 @@ public final class TaskDisplayAreaLaunchCommand {
                 || className.isEmpty()) {
             throw new IllegalArgumentException("invalid app launch target");
         }
-        return intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        return intent.addFlags(additionalLaunchFlags(intent.getFlags()))
                 .putExtra("start_from_heartservice_app_lock", true);
+    }
+
+    static int additionalLaunchFlags(final int intentFlags) {
+        final int separateDocumentFlags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                | Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
+        if ((intentFlags & separateDocumentFlags) == separateDocumentFlags) {
+            return Intent.FLAG_ACTIVITY_NEW_TASK;
+        }
+        return Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
     }
 
     private static void reparentTask(

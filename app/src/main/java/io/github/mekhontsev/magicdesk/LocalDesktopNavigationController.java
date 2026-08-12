@@ -99,10 +99,6 @@ final class LocalDesktopNavigationController {
                         recovery.message);
                 return;
             }
-            if (!recovery.success) {
-                complete(callback, true, false, recovery.message);
-                return;
-            }
             if (!isCurrentGeneration(generation)) {
                 complete(
                         callback,
@@ -113,10 +109,17 @@ final class LocalDesktopNavigationController {
             }
             try {
                 ShellAccess.stopLocalDesktopNavigationGuard(OWNER_TOKEN);
-                complete(callback, true, true, recovery.message);
+                complete(
+                        callback,
+                        true,
+                        recovery.success,
+                        recovery.message);
             } catch (IOException error) {
                 Log.w(TAG, "could not restore system navigation", error);
-                complete(callback, true, false, error.getMessage());
+                final String message = recovery.success
+                        ? error.getMessage()
+                        : recovery.message + "; " + error.getMessage();
+                complete(callback, true, false, message);
             }
         });
     }

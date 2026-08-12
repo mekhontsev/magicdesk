@@ -213,6 +213,9 @@ final class PhoneDesktopTaskRecovery {
                                 + "; SystemUI retains unavailable phone tasks "
                                 + missingTaskIds);
             }
+            // Revived tasks now have enough metadata to identify MagicDesk's
+            // own transient windows; do not recover them as user apps.
+            excludeMagicDeskTasks(phoneRepositoryTaskIds, liveTasks);
         }
 
         if (!unavailableRemovedTaskIds.isEmpty()) {
@@ -255,7 +258,7 @@ final class PhoneDesktopTaskRecovery {
             taskIds.addAll(removedDisplayTaskIds);
         }
         for (final PhoneTask task : liveTasks.values()) {
-            if (task.freeform && !task.home) {
+            if (task.freeform && isRecoverable(task)) {
                 taskIds.add(Integer.valueOf(task.taskId));
             }
         }

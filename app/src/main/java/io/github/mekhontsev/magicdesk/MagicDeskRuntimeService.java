@@ -529,7 +529,7 @@ public final class MagicDeskRuntimeService extends Service {
                 activeDesktopRemoved);
         if (displayRemoved) {
             PhoneTouchpadController.release(displayId);
-            DesktopRuntimeBridge.closeExternalDesktopSession(displayId);
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (externalDesktopRemoved) {
                 mRemovedDesktopDisplayId = displayId;
                 mRestorePhonePanelAfterRecovery = true;
@@ -616,7 +616,7 @@ public final class MagicDeskRuntimeService extends Service {
             }
         }
         if (wasConsoleModeActive && !consoleModeActive) {
-            DesktopRuntimeBridge.closeExternalDesktopSession(
+            DesktopRuntimeBridge.closeDesktopSession(
                     previousConsoleDisplayId);
         }
         updateDesktopTasks();

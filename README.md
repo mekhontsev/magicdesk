@@ -344,29 +344,29 @@ MagicDesk-only logcat entries. It excludes user files, accounts, notification
 contents, and the installed-application list.
 
 **Run desktop self-test** is a manual black-box check for contributors and
-compatibility reports. With all desktop sessions closed (the external display
-may remain connected), it temporarily creates a simulated 1920x1080 display
-and exercises the production desktop, freeform,
-fullscreen, minimize/restore, taskbar geometry, native caption structure,
-native caption/resize input windows, native left/right window placement, and
-keyboard focus switching between two freeform windows through both taskbar
-activation and mouse input. It also recreates the desktop Activity. It
-also checks the hidden Android and RedMagic APIs that can be inspected without
-connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
-mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
-devices are present. Native mouse resize-cursor selection is checked when
-WMShell exposes its transition trace; otherwise it remains explicitly
-**NOT TESTED** because Android overlay displays do not render a readable
-hardware cursor.
-The test launches its new window through the temporary task display area used
-for simulated displays. A one-shot shell task observer records the new
-window's first front-state and reports any transient fullscreen launch. It
-then moves an existing fullscreen phone task through the production WMShell
-transition and verifies that its first state on the external display is
-already freeform. The eventual corrected state is never mistaken for the
-initial one.
-The simulated-display setting is owned by a lifecycle-bound Shizuku stream and
-restored when the test finishes or its process disconnects.
+compatibility reports. With all MagicDesk desktop sessions closed, choose a
+simulated, connected external, or phone display. The same bounded test adapts
+its window positions to the selected viewport and accepts the minimum window
+size enforced by that display's WMShell implementation. It exercises the production
+desktop, freeform, fullscreen, minimize/restore, taskbar geometry, native
+caption and resize input, native left/right placement, and keyboard focus
+switching between two windows. It also recreates the desktop Activity and
+checks hidden Android and RedMagic APIs that can be inspected safely.
+
+The external target uses an already connected HDMI or Miracast display. If no
+external display is present, MagicDesk opens SmartCast and asks you to connect
+one before running the test again. A wired display temporarily switched from
+mirror mode is restored to mirror mode afterward; an existing Miracast
+connection is left connected. Hardware keyboard, mouse, and Touch Panel input
+remain explicitly **NOT TESTED** because the automated test injects its own
+input. Native mouse resize-cursor selection is checked when WMShell exposes a
+transition trace.
+
+The simulated target owns a temporary 1920x1080 display through a
+lifecycle-bound Shizuku stream. Its setting is restored when the test finishes
+or its process disconnects. A one-shot shell task observer records each test
+window's first front-state and reports transient fullscreen launches instead
+of mistaking a later corrected state for the initial one.
 
 Debug builds expose the same lifecycle check as an instrumentation regression:
 

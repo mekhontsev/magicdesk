@@ -350,31 +350,42 @@ The script temporarily sets `overlay_display_devices`, starts the real
 `DesktopActivity` on that display, verifies task placement, and restores the
 previous setting on exit.
 
-The built-in **Diagnostics > Run desktop self-test** follows the same display
-model without requiring a host. A Binder-owned Shizuku stream holds the
-temporary setting; closing the stream or losing its owner closes stdin, runs a
-shell `trap`, and restores the prior value. The test then uses production
-session and task controllers to verify the desktop viewport, a deterministic
-freeform Activity, task-local native caption source and geometry,
-display-targeted application input, native caption and resize input handles,
-true fullscreen, restore, minimize, and cleanup. It then opens two independent
-editor fixtures, uses the native caption menu to place them on the left and
-right halves, and verifies keyboard focus transfer through both the desktop
-task controller and mouse input. Input assertions wait for the current
-InputDispatcher focus state rather than a fixed transition delay. The test
-also requests the native horizontal resize cursor and verifies WMShell's
-transition trace when that firmware trace is available. A simulated display
-without a readable pointer controller or trace reports the cursor check as
-`NOT_TESTED`. It rechecks the caption after the fullscreen round trip,
-uses the same target-aware close operation as the user-facing session, and only
-then removes the display so WMS
-cannot migrate that task onto the phone launcher.
+The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
+on a selected simulated, external, or phone display. A desktop session must be
+closed when the test starts; mirror mode and a physically connected display are
+allowed. The target owner prepares the session once, while the common core
+derives bounds from the actual viewport, adopts any larger minimum window size
+enforced by WMShell, and uses production session and task controllers to verify
+a freeform Activity, task-local native
+caption source and geometry, display-targeted application input, native caption
+and resize input handles, true fullscreen, restore, minimize, and cleanup. It
+then opens two independent editor fixtures, uses the native caption menu to
+place them on the left and right halves, and verifies keyboard focus transfer
+through both the desktop task controller and mouse input. Input assertions wait
+for the current InputDispatcher focus state rather than a fixed transition
+delay. The test also requests the native horizontal resize cursor and verifies
+WMShell's transition trace when that firmware trace is available.
 
-A simulated-display cold launch creates a short-lived shell-owned
+The simulated target owns its display through a Binder-owned Shizuku stream;
+closing the stream or losing its owner closes stdin, runs a shell `trap`, and
+restores the prior setting. The external target selects the existing wired or
+wireless transport automatically and never treats the physical display or its
+unrelated tasks as test-owned. If a wired test temporarily enters desktop mode
+from mirror mode, cleanup restores mirror mode. An existing Miracast transport
+remains connected. The phone target uses the normal local-desktop navigation
+and cleanup path. Each target closes only the MagicDesk host and test fixtures
+that it created. Cleanup closes the host before removing its fixture tasks so
+SystemUI can reconcile live task IDs instead of retaining references to tasks
+that the test already destroyed. The phone navigation guard is released even
+when task reconciliation reports a failure; the pending marker remains for a
+later recovery attempt.
+
+Phone and simulated-display cold launches create a short-lived shell-owned
 `TaskDisplayArea` beside the target display's default task area. The new
 Activity is launched there with its original launcher Intent, freeform mode,
 and bounds, then synchronously reparented to the default area before the empty
-temporary area is deleted.
+temporary area is deleted. Production launches and self-test fixtures share
+this display policy.
 
 Nubia's wired and Miracast desktop displays use their default task area
 directly. Cold launches enter that area through a WMShell launch transition
@@ -835,12 +846,12 @@ invalid/null mutations after framework permission checks rather than changing
 real input, display, or hardware state.
 
 The manual desktop self-test combines those probes with reversible black-box
-operations. APIs that can be checked without peripherals are reported as
-PASS/WARN/FAIL. Transport and hardware behavior that cannot be inferred from
-class, Binder-service, permission, or device-node presence is reported as
-NOT TESTED rather than guessed. The last bounded result is included in the
-normal compatibility report; no periodic self-test or diagnostic polling runs
-in the background.
+operations on a simulated, connected external, or phone display. APIs that can
+be checked without peripherals are reported as PASS/WARN/FAIL. The selected
+wired or Miracast transport is recorded as exercised, while physical keyboard,
+mouse, and Touch Panel input remain NOT TESTED because the automation injects
+input. The last bounded result is included in the normal compatibility report;
+no periodic self-test or diagnostic polling runs in the background.
 
 Debug builds also expose this production path through
 `DesktopLifecycleInstrumentation`. It adds Activity recreation to the same
