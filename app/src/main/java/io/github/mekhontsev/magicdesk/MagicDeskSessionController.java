@@ -26,10 +26,8 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        final int desktopDisplayId = resolveExternalDesktopDisplayId();
-        final DesktopDisplayTarget.Kind targetKind = desktopDisplayId > 0
-                ? DesktopRuntimeBridge.getDesktopTargetKind(desktopDisplayId)
-                : null;
+        final DesktopDisplayTarget desktopTarget =
+                resolveExternalDesktopTarget();
         new MagicDeskExitCoordinator(
                 new MagicDeskExitCoordinator.Operations() {
                     @Override
@@ -61,7 +59,7 @@ final class MagicDeskSessionController {
                     public void closeDesktop(
                             final MagicDeskExitCoordinator.Callback callback) {
                         closeDesktopBeforeExit(
-                                desktopDisplayId, targetKind, callback);
+                                desktopTarget, callback);
                     }
 
                     @Override
@@ -88,53 +86,56 @@ final class MagicDeskSessionController {
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_desktop_closing));
         final Display display = mActivity.getDisplay();
-        if (display == null
-                || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
+        if (display == null) {
             mActivity.runOnUiThread(mActivity::finishAndRemoveTask);
             return;
         }
         final int displayId = display.getDisplayId();
-        final DesktopDisplayTarget.Kind targetKind =
-                DesktopRuntimeBridge.getDesktopTargetKind(displayId);
+        final DesktopDisplayTarget target = displayId == Display.DEFAULT_DISPLAY
+                ? DesktopDisplayTarget.phone()
+                : DesktopRuntimeBridge.getDesktopTarget(displayId);
         ConsoleModeSwitcher.closeDesktop(
-                displayId,
-                targetKind,
+                target,
                 true,
                 success -> finishCloseDesktop(
                         success,
-                        targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                        target != null
+                                && target.kind
+                                        == DesktopDisplayTarget.Kind.WIRELESS
                                 ? "WIRELESS-DISPLAY-002"
                                 : "NUBIA-CONSOLE-001",
-                        targetKind == DesktopDisplayTarget.Kind.WIRELESS
+                        target != null
+                                && target.kind
+                                        == DesktopDisplayTarget.Kind.WIRELESS
                                 ? R.string.status_close_desktop_failed
                                 : R.string.status_mirror_failed));
     }
 
     private void closeDesktopBeforeExit(
-            final int displayId,
-            final DesktopDisplayTarget.Kind targetKind,
+            final DesktopDisplayTarget target,
             final MagicDeskExitCoordinator.Callback callback) {
-        if (displayId <= Display.DEFAULT_DISPLAY) {
+        if (target == null) {
             callback.onComplete(true);
             return;
         }
         ConsoleModeSwitcher.closeDesktop(
-                displayId,
-                targetKind,
+                target,
                 false,
                 callback::onComplete);
     }
 
-    private int resolveExternalDesktopDisplayId() {
+    private DesktopDisplayTarget resolveExternalDesktopTarget() {
         final Display display = mActivity.getDisplay();
         if (display != null
                 && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
-            return display.getDisplayId();
+            return DesktopRuntimeBridge.getDesktopTarget(
+                    display.getDisplayId());
         }
-        final int activeDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        return activeDisplayId > Display.DEFAULT_DISPLAY
-                ? activeDisplayId : Display.INVALID_DISPLAY;
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        return target != null
+                        && target.displayId > Display.DEFAULT_DISPLAY
+                ? target : null;
     }
 
     private void finishCloseDesktop(

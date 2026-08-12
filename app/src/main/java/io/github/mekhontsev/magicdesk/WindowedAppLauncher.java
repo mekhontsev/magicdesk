@@ -47,7 +47,8 @@ final class WindowedAppLauncher {
         int taskId = -1;
         try {
             final String launchCommand =
-                    DesktopRuntimeBridge.usesTemporaryLaunchArea(displayId)
+                    DesktopDisplayDrivers.forActiveDisplay(displayId)
+                            .features().temporaryLaunchArea
                             ? TaskDisplayAreaLaunchCommand
                                     .createTemporaryAreaAppLaunchCommand(
                                             launchIntent,

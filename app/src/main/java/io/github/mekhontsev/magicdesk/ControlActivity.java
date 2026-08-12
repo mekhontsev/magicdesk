@@ -229,7 +229,16 @@ public final class ControlActivity extends Activity
     public void openDesktopHere() {
         mStatus = getString(R.string.status_desktop_opening);
         refresh();
-        DesktopActivity.launchOnDisplay(this, currentDisplayId());
+        final int displayId = currentDisplayId();
+        final DesktopDisplayTarget target = displayId == Display.DEFAULT_DISPLAY
+                ? DesktopDisplayTarget.phone()
+                : DesktopRuntimeBridge.getDesktopTarget(displayId);
+        if (target == null) {
+            mStatus = getString(R.string.status_external_display_unavailable);
+            refresh();
+            return;
+        }
+        DesktopDisplayDrivers.forTarget(target).show(this, displayId);
     }
 
     @Override
@@ -248,15 +257,15 @@ public final class ControlActivity extends Activity
         final int activeDesktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (activeDesktopDisplayId > Display.DEFAULT_DISPLAY) {
-            mStatus = getString(R.string.status_console_starting);
-            refresh();
-            ConsoleModeSwitcher.showDesktop(
-                    activeDesktopDisplayId == mWirelessDisplayId
-                            ? DesktopDisplayTarget.wireless(
-                                    activeDesktopDisplayId)
-                            : DesktopDisplayTarget.simulated(
-                                    activeDesktopDisplayId));
-            return;
+            final DesktopDisplayTarget target =
+                    DesktopRuntimeBridge.getDesktopTarget(
+                            activeDesktopDisplayId);
+            if (target != null) {
+                mStatus = getString(R.string.status_console_starting);
+                refresh();
+                ConsoleModeSwitcher.showDesktop(target);
+                return;
+            }
         }
         if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
             mStatus = getString(R.string.status_external_display_checking);

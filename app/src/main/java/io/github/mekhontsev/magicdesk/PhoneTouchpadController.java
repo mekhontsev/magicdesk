@@ -20,7 +20,7 @@ final class PhoneTouchpadController {
     }
 
     static void open(final int displayId) {
-        if (displayId <= Display.DEFAULT_DISPLAY) {
+        if (!supports(displayId)) {
             return;
         }
         MagicDeskTouchpadActivity.open(
@@ -29,19 +29,19 @@ final class PhoneTouchpadController {
 
     static boolean isVisible() {
         final int displayId = activeDisplayId();
-        return displayId > Display.DEFAULT_DISPLAY
+        return supports(displayId)
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
 
     static boolean shouldRemainVisible(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
+        return supports(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId);
     }
 
     static void restoreIfMissing(
             final ConsoleModeSwitcher.TouchpadRestoreCallback callback) {
         final int displayId = activeDisplayId();
-        final boolean missing = displayId > Display.DEFAULT_DISPLAY
+        final boolean missing = supports(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
         final boolean restored = missing
@@ -53,14 +53,14 @@ final class PhoneTouchpadController {
     }
 
     static boolean restoreObservedMissing(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
+        return supports(displayId)
                 && MagicDeskTouchpadActivity.restoreObservedMissing(
                         MagicDeskApplication.applicationContext(),
                         displayId);
     }
 
     static boolean bringRequestedTaskToFront(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
+        return supports(displayId)
                 && MagicDeskTouchpadActivity.bringRequestedTaskToFront(
                         MagicDeskApplication.applicationContext(),
                         displayId);
@@ -68,6 +68,17 @@ final class PhoneTouchpadController {
 
     static void release(final int displayId) {
         MagicDeskTouchpadActivity.release(displayId);
+    }
+
+    private static boolean supports(final int displayId) {
+        if (displayId <= Display.DEFAULT_DISPLAY) {
+            return false;
+        }
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getDesktopTarget(displayId);
+        return target != null
+                && DesktopDisplayDrivers.forTarget(target)
+                        .features().phoneTouchpad;
     }
 
     private static int activeDisplayId() {

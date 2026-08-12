@@ -132,12 +132,14 @@ final class DesktopSelfTestCapabilityAudit {
 
         final int activeDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final DesktopDisplayTarget.Kind activeKind =
-                DesktopRuntimeBridge.getDesktopTargetKind(activeDisplayId);
+        final DesktopDisplayTarget activeTarget =
+                DesktopRuntimeBridge.getDesktopTarget(activeDisplayId);
         final boolean wired = target == DesktopSelfTestTarget.EXTERNAL
-                && activeKind == DesktopDisplayTarget.Kind.WIRED;
+                && activeTarget != null
+                && activeTarget.kind == DesktopDisplayTarget.Kind.WIRED;
         final boolean wireless = target == DesktopSelfTestTarget.EXTERNAL
-                && activeKind == DesktopDisplayTarget.Kind.WIRELESS;
+                && activeTarget != null
+                && activeTarget.kind == DesktopDisplayTarget.Kind.WIRELESS;
         result.add(wired ? DesktopSelfTestResult.State.PASS
                         : DesktopSelfTestResult.State.NOT_TESTED,
                 "DEVICE-DP-001", "Physical DisplayPort and EDID",

@@ -8,6 +8,9 @@ public final class DesktopDisplayTargetTest {
     @Test
     public void factoriesPreserveKindAndDisplay() {
         assertEquals(
+                DesktopDisplayTarget.Kind.PHONE,
+                DesktopDisplayTarget.phone().kind);
+        assertEquals(
                 DesktopDisplayTarget.Kind.WIRED,
                 DesktopDisplayTarget.wired(7).kind);
         assertEquals(
@@ -17,6 +20,7 @@ public final class DesktopDisplayTargetTest {
                 DesktopDisplayTarget.Kind.SIMULATED,
                 DesktopDisplayTarget.simulated(9).kind);
         assertEquals(8, DesktopDisplayTarget.wireless(8).displayId);
+        assertEquals(0, DesktopDisplayTarget.phone().displayId);
     }
 
     @Test
@@ -32,5 +36,11 @@ public final class DesktopDisplayTargetTest {
     @Test(expected = IllegalArgumentException.class)
     public void secondaryTargetRejectsDefaultDisplay() {
         DesktopDisplayTarget.wireless(0);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void phoneTargetRejectsSecondaryDisplay() {
+        DesktopDisplayTarget.restore(
+                DesktopDisplayTarget.Kind.PHONE, 7, 7, "ignored");
     }
 }

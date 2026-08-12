@@ -238,8 +238,18 @@ runtime integration and are not distributed through the same release path.
 
 ### Platform services
 
-- `ConsoleModeSwitcher` serializes public session transitions.
-- `ConsoleSessionController` owns activation and teardown.
+- `DesktopDisplayTarget` is the immutable identity of the active display
+  environment. `DesktopRuntimeBridge` retains that target as one value so a
+  display ID and its transport cannot become separate, stale state.
+- `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
+  and simulated. A driver owns environment-specific start/close behavior,
+  launch-area policy, phone-screen and touchpad availability, and display
+  removal semantics. Shared task, window, input, and desktop UI code remains
+  transport-independent.
+- `DesktopDisplayDrivers` is the only registry for resolving those drivers.
+  `ConsoleModeSwitcher` serializes public session transitions and delegates
+  the selected target to the registry.
+- `ConsoleSessionController` owns the RedMagic wired Console activation path.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.

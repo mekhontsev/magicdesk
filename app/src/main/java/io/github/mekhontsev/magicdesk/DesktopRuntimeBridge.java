@@ -19,9 +19,7 @@ final class DesktopRuntimeBridge {
     private static WeakReference<DesktopShellActivity> sDesktop =
             new WeakReference<>(null);
     // WMS may move the task to display 0 before reporting the external display removal.
-    private static volatile int sDesktopSessionDisplayId =
-            Display.INVALID_DISPLAY;
-    private static volatile DesktopDisplayTarget.Kind sDesktopSessionKind;
+    private static volatile DesktopDisplayTarget sDesktopTarget;
 
     private DesktopRuntimeBridge() {
     }
@@ -53,13 +51,15 @@ final class DesktopRuntimeBridge {
         sDesktop = new WeakReference<>(activity);
         final int displayId = activity.getCurrentDisplayId();
         if (!replacingSameTask || displayId != Display.DEFAULT_DISPLAY) {
-            if (sDesktopSessionDisplayId != displayId) {
-                sDesktopSessionKind = null;
+            final DesktopDisplayTarget target = sDesktopTarget;
+            if (target == null || target.displayId != displayId) {
+                sDesktopTarget = displayId == Display.DEFAULT_DISPLAY
+                        ? DesktopDisplayTarget.phone() : null;
             }
-            sDesktopSessionDisplayId = displayId;
         }
         if (displayId == Display.DEFAULT_DISPLAY
-                && sDesktopSessionDisplayId == Display.DEFAULT_DISPLAY
+                && sDesktopTarget != null
+                && sDesktopTarget.kind == DesktopDisplayTarget.Kind.PHONE
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
@@ -80,10 +80,11 @@ final class DesktopRuntimeBridge {
             }
             final int displayId = activity.getCurrentDisplayId();
             sDesktop.clear();
-            if (displayId == sDesktopSessionDisplayId
-                    || sDesktopSessionDisplayId == Display.DEFAULT_DISPLAY) {
-                sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
-                sDesktopSessionKind = null;
+            final DesktopDisplayTarget target = sDesktopTarget;
+            if (target != null
+                    && (displayId == target.displayId
+                            || target.kind == DesktopDisplayTarget.Kind.PHONE)) {
+                sDesktopTarget = null;
             }
             MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
             if (displayId == Display.DEFAULT_DISPLAY) {
@@ -94,17 +95,18 @@ final class DesktopRuntimeBridge {
 
     static void closeDesktopSession(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopDisplayTarget target = sDesktopTarget;
         if (activity == null
                 || displayId < Display.DEFAULT_DISPLAY
-                || sDesktopSessionDisplayId != displayId) {
+                || target == null
+                || target.displayId != displayId) {
             return;
         }
         sDesktop.clear();
         if (sShell.get() == activity) {
             sShell.clear();
         }
-        sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
-        sDesktopSessionKind = null;
+        sDesktopTarget = null;
         final Runnable close = () -> {
             activity.releaseDesktopOverlays();
             if (!activity.isFinishing()) {
@@ -131,33 +133,27 @@ final class DesktopRuntimeBridge {
         if (target == null) {
             return;
         }
-        sDesktopSessionDisplayId = target.displayId;
-        sDesktopSessionKind = target.kind;
+        sDesktopTarget = target;
     }
 
     static void clearDesktopTarget(final DesktopDisplayTarget target) {
+        final DesktopDisplayTarget current = sDesktopTarget;
         if (target == null
-                || sDesktopSessionDisplayId != target.displayId
-                || sDesktopSessionKind != target.kind) {
+                || current == null
+                || current.displayId != target.displayId
+                || current.kind != target.kind) {
             return;
         }
-        sDesktopSessionDisplayId = Display.INVALID_DISPLAY;
-        sDesktopSessionKind = null;
+        sDesktopTarget = null;
     }
 
-    static DesktopDisplayTarget.Kind getDesktopTargetKind(final int displayId) {
-        return sDesktopSessionDisplayId == displayId
-                ? sDesktopSessionKind : null;
+    static DesktopDisplayTarget getDesktopTarget(final int displayId) {
+        final DesktopDisplayTarget target = sDesktopTarget;
+        return target != null && target.displayId == displayId ? target : null;
     }
 
-    static boolean isSimulatedDesktopDisplay(final int displayId) {
-        return getDesktopTargetKind(displayId)
-                == DesktopDisplayTarget.Kind.SIMULATED;
-    }
-
-    static boolean usesTemporaryLaunchArea(final int displayId) {
-        return displayId == Display.DEFAULT_DISPLAY
-                || isSimulatedDesktopDisplay(displayId);
+    static DesktopDisplayTarget getActiveDesktopTarget() {
+        return sDesktopTarget;
     }
 
     static DesktopViewport getDesktopViewport(final int displayId) {

@@ -10,16 +10,21 @@ enum DesktopSelfTestTarget {
 
     boolean matchesDisplay(
             final int displayId,
-            final DesktopDisplayTarget.Kind kind) {
+            final DesktopDisplayTarget displayTarget) {
         if (this == PHONE) {
-            return displayId == Display.DEFAULT_DISPLAY;
+            return displayId == Display.DEFAULT_DISPLAY
+                    && displayTarget != null
+                    && displayTarget.kind == DesktopDisplayTarget.Kind.PHONE;
         }
-        if (displayId <= Display.DEFAULT_DISPLAY) {
+        if (displayId <= Display.DEFAULT_DISPLAY
+                || displayTarget == null
+                || displayTarget.displayId != displayId) {
             return false;
         }
         return this == SIMULATED
-                ? kind == DesktopDisplayTarget.Kind.SIMULATED
-                : kind == DesktopDisplayTarget.Kind.WIRED
-                        || kind == DesktopDisplayTarget.Kind.WIRELESS;
+                ? displayTarget.kind == DesktopDisplayTarget.Kind.SIMULATED
+                : displayTarget.kind == DesktopDisplayTarget.Kind.WIRED
+                        || displayTarget.kind
+                                == DesktopDisplayTarget.Kind.WIRELESS;
     }
 }

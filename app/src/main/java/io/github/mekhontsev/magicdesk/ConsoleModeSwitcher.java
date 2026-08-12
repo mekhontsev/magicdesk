@@ -118,7 +118,8 @@ final class ConsoleModeSwitcher {
         }
         EXECUTOR.execute(() -> {
             try {
-                showPreparedDesktop(target);
+                DesktopDisplayDrivers.forTarget(target)
+                        .show(null, target.displayId);
             } finally {
                 DESKTOP_START_IN_PROGRESS.set(false);
             }
@@ -126,36 +127,17 @@ final class ConsoleModeSwitcher {
     }
 
     static void closeDesktop(
-            final int displayId,
-            final DesktopDisplayTarget.Kind targetKind,
+            final DesktopDisplayTarget target,
             final boolean restorePhonePanel,
             final ResultCallback callback) {
-        if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
-            complete(callback, true);
+        if (target == null) {
+            complete(callback, false);
             return;
         }
-        if (targetKind == DesktopDisplayTarget.Kind.SIMULATED) {
-            DesktopRuntimeBridge.closeDesktopSession(displayId);
-            complete(callback, true);
-            return;
-        }
-        if (targetKind == DesktopDisplayTarget.Kind.WIRELESS) {
-            disconnectWirelessDisplay(success -> {
-                if (success && restorePhonePanel) {
-                    MagicDeskRuntimeService
-                            .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
-                                    displayId);
-                }
-                complete(callback, success);
-            });
-            return;
-        }
-        if (restorePhonePanel) {
-            switchToMirrorWithControlPanel(
-                    success -> complete(callback, success));
-        } else {
-            switchToMirror(success -> complete(callback, success));
-        }
+        DesktopDisplayDrivers.forTarget(target).close(
+                target,
+                restorePhonePanel,
+                success -> complete(callback, success));
     }
 
     private static void complete(
@@ -173,37 +155,22 @@ final class ConsoleModeSwitcher {
                         > android.view.Display.DEFAULT_DISPLAY
                 || ConsoleDisplayController.findExternalDisplayId()
                         > android.view.Display.DEFAULT_DISPLAY) {
-            ConsoleSessionController.show(knownConsoleDisplayId);
+            DesktopDisplayDrivers
+                    .forKind(DesktopDisplayTarget.Kind.WIRED)
+                    .show(null, knownConsoleDisplayId);
             return;
         }
         final int wirelessDisplayId =
                 ConsoleDisplayController.findWirelessDisplayId();
         if (wirelessDisplayId > android.view.Display.DEFAULT_DISPLAY) {
-            showPreparedDesktop(
-                    DesktopDisplayTarget.wireless(wirelessDisplayId));
+            DesktopDisplayDrivers
+                    .forKind(DesktopDisplayTarget.Kind.WIRELESS)
+                    .show(null, wirelessDisplayId);
             return;
         }
-        ConsoleSessionController.show(knownConsoleDisplayId);
-    }
-
-    private static void showPreparedDesktop(
-            final DesktopDisplayTarget target) {
-        try {
-            final DesktopSessionController.ShowResult result =
-                    DesktopSessionController.show(target);
-            if (result.ready && result.created) {
-                PhoneTouchpadController.open(target.displayId);
-            }
-        } catch (IOException error) {
-            Log.w(TAG, "Secondary desktop launch failed", error);
-            CompatibilityDiagnostics.record(
-                    "DESKTOP-LAUNCH-002",
-                    "Could not open MagicDesk on the selected display",
-                    "kind=" + target.kind
-                            + " display=" + target.displayId
-                            + " error=" + error.getMessage(),
-                    error);
-        }
+        DesktopDisplayDrivers
+                .forKind(DesktopDisplayTarget.Kind.WIRED)
+                .show(null, knownConsoleDisplayId);
     }
 
     static void toggleDesktopWorkspace() {

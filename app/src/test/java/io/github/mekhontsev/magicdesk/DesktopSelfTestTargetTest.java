@@ -8,20 +8,23 @@ import org.junit.Test;
 public final class DesktopSelfTestTargetTest {
     @Test
     public void distinguishesDisplayByIdentityAndTransport() {
-        assertTrue(DesktopSelfTestTarget.PHONE.matchesDisplay(0, null));
+        assertTrue(DesktopSelfTestTarget.PHONE.matchesDisplay(
+                0, DesktopDisplayTarget.phone()));
         assertFalse(DesktopSelfTestTarget.PHONE.matchesDisplay(
-                3, DesktopDisplayTarget.Kind.WIRED));
+                3, DesktopDisplayTarget.wired(3)));
 
         assertTrue(DesktopSelfTestTarget.SIMULATED.matchesDisplay(
-                195, DesktopDisplayTarget.Kind.SIMULATED));
+                195, DesktopDisplayTarget.simulated(195)));
         assertFalse(DesktopSelfTestTarget.SIMULATED.matchesDisplay(
-                3, DesktopDisplayTarget.Kind.WIRED));
+                3, DesktopDisplayTarget.wired(3)));
 
         assertTrue(DesktopSelfTestTarget.EXTERNAL.matchesDisplay(
-                3, DesktopDisplayTarget.Kind.WIRED));
+                3, DesktopDisplayTarget.wired(3)));
         assertTrue(DesktopSelfTestTarget.EXTERNAL.matchesDisplay(
-                4, DesktopDisplayTarget.Kind.WIRELESS));
+                4, DesktopDisplayTarget.wireless(4)));
         assertFalse(DesktopSelfTestTarget.EXTERNAL.matchesDisplay(
-                195, DesktopDisplayTarget.Kind.SIMULATED));
+                195, DesktopDisplayTarget.simulated(195)));
+        assertFalse(DesktopSelfTestTarget.EXTERNAL.matchesDisplay(
+                3, DesktopDisplayTarget.wireless(4)));
     }
 }

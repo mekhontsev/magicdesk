@@ -132,7 +132,9 @@ final class DisplayProfileController {
     static DesktopDisplayTarget prepareTarget(
             final Context context,
             final DesktopDisplayTarget target) {
-        if (target == null || target.hasProfile()) {
+        if (target == null
+                || target.kind == DesktopDisplayTarget.Kind.PHONE
+                || target.hasProfile()) {
             return target;
         }
         final DisplayManager manager = context == null

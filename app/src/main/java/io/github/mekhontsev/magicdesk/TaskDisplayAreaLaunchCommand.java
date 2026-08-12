@@ -89,7 +89,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra(
                         DesktopSelfTestActivity.EXTRA_ALLOW_DISPLAY_MOVE,
                         true);
-        return DesktopRuntimeBridge.usesTemporaryLaunchArea(displayId)
+        return DesktopDisplayDrivers.forActiveDisplay(displayId)
+                .features().temporaryLaunchArea
                 ? createTemporaryAreaAppLaunchCommand(
                         intent, displayId, bounds)
                 : createDefaultAreaAppLaunchCommand(

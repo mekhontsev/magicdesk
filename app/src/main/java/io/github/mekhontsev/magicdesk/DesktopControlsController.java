@@ -288,14 +288,14 @@ final class DesktopControlsController {
                         mActivity.getCurrentDisplayId(),
                         activeDesktopDisplayId,
                         consoleModeActive);
-        final DesktopDisplayTarget.Kind targetKind =
-                DesktopRuntimeBridge.getDesktopTargetKind(
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getDesktopTarget(
                         mActivity.getCurrentDisplayId());
         final boolean phoneScreenOff = isPhoneScreenOff();
         final boolean phoneScreenControl =
                 DesktopScreenPolicy.canControlPhoneScreen(
                         externalDesktopSession,
-                        targetKind,
+                        target,
                         ShellAccess.isReady());
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
@@ -328,8 +328,13 @@ final class DesktopControlsController {
                             shortcutsState));
         }
         if (mTouchpadAction != null) {
+            final boolean touchpadSupported = target != null
+                    && DesktopDisplayDrivers.forTarget(target)
+                            .features().phoneTouchpad;
             mTouchpadAction.setEnabled(
-                    externalDesktopSession && ShellAccess.isReady());
+                    externalDesktopSession
+                            && touchpadSupported
+                            && ShellAccess.isReady());
         }
         mActivity.taskbar().updateSystemStatus(
                 KeyboardShortcutWatcher.isFullShortcutMode());
@@ -344,7 +349,7 @@ final class DesktopControlsController {
                         isConsoleModeActive());
         if (!DesktopScreenPolicy.canControlPhoneScreen(
                 externalDesktopSession,
-                DesktopRuntimeBridge.getDesktopTargetKind(displayId),
+                DesktopRuntimeBridge.getDesktopTarget(displayId),
                 ShellAccess.isReady())) {
             return;
         }

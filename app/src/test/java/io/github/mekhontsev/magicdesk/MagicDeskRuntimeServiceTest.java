@@ -18,7 +18,7 @@ public final class MagicDeskRuntimeServiceTest {
                 true,
                 100,
                 -1,
-                DesktopDisplayTarget.Kind.WIRELESS,
+                DesktopDisplayTarget.wireless(100),
                 false));
     }
 
@@ -28,13 +28,13 @@ public final class MagicDeskRuntimeServiceTest {
                 true,
                 100,
                 100,
-                DesktopDisplayTarget.Kind.SIMULATED,
+                DesktopDisplayTarget.simulated(100),
                 true));
         assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
                 true,
                 100,
                 100,
-                DesktopDisplayTarget.Kind.SIMULATED,
+                DesktopDisplayTarget.simulated(100),
                 false));
     }
 

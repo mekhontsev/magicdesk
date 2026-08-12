@@ -515,8 +515,8 @@ public final class MagicDeskRuntimeService extends Service {
 
     private void handleDisplayStateChanged(
             final int displayId, final boolean displayRemoved) {
-        final DesktopDisplayTarget.Kind desktopKind = displayRemoved
-                ? DesktopRuntimeBridge.getDesktopTargetKind(displayId)
+        final DesktopDisplayTarget desktopTarget = displayRemoved
+                ? DesktopRuntimeBridge.getDesktopTarget(displayId)
                 : null;
         final boolean activeDesktopRemoved = displayRemoved
                 && DesktopRuntimeBridge.getActiveDesktopDisplayId()
@@ -525,7 +525,7 @@ public final class MagicDeskRuntimeService extends Service {
                 displayRemoved,
                 displayId,
                 mOwnedDesktopDisplayId,
-                desktopKind,
+                desktopTarget,
                 activeDesktopRemoved);
         if (displayRemoved) {
             PhoneTouchpadController.release(displayId);
@@ -548,16 +548,20 @@ public final class MagicDeskRuntimeService extends Service {
             final boolean displayRemoved,
             final int displayId,
             final int ownedDesktopDisplayId,
-            final DesktopDisplayTarget.Kind desktopKind,
+            final DesktopDisplayTarget desktopTarget,
             final boolean activeDesktopRemoved) {
         if (!displayRemoved
                 || displayId <= android.view.Display.DEFAULT_DISPLAY) {
             return false;
         }
-        if (desktopKind == DesktopDisplayTarget.Kind.SIMULATED) {
-            return activeDesktopRemoved;
+        if (desktopTarget == null) {
+            return displayId == ownedDesktopDisplayId;
         }
-        return displayId == ownedDesktopDisplayId || desktopKind != null;
+        return DesktopDisplayDrivers.forTarget(desktopTarget)
+                .isSessionDisplayRemoval(
+                        desktopTarget,
+                        displayId,
+                        activeDesktopRemoved);
     }
 
     private void registerConfigurationReceiver() {

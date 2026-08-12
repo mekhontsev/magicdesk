@@ -163,8 +163,7 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         DesktopRuntimeBridge.registerShell(this);
-        if (mDesktopTargetKind != null
-                && mExpectedDisplayId > Display.DEFAULT_DISPLAY) {
+        if (mDesktopTargetKind != null) {
             DesktopRuntimeBridge.noteDesktopTarget(
                     DesktopDisplayTarget.restore(
                             mDesktopTargetKind,

@@ -20,10 +20,13 @@ public final class DesktopActivity extends DesktopShellActivity {
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
-    static void launchOnDisplay(final Activity source, final int displayId) {
-        if (displayId != Display.DEFAULT_DISPLAY) {
-            launchNow(source, displayId);
-            return;
+    static void launch(
+            final Activity source,
+            final DesktopDisplayTarget target) {
+        if (target == null
+                || target.kind != DesktopDisplayTarget.Kind.PHONE
+                || target.displayId != Display.DEFAULT_DISPLAY) {
+            throw new IllegalArgumentException("phone display target is required");
         }
         LocalDesktopNavigationController.acquire((generation, success, message) -> {
             if (!LocalDesktopNavigationController.isCurrentGeneration(
@@ -53,7 +56,7 @@ public final class DesktopActivity extends DesktopShellActivity {
                 return;
             }
             try {
-                launchNow(source, displayId);
+                launchNow(source, target);
             } catch (RuntimeException error) {
                 Log.w(TAG, "local desktop launch failed", error);
                 LocalDesktopNavigationController.releaseIfCurrent(
@@ -74,7 +77,10 @@ public final class DesktopActivity extends DesktopShellActivity {
     }
 
     private static void launchNow(
-            final Activity source, final int displayId) {
+            final Activity source,
+            final DesktopDisplayTarget target) {
+        final int displayId = target.displayId;
+        DesktopRuntimeBridge.noteDesktopTarget(target);
         if (DesktopRuntimeBridge.focusDesktopOnDisplay(displayId)) {
             return;
         }
@@ -82,10 +88,20 @@ public final class DesktopActivity extends DesktopShellActivity {
         options.setLaunchDisplayId(displayId);
         DesktopShellActivity.setLaunchWindowingMode(
                 options, WINDOWING_MODE_FULLSCREEN);
-        source.startActivity(
-                createLaunchIntent(source).addFlags(
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                        .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId),
-                options.toBundle());
+        try {
+            source.startActivity(
+                    createLaunchIntent(source).addFlags(
+                            Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                            .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId)
+                            .putExtra(
+                                    EXTRA_PROFILE_DISPLAY_ID,
+                                    target.profileDisplayId)
+                            .putExtra(EXTRA_PROFILE_KEY, target.profileKey)
+                            .putExtra(EXTRA_TARGET_KIND, target.kind.name()),
+                    options.toBundle());
+        } catch (RuntimeException error) {
+            DesktopRuntimeBridge.clearDesktopTarget(target);
+            throw error;
+        }
     }
 }

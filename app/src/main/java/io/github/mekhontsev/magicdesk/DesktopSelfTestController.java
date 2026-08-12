@@ -393,21 +393,23 @@ final class DesktopSelfTestController {
             final DesktopSelfTestTarget target,
             final DesktopSelfTestResult result) throws AbortSelfTest {
         final int displayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final DesktopDisplayTarget.Kind kind =
-                DesktopRuntimeBridge.getDesktopTargetKind(displayId);
-        if (!target.matchesDisplay(displayId, kind)) {
+        final DesktopDisplayTarget displayTarget =
+                DesktopRuntimeBridge.getDesktopTarget(displayId);
+        if (!target.matchesDisplay(displayId, displayTarget)) {
             failAndAbort(result,
                     "SELFTEST-PRECONDITION-001",
                     "Selected desktop session is ready",
                     "active display=" + displayId + ", target=" + target);
         }
         if (target == DesktopSelfTestTarget.EXTERNAL) {
-            if (kind != DesktopDisplayTarget.Kind.WIRED
-                    && kind != DesktopDisplayTarget.Kind.WIRELESS) {
+            if (displayTarget.kind != DesktopDisplayTarget.Kind.WIRED
+                    && displayTarget.kind
+                            != DesktopDisplayTarget.Kind.WIRELESS) {
                 failAndAbort(result,
                         "SELFTEST-PRECONDITION-001",
                         "Selected desktop session is ready",
-                        "external transport is unavailable: " + kind);
+                        "external transport is unavailable: "
+                                + displayTarget.kind);
             }
         }
         result.add(DesktopSelfTestResult.State.PASS,

@@ -209,7 +209,9 @@ public final class DiagnosticsActivity extends Activity {
         if (!beginSelfTestPreparation()) {
             return;
         }
-        DesktopActivity.launchOnDisplay(this, Display.DEFAULT_DISPLAY);
+        DesktopDisplayDrivers
+                .forKind(DesktopDisplayTarget.Kind.PHONE)
+                .show(this, Display.DEFAULT_DISPLAY);
         waitForPreparedDesktop(DesktopSelfTestTarget.PHONE, false);
     }
 
@@ -288,7 +290,7 @@ public final class DiagnosticsActivity extends Activity {
                         DesktopRuntimeBridge.getActiveDesktopDisplayId();
                 if (target.matchesDisplay(
                                 displayId,
-                                DesktopRuntimeBridge.getDesktopTargetKind(
+                                DesktopRuntimeBridge.getDesktopTarget(
                                         displayId))
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                                 displayId)) {
@@ -319,7 +321,7 @@ public final class DiagnosticsActivity extends Activity {
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (target.matchesDisplay(
                 displayId,
-                DesktopRuntimeBridge.getDesktopTargetKind(displayId))) {
+                DesktopRuntimeBridge.getDesktopTarget(displayId))) {
             if (target == DesktopSelfTestTarget.EXTERNAL) {
                 PhoneTouchpadController.release(displayId);
             }
