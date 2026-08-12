@@ -131,10 +131,7 @@ final class ExistingTaskController {
             boolean movedDisplay = false;
             if (task.displayId != targetDisplayId) {
                 final String command;
-                if (targetFreeform
-                        && DesktopRuntimeBridge
-                                .isSimulatedDesktopDisplay(
-                                        targetDisplayId)) {
+                if (targetFreeform) {
                     final Rect bounds = resolveTargetBounds(
                             targetDisplayId, targetBounds);
                     command = TaskDisplayAreaLaunchCommand.createMoveCommand(
@@ -151,7 +148,7 @@ final class ExistingTaskController {
                 final String output = runCommand(command);
                 if (movedAsFreeform
                         && !output.contains(
-                                "task-display-area-move=" + task.taskId)) {
+                                "task-freeform-move=" + task.taskId)) {
                     throw new IOException(output.trim());
                 }
                 waitForTaskDisplay(task.taskId, targetDisplayId);

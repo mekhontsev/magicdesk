@@ -3,9 +3,14 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.Display;
 import android.view.Gravity;
-import android.widget.Button;
+import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -17,7 +22,7 @@ public final class DesktopSelfTestActivity extends Activity {
     static final String EXTRA_DISPLAY_ID = "self_test_display_id";
     static final String EXTRA_TOKEN = "self_test_token";
     static final String EXTRA_ALLOW_DISPLAY_MOVE = "self_test_allow_display_move";
-    static final String MARKER_FILE = "desktop-self-test-input.txt";
+    static final String TEXT_MARKER_FILE = "desktop-self-test-text.txt";
     private static volatile WeakReference<DesktopSelfTestActivity> sActive =
             new WeakReference<>(null);
 
@@ -38,15 +43,7 @@ public final class DesktopSelfTestActivity extends Activity {
             mToken = "";
         }
 
-        final Button target = new Button(this);
-        target.setAllCaps(false);
-        target.setGravity(Gravity.CENTER);
-        target.setText(R.string.self_test_window_target);
-        target.setTextColor(Color.WHITE);
-        target.setTextSize(18);
-        target.setBackgroundColor(0xFF123A4A);
-        target.setOnClickListener(view -> writeInputMarker());
-        setContentView(target);
+        setContentView(createContent());
         finishIfMoved();
     }
 
@@ -92,13 +89,69 @@ public final class DesktopSelfTestActivity extends Activity {
         overridePendingTransition(0, 0);
     }
 
-    private void writeInputMarker() {
+    private FrameLayout createContent() {
+        final FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF123A4A);
+        root.setFocusableInTouchMode(true);
+
+        final EditText input = new EditText(this);
+        input.setGravity(Gravity.CENTER);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setShowSoftInputOnFocus(false);
+        input.setTextColor(Color.WHITE);
+        input.setTextSize(22);
+        input.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(
+                    final CharSequence text,
+                    final int start,
+                    final int count,
+                    final int after) {
+            }
+
+            @Override
+            public void onTextChanged(
+                    final CharSequence text,
+                    final int start,
+                    final int before,
+                    final int count) {
+                if (count > 0) {
+                    writeTextMarker(text.subSequence(start, start + count));
+                }
+            }
+
+            @Override
+            public void afterTextChanged(final Editable text) {
+            }
+        });
+        final FrameLayout.LayoutParams inputLayout =
+                new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT);
+        inputLayout.setMargins(48, 48, 48, 48);
+        root.addView(input, inputLayout);
+        // Keep a deterministic editor focused inside each fixture. The
+        // desktop taskbar can focus a window, but it must not guess which
+        // child view an application wants to receive keyboard input.
+        input.requestFocus();
+        return root;
+    }
+
+    private void writeTextMarker(final CharSequence inserted) {
+        writeMarker(TEXT_MARKER_FILE,
+                mToken + "|" + displayId() + "|" + inserted);
+    }
+
+    private int displayId() {
         final Display display = getDisplay();
-        final int displayId = display == null
+        return display == null
                 ? Display.INVALID_DISPLAY : display.getDisplayId();
-        final String value = mToken + "|" + displayId;
+    }
+
+    private void writeMarker(final String fileName, final String value) {
         try (FileOutputStream output = openFileOutput(
-                MARKER_FILE, MODE_PRIVATE)) {
+                fileName, MODE_PRIVATE)) {
             output.write(value.getBytes(StandardCharsets.UTF_8));
         } catch (IOException ignored) {
             // The controller reports a missing marker as the input test failure.

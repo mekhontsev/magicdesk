@@ -52,6 +52,7 @@ final class DesktopWallpaperController {
 
     private boolean mStarted;
     private volatile boolean mUsingCustomWallpaper;
+    private volatile boolean mRendered;
 
     DesktopWallpaperController(
             final DesktopShellActivity activity,
@@ -76,6 +77,7 @@ final class DesktopWallpaperController {
             return;
         }
         mStarted = false;
+        mRendered = false;
         mLoadGeneration.incrementAndGet();
         try {
             mContext.unregisterReceiver(mWallpaperChangedReceiver);
@@ -160,6 +162,10 @@ final class DesktopWallpaperController {
         return mUsingCustomWallpaper;
     }
 
+    boolean isRendered() {
+        return mRendered;
+    }
+
     void reloadExternal() {
         reload();
     }
@@ -187,6 +193,7 @@ final class DesktopWallpaperController {
                             }
                             mUsingCustomWallpaper = result.custom;
                             mWallpaperView.setImageBitmap(result.bitmap);
+                            mRendered = true;
                         }
                     });
                 } catch (RuntimeException error) {

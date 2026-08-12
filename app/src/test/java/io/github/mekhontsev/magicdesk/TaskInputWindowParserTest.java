@@ -24,7 +24,13 @@ public final class TaskInputWindowParserTest {
                     + "alpha=1, frame=[340,240][1140,280], globalScale=0, "
                     + "touchableRegion=[340,240][1140,280], ownerPid=16659, "
                     + "ownerUid=10454, dispatchingTimeout=8000ms, "
-                    + "token=0xb40000767847a510, touchOcclusionMode=BLOCK_UNTRUSTED\n";
+                    + "token=0xb40000767847a510, touchOcclusionMode=BLOCK_UNTRUSTED\n"
+                    + "      3: name=Maximize Menu for Task=6362, id=49780, "
+                    + "displayId=155, inputConfig=TRUSTED_OVERLAY, alpha=1, "
+                    + "frame=[824,280][1080,388], globalScale=0, "
+                    + "touchableRegion=[824,280][1080,388], ownerPid=16659, "
+                    + "ownerUid=1000, dispatchingTimeout=8000ms, "
+                    + "token=0xb40000767847b120, touchOcclusionMode=BLOCK_UNTRUSTED\n";
 
     @Test
     public void parsesCaptionInputWindow() {
@@ -55,6 +61,31 @@ public final class TaskInputWindowParserTest {
     }
 
     @Test
+    public void parsesMaximizeMenuInputWindow() {
+        final TaskInputWindowParser.Entry entry =
+                TaskInputWindowParser.findMaximizeMenu(DUMP, 6362);
+
+        assertNotNull(entry);
+        assertEquals(155, entry.displayId);
+        assertEquals("[824,280][1080,388]", entry.frame.toString());
+        assertTrue(entry.hasInputChannel());
+        assertTrue(entry.hasTouchableRegion());
+    }
+
+    @Test
+    public void parsesEmbeddedMaximizeMenuInputWindow() {
+        final TaskInputWindowParser.Entry entry =
+                TaskInputWindowParser.findMaximizeMenu(
+                        DUMP.replace(
+                                "name=Maximize Menu for Task=6362",
+                                "name=Embedded{Maximize Menu for Task=6362}"),
+                        6362);
+
+        assertNotNull(entry);
+        assertEquals(155, entry.displayId);
+    }
+
+    @Test
     public void ignoresOtherTasksAndMalformedWindows() {
         assertNull(TaskInputWindowParser.findCaption(DUMP, 99));
         assertNull(TaskInputWindowParser.findResize(
@@ -62,6 +93,7 @@ public final class TaskInputWindowParserTest {
                         + "name=Decor container of Task=6362)/@0x1}, "
                         + "displayId=bad, frame=[0,0][1,1]\n",
                 6362));
+        assertNull(TaskInputWindowParser.findMaximizeMenu(DUMP, 99));
     }
 
     @Test
@@ -74,5 +106,45 @@ public final class TaskInputWindowParserTest {
 
         assertNotNull(entry);
         assertFalse(entry.hasInputChannel());
+    }
+
+    @Test
+    public void identifiesCurrentFocusedTaskAndIgnoresStaleAnrState() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=155, name='ActivityRecord{123 u0 "
+                        + "example/.Editor t6362}', dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=155, name='abc example/.Editor'\n"
+                        + "  FocusRequests:\n"
+                        + "Input Dispatcher State at time of last ANR:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=155, name='ActivityRecord{456 u0 "
+                        + "example/.Editor t99}', dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=155, name='def example/.Editor'\n"
+                        + "  FocusRequests:\n";
+
+        assertTrue(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 6362));
+        assertFalse(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 99));
+        assertFalse(TaskInputWindowParser.isTaskFocused(
+                focusDump, 0, 6362));
+    }
+
+    @Test
+    public void requiresFocusedWindowOnTargetDisplay() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=155, name='ActivityRecord{123 u0 "
+                        + "example/.Editor t6362}', dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows: <none>\n"
+                        + "  FocusRequests:\n";
+
+        assertFalse(TaskInputWindowParser.isTaskFocused(
+                focusDump, 155, 6362));
     }
 }

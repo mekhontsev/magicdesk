@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Point;
+import android.view.MotionEvent;
 
 /** Injects one display-targeted mouse operation from the Shizuku shell. */
 public final class DesktopPointerCommand {
@@ -10,10 +11,18 @@ public final class DesktopPointerCommand {
     public static void main(final String[] args) {
         try {
             if (args.length == 4 && "hover".equals(args[0])) {
-                DesktopPointerInjector.injectMouseHover(
+                movePointer(
                         positiveInt(args[1], "display id"),
                         point(args[2], args[3]));
                 System.out.println("pointer-hovered");
+                return;
+            }
+            if (args.length == 4 && "click".equals(args[0])) {
+                final int displayId = positiveInt(args[1], "display id");
+                movePointer(displayId, point(args[2], args[3]));
+                DesktopPointerInjector.injectClick(
+                        displayId, MotionEvent.BUTTON_PRIMARY);
+                System.out.println("pointer-clicked");
                 return;
             }
             if (args.length == 7 && "drag".equals(args[0])) {
@@ -26,13 +35,22 @@ public final class DesktopPointerCommand {
                 return;
             }
             System.err.println("usage: DesktopPointerCommand "
-                    + "<hover display x y|drag display start-x start-y "
+                    + "<hover display x y|click display x y|"
+                    + "drag display start-x start-y "
                     + "end-x end-y duration-ms>");
             System.exit(64);
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("pointer command failed: " + error);
             System.exit(1);
         }
+    }
+
+    private static void movePointer(
+            final int displayId,
+            final Point position) throws ReflectiveOperationException {
+        NubiaMouseController.createOrUpdateViewport();
+        NubiaMouseController.setMousePosition(displayId, position);
+        DesktopPointerInjector.injectMouseHover(displayId, position);
     }
 
     private static Point point(final String x, final String y) {

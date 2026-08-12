@@ -357,28 +357,35 @@ shell `trap`, and restores the prior value. The test then uses production
 session and task controllers to verify the desktop viewport, a deterministic
 freeform Activity, task-local native caption source and geometry,
 display-targeted application input, native caption and resize input handles,
-true fullscreen, restore, minimize, and cleanup. The test also requests the
-native horizontal resize cursor and verifies WMShell's transition trace when
-that firmware trace is available. A simulated display without a readable
-pointer controller or trace reports the cursor check as `NOT_TESTED`. It
-rechecks the caption after the fullscreen round trip,
+true fullscreen, restore, minimize, and cleanup. It then opens two independent
+editor fixtures, uses the native caption menu to place them on the left and
+right halves, and verifies keyboard focus transfer through both the desktop
+task controller and mouse input. Input assertions wait for the current
+InputDispatcher focus state rather than a fixed transition delay. The test
+also requests the native horizontal resize cursor and verifies WMShell's
+transition trace when that firmware trace is available. A simulated display
+without a readable pointer controller or trace reports the cursor check as
+`NOT_TESTED`. It rechecks the caption after the fullscreen round trip,
 uses the same target-aware close operation as the user-facing session, and only
 then removes the display so WMS
 cannot migrate that task onto the phone launcher.
 
-A simulated-display windowed launch creates a short-lived shell-owned
-`TaskDisplayArea` beside the target display's default task area. A new Activity
-is launched there with its original launcher Intent, freeform mode, and bounds,
-or an existing task is reparented there in one
-`WindowContainerTransaction`. The root task is then moved back to the target's
-default area and the empty temporary area is deleted.
+A simulated-display cold launch creates a short-lived shell-owned
+`TaskDisplayArea` beside the target display's default task area. The new
+Activity is launched there with its original launcher Intent, freeform mode,
+and bounds, then synchronously reparented to the default area before the empty
+temporary area is deleted.
 
 Nubia's wired and Miracast desktop displays use their default task area
-directly. The same short-lived shell process starts the Activity and applies
-the normal freeform-and-bounds `WindowContainerTransaction` as soon as its task
-exists. This avoids a visible fullscreen phase without retaining a launch
-Activity. The distinction follows the explicit `DesktopDisplayTarget.Kind`;
-it never depends on display names, package exceptions, or timing guesses.
+directly. Cold launches enter that area through a WMShell launch transition
+with freeform mode and bounds in their `ActivityOptions`. An existing task is
+moved by a single `WindowContainerTransaction` that combines `startTask`, the
+target display, freeform mode, bounds, caption state, and the visible WMShell
+transition. Its first state on the external display is therefore the requested
+window rather than a fullscreen intermediate state. Moving a task back to the
+phone retains the ordinary fullscreen `move-stack` behavior. These paths use
+explicit display IDs and never depend on display names, package exceptions, or
+timing guesses.
 
 A one-shot shell-UID `TaskStackListener` is registered only around self-test
 fixture transitions. It captures the first `onTaskMovedToFront` configuration,

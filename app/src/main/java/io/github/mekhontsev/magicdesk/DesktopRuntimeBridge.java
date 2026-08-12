@@ -345,6 +345,13 @@ final class DesktopRuntimeBridge {
                 && activity.isDesktopHostReady();
     }
 
+    static boolean isDesktopWallpaperRendered(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.isDesktopWallpaperRendered();
+    }
+
     static int getDesktopHostIdentity(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null

@@ -348,8 +348,9 @@ compatibility reports. With all desktop sessions closed (the external display
 may remain connected), it temporarily creates a simulated 1920x1080 display
 and exercises the production desktop, freeform,
 fullscreen, minimize/restore, taskbar geometry, native caption structure,
-native caption/resize input windows, and targeted application input, including
-recreation of the desktop Activity. It
+native caption/resize input windows, native left/right window placement, and
+keyboard focus switching between two freeform windows through both taskbar
+activation and mouse input. It also recreates the desktop Activity. It
 also checks the hidden Android and RedMagic APIs that can be inspected without
 connected hardware. Physical DisplayPort/EDID, Miracast transport, keyboards,
 mice, and Touch Panel remain explicitly marked **NOT TESTED** until those
@@ -357,12 +358,13 @@ devices are present. Native mouse resize-cursor selection is checked when
 WMShell exposes its transition trace; otherwise it remains explicitly
 **NOT TESTED** because Android overlay displays do not render a readable
 hardware cursor.
-The test launches its window through the temporary task display area used for
-simulated displays. A one-shot shell task observer records the new window's
-first front-state and reports any transient fullscreen launch. It also moves
-an existing fullscreen phone task through the same path and verifies that its
-first state on the external display is already freeform. The eventual
-corrected state is never mistaken for the initial one.
+The test launches its new window through the temporary task display area used
+for simulated displays. A one-shot shell task observer records the new
+window's first front-state and reports any transient fullscreen launch. It
+then moves an existing fullscreen phone task through the production WMShell
+transition and verifies that its first state on the external display is
+already freeform. The eventual corrected state is never mistaken for the
+initial one.
 The simulated-display setting is owned by a lifecycle-bound Shizuku stream and
 restored when the test finishes or its process disconnects.
 

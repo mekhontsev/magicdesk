@@ -250,8 +250,9 @@ not supported runtime modes:
 - [x] A manually requested built-in self-test creates a lifecycle-owned overlay
   display, exercises the production desktop/window/input paths, audits hidden
   and RedMagic API availability, verifies native caption structure before and
-  after fullscreen, restores the prior setting, and includes its bounded result
-  in Diagnostics without background polling.
+  after fullscreen, physically exercises native left/right placement, verifies
+  two-window keyboard focus transfer, restores the prior setting, and includes
+  its bounded result in Diagnostics without background polling.
 - [x] A debug-only lifecycle instrumentation runs the owned simulated-display
   regression, recreates the desktop Activity, exercises freeform and fullscreen
   transitions, and verifies display/task cleanup. CI still needs a compatible

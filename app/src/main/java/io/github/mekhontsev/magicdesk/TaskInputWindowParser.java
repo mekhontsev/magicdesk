@@ -3,10 +3,14 @@ package io.github.mekhontsev.magicdesk;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Reads native caption and resize input windows from {@code dumpsys input}. */
+/** Reads task-related input state from {@code dumpsys input}. */
 final class TaskInputWindowParser {
     private static final Pattern FRAME_PATTERN = Pattern.compile(
             "\\[(-?\\d+),\\s*(-?\\d+)]\\[(-?\\d+),\\s*(-?\\d+)]");
+    private static final Pattern FOCUSED_APPLICATION_PATTERN = Pattern.compile(
+            "(?m)^\\s*displayId=(\\d+), name='ActivityRecord\\{[^\\n]*\\st(\\d+)\\}'");
+    private static final Pattern FOCUSED_WINDOW_PATTERN = Pattern.compile(
+            "(?m)^\\s*displayId=(\\d+), name='[^']+'");
 
     private TaskInputWindowParser() {
     }
@@ -19,6 +23,70 @@ final class TaskInputWindowParser {
         return find(dump,
                 "name=Embedded{DragResizeInputListener of Surface(name="
                         + "Decor container of Task=" + taskId + ")/");
+    }
+
+    static Entry findMaximizeMenu(final String dump, final int taskId) {
+        return find(dump, "Maximize Menu for Task=" + taskId);
+    }
+
+    static boolean isTaskFocused(
+            final String dump, final int displayId, final int taskId) {
+        final String dispatcher = currentDispatcherState(dump);
+        if (dispatcher.isEmpty()) {
+            return false;
+        }
+        final String applications = section(
+                dispatcher, "FocusedApplications:", "FocusedWindows:");
+        final Matcher applicationMatcher =
+                FOCUSED_APPLICATION_PATTERN.matcher(applications);
+        boolean focusedApplication = false;
+        while (applicationMatcher.find()) {
+            if (Integer.parseInt(applicationMatcher.group(1)) == displayId
+                    && Integer.parseInt(applicationMatcher.group(2)) == taskId) {
+                focusedApplication = true;
+                break;
+            }
+        }
+        if (!focusedApplication) {
+            return false;
+        }
+        final String windows = section(
+                dispatcher, "FocusedWindows:", "FocusRequests:");
+        final Matcher windowMatcher = FOCUSED_WINDOW_PATTERN.matcher(windows);
+        while (windowMatcher.find()) {
+            if (Integer.parseInt(windowMatcher.group(1)) == displayId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String currentDispatcherState(final String dump) {
+        if (dump == null || dump.isEmpty()) {
+            return "";
+        }
+        final String marker = "Input Dispatcher State:";
+        final int start = dump.indexOf(marker);
+        if (start < 0) {
+            return "";
+        }
+        final int staleState = dump.indexOf(
+                "Input Dispatcher State at time of last ANR:", start);
+        return staleState < 0
+                ? dump.substring(start) : dump.substring(start, staleState);
+    }
+
+    private static String section(
+            final String text, final String startMarker, final String endMarker) {
+        final int start = text.indexOf(startMarker);
+        if (start < 0) {
+            return "";
+        }
+        final int contentStart = start + startMarker.length();
+        final int end = text.indexOf(endMarker, contentStart);
+        return end < 0
+                ? text.substring(contentStart)
+                : text.substring(contentStart, end);
     }
 
     private static Entry find(final String dump, final String marker) {

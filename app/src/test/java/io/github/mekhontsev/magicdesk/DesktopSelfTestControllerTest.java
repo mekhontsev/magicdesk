@@ -31,4 +31,52 @@ public final class DesktopSelfTestControllerTest {
                 stack, 3,
                 "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity"));
     }
+
+    @Test
+    public void appliesPredicateAcrossMatchingFixtureTasks() {
+        final String fixture =
+                "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity";
+        final String stack =
+                "RootTask id=12 displayId=8\n"
+                        + " configuration={mWindowingMode=freeform}\n"
+                        + " taskId=22: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity} visible=true\n"
+                        + "RootTask id=13 displayId=8\n"
+                        + " configuration={mWindowingMode=freeform}\n"
+                        + " taskId=23: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity} visible=true\n";
+
+        assertEquals(23, DesktopSelfTestController.findTask(
+                stack, 8, fixture, task -> task.taskId == 23).taskId);
+    }
+
+    @Test
+    public void findsFrontVisibleTaskIncludingDesktopHost() {
+        final String stack =
+                "RootTask id=10 displayId=8\n"
+                        + " configuration={mWindowingMode=fullscreen}\n"
+                        + " taskId=20: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/.DesktopActivity} "
+                        + "visible=true\n"
+                        + "RootTask id=12 displayId=8\n"
+                        + " configuration={mWindowingMode=freeform}\n"
+                        + " taskId=22: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity} visible=true\n"
+                        + "RootTask id=13 displayId=8\n"
+                        + " configuration={mWindowingMode=freeform}\n"
+                        + " taskId=23: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".DesktopSelfTestActivity} visible=true\n";
+
+        assertEquals(20, DesktopSelfTestController.findFrontTask(
+                stack, 8).taskId);
+    }
 }

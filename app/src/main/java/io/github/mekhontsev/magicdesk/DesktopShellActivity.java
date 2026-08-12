@@ -815,6 +815,11 @@ public abstract class DesktopShellActivity extends Activity
                 && mDesktopWallpaperController.isUsingCustomWallpaper();
     }
 
+    boolean isDesktopWallpaperRendered() {
+        return mDesktopWallpaperController != null
+                && mDesktopWallpaperController.isRendered();
+    }
+
     void configureDesktopWidget(final int appWidgetId) {
         hideAllPanels();
         mDesktopWorkspaceController.configureWidget(appWidgetId);

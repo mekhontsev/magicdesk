@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Looper;
@@ -19,7 +20,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
-/** Launches or moves a freeform task using a selected task display area. */
+/** Launches or moves a task directly into its requested freeform state. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
     private static final String PACKAGE_NAME =
@@ -79,7 +80,9 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Intent intent = new Intent()
                 .setComponent(new ComponentName(PACKAGE_NAME, ACTIVITY_CLASS))
-                .addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                .setData(Uri.parse("magicdesk-self-test:" + token))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION)
                 .putExtra(DesktopSelfTestActivity.EXTRA_DISPLAY_ID, displayId)
                 .putExtra(DesktopSelfTestActivity.EXTRA_TOKEN, token)
@@ -134,11 +137,11 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId = parseNonNegative(
                     args[move ? 3 : 1], "display id");
             final Rect bounds = parseBounds(args, move ? 4 : 3);
-            final Class<?> containerTokenClass = app && defaultApp
-                    ? null
-                    : Class.forName("android.window.WindowContainerToken");
+            final Class<?> containerTokenClass = temporaryApp
+                    ? Class.forName("android.window.WindowContainerToken")
+                    : null;
             final Class<?> organizerClass;
-            if (defaultApp) {
+            if (defaultApp || move) {
                 organizerClass = null;
             } else {
                 organizerClass = Class.forName(
@@ -191,25 +194,24 @@ public final class TaskDisplayAreaLaunchCommand {
                             WINDOWING_MODE_FREEFORM);
                 }
             } else {
-                final Object taskToken = HiddenTaskApi.requireTaskToken(
-                        service, sourceDisplayId, taskIdArgument);
+                moveExistingTask(
+                        service,
+                        taskIdArgument,
+                        sourceDisplayId,
+                        displayId,
+                        bounds);
+                taskId = taskIdArgument;
+            }
+            if (temporaryApp) {
+                // A null parent means the default task display area on the
+                // task's current display.
                 reparentTask(
                         service,
-                        taskToken,
-                        areaToken,
+                        HiddenTaskApi.requireTaskToken(
+                                service, displayId, taskId),
+                        null,
                         bounds,
                         containerTokenClass);
-                taskId = taskIdArgument;
-                waitForTask(
-                        service,
-                        displayId,
-                        taskId,
-                        null,
-                        null);
-            }
-            if (!defaultApp) {
-                moveRootTaskToDefaultDisplayArea(
-                        service, taskId, displayId);
                 waitForTask(
                         service,
                         displayId,
@@ -229,10 +231,11 @@ public final class TaskDisplayAreaLaunchCommand {
                         null,
                         null);
             }
-            System.out.println("task-display-area-"
-                    + (move ? "move=" : "launch=") + taskId);
+            System.out.println(move
+                    ? "task-freeform-move=" + taskId
+                    : "task-display-area-launch=" + taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            System.err.println("task display area launch failed: "
+            System.err.println("freeform task transition failed: "
                     + usefulMessage(error));
             System.exit(1);
         } finally {
@@ -429,6 +432,36 @@ public final class TaskDisplayAreaLaunchCommand {
                 "task did not enter requested windowing mode");
     }
 
+    private static void waitForTaskFreeformBounds(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect expectedBounds) throws ReflectiveOperationException {
+        final long deadline = SystemClock.uptimeMillis()
+                + TASK_TIMEOUT_MILLIS;
+        do {
+            for (final Object task : HiddenTaskApi.getTasks(
+                    service, displayId)) {
+                if (HiddenTaskApi.getIntField(task, "taskId") == taskId
+                        && HiddenTaskApi.getWindowConfigurationValue(
+                                task, "getWindowingMode")
+                                == WINDOWING_MODE_FREEFORM) {
+                    final Object windowConfiguration =
+                            HiddenTaskApi.getWindowConfiguration(task);
+                    final Object bounds = windowConfiguration.getClass()
+                            .getMethod("getBounds")
+                            .invoke(windowConfiguration);
+                    if (expectedBounds.equals(bounds)) {
+                        return;
+                    }
+                }
+            }
+            SystemClock.sleep(50L);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IllegalStateException(
+                "task did not reach the requested freeform bounds");
+    }
+
     private static boolean isTaskFreeformAtBounds(
             final Object service,
             final int displayId,
@@ -483,18 +516,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra("start_from_heartservice_app_lock", true);
     }
 
-    private static void moveRootTaskToDefaultDisplayArea(
-            final Object service,
-            final int taskId,
-            final int displayId) throws ReflectiveOperationException {
-        service.getClass().getMethod(
-                "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                .invoke(
-                        service,
-                        Integer.valueOf(taskId),
-                        Integer.valueOf(displayId));
-    }
-
     private static void reparentTask(
             final Object service,
             final Object taskToken,
@@ -521,6 +542,60 @@ public final class TaskDisplayAreaLaunchCommand {
                         new Object[]{taskToken, parentToken, Boolean.TRUE});
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
+    }
+
+    private static void moveExistingTask(
+            final Object service,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) throws ReflectiveOperationException {
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, sourceDisplayId, taskId);
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(targetDisplayId);
+        options.setLaunchBounds(bounds);
+        ActivityOptions.class.getMethod(
+                "setLaunchWindowingMode", Integer.TYPE)
+                .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
+        ActivityOptions.class.getMethod(
+                "setFlexibleLaunchSize", Boolean.TYPE)
+                .invoke(options, Boolean.TRUE);
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Object transaction = transactionClass
+                .getConstructor().newInstance();
+        // Apply the display move, mode and geometry in one visible transition.
+        transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(
+                        transaction,
+                        taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
+        transactionClass.getMethod(
+                "setBounds", tokenClass, Rect.class)
+                .invoke(transaction, taskToken, bounds);
+        transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.FALSE);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass,
+                transaction,
+                tokenClass,
+                taskToken,
+                false);
+        transactionClass.getMethod(
+                "startTask", Integer.TYPE, Bundle.class)
+                .invoke(
+                        transaction,
+                        Integer.valueOf(taskId),
+                        options.toBundle());
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_OPEN, transactionClass, transaction);
+        waitForTaskFreeformBounds(
+                service, targetDisplayId, taskId, bounds);
     }
 
     private static void deleteArea(

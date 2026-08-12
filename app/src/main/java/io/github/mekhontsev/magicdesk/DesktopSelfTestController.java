@@ -35,6 +35,13 @@ final class DesktopSelfTestController {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int RESIZE_EDGE_OUTSET_PX = 8;
+    // Android 16 WMShell caption dimensions on the fixed 160 dpi display.
+    private static final int CAPTION_BUTTON_CENTER_Y_PX = 20;
+    private static final int MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX = 82;
+    private static final int SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP = 96;
+    private static final int SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP = 44;
+    private static final int SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP = 46;
+    private static final int PLACEMENT_ALIGNMENT_TOLERANCE_PX = 100;
     private static final long STEP_TIMEOUT_MILLIS = 10_000L;
     private static final long POLL_MILLIS = 100L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean();
@@ -150,11 +157,12 @@ final class DesktopSelfTestController {
                 throw new IOException(
                         "desktop activity did not become ready after recreation");
             });
+            verifyDesktopWallpaper(targetDisplayId, result);
             require(result, "WINDOW-000", "Clear stale self-test windows", () -> {
                 removeFixtureTasks();
                 return "ready";
             });
-            appContext.deleteFile(DesktopSelfTestActivity.MARKER_FILE);
+            clearTextMarker(appContext);
             final String token = Long.toHexString(System.nanoTime());
             final Rect windowBounds = new Rect(160, 120, 960, 720);
             final DesktopTaskLaunchProbe.Observation initialLaunch = require(
@@ -200,6 +208,17 @@ final class DesktopSelfTestController {
                             targetFixtureTaskId,
                             desktopTask.taskId,
                             windowBounds));
+            check(result,
+                    "WINDOW-013",
+                    "Keep desktop background rendered after task move",
+                    () -> {
+                        if (!DesktopRuntimeBridge.isDesktopWallpaperRendered(
+                                targetDisplayId)) {
+                            throw new IOException(
+                                    "desktop wallpaper is not rendered");
+                        }
+                        return "rendered";
+                    });
             require(result, "WINDOW-002", "Apply freeform bounds", () -> {
                 ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
                         targetDisplayId, targetFixtureTaskId, windowBounds));
@@ -217,11 +236,19 @@ final class DesktopSelfTestController {
                     inspectCaptionStructure(
                             targetFixtureTaskId, windowBounds));
             check(result, "INPUT-001", "Route input to simulated display", () -> {
+                clearTextMarker(appContext);
                 final int x = windowBounds.centerX();
                 final int y = windowBounds.centerY();
-                ShellAccess.run("/system/bin/input touchscreen -d "
+                requirePointerHover(targetDisplayId, x, y);
+                ShellAccess.run("/system/bin/input mouse -d "
                         + targetDisplayId + " tap " + x + " " + y);
-                waitForInputMarker(appContext, token, targetDisplayId);
+                waitForTaskInputFocus(
+                        targetDisplayId, targetFixtureTaskId);
+                sendTestKey(targetDisplayId, "0");
+                waitForMarker(appContext,
+                        DesktopSelfTestActivity.TEXT_MARKER_FILE,
+                        token + "|" + targetDisplayId + "|0",
+                        targetDisplayId);
                 return "tap=" + x + "," + y;
             });
             verifyNativeInputWindows(
@@ -270,6 +297,12 @@ final class DesktopSelfTestController {
                 waitForWindowFocus(targetDisplayId, false);
                 return "task=" + targetFixtureTaskId;
             });
+            runTwoWindowFocusTests(
+                    appContext,
+                    result,
+                    targetDisplayId,
+                    targetFixtureTaskId,
+                    token);
         } catch (AbortSelfTest ignored) {
             // The failing required step has already been added to the result.
         } catch (RuntimeException error) {
@@ -407,6 +440,27 @@ final class DesktopSelfTestController {
         });
     }
 
+    private static void verifyDesktopWallpaper(
+            final int displayId,
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        require(result,
+                "DESKTOP-004",
+                "Render desktop background",
+                () -> {
+                    final long deadline = SystemClock.uptimeMillis()
+                            + STEP_TIMEOUT_MILLIS;
+                    do {
+                        if (DesktopRuntimeBridge.isDesktopWallpaperRendered(
+                                displayId)) {
+                            return "rendered";
+                        }
+                        SystemClock.sleep(POLL_MILLIS);
+                    } while (SystemClock.uptimeMillis() < deadline);
+                    throw new IOException(
+                            "desktop wallpaper did not finish rendering");
+                });
+    }
+
     private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
             final int displayId,
             final String token,
@@ -492,7 +546,7 @@ final class DesktopSelfTestController {
                             displayId,
                             bounds));
             final String expectedOutput =
-                    "task-display-area-move=" + taskId;
+                    "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {
                 throw new IOException(output.trim());
             }
@@ -586,6 +640,438 @@ final class DesktopSelfTestController {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "INPUT-004", "Show native mouse resize cursor",
                     usefulMessage(error));
+        }
+    }
+
+    private static void runTwoWindowFocusTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken) throws AbortSelfTest {
+        final Rect leftBounds = new Rect(80, 100, 940, 900);
+        final Rect rightBounds = new Rect(980, 100, 1840, 900);
+        final String secondToken = Long.toHexString(System.nanoTime());
+        final DesktopTaskLaunchProbe.Observation secondLaunch = require(
+                result,
+                "WINDOW-011",
+                "Launch second freeform test window",
+                () -> {
+                    final DesktopTaskLaunchProbe.Observation observation =
+                            launchFixtureAndObserve(
+                                    displayId, secondToken, rightBounds);
+                    if (observation.taskId == firstTaskId) {
+                        throw new IOException(
+                                "Android reused task " + firstTaskId);
+                    }
+                    return observation;
+                });
+        final int secondTaskId = secondLaunch.taskId;
+        require(result, "WINDOW-012", "Place two freeform test windows", () -> {
+            ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
+                    displayId, firstTaskId, leftBounds));
+            ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
+                    displayId, secondTaskId, rightBounds));
+            waitForTask(displayId, FIXTURE_CLASS,
+                    entry -> entry.taskId == firstTaskId
+                            && "freeform".equals(entry.windowingMode)
+                            && entry.visible
+                            && equalsBounds(entry.bounds, leftBounds));
+            waitForTask(displayId, FIXTURE_CLASS,
+                    entry -> entry.taskId == secondTaskId
+                            && "freeform".equals(entry.windowingMode)
+                            && entry.visible
+                            && equalsBounds(entry.bounds, rightBounds));
+            return "left=" + firstTaskId + ", right=" + secondTaskId;
+        });
+
+        check(result,
+                "FOCUS-001",
+                "Activate and focus right text window",
+                () -> focusFieldThroughDesktop(
+                        context,
+                        displayId,
+                        secondTaskId,
+                        secondToken,
+                        "1"));
+        check(result,
+                "FOCUS-002",
+                "Activate and focus left text window",
+                () -> focusFieldThroughMouse(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        firstToken,
+                        leftBounds,
+                        "2"));
+        check(result,
+                "FOCUS-003",
+                "Restore right text focus through desktop focus service",
+                () -> focusFieldThroughDesktop(
+                        context, displayId, secondTaskId, secondToken, "3"));
+        check(result,
+                "FOCUS-004",
+                "Restore left text focus through desktop focus service",
+                () -> focusFieldThroughDesktop(
+                        context, displayId, firstTaskId, firstToken, "4"));
+        check(result,
+                "FOCUS-005",
+                "Switch mouse focus back to right window",
+                () -> focusFieldThroughMouse(
+                        context, displayId, secondTaskId,
+                        secondToken, rightBounds, "5"));
+
+        runNativeCaptionPlacementFocusTests(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                firstToken,
+                secondTaskId,
+                secondToken);
+    }
+
+    private static void runNativeCaptionPlacementFocusTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken,
+            final int secondTaskId,
+            final String secondToken) {
+        final TaskStackParser.Entry left = captionSnap(
+                context,
+                result,
+                "NATIVE-SNAP-001",
+                "Place first window left through native caption",
+                displayId,
+                firstTaskId,
+                true);
+        final TaskStackParser.Entry right = captionSnap(
+                context,
+                result,
+                "NATIVE-SNAP-002",
+                "Place second window right through native caption",
+                displayId,
+                secondTaskId,
+                false);
+        if (left == null || right == null) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FOCUS-006",
+                    "Switch focus after native caption placement",
+                    "native caption placement was unavailable");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FOCUS-007",
+                    "Restore focus after native caption placement",
+                    "native caption placement was unavailable");
+            return;
+        }
+        final Rect leftBounds = toRect(left.bounds);
+        final Rect rightBounds = toRect(right.bounds);
+        check(result,
+                "NATIVE-SNAP-003",
+                "Verify native side-by-side placement",
+                () -> inspectSideBySidePlacement(
+                        leftBounds, rightBounds));
+        check(result,
+                "FOCUS-006",
+                "Switch mouse focus after native caption placement",
+                () -> focusFieldThroughMouse(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        firstToken,
+                        leftBounds,
+                        "6"));
+        check(result,
+                "FOCUS-007",
+                "Restore focus after native caption placement",
+                () -> focusFieldThroughDesktop(
+                        context,
+                        displayId,
+                        secondTaskId,
+                        secondToken,
+                        "7"));
+    }
+
+    private static TaskStackParser.Entry captionSnap(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final int displayId,
+            final int taskId,
+            final boolean left) {
+        try {
+            final TaskStackParser.Entry before = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == taskId
+                            && "freeform".equals(task.windowingMode)
+                            && task.visible);
+            final Rect beforeBounds = toRect(before.bounds);
+            openNativeMaximizeMenu(displayId, before.bounds);
+            final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
+                    displayId, taskId);
+            // The detached SystemUI menu uses phone density even though its
+            // caption belongs to the 160 dpi simulated display.
+            final float menuDensity = defaultDisplayDensity(context);
+            final int x = menu.frame.right - Math.round(menuDensity * (left
+                    ? SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP
+                    : SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP));
+            final int y = menu.frame.top
+                    + Math.round(menuDensity
+                            * SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP);
+            ShellAccess.run(pointerCommand(
+                    "click " + displayId + " " + x + " " + y));
+            final TaskStackParser.Entry placed;
+            try {
+                placed = waitForTask(
+                        displayId,
+                        FIXTURE_CLASS,
+                        task -> task.taskId == taskId
+                                && "freeform".equals(task.windowingMode)
+                                && task.visible
+                                && !equalsBounds(task.bounds, beforeBounds)
+                                && isSnapped(task.bounds, left));
+            } catch (IOException error) {
+                throw new IOException(error.getMessage()
+                        + "; menu=" + menu.frame
+                        + ", click=" + x + "," + y);
+            }
+            result.add(DesktopSelfTestResult.State.PASS,
+                    code,
+                    label,
+                    "task=" + taskId + ", bounds="
+                            + formatBounds(placed.bounds));
+            return placed;
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    code, label, usefulMessage(error));
+            return null;
+        }
+    }
+
+    private static void openNativeMaximizeMenu(
+            final int displayId,
+            final TaskStackParser.Bounds bounds) throws IOException {
+        final int x = bounds.right
+                - MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX;
+        final int y = bounds.top + CAPTION_BUTTON_CENTER_Y_PX;
+        requirePointerHover(displayId, x, y);
+    }
+
+    private static float defaultDisplayDensity(final Context context)
+            throws IOException {
+        final DisplayManager displayManager = context.getSystemService(
+                DisplayManager.class);
+        final Display defaultDisplay = displayManager == null
+                ? null : displayManager.getDisplay(Display.DEFAULT_DISPLAY);
+        if (defaultDisplay == null) {
+            throw new IOException("default display is unavailable");
+        }
+        final float density = context.createDisplayContext(defaultDisplay)
+                .getResources().getDisplayMetrics().density;
+        if (density <= 0.0f) {
+            throw new IOException("default display density is unavailable");
+        }
+        return density;
+    }
+
+    private static TaskInputWindowParser.Entry waitForMaximizeMenu(
+            final int displayId,
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            final TaskInputWindowParser.Entry menu =
+                    TaskInputWindowParser.findMaximizeMenu(
+                            ShellAccess.run("/system/bin/dumpsys input"),
+                            taskId);
+            if (menu != null
+                    && menu.displayId == displayId
+                    && menu.hasInputChannel()
+                    && menu.hasTouchableRegion()) {
+                return menu;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "native maximize menu did not open for task " + taskId);
+    }
+
+    private static boolean isSnapped(
+            final TaskStackParser.Bounds bounds,
+            final boolean left) {
+        if (bounds == null || bounds.isEmpty()) {
+            return false;
+        }
+        final int midpoint = EXPECTED_WIDTH / 2;
+        final int edgeTolerance = EXPECTED_WIDTH / 10;
+        return left
+                ? bounds.left <= edgeTolerance
+                        && Math.abs(bounds.right - midpoint) <= edgeTolerance
+                : bounds.right >= EXPECTED_WIDTH - edgeTolerance
+                        && Math.abs(bounds.left - midpoint) <= edgeTolerance;
+    }
+
+    private static String inspectSideBySidePlacement(
+            final Rect left,
+            final Rect right) throws IOException {
+        if (left == null || right == null
+                || left.isEmpty() || right.isEmpty()
+                || left.left >= right.left
+                || left.right > right.left
+                || Math.abs(left.top - right.top)
+                        > PLACEMENT_ALIGNMENT_TOLERANCE_PX
+                || Math.abs(left.bottom - right.bottom)
+                        > PLACEMENT_ALIGNMENT_TOLERANCE_PX) {
+            throw new IOException("unexpected native placement: left="
+                    + left + ", right=" + right);
+        }
+        return "left=" + left + ", right=" + right;
+    }
+
+    private static String focusFieldThroughMouse(
+            final Context context,
+            final int displayId,
+            final int taskId,
+            final String token,
+            final Rect bounds,
+            final String digit) throws IOException {
+        clearTextMarker(context);
+        final int x = bounds.centerX();
+        final int y = bounds.top + bounds.height() / 3;
+        ShellAccess.run(pointerCommand(
+                "click " + displayId + " " + x + " " + y));
+        waitForTaskInputFocus(displayId, taskId);
+        sendTestKey(displayId, digit);
+        waitForMarker(context,
+                DesktopSelfTestActivity.TEXT_MARKER_FILE,
+                token + "|" + displayId + "|" + digit,
+                displayId);
+        return "token=" + token + ", click=" + x + "," + y;
+    }
+
+    private static String focusFieldThroughDesktop(
+            final Context context,
+            final int displayId,
+            final int taskId,
+            final String token,
+            final String digit) throws IOException {
+        clearTextMarker(context);
+        focusTaskThroughDesktop(displayId, taskId);
+        waitForFrontTask(displayId, taskId);
+        waitForTaskInputFocus(displayId, taskId);
+        sendTestKey(displayId, digit);
+        waitForMarker(context,
+                DesktopSelfTestActivity.TEXT_MARKER_FILE,
+                token + "|" + displayId + "|" + digit,
+                displayId);
+        return "task=" + taskId + ", token=" + token;
+    }
+
+    private static void waitForTaskInputFocus(
+            final int displayId, final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            final String dump = ShellAccess.run("/system/bin/dumpsys input");
+            if (TaskInputWindowParser.isTaskFocused(
+                    dump, displayId, taskId)) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("input focus did not settle on task "
+                + taskId + " on display " + displayId);
+    }
+
+    private static void focusTaskThroughDesktop(
+            final int displayId,
+            final int taskId) throws IOException {
+        final CountDownLatch complete = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        final StringBuilder message = new StringBuilder();
+        DesktopTaskController.focusDesktopTask(
+                displayId,
+                taskId,
+                action -> {
+                    success.set(action.success);
+                    message.append(action.message);
+                    complete.countDown();
+                });
+        try {
+            if (!complete.await(STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("taskbar focus timed out for task " + taskId);
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("taskbar focus interrupted", error);
+        }
+        if (!success.get()) {
+            throw new IOException("taskbar focus failed: " + message);
+        }
+    }
+
+    private static void sendTestKey(
+            final int displayId,
+            final String digit) throws IOException {
+        if (digit == null || digit.length() != 1
+                || digit.charAt(0) < '0' || digit.charAt(0) > '9') {
+            throw new IllegalArgumentException("invalid test digit");
+        }
+        ShellAccess.run("/system/bin/input -d " + displayId
+                + " keyevent KEYCODE_" + digit);
+    }
+
+    private static void clearTextMarker(final Context context) {
+        context.deleteFile(DesktopSelfTestActivity.TEXT_MARKER_FILE);
+    }
+
+    private static void waitForMarker(
+            final Context context,
+            final String fileName,
+            final String expected,
+            final int displayId) throws IOException {
+        final File marker = new File(context.getFilesDir(), fileName);
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        String actual;
+        do {
+            actual = readFile(marker);
+            if (expected.equals(actual)) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("expected marker=" + expected
+                + ", actual=" + actual
+                + ", tasks=" + taskStateDetail(displayId));
+    }
+
+    private static String taskStateDetail(final int displayId) {
+        try {
+            final StringBuilder detail = new StringBuilder();
+            for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                    ShellAccess.run("/system/bin/cmd activity stack list"))) {
+                if (task.displayId == displayId && !task.isHome()) {
+                    if (detail.length() > 0) {
+                        detail.append(';');
+                    }
+                    detail.append(task.taskId)
+                            .append('/')
+                            .append(task.componentName)
+                            .append('/')
+                            .append(task.windowingMode)
+                            .append('/')
+                            .append(task.visible ? "visible" : "hidden")
+                            .append('/')
+                            .append(formatBounds(task.bounds));
+                }
+            }
+            return detail.length() == 0 ? "none" : detail.toString();
+        } catch (IOException ignored) {
+            return "unavailable";
         }
     }
 
@@ -693,23 +1179,6 @@ final class DesktopSelfTestController {
                 arguments);
     }
 
-    private static void waitForInputMarker(
-            final Context context, final String token, final int displayId)
-            throws IOException {
-        final String expected = token + "|" + displayId;
-        final File marker = new File(
-                context.getFilesDir(), DesktopSelfTestActivity.MARKER_FILE);
-        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
-        do {
-            final String value = readFile(marker);
-            if (expected.equals(value)) {
-                return;
-            }
-            SystemClock.sleep(POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("test window did not receive targeted input");
-    }
-
     private static TaskStackParser.Entry waitForTask(
             final int displayId, final String className,
             final TaskPredicate predicate) throws IOException {
@@ -717,14 +1186,45 @@ final class DesktopSelfTestController {
         do {
             final TaskStackParser.Entry task = findTask(
                     ShellAccess.run("/system/bin/cmd activity stack list"),
-                    displayId, className);
-            if (task != null && (predicate == null || predicate.test(task))) {
+                    displayId, className, predicate);
+            if (task != null) {
                 return task;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className
                 + " did not reach the expected state on display " + displayId);
+    }
+
+    private static TaskStackParser.Entry waitForFrontTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            final TaskStackParser.Entry front = findFrontTask(
+                    ShellAccess.run("/system/bin/cmd activity stack list"),
+                    displayId);
+            if (front != null && front.taskId == taskId) {
+                return front;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + taskId
+                + " did not receive front focus on display " + displayId);
+    }
+
+    static TaskStackParser.Entry findFrontTask(
+            final String stack,
+            final int displayId) {
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
+            if (task.displayId == displayId
+                    && task.visible
+                    && !task.isHome()) {
+                return task;
+            }
+        }
+        return null;
     }
 
     private static void waitForWindowFocus(
@@ -745,10 +1245,19 @@ final class DesktopSelfTestController {
 
     static TaskStackParser.Entry findTask(
             final String stack, final int displayId, final String className) {
+        return findTask(stack, displayId, className, null);
+    }
+
+    static TaskStackParser.Entry findTask(
+            final String stack,
+            final int displayId,
+            final String className,
+            final TaskPredicate predicate) {
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
             if (task.displayId == displayId
                     && (hasClass(task.componentName, className)
-                            || hasClass(task.topActivityName, className))) {
+                            || hasClass(task.topActivityName, className))
+                    && (predicate == null || predicate.test(task))) {
                 return task;
             }
         }
@@ -763,9 +1272,8 @@ final class DesktopSelfTestController {
         boolean clean = true;
         if (ShellAccess.isReady()) {
             try {
-                if (!DesktopSelfTestActivity.finishActiveTask()) {
-                    removeFixtureTasks();
-                }
+                DesktopSelfTestActivity.finishActiveTask();
+                removeFixtureTasks();
                 waitForTaskAbsent(FIXTURE_CLASS);
             } catch (IOException error) {
                 clean = false;
@@ -1077,6 +1585,11 @@ final class DesktopSelfTestController {
                 && actual.top == expected.top
                 && actual.right == expected.right
                 && actual.bottom == expected.bottom;
+    }
+
+    private static Rect toRect(final TaskStackParser.Bounds bounds) {
+        return bounds == null ? null : new Rect(
+                bounds.left, bounds.top, bounds.right, bounds.bottom);
     }
 
     private static String formatBounds(final TaskStackParser.Bounds bounds) {
