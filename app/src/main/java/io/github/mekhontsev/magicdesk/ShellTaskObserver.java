@@ -162,7 +162,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     Log.w(TAG, "task focus skipped stale task=" + taskId);
                     continue;
                 }
-                TaskControlCommand.setFocusedTask(mService, taskId);
+                TaskControlCommand.moveTaskToFront(mService, taskId);
                 appliedTaskCount++;
             }
             if (appliedTaskCount == 0) {
