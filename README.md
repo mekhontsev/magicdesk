@@ -243,15 +243,22 @@ MagicDesk notification center and notification popups.
 ### Development builds
 
 Every non-documentation push to `main` produces a release-signed development
-APK. Open the latest successful `main` run on the stable
+APK. Download the latest build directly from the rolling prerelease:
+
+[Download MagicDesk development build](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk)
+
+The link is public and remains the same after each build. Development builds
+use the same signing certificate as tagged releases, but contain unreleased
+code and may be less stable. The
+[development release page](https://github.com/mekhontsev/magicdesk/releases/tag/development)
+also provides the exact commit, checksum, and CI run. Per-run artifacts remain
+available for 30 days on the
 [Android CI workflow page](https://github.com/mekhontsev/magicdesk/actions/workflows/ci.yml?query=branch%3Amain)
-and download `magicdesk-main-*` from its **Artifacts** section. Development
-builds use the same signing certificate as tagged releases, but contain
-unreleased code and are retained for 30 days.
+for signed-in GitHub users.
 
 The build number and short commit ID are included in the version shown by
 **About** and in compatibility reports, for example
-`1.6.0-dev.245.4dfe062`.
+`1.6.1-dev.81.d552cc5`.
 
 ### Uninstalling
 

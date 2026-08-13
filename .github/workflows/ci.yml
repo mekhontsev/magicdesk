@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -223,3 +227,100 @@ jobs:
       - name: Verify Windows build
         shell: pwsh
         run: .\gradlew.bat --no-daemon verifyDevelopment
+
+  publish-development:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - build
+      - windows-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download verified signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p download
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "magicdesk-main-$GITHUB_RUN_NUMBER" \
+            --dir download
+
+      - name: Prepare stable development assets
+        shell: bash
+        run: |
+          mapfile -t apks < <(find download -type f \
+            -name 'MagicDesk-*.apk' -print)
+          if (( ${#apks[@]} != 1 )); then
+            echo "::error::Expected one signed MagicDesk APK, found ${#apks[@]}"
+            exit 1
+          fi
+          source_apk=${apks[0]}
+          source_name=$(basename "$source_apk")
+          version=${source_name#MagicDesk-}
+          version=${version%.apk}
+          test -n "$version"
+
+          mkdir -p dist
+          cp "$source_apk" dist/MagicDesk-development.apk
+          printf 'version=%s\ncommit=%s\nrun=%s\n' \
+            "$version" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
+            > dist/BUILD.txt
+          (
+            cd dist
+            sha256sum MagicDesk-development.apk > SHA256SUMS
+          )
+          cat > development-notes.md <<EOF
+          This is the latest release-signed development build from \`main\`.
+          It contains unreleased code and may be less stable than a numbered release.
+
+          - Version: \`$version\`
+          - Commit: [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
+          - CI run: [\`$GITHUB_RUN_NUMBER\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+
+          The APK uses the same signing certificate as official MagicDesk releases.
+          EOF
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling development prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag=development
+          if gh api \
+              "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" \
+              >/dev/null 2>&1; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+
+          if gh release view "$tag" \
+              --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "MagicDesk development build" \
+              --notes-file development-notes.md \
+              --target "$GITHUB_SHA" \
+              --prerelease --latest=false
+          else
+            gh release create "$tag" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "MagicDesk development build" \
+              --notes-file development-notes.md \
+              --target "$GITHUB_SHA" \
+              --prerelease --latest=false
+          fi
