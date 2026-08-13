@@ -26,11 +26,12 @@ public final class DesktopPathPolicyTest {
 
     @Test
     public void resolveKeepsPathInsideDesktopRoot() {
-        final Path root = Path.of("/storage/emulated/0/Desktop");
+        final Path root = Path.of("build", "test-desktop")
+                .toAbsolutePath().normalize();
         assertEquals(
                 root.resolve("notes.txt"),
                 DesktopPathPolicy.resolve(root, "notes.txt"));
         assertThrows(IllegalArgumentException.class,
-                () -> DesktopPathPolicy.resolve(root, "../../escape.txt"));
+                () -> DesktopPathPolicy.resolve(root, "../escape.txt"));
     }
 }
