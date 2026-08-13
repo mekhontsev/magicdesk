@@ -2,6 +2,10 @@ plugins {
     id 'com.android.application'
 }
 
+def baseVersionName = '1.6.0'
+def versionSuffix = providers.gradleProperty(
+        'MAGICDESK_VERSION_SUFFIX').orNull
+
 android {
     namespace = 'io.github.mekhontsev.magicdesk'
     compileSdk = 37
@@ -11,7 +15,9 @@ android {
         minSdk = 36
         targetSdk = 36
         versionCode = 160
-        versionName = '1.6.0'
+        versionName = versionSuffix == null || versionSuffix.isBlank()
+                ? baseVersionName
+                : baseVersionName + '-' + versionSuffix
     }
 
     compileOptions {
