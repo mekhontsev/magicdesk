@@ -4,6 +4,15 @@ MagicDesk uses Gradle as its project definition. Open the repository root in
 Android Studio, IntelliJ IDEA, or another Gradle-aware editor; do not open the
 `app` directory as a standalone project.
 
+## Compatibility Direction
+
+The project aims to support as many compatible devices and firmware versions
+as practical through one MagicDesk APK and one codebase. Prefer runtime
+capability probing, shared Android behavior, and focused platform drivers over
+model checks, product flavors, or device-specific forks. A missing optional
+vendor feature should disable only that feature and remain visible in
+Diagnostics.
+
 ## Build Environment
 
 - JDK 17 or newer
@@ -34,10 +43,10 @@ Build the debug APK:
 
 On Windows, use `gradlew.bat` instead of `./gradlew`.
 
-Run the local checks used during development:
+Run the complete local verification before submitting a change:
 
 ```sh
-./gradlew :app:testDebugUnitTest :app:lintDebug
+./gradlew verifyDevelopment
 ```
 
 Debug and pull-request builds do not require release-signing credentials.

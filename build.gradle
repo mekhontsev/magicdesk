@@ -1,4 +1,14 @@
 plugins {
     id 'com.android.application' version '9.2.1' apply false
+    id 'com.android.library' version '9.2.1' apply false
 }
 
+tasks.register('verifyDevelopment') {
+    group = 'verification'
+    description = 'Runs local checks and builds all debug APKs.'
+    dependsOn ':app:testDebugUnitTest',
+            ':app:lintDebug',
+            ':app:assembleDebug',
+            ':kernel-fixes:lintDebug',
+            ':kernel-fixes:assembleDebug'
+}

@@ -243,6 +243,12 @@ runtime integration and are not distributed through the same release path.
 
 ### Platform services
 
+MagicDesk ships one main APK from one codebase. New device support belongs in
+runtime capability probes or a focused platform-driver implementation, while
+shared desktop, task, window, and input behavior remains platform-independent.
+Do not introduce per-model build variants or forks for differences that can be
+isolated behind these boundaries.
+
 - `PlatformDrivers` selects one firmware platform for the process from an
   immutable `PlatformDevice` identity. `PlatformDriver` exposes only existing
   variation points. `PlatformWindowingDriver` owns provisioning properties;

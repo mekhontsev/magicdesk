@@ -1,27 +1,17 @@
 plugins {
-    id 'java-library'
+    id 'com.android.library'
 }
 
-def localProperties = new Properties()
-def localPropertiesFile = rootProject.file('local.properties')
-if (localPropertiesFile.isFile()) {
-    localPropertiesFile.withInputStream {
-        localProperties.load(it)
+android {
+    namespace = 'io.github.mekhontsev.magicdesk.hiddenapi'
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 36
     }
-}
-def androidSdk = localProperties.getProperty('sdk.dir')
-        ?: System.getenv('ANDROID_SDK_ROOT')
-        ?: System.getenv('ANDROID_HOME')
-if (androidSdk == null || androidSdk.isBlank()) {
-    throw new GradleException(
-            'Android SDK not found; configure sdk.dir or ANDROID_SDK_ROOT')
-}
 
-dependencies {
-    compileOnly files("${androidSdk}/platforms/android-36/android.jar")
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }

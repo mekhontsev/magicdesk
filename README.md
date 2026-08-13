@@ -11,6 +11,11 @@ a port of DeX and is not affiliated with Samsung. It builds on Android's own
 desktop window manager and the external-display services already present in
 RedMagic firmware.
 
+The compatibility goal is to support as many capable devices and firmware
+versions as practical with one MagicDesk APK and one codebase. Runtime
+capability probes and platform drivers isolate vendor differences instead of
+creating separate device builds or forks.
+
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
 > through iterative AI-assisted development and hands-on testing on real
 > RedMagic hardware. Its Shizuku integration and undocumented vendor interfaces
