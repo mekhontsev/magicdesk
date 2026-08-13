@@ -23,9 +23,10 @@ public final class DesktopTaskLaunchObserverCommand {
     }
 
     public static void main(final String[] args) {
-        if (args.length != 3) {
+        if (args.length != 4) {
             System.err.println("usage: DesktopTaskLaunchObserverCommand "
-                    + "<task-id|-1> <package> <activity-class>");
+                    + "<task-id|-1> <package> <activity-class> "
+                    + "<display-id|-1>");
             System.exit(64);
             return;
         }
@@ -35,6 +36,7 @@ public final class DesktopTaskLaunchObserverCommand {
         Object service = null;
         try {
             final int expectedTaskId = parseTaskId(args[0]);
+            final int expectedDisplayId = parseDisplayId(args[3]);
             if (!PackageNameValidator.isSafe(args[1])
                     || !AppLaunchTarget.isSafeClassName(args[2])
                     || args[2].isEmpty()) {
@@ -52,7 +54,7 @@ public final class DesktopTaskLaunchObserverCommand {
                         final ActivityManager.RunningTaskInfo taskInfo) {
                     if (taskInfo == null
                             || !matches(taskInfo, expectedTaskId,
-                                    expectedComponent)
+                                    expectedComponent, expectedDisplayId)
                             || !published.compareAndSet(false, true)) {
                         return;
                     }
@@ -95,8 +97,14 @@ public final class DesktopTaskLaunchObserverCommand {
     private static boolean matches(
             final ActivityManager.RunningTaskInfo task,
             final int expectedTaskId,
-            final ComponentName expectedComponent) {
+            final ComponentName expectedComponent,
+            final int expectedDisplayId) {
         if (expectedTaskId >= 0 && task.taskId != expectedTaskId) {
+            return false;
+        }
+        if (expectedDisplayId >= 0
+                && HiddenTaskApi.getTaskDisplayId(task)
+                        != expectedDisplayId) {
             return false;
         }
         return expectedComponent.equals(task.topActivity)
@@ -141,6 +149,14 @@ public final class DesktopTaskLaunchObserverCommand {
             throw new IllegalArgumentException("invalid task id");
         }
         return taskId;
+    }
+
+    private static int parseDisplayId(final String value) {
+        final int displayId = Integer.parseInt(value);
+        if (displayId < -1) {
+            throw new IllegalArgumentException("invalid display id");
+        }
+        return displayId;
     }
 
     private static String usefulMessage(final Throwable error) {

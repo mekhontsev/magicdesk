@@ -24,7 +24,15 @@ final class DesktopTaskLaunchProbe implements Closeable {
     static DesktopTaskLaunchProbe open(
             final int expectedTaskId,
             final ComponentName expectedComponent) throws IOException {
-        if (expectedTaskId < -1 || expectedComponent == null) {
+        return open(expectedTaskId, expectedComponent, -1);
+    }
+
+    static DesktopTaskLaunchProbe open(
+            final int expectedTaskId,
+            final ComponentName expectedComponent,
+            final int expectedDisplayId) throws IOException {
+        if (expectedTaskId < -1 || expectedComponent == null
+                || expectedDisplayId < -1) {
             throw new IOException("invalid task launch observation target");
         }
         final String packageName = expectedComponent.getPackageName();
@@ -36,7 +44,8 @@ final class DesktopTaskLaunchProbe implements Closeable {
         }
         final String arguments = expectedTaskId
                 + " " + shellQuote(packageName)
-                + " " + shellQuote(className);
+                + " " + shellQuote(className)
+                + " " + expectedDisplayId;
         final ShellStreamHandle stream = ShellAccess.openOwnedStream(
                 AppProcessCommand.run(
                         "io.github.mekhontsev.magicdesk."

@@ -9,12 +9,12 @@ import android.text.TextWatcher;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 
 /** Deterministic window used only by the manually started desktop self-test. */
@@ -22,10 +22,9 @@ public final class DesktopSelfTestActivity extends Activity {
     static final String EXTRA_DISPLAY_ID = "self_test_display_id";
     static final String EXTRA_TOKEN = "self_test_token";
     static final String EXTRA_ALLOW_DISPLAY_MOVE = "self_test_allow_display_move";
+    static final String FIRST_FRAME_MARKER_FILE =
+            "desktop-self-test-first-frame.txt";
     static final String TEXT_MARKER_FILE = "desktop-self-test-text.txt";
-    private static volatile WeakReference<DesktopSelfTestActivity> sActive =
-            new WeakReference<>(null);
-
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private String mToken = "";
     private boolean mAllowDisplayMove;
@@ -33,7 +32,6 @@ public final class DesktopSelfTestActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        sActive = new WeakReference<>(this);
         mExpectedDisplayId = getIntent().getIntExtra(
                 EXTRA_DISPLAY_ID, Display.INVALID_DISPLAY);
         mAllowDisplayMove = getIntent().getBooleanExtra(
@@ -43,7 +41,9 @@ public final class DesktopSelfTestActivity extends Activity {
             mToken = "";
         }
 
-        setContentView(createContent());
+        final FrameLayout content = createContent();
+        recordFirstFrame(content);
+        setContentView(content);
         finishIfMoved();
     }
 
@@ -51,27 +51,6 @@ public final class DesktopSelfTestActivity extends Activity {
     protected void onResume() {
         super.onResume();
         finishIfMoved();
-    }
-
-    @Override
-    protected void onDestroy() {
-        final DesktopSelfTestActivity active = sActive.get();
-        if (active == this) {
-            sActive.clear();
-        }
-        super.onDestroy();
-    }
-
-    static boolean finishActiveTask() {
-        final DesktopSelfTestActivity activity = sActive.get();
-        if (activity == null) {
-            return false;
-        }
-        activity.runOnUiThread(() -> {
-            activity.finishAndRemoveTask();
-            activity.overridePendingTransition(0, 0);
-        });
-        return true;
     }
 
     private void finishIfMoved() {
@@ -136,6 +115,25 @@ public final class DesktopSelfTestActivity extends Activity {
         // child view an application wants to receive keyboard input.
         input.requestFocus();
         return root;
+    }
+
+    private void recordFirstFrame(final FrameLayout content) {
+        content.getViewTreeObserver().addOnPreDrawListener(
+                new ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        final ViewTreeObserver observer =
+                                content.getViewTreeObserver();
+                        if (observer.isAlive()) {
+                            observer.removeOnPreDrawListener(this);
+                        }
+                        writeMarker(FIRST_FRAME_MARKER_FILE,
+                                mToken + "|" + displayId() + "|"
+                                        + (isInMultiWindowMode()
+                                                ? "freeform" : "fullscreen"));
+                        return true;
+                    }
+                });
     }
 
     private void writeTextMarker(final CharSequence inserted) {

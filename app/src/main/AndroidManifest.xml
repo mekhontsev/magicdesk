@@ -116,6 +116,7 @@
             android:exported="true"
             android:label="@string/self_test_window_target"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:process=":selftest"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.selftest" />
 

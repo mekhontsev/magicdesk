@@ -9,11 +9,13 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.Display;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -21,6 +23,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public final class DiagnosticsActivity extends Activity {
+    static final String EXTRA_SELF_TEST_TARGET =
+            "io.github.mekhontsev.magicdesk.extra.SELF_TEST_TARGET";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_PANEL_ALT = 0xFF172033;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -38,6 +42,8 @@ public final class DiagnosticsActivity extends Activity {
     private String mReport = "";
     private boolean mLoading;
     private boolean mSelfTestRunning;
+    private DisplayManager mDisplayManager;
+    private DisplayManager.DisplayListener mWirelessDisplayListener;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, DiagnosticsActivity.class);
@@ -47,7 +53,31 @@ public final class DiagnosticsActivity extends Activity {
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(createContentView());
-        refreshReport();
+        if (!handleAutomatedSelfTest(getIntent())) {
+            refreshReport();
+        }
+    }
+
+    @Override
+    protected void onNewIntent(final Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleAutomatedSelfTest(intent);
+    }
+
+    private boolean handleAutomatedSelfTest(final Intent intent) {
+        final DesktopSelfTestTarget target = requestedSelfTestTarget(intent);
+        if (target == null) {
+            return false;
+        }
+        if (mLoading || mSelfTestRunning
+                || DesktopSelfTestController.isRunning()) {
+            return true;
+        }
+        getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        mSelfTest.post(() -> prepareSelfTest(target));
+        return true;
     }
 
     private View createContentView() {
@@ -205,6 +235,32 @@ public final class DiagnosticsActivity extends Activity {
         }
     }
 
+    private void prepareSelfTest(final DesktopSelfTestTarget target) {
+        if (target == DesktopSelfTestTarget.SIMULATED) {
+            prepareSimulatedSelfTest();
+        } else if (target == DesktopSelfTestTarget.EXTERNAL) {
+            prepareExternalSelfTest();
+        } else {
+            preparePhoneSelfTest();
+        }
+    }
+
+    private static DesktopSelfTestTarget requestedSelfTestTarget(
+            final Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+        final String name = intent.getStringExtra(EXTRA_SELF_TEST_TARGET);
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        try {
+            return DesktopSelfTestTarget.valueOf(name);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     private void preparePhoneSelfTest() {
         if (!beginSelfTestPreparation()) {
             return;
@@ -247,12 +303,14 @@ public final class DiagnosticsActivity extends Activity {
                     return;
                 }
                 if (wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
-                    finishSelfTestPreparation();
-                    if (PlatformDrivers.current().projection()
-                            .openWirelessDisplayPicker(this)) {
+                    awaitWirelessDisplay();
+                    if (mWirelessDisplayListener != null
+                            && PlatformDrivers.current().projection()
+                                    .openWirelessDisplayPicker(this)) {
                         mStatus.setText(
                                 R.string.diagnostics_self_test_connect_wireless);
                     } else {
+                        finishSelfTestPreparation();
                         mStatus.setText(
                                 R.string.status_external_display_unavailable);
                     }
@@ -268,6 +326,62 @@ public final class DiagnosticsActivity extends Activity {
         }, "MagicDeskSelfTestDisplayProbe").start();
     }
 
+    private void awaitWirelessDisplay() {
+        stopAwaitingWirelessDisplay();
+        mDisplayManager = getSystemService(DisplayManager.class);
+        if (mDisplayManager == null) {
+            return;
+        }
+        mWirelessDisplayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(final int displayId) {
+                probeWirelessDisplay();
+            }
+
+            @Override
+            public void onDisplayRemoved(final int displayId) {
+            }
+
+            @Override
+            public void onDisplayChanged(final int displayId) {
+                probeWirelessDisplay();
+            }
+        };
+        mDisplayManager.registerDisplayListener(
+                mWirelessDisplayListener, null);
+    }
+
+    private void probeWirelessDisplay() {
+        new Thread(() -> {
+            final int displayId =
+                    ConsoleDisplayController.findWirelessDisplayId();
+            runOnUiThread(() -> continueExternalSelfTest(displayId));
+        }, "MagicDeskSelfTestWirelessProbe").start();
+    }
+
+    private void continueExternalSelfTest(final int displayId) {
+        if (mWirelessDisplayListener == null
+                || mDisplayManager == null) {
+            return;
+        }
+        if (displayId <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        stopAwaitingWirelessDisplay();
+        ConsoleModeSwitcher.showDesktop(
+                DesktopDisplayTarget.wireless(displayId));
+        waitForPreparedDesktop(DesktopSelfTestTarget.EXTERNAL, false);
+    }
+
+    private void stopAwaitingWirelessDisplay() {
+        if (mDisplayManager != null && mWirelessDisplayListener != null) {
+            mDisplayManager.unregisterDisplayListener(
+                    mWirelessDisplayListener);
+        }
+        mWirelessDisplayListener = null;
+        mDisplayManager = null;
+    }
+
     private boolean beginSelfTestPreparation() {
         if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
                 != Display.INVALID_DISPLAY) {
@@ -277,12 +391,23 @@ public final class DiagnosticsActivity extends Activity {
         mSelfTestRunning = true;
         setActionsEnabled(false);
         mStatus.setText(R.string.diagnostics_self_test_preparing);
+        DesktopSelfTestHostObserver.begin();
         return true;
     }
 
     private void finishSelfTestPreparation() {
+        stopAwaitingWirelessDisplay();
         mSelfTestRunning = false;
         setActionsEnabled(true);
+        getWindow().clearFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        DesktopSelfTestHostObserver.cancel();
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopAwaitingWirelessDisplay();
+        super.onDestroy();
     }
 
     private void waitForPreparedDesktop(

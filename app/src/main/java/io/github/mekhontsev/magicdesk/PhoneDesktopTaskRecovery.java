@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -15,6 +16,12 @@ final class PhoneDesktopTaskRecovery {
     private static final String TAG = "MagicDeskPhoneRecovery";
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
+    private static final List<String> TRANSIENT_MAGICDESK_CLASSES =
+            Arrays.asList(
+                    MAGICDESK_PACKAGE + ".ConsoleSeedActivity",
+                    MAGICDESK_PACKAGE + ".DesktopActivity",
+                    MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
+                    MAGICDESK_PACKAGE + ".MagicDeskTouchpadActivity");
     private static final String CMD = "/system/bin/cmd";
     private static final String RECOVERY_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDesktopTaskRecoveryCommand";
@@ -199,10 +206,11 @@ final class PhoneDesktopTaskRecovery {
         final Set<Integer> phoneRepositoryTaskIds = new LinkedHashSet<>(
                 SystemUiDesktopRepositoryParser.parseTaskIds(
                         repository.output, 0));
-        excludeMagicDeskTasks(phoneRepositoryTaskIds, liveTasks);
+        excludeNonRecoverableTasks(phoneRepositoryTaskIds, liveTasks);
         final Set<Integer> missingTaskIds = new LinkedHashSet<>(
                 phoneRepositoryTaskIds);
         missingTaskIds.removeAll(liveTasks.keySet());
+        final Set<Integer> unavailablePhoneTaskIds = new LinkedHashSet<>();
         if (!missingTaskIds.isEmpty()) {
             final CommandResult revived = runMutation(
                     createReviveCommand(missingTaskIds),
@@ -211,23 +219,19 @@ final class PhoneDesktopTaskRecovery {
             if (revived.cancelled) {
                 return Result.cancelled();
             }
-            if (!revived.success) {
-                return Result.failure(revived.output.trim());
+            if (revived.success) {
+                liveTasks = waitForPhoneTasks(
+                        missingTaskIds, continuation, environment);
             }
-            liveTasks = waitForPhoneTasks(
-                    missingTaskIds, continuation, environment);
             if (cancelled(continuation)) {
                 return Result.cancelled();
             }
-            if (!liveTasks.keySet().containsAll(missingTaskIds)) {
-                return Result.failure(
-                        revived.output.trim()
-                                + "; SystemUI retains unavailable phone tasks "
-                                + missingTaskIds);
-            }
+            unavailablePhoneTaskIds.addAll(missingTaskIds);
+            unavailablePhoneTaskIds.removeAll(liveTasks.keySet());
             // Revived tasks now have enough metadata to identify MagicDesk's
             // own transient windows; do not recover them as user apps.
-            excludeMagicDeskTasks(phoneRepositoryTaskIds, liveTasks);
+            excludeNonRecoverableTasks(
+                    phoneRepositoryTaskIds, liveTasks);
         }
 
         if (!unavailableRemovedTaskIds.isEmpty()) {
@@ -261,12 +265,14 @@ final class PhoneDesktopTaskRecovery {
 
         final Set<Integer> taskIds = new LinkedHashSet<>(
                 phoneRepositoryTaskIds);
+        taskIds.retainAll(liveTasks.keySet());
         if (removedDisplayId > 0) {
             final Set<Integer> removedDisplayTaskIds = new LinkedHashSet<>(
                     SystemUiDesktopRepositoryParser.parseTaskIds(
                             repository.output, removedDisplayId));
             removedDisplayTaskIds.retainAll(liveTasks.keySet());
-            excludeMagicDeskTasks(removedDisplayTaskIds, liveTasks);
+            excludeNonRecoverableTasks(
+                    removedDisplayTaskIds, liveTasks);
             taskIds.addAll(removedDisplayTaskIds);
         }
         for (final PhoneTask task : liveTasks.values()) {
@@ -275,7 +281,8 @@ final class PhoneDesktopTaskRecovery {
             }
         }
         if (taskIds.isEmpty() && removedDisplayId <= 0) {
-            return Result.success("phone-desktop-recovery candidates=0");
+            return Result.success(recoverySummary(
+                    0, unavailablePhoneTaskIds));
         }
         if (taskIds.isEmpty() && !unavailableRemovedTaskIds.isEmpty()) {
             return Result.failure(
@@ -354,7 +361,13 @@ final class PhoneDesktopTaskRecovery {
                             currentRepository.output, 0));
             final Map<Integer, PhoneTask> currentTasks =
                     indexPhoneTasks(currentStack.output);
-            excludeMagicDeskTasks(remaining, currentTasks);
+            excludeNonRecoverableTasks(remaining, currentTasks);
+            final Set<Integer> unavailablePhoneTaskIdsNow =
+                    new LinkedHashSet<>(remaining);
+            unavailablePhoneTaskIdsNow.removeAll(currentTasks.keySet());
+            unavailablePhoneTaskIds.addAll(unavailablePhoneTaskIdsNow);
+            unavailablePhoneTaskIds.removeAll(currentTasks.keySet());
+            remaining.retainAll(currentTasks.keySet());
             final Set<Integer> unavailableRemovedTaskIdsNow =
                     new LinkedHashSet<>();
             if (removedDisplayId > 0) {
@@ -373,9 +386,8 @@ final class PhoneDesktopTaskRecovery {
                 }
             }
             if (remaining.isEmpty()) {
-                return Result.success(
-                        "phone-desktop-recovery transitioned="
-                                + taskIds.size());
+                return Result.success(recoverySummary(
+                        taskIds.size(), unavailablePhoneTaskIds));
             }
             if (!unavailableRemovedTaskIdsNow.isEmpty()) {
                 return Result.failure(
@@ -498,6 +510,7 @@ final class PhoneDesktopTaskRecovery {
             result.put(Integer.valueOf(task.taskId), new PhoneTask(
                     task.taskId,
                     task.packageName,
+                    task.componentName,
                     home,
                     "freeform".equals(task.windowingMode),
                     "fullscreen".equals(task.windowingMode)));
@@ -520,26 +533,59 @@ final class PhoneDesktopTaskRecovery {
         return phoneTaskIds.containsAll(removedTaskIds);
     }
 
-    private static void excludeMagicDeskTasks(
+    private static void excludeNonRecoverableTasks(
             final Set<Integer> taskIds,
             final Map<Integer, PhoneTask> liveTasks) {
         taskIds.removeIf(taskId -> {
             final PhoneTask task = liveTasks.get(taskId);
-            return task != null
-                    && MAGICDESK_PACKAGE.equals(task.packageName);
+            return task != null && !isRecoverable(task);
         });
     }
 
     static boolean isRecoverable(
             final String packageName,
             final boolean home) {
-        return packageName != null
-                && !home
-                && !MAGICDESK_PACKAGE.equals(packageName);
+        return isRecoverable(packageName, null, home);
+    }
+
+    static boolean isRecoverable(
+            final String packageName,
+            final String componentName,
+            final boolean home) {
+        if (packageName == null || home) {
+            return false;
+        }
+        return !MAGICDESK_PACKAGE.equals(packageName)
+                || (componentName != null
+                        && !isTransientMagicDeskComponent(componentName));
+    }
+
+    private static boolean isTransientMagicDeskComponent(
+            final String componentName) {
+        final String prefix = MAGICDESK_PACKAGE + "/";
+        if (componentName == null || !componentName.startsWith(prefix)) {
+            return false;
+        }
+        final String activityName = componentName.substring(prefix.length());
+        final String normalized = activityName.startsWith(".")
+                ? MAGICDESK_PACKAGE + activityName : activityName;
+        return TRANSIENT_MAGICDESK_CLASSES.contains(normalized);
     }
 
     private static boolean isRecoverable(final PhoneTask task) {
-        return task != null && isRecoverable(task.packageName, task.home);
+        return task != null && isRecoverable(
+                task.packageName, task.componentName, task.home);
+    }
+
+    private static String recoverySummary(
+            final int transitioned,
+            final Set<Integer> unavailableTaskIds) {
+        final String summary = "phone-desktop-recovery transitioned="
+                + transitioned;
+        if (unavailableTaskIds.isEmpty()) {
+            return summary;
+        }
+        return summary + " unavailable=" + unavailableTaskIds;
     }
 
     private static boolean cancelled(final Continuation continuation) {
@@ -635,6 +681,7 @@ final class PhoneDesktopTaskRecovery {
     private static final class PhoneTask {
         final int taskId;
         final String packageName;
+        final String componentName;
         final boolean home;
         final boolean freeform;
         final boolean fullscreen;
@@ -642,11 +689,13 @@ final class PhoneDesktopTaskRecovery {
         PhoneTask(
                 final int taskId,
                 final String packageName,
+                final String componentName,
                 final boolean home,
                 final boolean freeform,
                 final boolean fullscreen) {
             this.taskId = taskId;
             this.packageName = packageName;
+            this.componentName = componentName;
             this.home = home;
             this.freeform = freeform;
             this.fullscreen = fullscreen;

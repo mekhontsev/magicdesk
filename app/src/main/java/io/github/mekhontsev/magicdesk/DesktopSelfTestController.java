@@ -15,7 +15,9 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -84,6 +86,9 @@ final class DesktopSelfTestController {
 
         final DesktopSelfTestTarget target = requestedTarget == null
                 ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
+        if (!DesktopSelfTestHostObserver.isActive()) {
+            DesktopSelfTestHostObserver.begin();
+        }
         int displayId = Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
         try {
@@ -148,46 +153,20 @@ final class DesktopSelfTestController {
                     }, "fullscreen host ready");
             final DesktopSelfTestGeometry geometry = verifyDesktopViewport(
                     appContext, targetDisplayId, result);
-            require(result, "DESKTOP-005", "Recreate desktop activity", () -> {
-                final int previousHostIdentity =
-                        DesktopRuntimeBridge.getDesktopHostIdentity(
-                                targetDisplayId);
-                if (previousHostIdentity == 0) {
-                    throw new IOException("desktop activity is unavailable");
-                }
-                if (!DesktopRuntimeBridge.recreateShellOnDisplay(
-                        targetDisplayId)) {
-                    throw new IOException(
-                            "desktop activity was unavailable for recreation");
-                }
-                final long deadline = SystemClock.uptimeMillis()
-                        + STEP_TIMEOUT_MILLIS;
-                do {
-                    final int hostIdentity =
-                            DesktopRuntimeBridge.getDesktopHostIdentity(
-                                    targetDisplayId);
-                    if (hostIdentity != 0
-                            && hostIdentity != previousHostIdentity
-                            && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
-                                    targetDisplayId)) {
-                        final TaskStackParser.Entry recreated = waitForTask(
-                                targetDisplayId,
-                                DESKTOP_CLASS,
-                                entry -> "fullscreen".equals(
-                                        entry.windowingMode));
-                        return "task=" + recreated.taskId
-                                + ", host=" + hostIdentity;
-                    }
-                    SystemClock.sleep(POLL_MILLIS);
-                } while (SystemClock.uptimeMillis() < deadline);
-                throw new IOException(
-                        "desktop activity did not become ready after recreation");
-            });
             verifyDesktopWallpaper(targetDisplayId, result);
+            DesktopSelfTestHostObserver.markReady();
             require(result, "WINDOW-000", "Clear stale self-test windows", () -> {
                 removeFixtureTasks();
                 return "ready";
             });
+            final SurfaceReferenceResult surfaceReference =
+                    target == DesktopSelfTestTarget.PHONE
+                            ? SurfaceReferenceResult.unavailable(
+                                    "the selected desktop uses display 0")
+                            : captureSurfaceReference(
+                                    targetDisplayId, geometry);
+            clearMarker(appContext,
+                    DesktopSelfTestActivity.FIRST_FRAME_MARKER_FILE);
             clearTextMarker(appContext);
             final String token = Long.toHexString(System.nanoTime());
             final Rect requestedWindowBounds = geometry.primaryWindow();
@@ -199,13 +178,23 @@ final class DesktopSelfTestController {
                             token,
                             requestedWindowBounds));
             final int targetFixtureTaskId = initialLaunch.taskId;
-            result.add(initialLaunch.windowingMode == WINDOWING_MODE_FREEFORM
-                            && geometry.containsWindow(initialLaunch.bounds())
-                            ? DesktopSelfTestResult.State.PASS
-                            : DesktopSelfTestResult.State.FAIL,
-                    "WINDOW-007", "Initial task window state",
-                    initialLaunch + ", requested="
-                            + formatBounds(requestedWindowBounds));
+            check(result,
+                    "WINDOW-007",
+                    "Initial rendered task window state",
+                    () -> {
+                        final String expected = token + "|"
+                                + targetDisplayId + "|freeform";
+                        waitForMarker(
+                                appContext,
+                                DesktopSelfTestActivity
+                                        .FIRST_FRAME_MARKER_FILE,
+                                expected,
+                                targetDisplayId);
+                        return "first-frame=" + expected
+                                + ", first-callback=" + initialLaunch
+                                + ", requested="
+                                + formatBounds(requestedWindowBounds);
+                    });
             final TaskStackParser.Entry settledWindow = require(result,
                     "WINDOW-010",
                     "Verify direct launch settles as freeform",
@@ -232,6 +221,10 @@ final class DesktopSelfTestController {
                         "WINDOW-008",
                         "Move phone task directly to external freeform",
                         "an external display was not selected");
+                result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                        "WINDOW-014",
+                        "Preserve desktop surface during task transfer",
+                        "an external display was not selected");
             } else {
                 require(result,
                         "WINDOW-009",
@@ -240,14 +233,39 @@ final class DesktopSelfTestController {
                                 Display.DEFAULT_DISPLAY,
                                 targetFixtureTaskId,
                                 null));
-                require(result,
-                        "WINDOW-008",
-                        "Move phone task directly to external freeform",
-                        () -> reopenTaskAsFreeform(
-                                targetDisplayId,
-                                targetFixtureTaskId,
-                                desktopTask.taskId,
-                                windowBounds));
+                final TaskTransferObservation taskTransfer =
+                        require(result,
+                                "WINDOW-008",
+                                "Move phone task directly to external freeform",
+                                () -> observeTaskTransfer(
+                                        targetDisplayId,
+                                        targetFixtureTaskId,
+                                        desktopTask.taskId,
+                                        windowBounds,
+                                        surfaceReference));
+                if (!taskTransfer.probeError.isEmpty()) {
+                    result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                            "WINDOW-014",
+                            "Preserve desktop surface during task transfer",
+                            taskTransfer.probeError);
+                } else {
+                    result.add(!taskTransfer.surfaceChanged
+                                && taskTransfer.firstFront.windowingMode
+                                        == WINDOWING_MODE_FREEFORM
+                                && taskTransfer.firstFront.displayId
+                                        == targetDisplayId
+                                && equalsBounds(
+                                        taskTransfer.firstFront,
+                                        windowBounds)
+                                ? DesktopSelfTestResult.State.PASS
+                                : DesktopSelfTestResult.State.FAIL,
+                        "WINDOW-014",
+                        "Preserve desktop surface during task transfer",
+                        "first-front=" + taskTransfer.firstFront
+                                + ", pixels=" + taskTransfer.pixelSamples
+                                + ", requested="
+                                + formatBounds(windowBounds));
+                }
             }
             check(result,
                     "WINDOW-013",
@@ -272,6 +290,8 @@ final class DesktopSelfTestController {
                         entry -> "freeform".equals(entry.windowingMode)
                                 && entry.visible
                                 && equalsBounds(entry.bounds, windowBounds));
+                waitForFrontTask(
+                        targetDisplayId, targetFixtureTaskId);
                 return formatBounds(task.bounds);
             });
             check(result, "CAPTION-001", "Verify native caption structure", () ->
@@ -332,12 +352,11 @@ final class DesktopSelfTestController {
                 return "task=" + targetFixtureTaskId;
             });
             require(result, "WINDOW-006", "Restore minimized window", () -> {
-                ShellAccess.run(AppProcessCommand.run(
-                        "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
-                        "restore " + targetDisplayId + " " + targetFixtureTaskId));
+                focusTaskThroughDesktop(targetDisplayId, targetFixtureTaskId);
                 waitForTask(targetDisplayId, FIXTURE_CLASS,
                         entry -> "freeform".equals(entry.windowingMode));
-                waitForWindowFocus(targetDisplayId, false);
+                waitForFrontTask(targetDisplayId, targetFixtureTaskId);
+                waitForTaskInputFocus(targetDisplayId, targetFixtureTaskId);
                 return "task=" + targetFixtureTaskId;
             });
             runTwoWindowFocusTests(
@@ -354,6 +373,7 @@ final class DesktopSelfTestController {
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
+            recordDesktopHostObservation(result, displayId);
             cleanup(result,
                     target,
                     displayId,
@@ -601,22 +621,91 @@ final class DesktopSelfTestController {
         }
     }
 
-    private static DesktopTaskLaunchProbe.Observation reopenTaskAsFreeform(
+    private static TaskTransferObservation observeTaskTransfer(
             final int displayId,
             final int taskId,
             final int desktopTaskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final SurfaceReferenceResult surfaceReference) throws IOException {
         ShellAccess.run(TaskFocusCommands.createShellCommand(
                 displayId,
                 Collections.singletonList(Integer.valueOf(desktopTaskId))));
         waitForWindowFocus(displayId, true);
-        return reopenTask(displayId, taskId, bounds);
+        if (DesktopDisplayDrivers.forActiveDisplay(displayId)
+                .features().rootTaskTransfer) {
+            return reopenPhysicalTask(
+                    displayId, taskId, bounds, surfaceReference);
+        }
+        return reopenTask(displayId, taskId, bounds, surfaceReference);
+    }
+
+    private static TaskTransferObservation reopenPhysicalTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final SurfaceReferenceResult surfaceReference) throws IOException {
+        final ComponentName component =
+                new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
+        final TaskStackParser.Entry currentTask = findTaskOnAnyDisplay(
+                ShellAccess.run("/system/bin/cmd activity stack list"),
+                FIXTURE_CLASS);
+        if (currentTask == null || currentTask.taskId != taskId) {
+            throw new IOException("task " + taskId + " is unavailable");
+        }
+        try (DesktopTaskLaunchProbe probe =
+                     DesktopTaskLaunchProbe.open(
+                             taskId, component, displayId)) {
+            final String output = ShellAccess.run(
+                    TaskDisplayAreaLaunchCommand.createPhysicalMoveCommand(
+                            taskId,
+                            currentTask.rootTaskId,
+                            currentTask.displayId,
+                            displayId,
+                            bounds,
+                            surfaceReference.reference));
+            if (!output.contains("task-freeform-move=" + taskId)) {
+                throw new IOException(output.trim());
+            }
+            if (!output.contains("source-prepared-visible=false")) {
+                throw new IOException(
+                        "source freeform preparation was not hidden");
+            }
+            final DesktopTaskLaunchProbe.Observation firstFront =
+                    probe.awaitObservation();
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "freeform".equals(entry.windowingMode));
+            final TaskTransferObservation observation =
+                    buildTaskTransferObservation(
+                            firstFront, surfaceReference, output);
+            return new TaskTransferObservation(
+                    observation.firstFront,
+                    observation.surfaceChanged,
+                    observation.pixelSamples,
+                    observation.probeError,
+                    "hidden");
+        }
     }
 
     private static DesktopTaskLaunchProbe.Observation reopenTask(
             final int displayId,
             final int taskId,
             final Rect bounds) throws IOException {
+        return reopenTask(
+                displayId,
+                taskId,
+                bounds,
+                SurfaceReferenceResult.unavailable(
+                        "surface observation was not requested")).firstFront;
+    }
+
+    private static TaskTransferObservation reopenTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final SurfaceReferenceResult surfaceReference) throws IOException {
         final ComponentName component =
                 new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
         final boolean freeform = bounds != null;
@@ -643,23 +732,34 @@ final class DesktopSelfTestController {
                     FIXTURE_CLASS,
                     entry -> entry.taskId == taskId
                             && "fullscreen".equals(entry.windowingMode));
-            return new DesktopTaskLaunchProbe.Observation(
-                    taskId,
-                    displayId,
-                    WINDOWING_MODE_FULLSCREEN,
-                    fullscreenTask.bounds.left,
-                    fullscreenTask.bounds.top,
-                    fullscreenTask.bounds.right,
-                    fullscreenTask.bounds.bottom);
+            return new TaskTransferObservation(
+                    new DesktopTaskLaunchProbe.Observation(
+                            taskId,
+                            displayId,
+                            WINDOWING_MODE_FULLSCREEN,
+                            fullscreenTask.bounds.left,
+                            fullscreenTask.bounds.top,
+                            fullscreenTask.bounds.right,
+                            fullscreenTask.bounds.bottom),
+                    false,
+                    "",
+                    "");
         }
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(taskId, component)) {
             final String output = ShellAccess.run(
-                    TaskDisplayAreaLaunchCommand.createMoveCommand(
-                            taskId,
-                            currentTask.displayId,
-                            displayId,
-                            bounds));
+                    surfaceReference.reference != null
+                            ? TaskDisplayAreaLaunchCommand.createObservedMoveCommand(
+                                    taskId,
+                                    currentTask.displayId,
+                                    displayId,
+                                    bounds,
+                                    surfaceReference.reference)
+                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
+                                    taskId,
+                                    currentTask.displayId,
+                                    displayId,
+                                    bounds));
             final String expectedOutput =
                     "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {
@@ -676,7 +776,141 @@ final class DesktopSelfTestController {
                 throw new IOException(
                         "unexpected task front-state: " + observation);
             }
-            return observation;
+            return buildTaskTransferObservation(
+                    observation, surfaceReference, output);
+        }
+    }
+
+    private static TaskTransferObservation buildTaskTransferObservation(
+            final DesktopTaskLaunchProbe.Observation firstFront,
+            final SurfaceReferenceResult surfaceReference,
+            final String output) throws IOException {
+        if (surfaceReference.reference == null) {
+            return new TaskTransferObservation(
+                    firstFront, false, "", surfaceReference.error);
+        }
+        final DesktopTransitionSurfaceProbe.Reference reference =
+                surfaceReference.reference;
+        boolean changed = DesktopTransitionSurfaceProbe
+                .parseReportedSurfaceChange(output);
+        String samples = DesktopTransitionSurfaceProbe
+                .parseReportedSamples(output);
+        String error = DesktopTransitionSurfaceProbe
+                .parseReportedError(output);
+        if (error.isEmpty()) {
+            try {
+                final String visibleOutput = ShellAccess.run(
+                        DesktopTransitionSurfaceProbe.createCaptureCommand(
+                                reference.displayId,
+                                reference.x,
+                                reference.y));
+                final DesktopTransitionSurfaceProbe.Reference visible =
+                        DesktopTransitionSurfaceProbe.parseReference(
+                                reference.displayId,
+                                reference.x,
+                                reference.y,
+                                visibleOutput);
+                samples += ",visible:"
+                        + DesktopTransitionSurfaceProbe.formatColor(
+                                visible.color);
+                changed |= !DesktopTransitionSurfaceProbe.sameColor(
+                        reference.color, visible.color);
+            } catch (IOException captureError) {
+                error = "visible desktop pixel unavailable: "
+                        + usefulMessage(captureError);
+            }
+        }
+        return new TaskTransferObservation(
+                firstFront, changed, samples, error);
+    }
+
+    private static final class TaskTransferObservation {
+        final DesktopTaskLaunchProbe.Observation firstFront;
+        final boolean surfaceChanged;
+        final String pixelSamples;
+        final String probeError;
+        final String sourcePreparation;
+
+        TaskTransferObservation(
+                final DesktopTaskLaunchProbe.Observation firstFront,
+                final boolean surfaceChanged,
+                final String pixelSamples,
+                final String probeError) {
+            this(firstFront, surfaceChanged, pixelSamples, probeError, "");
+        }
+
+        TaskTransferObservation(
+                final DesktopTaskLaunchProbe.Observation firstFront,
+                final boolean surfaceChanged,
+                final String pixelSamples,
+                final String probeError,
+                final String sourcePreparation) {
+            this.firstFront = firstFront;
+            this.surfaceChanged = surfaceChanged;
+            this.pixelSamples = pixelSamples == null ? "" : pixelSamples;
+            this.probeError = probeError == null ? "" : probeError;
+            this.sourcePreparation = sourcePreparation == null
+                    ? "" : sourcePreparation;
+        }
+
+        @Override
+        public String toString() {
+            return firstFront + ", pixels=" + pixelSamples
+                    + (sourcePreparation.isEmpty()
+                            ? "" : ", source-prepared=" + sourcePreparation)
+                    + (probeError.isEmpty()
+                            ? "" : ", probe-error=" + probeError);
+        }
+    }
+
+    private static SurfaceReferenceResult captureSurfaceReference(
+            final int displayId,
+            final DesktopSelfTestGeometry geometry) {
+        try {
+            final DesktopDisplayTarget target =
+                    DesktopRuntimeBridge.getDesktopTarget(displayId);
+            if (target == null) {
+                throw new IOException(
+                        "desktop capture target is unavailable");
+            }
+            final int captureDisplayId = DesktopDisplayDrivers
+                    .forTarget(target)
+                    .captureDisplayId(target);
+            final int x = geometry.displayBounds.left
+                    + geometry.displayBounds.width() * 3 / 4;
+            final int y = geometry.workArea.centerY();
+            final String output = ShellAccess.run(
+                    DesktopTransitionSurfaceProbe.createCaptureCommand(
+                            captureDisplayId, x, y));
+            return SurfaceReferenceResult.available(
+                    DesktopTransitionSurfaceProbe.parseReference(
+                            captureDisplayId, x, y, output));
+        } catch (IOException | IllegalArgumentException
+                | IllegalStateException error) {
+            return SurfaceReferenceResult.unavailable(
+                    "desktop pixel observation unavailable: "
+                            + usefulMessage(error));
+        }
+    }
+
+    private static final class SurfaceReferenceResult {
+        final DesktopTransitionSurfaceProbe.Reference reference;
+        final String error;
+
+        private SurfaceReferenceResult(
+                final DesktopTransitionSurfaceProbe.Reference reference,
+                final String error) {
+            this.reference = reference;
+            this.error = error == null ? "" : error;
+        }
+
+        static SurfaceReferenceResult available(
+                final DesktopTransitionSurfaceProbe.Reference reference) {
+            return new SurfaceReferenceResult(reference, "");
+        }
+
+        static SurfaceReferenceResult unavailable(final String error) {
+            return new SurfaceReferenceResult(null, error);
         }
     }
 
@@ -864,7 +1098,6 @@ final class DesktopSelfTestController {
             final String secondToken,
             final DesktopSelfTestGeometry geometry) {
         final TaskStackParser.Entry left = captionSnap(
-                context,
                 result,
                 "NATIVE-SNAP-001",
                 "Place first window left through native caption",
@@ -873,7 +1106,6 @@ final class DesktopSelfTestController {
                 true,
                 geometry);
         final TaskStackParser.Entry right = captionSnap(
-                context,
                 result,
                 "NATIVE-SNAP-002",
                 "Place second window right through native caption",
@@ -921,7 +1153,6 @@ final class DesktopSelfTestController {
     }
 
     private static TaskStackParser.Entry captionSnap(
-            final Context context,
             final DesktopSelfTestResult result,
             final String code,
             final String label,
@@ -957,7 +1188,7 @@ final class DesktopSelfTestController {
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
                     displayId, taskId);
             // The detached SystemUI menu is laid out in phone-display density.
-            final float menuDensity = defaultDisplayDensity(context);
+            final float menuDensity = defaultDisplayDensity();
             final int x = menu.frame.right - Math.round(menuDensity * (left
                     ? SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP
                     : SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP));
@@ -1007,21 +1238,39 @@ final class DesktopSelfTestController {
         requireTouchLongPress(displayId, x, y);
     }
 
-    private static float defaultDisplayDensity(final Context context)
-            throws IOException {
-        final DisplayManager displayManager = context.getSystemService(
-                DisplayManager.class);
-        final Display defaultDisplay = displayManager == null
-                ? null : displayManager.getDisplay(Display.DEFAULT_DISPLAY);
-        if (defaultDisplay == null) {
-            throw new IOException("default display is unavailable");
+    private static float defaultDisplayDensity() throws IOException {
+        final String output = ShellAccess.run("/system/bin/wm density -d 0");
+        int densityDpi = -1;
+        for (final String line : output.split("\\r?\\n")) {
+            final String trimmed = line.trim();
+            final String prefix;
+            if (trimmed.startsWith("Override density:")) {
+                prefix = "Override density:";
+            } else if (trimmed.startsWith("Physical density:")) {
+                prefix = "Physical density:";
+            } else {
+                continue;
+            }
+            final int parsed;
+            try {
+                parsed = Integer.parseInt(
+                        trimmed.substring(prefix.length()).trim());
+            } catch (NumberFormatException ignored) {
+                continue;
+            }
+            if (parsed <= 0) {
+                continue;
+            }
+            densityDpi = parsed;
+            if (trimmed.startsWith("Override density:")) {
+                break;
+            }
         }
-        final float density = context.createDisplayContext(defaultDisplay)
-                .getResources().getDisplayMetrics().density;
-        if (density <= 0.0f) {
-            throw new IOException("default display density is unavailable");
+        if (densityDpi <= 0) {
+            throw new IOException("default display density is unavailable: "
+                    + output.trim());
         }
-        return density;
+        return densityDpi / (float) DisplayMetrics.DENSITY_DEFAULT;
     }
 
     private static TaskInputWindowParser.Entry waitForMaximizeMenu(
@@ -1154,12 +1403,29 @@ final class DesktopSelfTestController {
     private static void focusTaskThroughDesktop(
             final int displayId,
             final int taskId) throws IOException {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        if (!snapshot.available) {
+            throw new IOException("desktop task stack unavailable: "
+                    + snapshot.error);
+        }
+        final LinkedHashSet<Integer> orderedTaskIds =
+                new LinkedHashSet<>();
+        for (int index = snapshot.tasks.size() - 1; index >= 0; index--) {
+            final TaskRepository.TaskEntry task = snapshot.tasks.get(index);
+            if (task != null && task.visible && !task.home
+                    && !DesktopTaskController.isDesktopHostTask(task)) {
+                orderedTaskIds.add(Integer.valueOf(task.taskId));
+            }
+        }
+        orderedTaskIds.remove(Integer.valueOf(taskId));
+        orderedTaskIds.add(Integer.valueOf(taskId));
         final CountDownLatch complete = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();
         final StringBuilder message = new StringBuilder();
-        DesktopTaskController.focusDesktopTask(
+        DesktopTaskController.focusDesktopTasks(
                 displayId,
-                taskId,
+                new ArrayList<>(orderedTaskIds),
                 action -> {
                     success.set(action.success);
                     message.append(action.message);
@@ -1190,7 +1456,12 @@ final class DesktopSelfTestController {
     }
 
     private static void clearTextMarker(final Context context) {
-        context.deleteFile(DesktopSelfTestActivity.TEXT_MARKER_FILE);
+        clearMarker(context, DesktopSelfTestActivity.TEXT_MARKER_FILE);
+    }
+
+    private static void clearMarker(
+            final Context context, final String fileName) {
+        context.deleteFile(fileName);
     }
 
     private static void waitForMarker(
@@ -1479,7 +1750,11 @@ final class DesktopSelfTestController {
                 && (target == DesktopSelfTestTarget.PHONE
                         || target == DesktopSelfTestTarget.SIMULATED)) {
             try {
-                waitForDesktopRepositoryEmpty(displayId);
+                if (target == DesktopSelfTestTarget.PHONE) {
+                    waitForNoLiveDesktopTasks(displayId);
+                } else {
+                    waitForDesktopRepositoryEmpty(displayId);
+                }
             } catch (IOException error) {
                 clean = false;
                 detail.append("desktop repository cleanup: ")
@@ -1583,6 +1858,22 @@ final class DesktopSelfTestController {
                     && !hasClass(task.topActivityName, FIXTURE_CLASS)) {
                 continue;
             }
+            if (requiresPhoneDesktopExitBeforeRemoval(task)) {
+                // Removing a phone freeform task directly leaves its ID in
+                // Nubia's DesktopRepository. Leave the desk before removal.
+                ShellAccess.run(
+                        TaskRepository
+                                .createClientPreservingFullscreenTransitionCommand(
+                                        task.displayId, task.taskId));
+                waitForTask(
+                        task.displayId,
+                        FIXTURE_CLASS,
+                        entry -> entry.taskId == task.taskId
+                                && "fullscreen".equals(
+                                        entry.windowingMode));
+                waitForTaskAbsentFromDesktopRepository(
+                        task.displayId, task.taskId);
+            }
             try {
                 ShellAccess.run(AppProcessCommand.run(
                         "io.github.mekhontsev.magicdesk.TaskControlCommand",
@@ -1592,9 +1883,18 @@ final class DesktopSelfTestController {
                     throw error;
                 }
             }
-            waitForTaskAbsentFromDesktopRepository(
-                    task.displayId, task.taskId);
+            if (task.displayId == Display.DEFAULT_DISPLAY) {
+                waitForTaskAbsentFromDesktopRepository(
+                        task.displayId, task.taskId);
+            }
         }
+    }
+
+    static boolean requiresPhoneDesktopExitBeforeRemoval(
+            final TaskStackParser.Entry task) {
+        return task != null
+                && task.displayId == Display.DEFAULT_DISPLAY
+                && "freeform".equals(task.windowingMode);
     }
 
     private static boolean taskExists(final int taskId) throws IOException {
@@ -1692,17 +1992,49 @@ final class DesktopSelfTestController {
     private static void waitForDesktopRepositoryEmpty(
             final int displayId) throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        Set<Integer> retainedTasks = Collections.emptySet();
         do {
             final String repository = ShellAccess.run(
                     PhoneDesktopTaskRecovery.repositoryDumpCommand());
-            if (SystemUiDesktopRepositoryParser.parseTaskIds(
-                    repository, displayId).isEmpty()) {
+            retainedTasks = SystemUiDesktopRepositoryParser.parseTaskIds(
+                    repository, displayId);
+            if (retainedTasks.isEmpty()) {
                 return;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("SystemUI retained tasks for display "
-                + displayId);
+                + displayId + ": " + retainedTasks);
+    }
+
+    private static void waitForNoLiveDesktopTasks(
+            final int displayId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        Set<Integer> retainedTasks = Collections.emptySet();
+        do {
+            retainedTasks = new LinkedHashSet<>(
+                    SystemUiDesktopRepositoryParser.parseTaskIds(
+                            ShellAccess.run(
+                                    PhoneDesktopTaskRecovery
+                                            .repositoryDumpCommand()),
+                            displayId));
+            final Set<Integer> liveFreeformTasks = new LinkedHashSet<>();
+            for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                    ShellAccess.run(
+                            "/system/bin/cmd activity stack list"))) {
+                if (task.displayId == displayId
+                        && "freeform".equals(task.windowingMode)) {
+                    liveFreeformTasks.add(Integer.valueOf(task.taskId));
+                }
+            }
+            retainedTasks.retainAll(liveFreeformTasks);
+            if (retainedTasks.isEmpty()) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("SystemUI retained live desktop tasks for display "
+                + displayId + ": " + retainedTasks);
     }
 
     private static void waitForTaskAbsentFromDesktopRepository(
@@ -1749,6 +2081,7 @@ final class DesktopSelfTestController {
             final String label,
             final CheckedSupplier<T> operation,
             final String successDetail) throws AbortSelfTest {
+        DesktopSelfTestHostObserver.stage(code);
         try {
             final T value = operation.run();
             result.add(DesktopSelfTestResult.State.PASS,
@@ -1766,6 +2099,7 @@ final class DesktopSelfTestController {
             final String code,
             final String label,
             final CheckedSupplier<T> operation) {
+        DesktopSelfTestHostObserver.stage(code);
         try {
             result.add(DesktopSelfTestResult.State.PASS,
                     code, label, String.valueOf(operation.run()));
@@ -1782,6 +2116,28 @@ final class DesktopSelfTestController {
             final String detail) throws AbortSelfTest {
         result.add(DesktopSelfTestResult.State.FAIL, code, label, detail);
         throw new AbortSelfTest();
+    }
+
+    private static void recordDesktopHostObservation(
+            final DesktopSelfTestResult result,
+            final int displayId) {
+        final DesktopSelfTestHostObserver.Observation observation =
+                DesktopSelfTestHostObserver.finish(displayId);
+        if (!observation.hostSeen) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "DESKTOP-006",
+                    "Keep the desktop host stable and fullscreen",
+                    "desktop host did not render during the test");
+            return;
+        }
+        result.add(observation.renderedFreeform
+                        || observation.recreated
+                        || observation.lostReadyUi
+                        ? DesktopSelfTestResult.State.FAIL
+                        : DesktopSelfTestResult.State.PASS,
+                "DESKTOP-006",
+                "Keep the desktop host stable and fullscreen",
+                observation.detail);
     }
 
     private static DesktopSelfTestResult finish(

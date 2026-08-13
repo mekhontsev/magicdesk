@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -78,5 +80,32 @@ public final class DesktopSelfTestControllerTest {
 
         assertEquals(20, DesktopSelfTestController.findFrontTask(
                 stack, 8).taskId);
+    }
+
+    @Test
+    public void leavesPhoneDeskBeforeRemovingOnlyPhoneFreeformFixture() {
+        assertTrue(DesktopSelfTestController
+                .requiresPhoneDesktopExitBeforeRemoval(task(0, "freeform")));
+        assertFalse(DesktopSelfTestController
+                .requiresPhoneDesktopExitBeforeRemoval(task(0, "fullscreen")));
+        assertFalse(DesktopSelfTestController
+                .requiresPhoneDesktopExitBeforeRemoval(task(95, "freeform")));
+        assertFalse(DesktopSelfTestController
+                .requiresPhoneDesktopExitBeforeRemoval(null));
+    }
+
+    private static TaskStackParser.Entry task(
+            final int displayId, final String windowingMode) {
+        return new TaskStackParser.Entry(
+                10,
+                20,
+                displayId,
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity",
+                "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity",
+                windowingMode,
+                "standard",
+                new TaskStackParser.Bounds(0, 0, 800, 600),
+                true);
     }
 }

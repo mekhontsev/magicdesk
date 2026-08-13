@@ -23,6 +23,27 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void magicDeskUiTaskIsRecovered() {
+        assertTrue(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.DiagnosticsActivity",
+                false));
+    }
+
+    @Test
+    public void magicDeskDesktopHostIsNotRecoveredToPhone() {
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.DesktopActivity",
+                false));
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/"
+                        + "io.github.mekhontsev.magicdesk.DesktopActivity",
+                false));
+    }
+
+    @Test
     public void homeTaskIsNotRecovered() {
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
                 "com.zte.mifavor.launcher", true));
@@ -77,6 +98,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     public void revivedMagicDeskTaskIsExcludedFromRecovery() {
         final FakeEnvironment environment = new FakeEnvironment(false);
         environment.packageName = "io.github.mekhontsev.magicdesk";
+        environment.componentName = ".DesktopActivity";
 
         final PhoneDesktopTaskRecovery.Result result =
                 PhoneDesktopTaskRecovery.recoverForTest(
@@ -84,6 +106,22 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         assertTrue(result.success);
         assertTrue(environment.hasReviveCommand());
+        assertFalse(environment.hasFullscreenTransition());
+    }
+
+    @Test
+    public void desktopHostRemainsExcludedWithSystemActivityOnTop() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.packageName = "io.github.mekhontsev.magicdesk";
+        environment.componentName = ".DesktopActivity";
+        environment.topActivityComponent =
+                "com.android.settings/.Settings";
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
         assertFalse(environment.hasFullscreenTransition());
     }
 
@@ -196,16 +234,36 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         assertTrue(environment.removedRepositoryContainsSecondTask);
     }
 
+    @Test
+    public void unavailablePhoneTaskDoesNotBlockLiveTaskRecovery() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.phoneRepositoryContainsSecondTask = true;
+        environment.reviveMissingTask = false;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.repositoryContainsTask);
+        assertTrue(environment.phoneRepositoryContainsSecondTask);
+        assertTrue(result.message.contains("unavailable=[43]"));
+    }
+
     private static final class FakeEnvironment
             implements PhoneDesktopTaskRecovery.Environment {
         final List<String> commands = new ArrayList<>();
         boolean taskPresent;
         boolean freeform = true;
         boolean repositoryContainsTask = true;
+        boolean phoneRepositoryContainsSecondTask;
         boolean removedRepositoryContainsTask;
         boolean removedRepositoryContainsSecondTask;
         boolean reviveMissingTask = true;
         String packageName = "net.sf.golly";
+        String componentName = ".MainActivity";
+        String topActivityComponent;
         int stackReads;
         int taskAppearsAfterStackReads = -1;
 
@@ -295,24 +353,35 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         }
 
         private String stackOutput() {
-            return stackOutput(freeform, packageName);
+            return stackOutput(
+                    freeform,
+                    packageName,
+                    componentName,
+                    topActivityComponent == null
+                            ? packageName + "/" + componentName
+                            : topActivityComponent);
         }
 
         private static String stackOutput(final boolean freeform) {
-            return stackOutput(freeform, "net.sf.golly");
+            return stackOutput(
+                    freeform,
+                    "net.sf.golly",
+                    ".MainActivity",
+                    "net.sf.golly/.MainActivity");
         }
 
         private static String stackOutput(
                 final boolean freeform,
-                final String packageName) {
+                final String packageName,
+                final String componentName,
+                final String topActivityComponent) {
             return "RootTask id=42 bounds=[0,0][1080,2400]"
                     + " displayId=0 userId=0\n"
                     + " configuration={mWindowingMode="
                     + (freeform ? "freeform" : "fullscreen")
                     + " mActivityType=standard}\n"
-                    + " taskId=42: " + packageName + "/.MainActivity "
-                    + "topActivity=ComponentInfo{" + packageName
-                    + "/.MainActivity} "
+                    + " taskId=42: " + packageName + "/" + componentName + " "
+                    + "topActivity=ComponentInfo{" + topActivityComponent + "} "
                     + "visible=true bounds=[100,100][800,1200]\n";
         }
 
@@ -332,11 +401,24 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                     + "  DesktopRepository\n"
                     + "    userId=0\n"
                     + "    Display #0:\n"
-                    + "      activeTasks="
-                    + (repositoryContainsTask ? "[42]" : "[]")
+                    + "      activeTasks=" + phoneTasks()
                     + "\n"
                     + "    Display #95:\n"
                     + "      activeTasks=[" + removedTasks + "]\n";
+        }
+
+        private String phoneTasks() {
+            final StringBuilder tasks = new StringBuilder();
+            if (repositoryContainsTask) {
+                tasks.append("42");
+            }
+            if (phoneRepositoryContainsSecondTask) {
+                if (tasks.length() > 0) {
+                    tasks.append(", ");
+                }
+                tasks.append("43");
+            }
+            return "[" + tasks + "]";
         }
     }
 }

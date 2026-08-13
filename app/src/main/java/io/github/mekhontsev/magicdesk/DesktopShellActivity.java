@@ -246,6 +246,7 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        DesktopSelfTestHostObserver.observeNextFrame(this, "first-frame");
         mTaskbarRevealController.start();
         mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
@@ -524,6 +525,7 @@ public abstract class DesktopShellActivity extends Activity
         if (mHostWindowController != null) {
             mHostWindowController.onMultiWindowModeChanged(inMultiWindowMode);
         }
+        DesktopSelfTestHostObserver.observeNextFrame(this, "mode-change");
     }
 
     @Override
