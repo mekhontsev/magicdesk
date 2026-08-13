@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.hardware.display.DisplayManager;
@@ -22,18 +23,23 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
 final class CompatibilityDiagnostics {
     private static final Object LOCK = new Object();
+    private static final String PREFS = "compatibility_diagnostics";
+    private static final String PREF_EVENT_VERSION = "event_version";
     private static final String EVENT_FILE = "compatibility-events.log";
     private static final long MAX_EVENT_FILE_BYTES = 128 * 1024;
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
+    private static final int MAX_REPORTED_EVENT_CHARS = 64_000;
     private static final int MAX_LOGCAT_CHARS = 48_000;
     private static volatile Context sApplicationContext;
     private static final Set<String> RECORDED_EVENT_SIGNATURES =
@@ -47,6 +53,7 @@ final class CompatibilityDiagnostics {
             return;
         }
         sApplicationContext = context.getApplicationContext();
+        clearEventsAfterAppUpdate(sApplicationContext);
         final Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         if (previous instanceof CrashHandler) {
@@ -147,6 +154,17 @@ final class CompatibilityDiagnostics {
             new File(context.getFilesDir(), EVENT_FILE).delete();
             new File(context.getFilesDir(), EVENT_FILE + ".previous").delete();
         }
+    }
+
+    private static void clearEventsAfterAppUpdate(final Context context) {
+        final long version = BuildConfig.VERSION_CODE;
+        final SharedPreferences preferences = context.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE);
+        if (preferences.getLong(PREF_EVENT_VERSION, -1) == version) {
+            return;
+        }
+        clearEvents(context);
+        preferences.edit().putLong(PREF_EVENT_VERSION, version).commit();
     }
 
     private static void appendDevice(final StringBuilder report) {
@@ -432,13 +450,12 @@ final class CompatibilityDiagnostics {
 
     private static void appendEvents(final StringBuilder report, final Context context) {
         report.append("## Recorded compatibility events\n");
-        final String events = filterRecordedEvents(
-                readFile(
-                        new File(context.getFilesDir(), EVENT_FILE + ".previous"),
-                        32_000)
-                        + readFile(
-                                new File(context.getFilesDir(), EVENT_FILE),
-                                64_000));
+        final String events = selectRecentRecordedEvents(
+                readFile(new File(
+                        context.getFilesDir(), EVENT_FILE + ".previous"))
+                        + readFile(new File(
+                                context.getFilesDir(), EVENT_FILE)),
+                MAX_REPORTED_EVENT_CHARS);
         if (events.isEmpty()) {
             report.append("No recorded events\n");
         } else {
@@ -448,21 +465,61 @@ final class CompatibilityDiagnostics {
     }
 
     static String filterRecordedEvents(final String events) {
-        if (events == null || events.isEmpty()) {
+        return selectRecentRecordedEvents(events, Integer.MAX_VALUE);
+    }
+
+    static String selectRecentRecordedEvents(
+            final String events,
+            final int maxChars) {
+        if (events == null || events.isEmpty() || maxChars <= 0) {
             return "";
         }
-        final StringBuilder filtered = new StringBuilder(events.length());
-        final StringBuilder block = new StringBuilder();
-        final LinkedHashSet<String> seen = new LinkedHashSet<>();
-        for (final String line : events.split("(?<=\\n)")) {
-            if (isEventHeader(line) && block.length() > 0) {
-                appendFilteredEvent(filtered, seen, block.toString());
-                block.setLength(0);
+        final List<String> blocks = splitEventBlocks(events);
+        final List<String> selected = new ArrayList<>();
+        final Set<String> seen = new HashSet<>();
+        int selectedChars = 0;
+        for (int index = blocks.size() - 1; index >= 0; index--) {
+            final String event = blocks.get(index);
+            if (isStaticAuditEvent(event)) {
+                continue;
             }
-            block.append(line);
+            final int timestampEnd = event.indexOf(" | ");
+            final String signature = timestampEnd < 0
+                    ? event : event.substring(timestampEnd + 3);
+            if (!seen.add(signature)) {
+                continue;
+            }
+            if (selectedChars + event.length() > maxChars) {
+                break;
+            }
+            selected.add(event);
+            selectedChars += event.length();
         }
-        appendFilteredEvent(filtered, seen, block.toString());
-        return filtered.toString();
+        Collections.reverse(selected);
+        final StringBuilder result = new StringBuilder(selectedChars);
+        for (final String event : selected) {
+            result.append(event);
+        }
+        return result.toString();
+    }
+
+    private static List<String> splitEventBlocks(final String events) {
+        final List<String> blocks = new ArrayList<>();
+        StringBuilder block = null;
+        for (final String line : events.split("(?<=\\n)")) {
+            if (isEventHeader(line)) {
+                if (block != null) {
+                    blocks.add(block.toString());
+                }
+                block = new StringBuilder(line);
+            } else if (block != null) {
+                block.append(line);
+            }
+        }
+        if (block != null) {
+            blocks.add(block.toString());
+        }
+        return blocks;
     }
 
     private static boolean isEventHeader(final String line) {
@@ -472,22 +529,10 @@ final class CompatibilityDiagnostics {
                         > firstSeparator + 3;
     }
 
-    private static void appendFilteredEvent(
-            final StringBuilder destination,
-            final LinkedHashSet<String> seen,
-            final String event) {
-        if (event.isEmpty()
-                || event.contains(" | PLATFORM-001 | ")
+    private static boolean isStaticAuditEvent(final String event) {
+        return event.contains(" | PLATFORM-001 | ")
                 || event.contains(" | PROFILE-001 | ")
-                || event.contains(" | SHIZUKU-001 | ")) {
-            return;
-        }
-        final int timestampEnd = event.indexOf(" | ");
-        final String signature = timestampEnd < 0
-                ? event : event.substring(timestampEnd + 3);
-        if (seen.add(signature)) {
-            destination.append(event);
-        }
+                || event.contains(" | SHIZUKU-001 | ");
     }
 
     private static void appendMagicDeskLogcat(final StringBuilder report) {
@@ -497,7 +542,7 @@ final class CompatibilityDiagnostics {
                 + "MagicDeskNativeDesktop:V MagicDeskNotifications:V MagicDeskPanels:V "
                 + "MagicDeskProfiles:V MagicDeskRightButton:V MagicDeskKeys:V "
                 + "MagicDeskSetup:V MagicDeskTaskReuse:V MagicDeskTasks:V "
-                + "MagicDeskWallpaper:V MagicDeskWatcher:V '*:S'";
+                + "MagicDeskWallpaper:V MagicDeskWatcher:V MagicDeskRecording:V '*:S'";
         final String output = runCommand(command, MAX_LOGCAT_CHARS);
         report.append(output.isEmpty() ? "No MagicDesk log entries available\n" : output);
         if (!output.endsWith("\n")) {
@@ -539,7 +584,7 @@ final class CompatibilityDiagnostics {
         }
     }
 
-    private static String readFile(final File file, final int maxChars) {
+    private static String readFile(final File file) {
         if (!file.isFile()) {
             return "";
         }
@@ -548,8 +593,8 @@ final class CompatibilityDiagnostics {
                 new FileInputStream(file), StandardCharsets.UTF_8))) {
             final char[] buffer = new char[2_048];
             int read;
-            while ((read = reader.read(buffer)) >= 0 && value.length() < maxChars) {
-                value.append(buffer, 0, Math.min(read, maxChars - value.length()));
+            while ((read = reader.read(buffer)) >= 0) {
+                value.append(buffer, 0, read);
             }
         } catch (IOException ignored) {
             return "";

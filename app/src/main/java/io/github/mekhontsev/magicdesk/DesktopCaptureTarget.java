@@ -37,4 +37,9 @@ final class DesktopCaptureTarget {
                 ConsoleDisplayController.getPhysicalDisplayId(
                         captureDisplayId));
     }
+
+    String diagnosticDetail() {
+        return "desktopDisplay=" + desktopDisplayId
+                + ", physicalDisplay=" + physicalDisplayId;
+    }
 }

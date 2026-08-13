@@ -100,9 +100,9 @@ final class DisplayRecordingController {
         publish(State.STARTING, "Starting screen recording...");
         mExecutor.execute(() -> {
             String outputPath = null;
+            DesktopCaptureTarget capture = null;
             try {
-                final DesktopCaptureTarget capture =
-                        DesktopCaptureTarget.resolveActive();
+                capture = DesktopCaptureTarget.resolveActive();
                 final DisplayRecordingSettings.Values settings =
                         DisplayRecordingSettings.load(
                                 MagicDeskApplication.applicationContext());
@@ -121,6 +121,10 @@ final class DisplayRecordingController {
                     height = scaled.height;
                 }
                 outputPath = nextOutputPath();
+                Log.i(TAG, "recording start requested path=" + outputPath
+                        + " " + capture.diagnosticDetail()
+                        + " size=" + width + "x" + height
+                        + " bitrateMbps=" + settings.bitrateMbps);
                 final String startedPath = ShellAccess.startDisplayRecording(
                         capture.physicalDisplayId,
                         outputPath,
@@ -139,7 +143,11 @@ final class DisplayRecordingController {
                 CompatibilityDiagnostics.record(
                         "RECORDING-001",
                         "Could not start desktop display recording",
-                        usefulMessage(error));
+                        (capture == null ? "capture target unavailable"
+                                : capture.diagnosticDetail())
+                                + ", path=" + outputPath
+                                + ", error=" + usefulMessage(error),
+                        error);
                 publish(State.IDLE, "Screen recording could not start");
                 showStatus("Screen recording could not start", true);
             }
@@ -166,7 +174,8 @@ final class DisplayRecordingController {
                 CompatibilityDiagnostics.record(
                         "RECORDING-002",
                         "Could not finalize desktop display recording",
-                        usefulMessage(error));
+                        usefulMessage(error),
+                        error);
                 publish(State.IDLE, "Screen recording could not be saved");
                 showStatus("Screen recording could not be saved", true);
             }

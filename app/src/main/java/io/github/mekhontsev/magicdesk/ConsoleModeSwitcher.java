@@ -510,9 +510,9 @@ final class ConsoleModeSwitcher {
 
     private static void captureScreenshotInternal() {
         String path = null;
+        DesktopCaptureTarget capture = null;
         try {
-            final DesktopCaptureTarget capture =
-                    DesktopCaptureTarget.resolveActive();
+            capture = DesktopCaptureTarget.resolveActive();
             final String physicalDisplayId = capture.desktopDisplayId == 0
                     ? null : capture.physicalDisplayId;
             final String fileName = "MagicDesk_"
@@ -522,6 +522,8 @@ final class ConsoleModeSwitcher {
             path = SCREENSHOT_DIRECTORY + "/" + fileName;
             final String displayArgument = physicalDisplayId == null
                     ? "" : "-d " + physicalDisplayId + " ";
+            Log.i(TAG, "screenshot capture starting path=" + path
+                    + " " + capture.diagnosticDetail());
             final String command = "umask 002; "
                     + "/system/bin/mkdir -p " + shellQuote(SCREENSHOT_DIRECTORY)
                     + " && /system/bin/screencap " + displayArgument
@@ -546,7 +548,11 @@ final class ConsoleModeSwitcher {
             CompatibilityDiagnostics.record(
                     "SCREENSHOT-001",
                     "Could not capture the desktop display",
-                    error.getMessage());
+                    (capture == null ? "capture target unavailable"
+                            : capture.diagnosticDetail())
+                            + ", path=" + path
+                            + ", error=" + error.getMessage(),
+                    error);
         }
     }
 
