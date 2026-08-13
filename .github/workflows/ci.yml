@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
@@ -42,6 +44,42 @@ jobs:
           test -f "$ANDROID_SDK_ROOT/platforms/android-37.0/android.jar"
           test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
           test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
+
+      - name: Verify development version
+        shell: bash
+        run: |
+          latest_tag=$(git tag --list 'v[0-9]*' --sort=-v:refname \
+            | sed -n '1p')
+          test -n "$latest_tag"
+          released_version=$(printf '%s' "$latest_tag" | cut -c2-)
+          current_version=$(awk -F= \
+            '$1 == "magicDeskVersionName" {print $2; exit}' \
+            gradle.properties)
+          current_code=$(awk -F= \
+            '$1 == "magicDeskVersionCode" {print $2; exit}' \
+            gradle.properties)
+          released_properties=$(git show \
+            "$latest_tag:gradle.properties" 2>/dev/null || true)
+          released_code=$(printf '%s\n' "$released_properties" | awk -F= \
+            '$1 == "magicDeskVersionCode" {print $2; exit}')
+          if [[ -z "$released_code" ]]; then
+            released_code=$(git show "$latest_tag:app/build.gradle" \
+              | awk '$1 == "versionCode" {print $3; exit}')
+          fi
+          highest_version=$(printf '%s\n%s\n' \
+            "$released_version" "$current_version" | sort -V | tail -n 1)
+          if [[ "$current_version" == "$released_version" \
+                || "$highest_version" != "$current_version" ]]; then
+            echo "::error::Development version $current_version must be newer than $released_version"
+            exit 1
+          fi
+          if (( current_code <= released_code )); then
+            echo "::error::Development versionCode $current_code must be greater than $released_code"
+            exit 1
+          fi
+          printf 'Development %s (%s) follows %s (%s).\n' \
+            "$current_version" "$current_code" \
+            "$released_version" "$released_code"
 
       - name: Restore release keystore
         if: github.event_name == 'push'
