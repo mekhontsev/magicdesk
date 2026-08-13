@@ -1,0 +1,110 @@
+def termuxPrefix = System.getenv('PREFIX')
+def termuxCompiler = termuxPrefix == null
+        ? null : file("${termuxPrefix}/bin/clang")
+def nativeOutputRoot = layout.buildDirectory
+        .dir('generated/magicdeskNative').get().asFile
+def inputSourcesSource =
+        rootProject.file('native/magicdesk_input_sources.c')
+def inputSourcesHeader =
+        rootProject.file('native/magicdesk_input_sources.h')
+
+android.sourceSets.main.jniLibs.srcDir nativeOutputRoot
+
+def readLocalProperties = {
+    def properties = new Properties()
+    def propertiesFile = rootProject.file('local.properties')
+    if (propertiesFile.isFile()) {
+        propertiesFile.withInputStream { properties.load(it) }
+    }
+    return properties
+}
+
+def findNdkHomes = {
+    def explicitHome = System.getenv('ANDROID_NDK_HOME')
+            ?: System.getenv('ANDROID_NDK_ROOT')
+    if (explicitHome != null && !explicitHome.isBlank()) {
+        return [file(explicitHome)]
+    }
+
+    def localProperties = readLocalProperties()
+    def sdkHome = localProperties.getProperty('sdk.dir')
+            ?: System.getenv('ANDROID_SDK_ROOT')
+            ?: System.getenv('ANDROID_HOME')
+    if (sdkHome == null || sdkHome.isBlank()) {
+        return []
+    }
+
+    return [file("${sdkHome}/ndk/${android.ndkVersion}")]
+}
+
+def resolveNativeCompilerCommand = {
+    if (termuxCompiler?.isFile()
+            && termuxPrefix.startsWith('/data/data/com.termux/')) {
+        return [termuxCompiler.absolutePath]
+    }
+
+    def osName = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+    def hostPrefix
+    def compilerName = 'clang'
+    if (osName.contains('win')) {
+        hostPrefix = 'windows-'
+        compilerName = 'clang.exe'
+    } else if (osName.contains('mac') || osName.contains('darwin')) {
+        hostPrefix = 'darwin-'
+    } else if (osName.contains('linux')) {
+        hostPrefix = 'linux-'
+    } else {
+        throw new GradleException("Unsupported native build host: ${osName}")
+    }
+
+    for (def ndkHome : findNdkHomes()) {
+        def prebuiltRoot = new File(ndkHome,
+                'toolchains/llvm/prebuilt')
+        def toolchain = prebuiltRoot.listFiles()?.find {
+            it.isDirectory() && it.name.startsWith(hostPrefix)
+        }
+        def compiler = toolchain == null ? null
+                : new File(toolchain, "bin/${compilerName}")
+        if (compiler?.isFile()) {
+            return [compiler.absolutePath,
+                    '--target=aarch64-linux-android35']
+        }
+    }
+
+    throw new GradleException("Android NDK ${android.ndkVersion} was not "
+            + 'found; install NDK (Side by side) in Android Studio or set '
+            + 'ANDROID_NDK_HOME')
+}
+
+def registerNativeHelper = { String taskName, String sourceName,
+        String outputName ->
+    def source = rootProject.file("native/${sourceName}")
+    def output = new File(nativeOutputRoot, "arm64-v8a/${outputName}")
+    tasks.register(taskName, Exec) {
+        inputs.files(source, inputSourcesSource, inputSourcesHeader)
+        outputs.file(output)
+        doFirst {
+            output.parentFile.mkdirs()
+            commandLine resolveNativeCompilerCommand() + [
+                    '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
+                    '-fPIE', '-pie', '-Wl,-z,noexecstack',
+                    '-o', output.absolutePath,
+                    source.absolutePath,
+                    inputSourcesSource.absolutePath
+            ]
+        }
+    }
+}
+
+def uinputTask = registerNativeHelper(
+        'buildMagicDeskUinputBridge',
+        'magicdesk_uinput_bridge.c',
+        'libmagicdesk_uinput_bridge.so')
+def keyboardTask = registerNativeHelper(
+        'buildMagicDeskKeyboardBridge',
+        'magicdesk_keyboard_bridge.c',
+        'libmagicdesk_keyboard_bridge.so')
+
+tasks.named('preBuild').configure {
+    dependsOn uinputTask, keyboardTask
+}

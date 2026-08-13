@@ -12,6 +12,7 @@ def versionSuffix = providers.gradleProperty(
 android {
     namespace = 'io.github.mekhontsev.magicdesk'
     compileSdk = 37
+    ndkVersion = '27.3.13750724'
 
     defaultConfig {
         applicationId = 'io.github.mekhontsev.magicdesk'
@@ -44,83 +45,9 @@ android {
         }
     }
 
-    sourceSets {
-        main {
-            jniLibs.srcDir file("$buildDir/generated/magicdeskNative")
-        }
-    }
 }
 
-def termuxPrefix = System.getenv('PREFIX') ?: '/data/data/com.termux/files/usr'
-def termuxCompiler = file("${termuxPrefix}/bin/clang")
-def inputSourcesSource =
-        rootProject.file('native/magicdesk_input_sources.c')
-def inputSourcesHeader =
-        rootProject.file('native/magicdesk_input_sources.h')
-def uinputBridgeSource = rootProject.file('native/magicdesk_uinput_bridge.c')
-def uinputBridgeOutput = file(
-        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_uinput_bridge.so")
-def keyboardBridgeSource =
-        rootProject.file('native/magicdesk_keyboard_bridge.c')
-def keyboardBridgeOutput = file(
-        "$buildDir/generated/magicdeskNative/arm64-v8a/libmagicdesk_keyboard_bridge.so")
-def resolveNativeCompilerCommand = {
-    if (termuxCompiler.isFile()
-            && termuxPrefix.startsWith('/data/data/com.termux/')) {
-        return [termuxCompiler.absolutePath]
-    }
-    def ndkHome = System.getenv('ANDROID_NDK_HOME')
-            ?: System.getenv('ANDROID_NDK_ROOT')
-    if (ndkHome == null || ndkHome.isBlank()) {
-        throw new GradleException(
-                'ANDROID_NDK_HOME is required to build the input helpers')
-    }
-    def ndkCompiler = file("${ndkHome}/toolchains/llvm/prebuilt/linux-x86_64"
-            + '/bin/aarch64-linux-android35-clang')
-    if (!ndkCompiler.isFile()) {
-        throw new GradleException("Android NDK compiler not found: ${ndkCompiler}")
-    }
-    return [ndkCompiler.absolutePath]
-}
-
-tasks.register('buildMagicDeskUinputBridge', Exec) {
-    inputs.files(uinputBridgeSource, inputSourcesSource, inputSourcesHeader)
-    outputs.file(uinputBridgeOutput)
-    doFirst {
-        uinputBridgeOutput.parentFile.mkdirs()
-        def compilerCommand = resolveNativeCompilerCommand()
-        compilerCommand.addAll([
-                '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
-                '-fPIE', '-pie', '-Wl,-z,noexecstack',
-                '-o', uinputBridgeOutput.absolutePath,
-                uinputBridgeSource.absolutePath,
-                inputSourcesSource.absolutePath
-        ])
-        commandLine compilerCommand
-    }
-}
-
-tasks.register('buildMagicDeskKeyboardBridge', Exec) {
-    inputs.files(keyboardBridgeSource, inputSourcesSource, inputSourcesHeader)
-    outputs.file(keyboardBridgeOutput)
-    doFirst {
-        keyboardBridgeOutput.parentFile.mkdirs()
-        def compilerCommand = resolveNativeCompilerCommand()
-        compilerCommand.addAll([
-                '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
-                '-fPIE', '-pie', '-Wl,-z,noexecstack',
-                '-o', keyboardBridgeOutput.absolutePath,
-                keyboardBridgeSource.absolutePath,
-                inputSourcesSource.absolutePath
-        ])
-        commandLine compilerCommand
-    }
-}
-
-tasks.named('preBuild').configure {
-    dependsOn tasks.named('buildMagicDeskUinputBridge')
-    dependsOn tasks.named('buildMagicDeskKeyboardBridge')
-}
+apply from: rootProject.file('gradle/native-helpers.gradle')
 
 dependencies {
     compileOnly 'androidx.annotation:annotation:1.3.0'

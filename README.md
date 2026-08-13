@@ -409,8 +409,8 @@ a reboot when filing an issue.
 
 ## Build
 
-Install JDK 17, Android SDK platform/build-tools 37, and Android NDK r27 or
-newer. If Gradle cannot locate the SDK, create an untracked
+Install JDK 17 or newer, Android SDK platform/build-tools 37, and Android NDK
+27.3.13750724. If Gradle cannot locate the SDK, create an untracked
 `local.properties`:
 
 ```properties
@@ -423,10 +423,13 @@ Build the debug APK:
 ./gradlew :app:assembleDebug
 ```
 
-On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On conventional
-Linux, set `ANDROID_NDK_HOME`. The native input helpers are compiled from
+On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On desktop
+systems, Gradle finds a side-by-side NDK through the Android SDK;
+`ANDROID_NDK_HOME` can override it. The native input helpers are compiled from
 `native/magicdesk_uinput_bridge.c` and
 `native/magicdesk_keyboard_bridge.c`.
+
+See [Contributing](CONTRIBUTING.md) for IDE setup and verification commands.
 
 ## Releases And Signing
 
@@ -451,6 +454,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Deferred validation backlog](docs/testing-backlog.md)
+- [Contributing and IDE setup](CONTRIBUTING.md)
 
 ## Project
 
