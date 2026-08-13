@@ -35,7 +35,8 @@ import java.util.TimeZone;
 final class CompatibilityDiagnostics {
     private static final Object LOCK = new Object();
     private static final String PREFS = "compatibility_diagnostics";
-    private static final String PREF_EVENT_VERSION = "event_version";
+    private static final String PREF_EVENT_BUILD = "event_build";
+    private static final String LEGACY_PREF_EVENT_VERSION = "event_version";
     private static final String EVENT_FILE = "compatibility-events.log";
     private static final long MAX_EVENT_FILE_BYTES = 128 * 1024;
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
@@ -157,14 +158,18 @@ final class CompatibilityDiagnostics {
     }
 
     private static void clearEventsAfterAppUpdate(final Context context) {
-        final long version = BuildConfig.VERSION_CODE;
+        final String build = BuildConfig.VERSION_NAME
+                + ':' + BuildConfig.VERSION_CODE;
         final SharedPreferences preferences = context.getSharedPreferences(
                 PREFS, Context.MODE_PRIVATE);
-        if (preferences.getLong(PREF_EVENT_VERSION, -1) == version) {
+        if (build.equals(preferences.getString(PREF_EVENT_BUILD, null))) {
             return;
         }
         clearEvents(context);
-        preferences.edit().putLong(PREF_EVENT_VERSION, version).commit();
+        preferences.edit()
+                .putString(PREF_EVENT_BUILD, build)
+                .remove(LEGACY_PREF_EVENT_VERSION)
+                .commit();
     }
 
     private static void appendDevice(final StringBuilder report) {
