@@ -118,6 +118,7 @@ final class RedmagicHardwareSnapshot {
 
     private static boolean isCpu(final String type) {
         return type.startsWith("cpullc-")
+                || type.startsWith("cpuss-")
                 || type.startsWith("cpu-")
                 || type.startsWith("qmx-");
     }

@@ -16,6 +16,7 @@ public final class RedmagicHardwareSnapshotTest {
                         + "node.pump_speed=80\n"
                         + "thermal=cpullc-0-0|41000\n"
                         + "thermal=cpu-0-3-0|43000\n"
+                        + "thermal=cpuss-0|45000\n"
                         + "thermal=gpuss-0|39000\n"
                         + "thermal=skin-msm-therm|32000\n"
                         + "thermal=battery|31000\n");
@@ -23,7 +24,7 @@ public final class RedmagicHardwareSnapshotTest {
         assertTrue(snapshot.fanAvailable);
         assertEquals(1, snapshot.fanEnabled);
         assertTrue(snapshot.pumpAvailable);
-        assertEquals(43_000, snapshot.cpuMilliCelsius);
+        assertEquals(45_000, snapshot.cpuMilliCelsius);
         assertEquals(39_000, snapshot.gpuMilliCelsius);
         assertEquals(32_000, snapshot.skinMilliCelsius);
         assertEquals(31_000, snapshot.batteryMilliCelsius);

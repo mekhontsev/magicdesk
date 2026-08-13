@@ -50,10 +50,14 @@ final class RedmagicHardwareController {
             "baseline_vendor_fan_manual";
     private static final String BASELINE_VENDOR_FAN_MODE =
             "baseline_vendor_fan_mode";
+    private static final String BASELINE_VENDOR_FAN_NAMESPACE =
+            "baseline_vendor_fan_namespace";
     private static final String BASELINE_VENDOR_PUMP_MAIN =
             "baseline_vendor_pump_main";
     private static final String BASELINE_VENDOR_PUMP_FLOW =
             "baseline_vendor_pump_flow";
+    private static final String BASELINE_VENDOR_PUMP_NAMESPACE =
+            "baseline_vendor_pump_namespace";
     private static final String ABSENT_SETTING = "__magicdesk_absent__";
     private static final long POLL_SECONDS = 4;
 
@@ -325,22 +329,38 @@ final class RedmagicHardwareController {
             success = restoreVendorFanState();
         } else if (!captureVendorFanBaseline()) {
             success = false;
-        } else if (mode == FanMode.OFF) {
-            success = writeVendorSettings(
-                    settingPut(VENDOR_FAN_MANUAL, "0"),
-                    settingEquals(VENDOR_FAN_MANUAL, "0"));
-        } else if (mode == FanMode.AUTO) {
-            success = writeVendorSettings(
-                    settingPut(VENDOR_FAN_MODE, "1")
-                            + settingPut(VENDOR_FAN_MANUAL, "1"),
-                    settingEquals(VENDOR_FAN_MODE, "1")
-                            + settingEquals(VENDOR_FAN_MANUAL, "1"));
         } else {
-            success = writeVendorSettings(
-                    settingPut(VENDOR_FAN_MODE, "0")
-                            + settingPut(VENDOR_FAN_MANUAL, "1"),
-                    settingEquals(VENDOR_FAN_MODE, "0")
-                            + settingEquals(VENDOR_FAN_MANUAL, "1"));
+            final RedmagicSettingsNamespace namespace = ownedNamespace(
+                    BASELINE_VENDOR_FAN_NAMESPACE);
+            if (mode == FanMode.OFF) {
+                success = writeVendorSettings(
+                        settingPut(namespace, VENDOR_FAN_MANUAL, "0"),
+                        settingEquals(namespace, VENDOR_FAN_MANUAL, "0"));
+            } else if (mode == FanMode.AUTO) {
+                success = writeVendorSettings(
+                        settingPut(namespace, VENDOR_FAN_MODE, "1")
+                                + settingPut(
+                                        namespace,
+                                        VENDOR_FAN_MANUAL,
+                                        "1"),
+                        settingEquals(namespace, VENDOR_FAN_MODE, "1")
+                                + settingEquals(
+                                        namespace,
+                                        VENDOR_FAN_MANUAL,
+                                        "1"));
+            } else {
+                success = writeVendorSettings(
+                        settingPut(namespace, VENDOR_FAN_MODE, "0")
+                                + settingPut(
+                                        namespace,
+                                        VENDOR_FAN_MANUAL,
+                                        "1"),
+                        settingEquals(namespace, VENDOR_FAN_MODE, "0")
+                                + settingEquals(
+                                        namespace,
+                                        VENDOR_FAN_MANUAL,
+                                        "1"));
+            }
         }
         if (success) {
             sFanMode = mode;
@@ -355,18 +375,28 @@ final class RedmagicHardwareController {
             success = restoreVendorPumpState();
         } else if (!captureVendorPumpBaseline()) {
             success = false;
-        } else if (mode == PumpMode.OFF) {
-            success = writeVendorSettings(
-                    settingPut(VENDOR_PUMP_MAIN, "0"),
-                    settingEquals(VENDOR_PUMP_MAIN, "0"));
         } else {
-            final String flow = mode == PumpMode.SLOW
-                    ? "low" : (mode == PumpMode.MEDIUM ? "mid" : "fast");
-            success = writeVendorSettings(
-                    settingPut(VENDOR_PUMP_FLOW, flow)
-                            + settingPut(VENDOR_PUMP_MAIN, "1"),
-                    settingEquals(VENDOR_PUMP_FLOW, flow)
-                            + settingEquals(VENDOR_PUMP_MAIN, "1"));
+            final RedmagicSettingsNamespace namespace = ownedNamespace(
+                    BASELINE_VENDOR_PUMP_NAMESPACE);
+            if (mode == PumpMode.OFF) {
+                success = writeVendorSettings(
+                        settingPut(namespace, VENDOR_PUMP_MAIN, "0"),
+                        settingEquals(namespace, VENDOR_PUMP_MAIN, "0"));
+            } else {
+                final String flow = mode == PumpMode.SLOW
+                        ? "low" : (mode == PumpMode.MEDIUM ? "mid" : "fast");
+                success = writeVendorSettings(
+                        settingPut(namespace, VENDOR_PUMP_FLOW, flow)
+                                + settingPut(
+                                        namespace,
+                                        VENDOR_PUMP_MAIN,
+                                        "1"),
+                        settingEquals(namespace, VENDOR_PUMP_FLOW, flow)
+                                + settingEquals(
+                                        namespace,
+                                        VENDOR_PUMP_MAIN,
+                                        "1"));
+            }
         }
         if (success) {
             sPumpMode = mode;
@@ -423,14 +453,24 @@ final class RedmagicHardwareController {
         }
         final String output = readVendorSettings(
                 VENDOR_FAN_MANUAL, VENDOR_FAN_MODE);
-        final String manual = settingFromOutput(output, VENDOR_FAN_MANUAL);
-        final String mode = settingFromOutput(output, VENDOR_FAN_MODE);
+        final RedmagicSettingsNamespace namespace = selectNamespace(
+                output, VENDOR_FAN_MANUAL, VENDOR_FAN_MODE);
+        if (namespace == null) {
+            return false;
+        }
+        final String manual = settingFromOutput(
+                output, namespace, VENDOR_FAN_MANUAL);
+        final String mode = settingFromOutput(
+                output, namespace, VENDOR_FAN_MODE);
         if (manual == null || mode == null) {
             return false;
         }
         return preferences.edit()
                 .putString(BASELINE_VENDOR_FAN_MANUAL, manual)
                 .putString(BASELINE_VENDOR_FAN_MODE, mode)
+                .putString(
+                        BASELINE_VENDOR_FAN_NAMESPACE,
+                        namespace.shellName)
                 .putBoolean(OWNER_VENDOR_FAN_ACTIVE, true)
                 .commit();
     }
@@ -442,14 +482,24 @@ final class RedmagicHardwareController {
         }
         final String output = readVendorSettings(
                 VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
-        final String main = settingFromOutput(output, VENDOR_PUMP_MAIN);
-        final String flow = settingFromOutput(output, VENDOR_PUMP_FLOW);
+        final RedmagicSettingsNamespace namespace = selectNamespace(
+                output, VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
+        if (namespace == null) {
+            return false;
+        }
+        final String main = settingFromOutput(
+                output, namespace, VENDOR_PUMP_MAIN);
+        final String flow = settingFromOutput(
+                output, namespace, VENDOR_PUMP_FLOW);
         if (main == null || flow == null) {
             return false;
         }
         return preferences.edit()
                 .putString(BASELINE_VENDOR_PUMP_MAIN, main)
                 .putString(BASELINE_VENDOR_PUMP_FLOW, flow)
+                .putString(
+                        BASELINE_VENDOR_PUMP_NAMESPACE,
+                        namespace.shellName)
                 .putBoolean(OWNER_VENDOR_PUMP_ACTIVE, true)
                 .commit();
     }
@@ -475,12 +525,21 @@ final class RedmagicHardwareController {
                 BASELINE_VENDOR_FAN_MANUAL, ABSENT_SETTING);
         final String mode = preferences.getString(
                 BASELINE_VENDOR_FAN_MODE, ABSENT_SETTING);
+        final RedmagicSettingsNamespace namespace = ownedNamespace(
+                BASELINE_VENDOR_FAN_NAMESPACE);
         final boolean success = writeVendorSettings(
-                settingPut(VENDOR_FAN_MANUAL, "0")
-                        + restoreSetting(VENDOR_FAN_MODE, mode)
-                        + restoreSetting(VENDOR_FAN_MANUAL, manual),
-                settingEquals(VENDOR_FAN_MODE, expectedSetting(mode))
+                settingPut(namespace, VENDOR_FAN_MANUAL, "0")
+                        + restoreSetting(namespace, VENDOR_FAN_MODE, mode)
+                        + restoreSetting(
+                                namespace,
+                                VENDOR_FAN_MANUAL,
+                                manual),
+                settingEquals(
+                        namespace,
+                        VENDOR_FAN_MODE,
+                        expectedSetting(mode))
                         + settingEquals(
+                                namespace,
                                 VENDOR_FAN_MANUAL,
                                 expectedSetting(manual)));
         if (!success) {
@@ -491,6 +550,7 @@ final class RedmagicHardwareController {
                 .remove(OWNER_VENDOR_FAN_ACTIVE)
                 .remove(BASELINE_VENDOR_FAN_MANUAL)
                 .remove(BASELINE_VENDOR_FAN_MODE)
+                .remove(BASELINE_VENDOR_FAN_NAMESPACE)
                 .commit();
     }
 
@@ -507,12 +567,21 @@ final class RedmagicHardwareController {
                 BASELINE_VENDOR_PUMP_MAIN, ABSENT_SETTING);
         final String flow = preferences.getString(
                 BASELINE_VENDOR_PUMP_FLOW, ABSENT_SETTING);
+        final RedmagicSettingsNamespace namespace = ownedNamespace(
+                BASELINE_VENDOR_PUMP_NAMESPACE);
         final boolean success = writeVendorSettings(
-                settingPut(VENDOR_PUMP_MAIN, "0")
-                        + restoreSetting(VENDOR_PUMP_FLOW, flow)
-                        + restoreSetting(VENDOR_PUMP_MAIN, main),
-                settingEquals(VENDOR_PUMP_FLOW, expectedSetting(flow))
+                settingPut(namespace, VENDOR_PUMP_MAIN, "0")
+                        + restoreSetting(namespace, VENDOR_PUMP_FLOW, flow)
+                        + restoreSetting(
+                                namespace,
+                                VENDOR_PUMP_MAIN,
+                                main),
+                settingEquals(
+                        namespace,
+                        VENDOR_PUMP_FLOW,
+                        expectedSetting(flow))
                         + settingEquals(
+                                namespace,
                                 VENDOR_PUMP_MAIN,
                                 expectedSetting(main)));
         if (!success) {
@@ -523,6 +592,7 @@ final class RedmagicHardwareController {
                 .remove(OWNER_VENDOR_PUMP_ACTIVE)
                 .remove(BASELINE_VENDOR_PUMP_MAIN)
                 .remove(BASELINE_VENDOR_PUMP_FLOW)
+                .remove(BASELINE_VENDOR_PUMP_NAMESPACE)
                 .commit();
     }
 
@@ -545,15 +615,14 @@ final class RedmagicHardwareController {
         if (!isKnownVendorSetting(first) || !isKnownVendorSetting(second)) {
             return null;
         }
-        final String command =
-                "printf 'setting." + first + "=%s\\n' \"$("
-                        + "/system/bin/settings get system " + first
-                        + ")\"; "
-                        + "printf 'setting." + second + "=%s\\n' \"$("
-                        + "/system/bin/settings get system " + second
-                        + ")\"";
+        final StringBuilder command = new StringBuilder();
+        for (final RedmagicSettingsNamespace namespace
+                : RedmagicSettingsNamespace.values()) {
+            appendSettingRead(command, namespace, first);
+            appendSettingRead(command, namespace, second);
+        }
         try {
-            return ShellAccess.run(command);
+            return ShellAccess.run(command.toString());
         } catch (IOException error) {
             Log.w(TAG, "vendor hardware settings read failed", error);
             CompatibilityDiagnostics.record(
@@ -567,20 +636,49 @@ final class RedmagicHardwareController {
 
     private static String settingFromOutput(
             final String output,
+            final RedmagicSettingsNamespace namespace,
             final String key) {
-        if (output == null || !isKnownVendorSetting(key)) {
+        if (output == null || namespace == null
+                || !isKnownVendorSetting(key)) {
             return null;
         }
-        final String prefix = "setting." + key + "=";
-        for (final String line : output.split("\\r?\\n")) {
-            if (!line.startsWith(prefix)) {
-                continue;
-            }
-            final String value = line.substring(prefix.length()).trim();
-            return value.isEmpty() || "null".equals(value)
-                    ? ABSENT_SETTING : value;
+        final String value = RedmagicSettingsNamespace.value(
+                output, namespace, key);
+        return value == null
+                ? null
+                : (value.isEmpty() || "null".equals(value)
+                        ? ABSENT_SETTING : value);
+    }
+
+    private static void appendSettingRead(
+            final StringBuilder command,
+            final RedmagicSettingsNamespace namespace,
+            final String key) {
+        if (command.length() > 0) {
+            command.append("; ");
         }
-        return null;
+        command.append("printf 'setting.")
+                .append(namespace.shellName)
+                .append('.').append(key)
+                .append("=%s\\n' \"$(/system/bin/settings get ")
+                .append(namespace.shellName).append(' ').append(key)
+                .append(")\"");
+    }
+
+    private static RedmagicSettingsNamespace selectNamespace(
+            final String output,
+            final String first,
+            final String second) {
+        return RedmagicSettingsNamespace.select(output, first, second);
+    }
+
+    private static RedmagicSettingsNamespace ownedNamespace(
+            final String preferenceKey) {
+        final String stored = preferences().getString(
+                preferenceKey, RedmagicSettingsNamespace.SYSTEM.shellName);
+        return RedmagicSettingsNamespace.GLOBAL.shellName.equals(stored)
+                ? RedmagicSettingsNamespace.GLOBAL
+                : RedmagicSettingsNamespace.SYSTEM;
     }
 
     private static boolean writeVendorSettings(
@@ -610,34 +708,40 @@ final class RedmagicHardwareController {
     }
 
     private static String settingPut(
+            final RedmagicSettingsNamespace namespace,
             final String key,
             final String value) {
-        if (!isKnownVendorSetting(key)) {
+        if (namespace == null || !isKnownVendorSetting(key)) {
             throw new IllegalArgumentException("unknown vendor setting");
         }
-        return "/system/bin/settings put system " + key + " "
+        return "/system/bin/settings put " + namespace.shellName
+                + " " + key + " "
                 + shellQuote(value) + " && ";
     }
 
     private static String restoreSetting(
+            final RedmagicSettingsNamespace namespace,
             final String key,
             final String value) {
-        if (!isKnownVendorSetting(key)) {
+        if (namespace == null || !isKnownVendorSetting(key)) {
             throw new IllegalArgumentException("unknown vendor setting");
         }
         if (ABSENT_SETTING.equals(value)) {
-            return "/system/bin/settings delete system " + key + " && ";
+            return "/system/bin/settings delete " + namespace.shellName
+                    + " " + key + " && ";
         }
-        return settingPut(key, value);
+        return settingPut(namespace, key, value);
     }
 
     private static String settingEquals(
+            final RedmagicSettingsNamespace namespace,
             final String key,
             final String value) {
-        if (!isKnownVendorSetting(key)) {
+        if (namespace == null || !isKnownVendorSetting(key)) {
             throw new IllegalArgumentException("unknown vendor setting");
         }
-        return "[ \"$(/system/bin/settings get system " + key
+        return "[ \"$(/system/bin/settings get " + namespace.shellName
+                + " " + key
                 + ")\" = " + shellQuote(value) + " ] && ";
     }
 
