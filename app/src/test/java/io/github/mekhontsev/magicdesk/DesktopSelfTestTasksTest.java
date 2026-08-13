@@ -7,7 +7,15 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public final class DesktopSelfTestControllerTest {
+public final class DesktopSelfTestTasksTest {
+    @Test
+    public void resolvesAbbreviatedActivityAgainstRequestedClassPackage() {
+        assertTrue(DesktopSelfTestTasks.hasClass(
+                "com.example/.Fixture", "com.example.Fixture"));
+        assertFalse(DesktopSelfTestTasks.hasClass(
+                "com.other/.Fixture", "com.example.Fixture"));
+    }
+
     @Test
     public void findsFixtureOnlyOnRequestedDisplay() {
         final String stack =
@@ -26,10 +34,10 @@ public final class DesktopSelfTestControllerTest {
                         + "io.github.mekhontsev.magicdesk/"
                         + ".DesktopSelfTestActivity} visible=true\n";
 
-        assertEquals(22, DesktopSelfTestController.findTask(
+        assertEquals(22, DesktopSelfTestTasks.findTask(
                 stack, 8,
                 "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity").taskId);
-        assertNull(DesktopSelfTestController.findTask(
+        assertNull(DesktopSelfTestTasks.findTask(
                 stack, 3,
                 "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity"));
     }
@@ -52,7 +60,7 @@ public final class DesktopSelfTestControllerTest {
                         + "io.github.mekhontsev.magicdesk/"
                         + ".DesktopSelfTestActivity} visible=true\n";
 
-        assertEquals(23, DesktopSelfTestController.findTask(
+        assertEquals(23, DesktopSelfTestTasks.findTask(
                 stack, 8, fixture, task -> task.taskId == 23).taskId);
     }
 
@@ -78,34 +86,7 @@ public final class DesktopSelfTestControllerTest {
                         + "io.github.mekhontsev.magicdesk/"
                         + ".DesktopSelfTestActivity} visible=true\n";
 
-        assertEquals(20, DesktopSelfTestController.findFrontTask(
+        assertEquals(20, DesktopSelfTestTasks.findFrontTask(
                 stack, 8).taskId);
-    }
-
-    @Test
-    public void leavesPhoneDeskBeforeRemovingOnlyPhoneFreeformFixture() {
-        assertTrue(DesktopSelfTestController
-                .requiresPhoneDesktopExitBeforeRemoval(task(0, "freeform")));
-        assertFalse(DesktopSelfTestController
-                .requiresPhoneDesktopExitBeforeRemoval(task(0, "fullscreen")));
-        assertFalse(DesktopSelfTestController
-                .requiresPhoneDesktopExitBeforeRemoval(task(95, "freeform")));
-        assertFalse(DesktopSelfTestController
-                .requiresPhoneDesktopExitBeforeRemoval(null));
-    }
-
-    private static TaskStackParser.Entry task(
-            final int displayId, final String windowingMode) {
-        return new TaskStackParser.Entry(
-                10,
-                20,
-                displayId,
-                "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity",
-                "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity",
-                windowingMode,
-                "standard",
-                new TaskStackParser.Bounds(0, 0, 800, 600),
-                true);
     }
 }

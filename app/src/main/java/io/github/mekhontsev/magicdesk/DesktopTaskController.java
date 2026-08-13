@@ -295,6 +295,25 @@ final class DesktopTaskController {
         return DesktopTaskStateStore.getVisibleTasks(displayId);
     }
 
+    static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return Collections.emptyList();
+        }
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                new ArrayList<>();
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (isDesktopHostTask(task)) {
+                break;
+            }
+            if (task.visible && task.isFreeform() && !task.home
+                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+                visibleTasks.add(task);
+            }
+        }
+        return visibleTasks;
+    }
+
     static synchronized List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
         return DesktopTaskStateStore.getLastVisibleTasks(displayId);

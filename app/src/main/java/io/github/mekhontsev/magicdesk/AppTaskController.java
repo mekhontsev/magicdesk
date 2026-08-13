@@ -600,24 +600,7 @@ final class AppTaskController {
 
     private List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.available) {
-            return Collections.emptyList();
-        }
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (DesktopTaskController.isDesktopHostTask(task)) {
-                break;
-            }
-            if (task.visible
-                    && task.isFreeform()
-                    && !task.home
-                    && !mActivity.getPackageName().equals(
-                            task.packageName)) {
-                visibleTasks.add(task);
-            }
-        }
-        return visibleTasks;
+        return DesktopTaskController.selectVisibleFreeformTasks(snapshot);
     }
 
     private List<TaskRepository.TaskEntry>
