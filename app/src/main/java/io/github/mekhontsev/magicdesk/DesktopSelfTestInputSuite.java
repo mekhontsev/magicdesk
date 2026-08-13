@@ -40,13 +40,22 @@ final class DesktopSelfTestInputSuite {
             final int taskId,
             final String token,
             final Rect bounds,
-            final DesktopSelfTestGeometry geometry) {
+            final DesktopSelfTestGeometry geometry,
+            final CaptionReference captionReference) {
         verifyCaptionStructure(
                 result,
                 "CAPTION-001",
                 "Verify native caption structure",
                 taskId,
                 bounds);
+        verifyCaptionRendering(
+                result,
+                "CAPTION-003",
+                "Verify native caption rendering",
+                displayId,
+                taskId,
+                bounds,
+                captionReference);
         check(result, "INPUT-001", "Route input to selected display", () -> {
             DesktopSelfTestFixtureState.clearText(context);
             final int x = bounds.centerX();
@@ -71,6 +80,101 @@ final class DesktopSelfTestInputSuite {
                 inspectCaptionStructure(taskId, bounds));
     }
 
+    static void verifyCaptionRendering(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final CaptionReference reference) {
+        DesktopSelfTestHostObserver.stage(code);
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        String lastDetail = "caption remained visually uniform";
+        do {
+            final ShellAccess.CommandResult response;
+            try {
+                response = ShellAccess.executeForConsole(
+                        TaskCaptionRenderCommand.createCommand(
+                                displayId, taskId, bounds, reference.crop));
+            } catch (IOException error) {
+                result.add(DesktopSelfTestResult.State.FAIL,
+                        code, label, usefulMessage(error));
+                return;
+            }
+            if (response.exitCode == 2) {
+                result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                        code, label, response.output.trim());
+                return;
+            }
+            if (response.exitCode == 0) {
+                try {
+                    final TaskCaptionRenderCommand.Observation observation =
+                            TaskCaptionRenderCommand.parseObservation(
+                                    response.output);
+                    final DisplayPixelProbe.RegionDifference difference =
+                            reference.observation == null
+                                    ? null : observation.signature.compare(
+                                            reference.observation.signature);
+                    lastDetail = observation.detail()
+                            + reference.detail(difference);
+                    if (observation.visuallyVaried
+                            && (difference == null
+                                    || difference.materiallyDifferent)) {
+                        result.add(DesktopSelfTestResult.State.PASS,
+                                code, label, lastDetail);
+                        return;
+                    }
+                } catch (IOException error) {
+                    lastDetail = usefulMessage(error);
+                }
+            } else {
+                lastDetail = response.output.trim();
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        result.add(DesktopSelfTestResult.State.FAIL,
+                code, label, lastDetail);
+    }
+
+    static CaptionReference captureCaptionReference(
+            final int displayId,
+            final Rect windowBounds,
+            final DesktopSelfTestGeometry geometry) {
+        final Rect crop = geometry.captionRenderSample(windowBounds);
+        try {
+            final ShellAccess.CommandResult response =
+                    ShellAccess.executeForConsole(
+                            TaskCaptionRenderCommand.createReferenceCommand(
+                                    displayId, crop));
+            if (response.exitCode != 0) {
+                return CaptionReference.unavailable(
+                        crop, response.output.trim());
+            }
+            return CaptionReference.available(
+                    crop,
+                    TaskCaptionRenderCommand.parseObservation(
+                            response.output));
+        } catch (IOException | IllegalArgumentException error) {
+            return CaptionReference.unavailable(
+                    crop, usefulMessage(error));
+        }
+    }
+
+    static CaptionReference alignCaptionReference(
+            final CaptionReference reference,
+            final Rect windowBounds,
+            final DesktopSelfTestGeometry geometry) {
+        final Rect crop = geometry.captionRenderSample(windowBounds);
+        if (reference != null && crop.equals(reference.crop)) {
+            return reference;
+        }
+        return CaptionReference.unavailable(
+                crop,
+                "window bounds changed after the desktop background sample");
+    }
+
     static String restoreTaskFocus(
             final int displayId,
             final int taskId) throws IOException {
@@ -81,6 +185,43 @@ final class DesktopSelfTestInputSuite {
         waitForFrontTask(displayId, taskId);
         waitForTaskInputFocus(displayId, taskId);
         return "task=" + taskId;
+    }
+
+    static final class CaptionReference {
+        final Rect crop;
+        final TaskCaptionRenderCommand.Observation observation;
+        final String error;
+
+        private CaptionReference(
+                final Rect crop,
+                final TaskCaptionRenderCommand.Observation observation,
+                final String error) {
+            this.crop = new Rect(crop);
+            this.observation = observation;
+            this.error = error == null ? "" : error;
+        }
+
+        static CaptionReference available(
+                final Rect crop,
+                final TaskCaptionRenderCommand.Observation observation) {
+            return new CaptionReference(crop, observation, "");
+        }
+
+        static CaptionReference unavailable(
+                final Rect crop,
+                final String error) {
+            return new CaptionReference(crop, null, error);
+        }
+
+        String detail(final DisplayPixelProbe.RegionDifference difference) {
+            if (difference == null) {
+                return error.isEmpty()
+                        ? ", desktop comparison unavailable"
+                        : ", desktop comparison unavailable: " + error;
+            }
+            return ", changed-from-desktop=" + difference.changedPixels
+                    + "/" + difference.totalPixels;
+        }
     }
 
     private static String inspectCaptionStructure(

@@ -1,12 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Bitmap;
-import android.graphics.Rect;
-import android.hardware.HardwareBuffer;
-import android.os.IBinder;
-
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -118,85 +112,7 @@ public final class DesktopTransitionSurfaceProbe {
             final int displayId,
             final int x,
             final int y) throws IOException {
-        Bitmap hardwareBitmap = null;
-        Bitmap softwareBitmap = null;
-        HardwareBuffer hardwareBuffer = null;
-        try {
-            final Class<?> managerClass = Class.forName(
-                    "android.hardware.display.DisplayManagerGlobal");
-            final Object manager = managerClass.getMethod("getInstance")
-                    .invoke(null);
-            final IBinder displayToken = (IBinder) managerClass.getMethod(
-                    "getDisplayToken", Integer.TYPE)
-                    .invoke(manager, Integer.valueOf(displayId));
-            if (displayToken == null) {
-                throw new IOException(
-                        "display capture token is unavailable for " + displayId);
-            }
-
-            final Class<?> builderClass = Class.forName(
-                    "android.window.ScreenCapture$DisplayCaptureArgs$Builder");
-            final Object builder = builderClass
-                    .getConstructor(IBinder.class)
-                    .newInstance(displayToken);
-            builderClass.getMethod("setSourceCrop", Rect.class)
-                    .invoke(builder, new Rect(x, y, x + 1, y + 1));
-            builderClass.getMethod(
-                    "setSize", Integer.TYPE, Integer.TYPE)
-                    .invoke(builder, Integer.valueOf(1), Integer.valueOf(1));
-            final Object captureArgs = builderClass.getMethod("build")
-                    .invoke(builder);
-            final Class<?> captureArgsClass = Class.forName(
-                    "android.window.ScreenCapture$DisplayCaptureArgs");
-            final Object screenshot = Class.forName(
-                    "android.window.ScreenCapture")
-                    .getMethod("captureDisplay", captureArgsClass)
-                    .invoke(null, captureArgs);
-            if (screenshot == null) {
-                throw new IOException("display capture returned no buffer");
-            }
-            hardwareBuffer = (HardwareBuffer) screenshot.getClass()
-                    .getMethod("getHardwareBuffer")
-                    .invoke(screenshot);
-            hardwareBitmap = (Bitmap) screenshot.getClass()
-                    .getMethod("asBitmap")
-                    .invoke(screenshot);
-            if (hardwareBitmap == null) {
-                throw new IOException("display capture returned no bitmap");
-            }
-            softwareBitmap = hardwareBitmap.copy(
-                    Bitmap.Config.ARGB_8888, false);
-            if (softwareBitmap == null) {
-                throw new IOException("display capture could not be read");
-            }
-            return softwareBitmap.getPixel(0, 0);
-        } catch (ClassNotFoundException
-                | NoSuchMethodException
-                | IllegalAccessException
-                | InstantiationException error) {
-            throw new IOException(
-                    "in-memory display capture API is unavailable", error);
-        } catch (InvocationTargetException error) {
-            final Throwable cause = error.getCause();
-            throw new IOException(
-                    "in-memory display capture failed: "
-                            + usefulMessage(cause),
-                    cause == null ? error : cause);
-        } catch (RuntimeException error) {
-            throw new IOException(
-                    "in-memory display capture failed: "
-                            + usefulMessage(error), error);
-        } finally {
-            if (softwareBitmap != null) {
-                softwareBitmap.recycle();
-            }
-            if (hardwareBitmap != null) {
-                hardwareBitmap.recycle();
-            }
-            if (hardwareBuffer != null) {
-                hardwareBuffer.close();
-            }
-        }
+        return DisplayPixelProbe.capturePixel(displayId, x, y);
     }
 
     private static void validatePoint(

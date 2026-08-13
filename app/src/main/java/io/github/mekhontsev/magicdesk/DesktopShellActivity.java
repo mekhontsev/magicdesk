@@ -846,6 +846,11 @@ public abstract class DesktopShellActivity extends Activity
                 && mDesktopWallpaperController.isRendered();
     }
 
+    boolean isUsingFallbackDesktopWallpaper() {
+        return mDesktopWallpaperController != null
+                && mDesktopWallpaperController.isUsingFallbackWallpaper();
+    }
+
     void configureDesktopWidget(final int appWidgetId) {
         hideAllPanels();
         mDesktopWorkspaceController.configureWidget(appWidgetId);

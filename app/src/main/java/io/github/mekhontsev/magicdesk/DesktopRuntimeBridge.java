@@ -366,6 +366,13 @@ final class DesktopRuntimeBridge {
                 && activity.isDesktopWallpaperRendered();
     }
 
+    static boolean isUsingFallbackDesktopWallpaper(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.isUsingFallbackDesktopWallpaper();
+    }
+
     static int getDesktopHostIdentity(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null

@@ -29,6 +29,8 @@ final class NubiaPlatformDriver implements PlatformDriver {
             new NubiaProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
             new NubiaPhoneUiDriver();
+    private static final PlatformWallpaperDriver WALLPAPER =
+            new NubiaWallpaperDriver();
     private static final PlatformDiagnostics DIAGNOSTICS =
             new NubiaPlatformDiagnostics();
 
@@ -94,6 +96,11 @@ final class NubiaPlatformDriver implements PlatformDriver {
     @Override
     public PlatformPhoneUiDriver phoneUi() {
         return PHONE_UI;
+    }
+
+    @Override
+    public PlatformWallpaperDriver wallpaper() {
+        return WALLPAPER;
     }
 
     @Override

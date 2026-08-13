@@ -5,6 +5,7 @@ import android.graphics.Rect;
 /** Derives deterministic self-test coordinates from the active desktop viewport. */
 final class DesktopSelfTestGeometry {
     private static final int BASE_DENSITY_DPI = 160;
+    private static final int NATIVE_CAPTION_HEIGHT_DP = 40;
     // Keeps all three native caption buttons present on high-density displays.
     private static final int CAPTION_CONTROLS_WINDOW_WIDTH_DP = 340;
 
@@ -66,6 +67,21 @@ final class DesktopSelfTestGeometry {
         final int left = rightAnchored
                 ? Math.max(workArea.left, right - desiredWidth) : base.left;
         return rect(left, base.top, right, base.bottom);
+    }
+
+    Rect captionRenderSample(final Rect windowBounds) {
+        if (!hasArea(windowBounds)) {
+            throw new IllegalArgumentException("invalid caption window bounds");
+        }
+        final int captionHeight = Math.min(
+                height(windowBounds),
+                scaleFrom160Dpi(NATIVE_CAPTION_HEIGHT_DP));
+        final int verticalInset = Math.max(1, captionHeight / 6);
+        return rect(
+                windowBounds.left + width(windowBounds) / 2,
+                windowBounds.top + verticalInset,
+                windowBounds.right - 1,
+                windowBounds.top + captionHeight - verticalInset);
     }
 
     DesktopSelfTestGeometry withObservedWindow(final Rect bounds) {

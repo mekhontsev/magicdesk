@@ -18,6 +18,8 @@ final class GenericAndroidPlatformDriver implements PlatformDriver {
             new GenericAndroidProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
             new GenericAndroidPhoneUiDriver();
+    private static final PlatformWallpaperDriver WALLPAPER =
+            new GenericAndroidWallpaperDriver();
     private static final PlatformDiagnostics DIAGNOSTICS =
             new GenericAndroidPlatformDiagnostics();
 
@@ -64,6 +66,11 @@ final class GenericAndroidPlatformDriver implements PlatformDriver {
     @Override
     public PlatformPhoneUiDriver phoneUi() {
         return PHONE_UI;
+    }
+
+    @Override
+    public PlatformWallpaperDriver wallpaper() {
+        return WALLPAPER;
     }
 
     @Override

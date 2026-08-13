@@ -82,6 +82,12 @@ final class DesktopSelfTestWindowSuite {
         DesktopSelfTestFixtureState.clearLaunchMarkers(appContext);
         final String token = Long.toHexString(System.nanoTime());
         final Rect requestedWindowBounds = geometry.primaryWindow();
+        final DesktopSelfTestInputSuite.CaptionReference
+                requestedCaptionReference =
+                DesktopSelfTestInputSuite.captureCaptionReference(
+                        targetDisplayId,
+                        requestedWindowBounds,
+                        geometry);
         final DesktopTaskLaunchProbe.Observation initialLaunch = require(
                 result,
                 "WINDOW-001", "Launch test window directly as freeform",
@@ -120,6 +126,11 @@ final class DesktopSelfTestWindowSuite {
         final Rect windowBounds = toRect(settledWindow.bounds);
         final DesktopSelfTestGeometry settledGeometry =
                 geometry.withObservedWindow(windowBounds);
+        final DesktopSelfTestInputSuite.CaptionReference captionReference =
+                DesktopSelfTestInputSuite.alignCaptionReference(
+                        requestedCaptionReference,
+                        windowBounds,
+                        settledGeometry);
         if (target == DesktopSelfTestTarget.PHONE) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "WINDOW-009",
@@ -209,7 +220,8 @@ final class DesktopSelfTestWindowSuite {
                 targetFixtureTaskId,
                 token,
                 windowBounds,
-                settledGeometry);
+                settledGeometry,
+                captionReference);
         require(result, "WINDOW-003", "Enter true fullscreen", () -> {
             ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
                     targetDisplayId, targetFixtureTaskId));
@@ -233,6 +245,14 @@ final class DesktopSelfTestWindowSuite {
                 "Verify restored caption structure",
                 targetFixtureTaskId,
                 windowBounds);
+        DesktopSelfTestInputSuite.verifyCaptionRendering(
+                result,
+                "CAPTION-004",
+                "Verify restored caption rendering",
+                targetDisplayId,
+                targetFixtureTaskId,
+                windowBounds,
+                captionReference);
         require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
             ShellAccess.run(AppProcessCommand.run(
                     "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
@@ -353,7 +373,14 @@ final class DesktopSelfTestWindowSuite {
                     do {
                         if (DesktopRuntimeBridge.isDesktopWallpaperRendered(
                                 displayId)) {
-                            return "rendered";
+                            if (DesktopRuntimeBridge
+                                    .isUsingFallbackDesktopWallpaper(
+                                            displayId)) {
+                                throw new IOException(
+                                        "emergency solid-color fallback rendered"
+                                                + " instead of wallpaper");
+                            }
+                            return "wallpaper rendered";
                         }
                         SystemClock.sleep(POLL_MILLIS);
                     } while (SystemClock.uptimeMillis() < deadline);

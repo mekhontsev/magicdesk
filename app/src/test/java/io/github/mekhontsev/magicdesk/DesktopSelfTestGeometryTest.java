@@ -16,6 +16,8 @@ public final class DesktopSelfTestGeometryTest {
                 240);
 
         assertRect(geometry.primaryWindow(), 154, 114, 960, 801);
+        assertRect(geometry.captionRenderSample(geometry.primaryWindow()),
+                557, 124, 959, 164);
         assertRect(geometry.leftWindow(), 77, 103, 922, 961);
         assertRect(geometry.rightWindow(), 998, 103, 1843, 961);
         assertTrue(geometry.scaleFrom160Dpi(82) == 123);

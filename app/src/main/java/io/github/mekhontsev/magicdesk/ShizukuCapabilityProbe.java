@@ -1,8 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.annotation.SuppressLint;
 import android.app.TaskStackListener;
-import android.app.WallpaperManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
@@ -311,7 +309,6 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    @SuppressLint("MissingPermission")
     private static void appendSystemWallpaper(
             final StringBuilder report,
             final Context context) {
@@ -319,11 +316,8 @@ final class ShizukuCapabilityProbe {
             append(report, "wallpaper.system", "unknown", "no service context");
             return;
         }
-        // The probe runs inside the Shizuku UserService as shell UID 2000,
-        // which holds READ_WALLPAPER_INTERNAL on supported firmware.
-        try (ParcelFileDescriptor descriptor = WallpaperManager
-                .getInstance(context)
-                .getWallpaperFile(WallpaperManager.FLAG_SYSTEM)) {
+        try (ParcelFileDescriptor descriptor =
+                SystemWallpaperReader.openCurrent()) {
             append(report,
                     "wallpaper.system",
                     descriptor == null ? "unavailable" : "available",

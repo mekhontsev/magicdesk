@@ -1,12 +1,15 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.app.WallpaperManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -52,6 +55,7 @@ final class DesktopWallpaperController {
 
     private boolean mStarted;
     private volatile boolean mUsingCustomWallpaper;
+    private volatile boolean mUsingFallbackWallpaper;
     private volatile boolean mRendered;
 
     DesktopWallpaperController(
@@ -166,6 +170,10 @@ final class DesktopWallpaperController {
         return mRendered;
     }
 
+    boolean isUsingFallbackWallpaper() {
+        return mUsingFallbackWallpaper;
+    }
+
     void reloadExternal() {
         reload();
     }
@@ -192,6 +200,7 @@ final class DesktopWallpaperController {
                                 return;
                             }
                             mUsingCustomWallpaper = result.custom;
+                            mUsingFallbackWallpaper = result.fallback;
                             mWallpaperView.setImageBitmap(result.bitmap);
                             mRendered = true;
                         }
@@ -221,24 +230,22 @@ final class DesktopWallpaperController {
                     return new WallpaperResult(decodeWallpaper(
                             customCacheFile,
                             targetWidth,
-                            targetHeight), true);
+                            targetHeight), true, false);
                 } catch (IOException error) {
                     customCacheFile.delete();
                 }
             }
-            return new WallpaperResult(cachedOrFallback(
-                    cacheFile, targetWidth, targetHeight), false);
+            return cachedOrBuiltInOrFallback(
+                    cacheFile, targetWidth, targetHeight);
         }
         final File pendingFile = new File(
                 mContext.getCacheDir(), "desktop-wallpaper.pending");
-        boolean customConfigured = false;
         try {
-            customConfigured = copyCustomWallpaper(pendingFile);
-            if (customConfigured) {
+            if (copyCustomWallpaper(pendingFile)) {
                 final Bitmap wallpaper = decodeWallpaper(
                         pendingFile, targetWidth, targetHeight);
                 replaceCachedWallpaper(pendingFile, customCacheFile);
-                return new WallpaperResult(wallpaper, true);
+                return new WallpaperResult(wallpaper, true, false);
             }
             customCacheFile.delete();
         } catch (IOException | RuntimeException error) {
@@ -253,7 +260,7 @@ final class DesktopWallpaperController {
                     return new WallpaperResult(decodeWallpaper(
                             customCacheFile,
                             targetWidth,
-                            targetHeight), true);
+                            targetHeight), true, false);
                 } catch (IOException cacheError) {
                     customCacheFile.delete();
                 }
@@ -266,33 +273,76 @@ final class DesktopWallpaperController {
             final Bitmap wallpaper = decodeWallpaper(
                     pendingFile, targetWidth, targetHeight);
             replaceCachedWallpaper(pendingFile, cacheFile);
-            return new WallpaperResult(wallpaper, customConfigured);
+            return new WallpaperResult(wallpaper, false, false);
         } catch (IOException | RuntimeException error) {
-            Log.w(TAG, "System wallpaper unavailable; using fallback", error);
-            CompatibilityDiagnostics.record(
-                    "WALLPAPER-001",
-                    "System wallpaper unavailable; using desktop fallback",
-                    usefulMessage(error),
-                    error);
-            return new WallpaperResult(cachedOrFallback(
-                    cacheFile, targetWidth, targetHeight), customConfigured);
+            Log.d(TAG, "Current system wallpaper unavailable: "
+                    + usefulMessage(error));
+            return cachedOrBuiltInOrFallback(
+                    cacheFile, targetWidth, targetHeight);
         } finally {
             pendingFile.delete();
         }
     }
 
-    private Bitmap cachedOrFallback(
+    private WallpaperResult cachedOrBuiltInOrFallback(
             final File cacheFile,
             final int targetWidth,
             final int targetHeight) {
         if (cacheFile.isFile() && cacheFile.length() > 0) {
             try {
-                return decodeWallpaper(cacheFile, targetWidth, targetHeight);
+                return new WallpaperResult(
+                        decodeWallpaper(
+                                cacheFile, targetWidth, targetHeight),
+                        false,
+                        false);
             } catch (IOException error) {
                 Log.w(TAG, "Ignoring invalid cached wallpaper", error);
+                cacheFile.delete();
             }
         }
-        return createFallbackWallpaper(targetWidth, targetHeight);
+        try {
+            return new WallpaperResult(
+                    loadBuiltInWallpaper(targetWidth, targetHeight),
+                    false,
+                    false);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Built-in wallpaper unavailable", error);
+            CompatibilityDiagnostics.record(
+                    "WALLPAPER-001",
+                    "System wallpaper unavailable; using desktop fallback",
+                    usefulMessage(error),
+                    error);
+        }
+        return new WallpaperResult(
+                createFallbackWallpaper(targetWidth, targetHeight),
+                false,
+                true);
+    }
+
+    private Bitmap loadBuiltInWallpaper(
+            final int targetWidth,
+            final int targetHeight) {
+        final Drawable drawable = WallpaperManager.getInstance(mContext)
+                .getBuiltInDrawable(WallpaperManager.FLAG_SYSTEM);
+        if (drawable == null) {
+            throw new IllegalStateException("built-in wallpaper is unavailable");
+        }
+        final int sourceWidth = drawable.getIntrinsicWidth();
+        final int sourceHeight = drawable.getIntrinsicHeight();
+        final int sampleSize = sourceWidth > 0 && sourceHeight > 0
+                ? calculateSampleSize(
+                        sourceWidth, sourceHeight, targetWidth, targetHeight)
+                : 1;
+        final int width = sourceWidth > 0
+                ? Math.max(1, sourceWidth / sampleSize) : targetWidth;
+        final int height = sourceHeight > 0
+                ? Math.max(1, sourceHeight / sampleSize) : targetHeight;
+        final Bitmap wallpaper = Bitmap.createBitmap(
+                width, height, Bitmap.Config.ARGB_8888);
+        final Canvas canvas = new Canvas(wallpaper);
+        drawable.setBounds(0, 0, width, height);
+        drawable.draw(canvas);
+        return wallpaper;
     }
 
     private Bitmap decodeWallpaper(
@@ -418,10 +468,15 @@ final class DesktopWallpaperController {
     private static final class WallpaperResult {
         final Bitmap bitmap;
         final boolean custom;
+        final boolean fallback;
 
-        WallpaperResult(final Bitmap bitmap, final boolean custom) {
+        WallpaperResult(
+                final Bitmap bitmap,
+                final boolean custom,
+                final boolean fallback) {
             this.bitmap = bitmap;
             this.custom = custom;
+            this.fallback = fallback;
         }
     }
 
