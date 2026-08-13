@@ -235,6 +235,19 @@ for device-specific pairing and startup details.
 Notification access is optional. Grant it from Android settings to enable the
 MagicDesk notification center and notification popups.
 
+### Development builds
+
+Every non-documentation push to `main` produces a release-signed development
+APK. Open the latest successful `main` run on the stable
+[Android CI workflow page](https://github.com/mekhontsev/magicdesk/actions/workflows/ci.yml?query=branch%3Amain)
+and download `magicdesk-main-*` from its **Artifacts** section. Development
+builds use the same signing certificate as tagged releases, but contain
+unreleased code and are retained for 30 days.
+
+The build number and short commit ID are included in the version shown by
+**About** and in compatibility reports, for example
+`1.6.0-dev.245.4dfe062`.
+
 ### Uninstalling
 
 Before uninstalling MagicDesk, open **Device Setup > Restore defaults**, then
