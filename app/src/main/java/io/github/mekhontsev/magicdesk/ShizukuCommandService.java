@@ -246,6 +246,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void refreshTaskCaption(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final int sourceId) {
+        mTaskObserverManager.refreshTaskCaption(
+                callback, displayId, taskId, sourceId);
+    }
+
+    @Override
     public boolean capturePointerPosition() {
         return mPointerDriver.capturePosition();
     }

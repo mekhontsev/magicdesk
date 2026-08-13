@@ -67,6 +67,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mStateMonitor = new ShellTaskStateMonitor(
                 context,
                 mService,
+                PlatformDrivers.current().windowing()
+                        .requiresNativeFullscreenCaptionRefresh(),
                 new ShellTaskStateMonitor.Listener() {
                     @Override
                     public void onTasksSampled(
@@ -86,11 +88,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     }
 
                     @Override
-                    public void onNativeMaximizeChanged(
+                    public void onWindowingModeChanged(
+                            final int displayId,
                             final int taskId,
-                            final boolean enteredFullscreen) {
-                        callCallback(() -> mCallback.onNativeMaximizeChanged(
-                                taskId, enteredFullscreen));
+                            final int previousMode,
+                            final int currentMode,
+                            final int previousCaptionSourceId) {
+                        callCallback(() -> mCallback.onWindowingModeChanged(
+                                taskId,
+                                previousMode,
+                                currentMode,
+                                previousCaptionSourceId));
                     }
 
                     @Override
@@ -114,6 +122,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         callCallback(() -> mCallback.onObserverError(error));
                     }
                 });
+    }
+
+    void refreshTaskCaption(
+            final int displayId,
+            final int taskId,
+            final int sourceId) throws ReflectiveOperationException {
+        // The mode is already fullscreen. Only force the application client
+        // to discard the caption source retained by Nubia.
+        TaskCaptionInsetsRefresher.refreshTask(
+                mService, displayId, taskId, sourceId);
+        Log.d(TAG, "refreshed native fullscreen caption task=" + taskId);
     }
 
     void start() throws ReflectiveOperationException {

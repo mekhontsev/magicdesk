@@ -78,6 +78,14 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, enabled));
     }
 
+    void refreshTaskCaption(
+            final int displayId,
+            final int taskId,
+            final int sourceId) throws IOException {
+        callService(() -> mService.refreshTaskCaption(
+                mCallback, displayId, taskId, sourceId));
+    }
+
     boolean isClosed() {
         return mClosed.get();
     }

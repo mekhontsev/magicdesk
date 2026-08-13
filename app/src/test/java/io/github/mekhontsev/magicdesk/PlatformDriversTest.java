@@ -21,6 +21,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.windowing()
                 .requiresMirrorInputFocusSynchronization());
+        assertTrue(driver.windowing()
+                .requiresNativeFullscreenCaptionRefresh());
         assertEquals(
                 "persist.wm.debug.desktop_mode_enforce_device_restrictions",
                 driver.windowing().restrictionsPropertyKey());
@@ -49,6 +51,8 @@ public final class PlatformDriversTest {
         assertFalse(driver.phoneUi().isAvailable());
         assertFalse(driver.windowing()
                 .requiresMirrorInputFocusSynchronization());
+        assertFalse(driver.windowing()
+                .requiresNativeFullscreenCaptionRefresh());
         assertTrue(driver.additionalLaunchTargets().isEmpty());
         assertNull(driver.windowing().restrictionsPropertyKey());
         assertNull(driver.windowing().roundedCornersPropertyKey());

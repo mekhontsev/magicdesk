@@ -23,8 +23,12 @@ final class ShellTaskStateMonitor implements Closeable {
         void onTasksSampled(int displayId, List<?> tasks);
         void onImmersiveRequest(
                 int taskId, boolean requesting, boolean initialSample);
-        void onNativeMaximizeChanged(
-                int taskId, boolean enteredFullscreen);
+        void onWindowingModeChanged(
+                int displayId,
+                int taskId,
+                int previousMode,
+                int currentMode,
+                int previousCaptionSourceId);
         void onFreeformBoundsChanged(
                 int taskId, String packageName, int displayId, Rect bounds);
         void onError(String error);
@@ -42,13 +46,17 @@ final class ShellTaskStateMonitor implements Closeable {
     private final Field mTopActivityInfo;
     private final Field mRequestedVisibleTypes;
     private final Listener mListener;
+    private final boolean mRefreshCaptionAfterNativeFullscreen;
     private final Object mLock = new Object();
     private final Map<Integer, Integer> mLastVisibleTypes = new HashMap<>();
     private final Map<Integer, Integer> mLastProcessIds = new HashMap<>();
     private final Map<Integer, FreeformBoundsState> mLastFreeformBounds =
             new HashMap<>();
-    private final Set<Integer> mFullscreenTasks = new HashSet<>();
-    private final Set<Integer> mMaximizedTasks = new HashSet<>();
+    private final Map<Integer, Integer> mLastWindowingModes = new HashMap<>();
+    // InsetsSource IDs contain an owner identity and cannot be reconstructed
+    // after WindowManager removes the source during fullscreen entry.
+    private final Map<Integer, Integer> mCaptionSourceIds = new HashMap<>();
+    private final Set<Integer> mCaptionCaptureAttempted = new HashSet<>();
     private final Thread mThread;
 
     private boolean mClosed;
@@ -60,6 +68,7 @@ final class ShellTaskStateMonitor implements Closeable {
     ShellTaskStateMonitor(
             final Context context,
             final Object service,
+            final boolean refreshCaptionAfterNativeFullscreen,
             final Listener listener) throws ReflectiveOperationException {
         if (context == null) {
             throw new IllegalArgumentException("missing task observer context");
@@ -70,6 +79,8 @@ final class ShellTaskStateMonitor implements Closeable {
             throw new IllegalStateException("activity manager unavailable");
         }
         mListener = listener;
+        mRefreshCaptionAfterNativeFullscreen =
+                refreshCaptionAfterNativeFullscreen;
         final Class<?> taskInfo = Class.forName("android.app.TaskInfo");
         mTopActivityInfo = taskInfo.getField("topActivityInfo");
         mRequestedVisibleTypes = taskInfo.getField("requestedVisibleTypes");
@@ -108,8 +119,9 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
-            mFullscreenTasks.clear();
-            mMaximizedTasks.clear();
+            mLastWindowingModes.clear();
+            mCaptionSourceIds.clear();
+            mCaptionCaptureAttempted.clear();
             mSampleGeneration++;
             mLock.notifyAll();
         }
@@ -126,8 +138,9 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
-            mFullscreenTasks.clear();
-            mMaximizedTasks.clear();
+            mLastWindowingModes.clear();
+            mCaptionSourceIds.clear();
+            mCaptionCaptureAttempted.clear();
             mSampleGeneration++;
             mLock.notifyAll();
         }
@@ -153,8 +166,9 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
-            mFullscreenTasks.clear();
-            mMaximizedTasks.clear();
+            mLastWindowingModes.clear();
+            mCaptionSourceIds.clear();
+            mCaptionCaptureAttempted.clear();
             mLock.notifyAll();
         }
         mThread.interrupt();
@@ -188,8 +202,7 @@ final class ShellTaskStateMonitor implements Closeable {
             try {
                 final List<?> tasks = loadTasks(displayId);
                 mListener.onTasksSampled(displayId, tasks);
-                publishFreeformWindowChanges(
-                        displayId, displayBounds, workAreaBounds, tasks);
+                publishWindowChanges(displayId, tasks);
                 publishImmersiveChanges(displayId, tasks);
                 failureReported = false;
             } catch (ReflectiveOperationException | RuntimeException error) {
@@ -327,30 +340,21 @@ final class ShellTaskStateMonitor implements Closeable {
                 activity.processName));
     }
 
-    private void publishFreeformWindowChanges(
+    private void publishWindowChanges(
             final int displayId,
-            final Rect displayBounds,
-            final Rect workAreaBounds,
             final List<?> tasks) throws ReflectiveOperationException {
-        final Set<Integer> fullscreenTasks = new HashSet<>();
-        final Set<Integer> maximizedTasks = new HashSet<>();
+        final Set<Integer> liveTaskIds = new HashSet<>();
+        final Set<Integer> visibleTaskIds = new HashSet<>();
         final Set<String> observedPackages = new HashSet<>();
+        final Map<Integer, Integer> windowingModes = new HashMap<>();
         final Map<Integer, FreeformBoundsState> freeformBounds =
                 new HashMap<>();
         for (final Object task : tasks) {
-            if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
-                continue;
-            }
             final Object windowConfiguration =
                     HiddenTaskApi.getWindowConfiguration(task);
             final int windowingMode =
                     HiddenTaskApi.getWindowConfigurationValue(
                             task, "getWindowingMode");
-            if (windowingMode != WINDOWING_MODE_FREEFORM) {
-                continue;
-            }
-            final Rect bounds = (Rect) windowConfiguration.getClass()
-                    .getMethod("getBounds").invoke(windowConfiguration);
             final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             final String packageName = HiddenTaskApi.getTaskPackage(task);
             final int activityType =
@@ -359,43 +363,72 @@ final class ShellTaskStateMonitor implements Closeable {
             final Object topActivityInfo = mTopActivityInfo.get(task);
             final String topPackage = topActivityInfo instanceof ActivityInfo
                     ? ((ActivityInfo) topActivityInfo).packageName : null;
-            if (activityType == ACTIVITY_TYPE_STANDARD
-                    && PackageNameValidator.isSafe(packageName)
-                    && !MAGICDESK_PACKAGE.equals(packageName)
-                    && (topPackage == null
-                            || packageName.equals(topPackage))
-                    && !bounds.isEmpty()
-                    && observedPackages.add(packageName)) {
-                freeformBounds.put(
-                        Integer.valueOf(taskId),
-                        new FreeformBoundsState(packageName, bounds));
+            if (activityType != ACTIVITY_TYPE_STANDARD
+                    || !PackageNameValidator.isSafe(packageName)
+                    || MAGICDESK_PACKAGE.equals(packageName)
+                    || (topPackage != null
+                            && !packageName.equals(topPackage))) {
+                continue;
             }
-            if (displayBounds.equals(bounds)) {
-                fullscreenTasks.add(Integer.valueOf(taskId));
-                maximizedTasks.add(Integer.valueOf(taskId));
-            } else if (workAreaBounds.equals(bounds)) {
-                maximizedTasks.add(Integer.valueOf(taskId));
+            final Integer taskKey = Integer.valueOf(taskId);
+            liveTaskIds.add(taskKey);
+            windowingModes.put(taskKey, Integer.valueOf(windowingMode));
+            if (HiddenTaskApi.getBooleanField(task, "isVisible")) {
+                visibleTaskIds.add(taskKey);
+            }
+            if (windowingMode != WINDOWING_MODE_FREEFORM
+                    || !visibleTaskIds.contains(taskKey)) {
+                continue;
+            }
+            final Rect bounds = (Rect) windowConfiguration.getClass()
+                    .getMethod("getBounds").invoke(windowConfiguration);
+            if (!bounds.isEmpty() && observedPackages.add(packageName)) {
+                freeformBounds.put(
+                        taskKey,
+                        new FreeformBoundsState(packageName, bounds));
             }
         }
 
-        final List<Integer> enteredFullscreen = new ArrayList<>();
-        final List<Integer> exitedMaximize = new ArrayList<>();
+        final Set<Integer> captionCaptureCandidates = new HashSet<>();
+        final List<WindowingModeEvent> modeChanges = new ArrayList<>();
         final List<FreeformBoundsEvent> boundsChanges = new ArrayList<>();
         synchronized (mLock) {
-            if (displayId != mDisplayId
-                    || !displayBounds.equals(mDisplayBounds)
-                    || !workAreaBounds.equals(mWorkAreaBounds)
-                    || mClosed) {
+            if (displayId != mDisplayId || mClosed) {
                 return;
             }
-            for (final Integer taskId : fullscreenTasks) {
-                if (!mFullscreenTasks.contains(taskId)) {
-                    enteredFullscreen.add(taskId);
+            for (final Map.Entry<Integer, Integer> entry
+                    : windowingModes.entrySet()) {
+                final Integer taskId = entry.getKey();
+                final int currentMode = entry.getValue().intValue();
+                final Integer previous = mLastWindowingModes.get(taskId);
+                if (previous != null
+                        && previous.intValue() != currentMode) {
+                    final Integer sourceId = mCaptionSourceIds.get(taskId);
+                    modeChanges.add(new WindowingModeEvent(
+                            taskId.intValue(),
+                            previous.intValue(),
+                            currentMode,
+                            sourceId == null
+                                    ? TaskLocalInsetsSourceParser.NO_SOURCE_ID
+                                    : sourceId.intValue()));
                 }
-            }
-            for (final Integer taskId : mMaximizedTasks) {
-                if (!maximizedTasks.contains(taskId)) {
-                    exitedMaximize.add(taskId);
+                if (currentMode == WINDOWING_MODE_FREEFORM) {
+                    if (previous == null
+                            || previous.intValue()
+                                    != WINDOWING_MODE_FREEFORM) {
+                        mCaptionSourceIds.remove(taskId);
+                        mCaptionCaptureAttempted.remove(taskId);
+                    }
+                    if (mRefreshCaptionAfterNativeFullscreen
+                            && visibleTaskIds.contains(taskId)
+                            && previous != null
+                            && previous.intValue() == WINDOWING_MODE_FREEFORM
+                            && mCaptionCaptureAttempted.add(taskId)) {
+                        captionCaptureCandidates.add(taskId);
+                    }
+                } else {
+                    mCaptionSourceIds.remove(taskId);
+                    mCaptionCaptureAttempted.remove(taskId);
                 }
             }
             for (final Map.Entry<Integer, FreeformBoundsState> entry
@@ -406,12 +439,36 @@ final class ShellTaskStateMonitor implements Closeable {
                             entry.getKey().intValue(), entry.getValue()));
                 }
             }
-            mFullscreenTasks.clear();
-            mFullscreenTasks.addAll(fullscreenTasks);
-            mMaximizedTasks.clear();
-            mMaximizedTasks.addAll(maximizedTasks);
+            mLastWindowingModes.clear();
+            mLastWindowingModes.putAll(windowingModes);
             mLastFreeformBounds.clear();
             mLastFreeformBounds.putAll(freeformBounds);
+            mCaptionSourceIds.keySet().retainAll(liveTaskIds);
+            mCaptionCaptureAttempted.retainAll(liveTaskIds);
+        }
+        if (!captionCaptureCandidates.isEmpty()) {
+            // The source vanishes during Nubia's native fullscreen transition.
+            // Wait for a second stable freeform sample so the caption has had
+            // time to attach, then capture it once; never poll dumpsys after
+            // a successful or failed capture attempt.
+            final Map<Integer, Integer> captured =
+                    TaskCaptionInsetsRefresher.captureCaptionSourceIds(
+                            captionCaptureCandidates);
+            synchronized (mLock) {
+                if (displayId == mDisplayId && !mClosed) {
+                    for (final Map.Entry<Integer, Integer> entry
+                            : captured.entrySet()) {
+                        final Integer currentMode =
+                                mLastWindowingModes.get(entry.getKey());
+                        if (currentMode != null
+                                && currentMode.intValue()
+                                        == WINDOWING_MODE_FREEFORM) {
+                            mCaptionSourceIds.put(
+                                    entry.getKey(), entry.getValue());
+                        }
+                    }
+                }
+            }
         }
         for (final FreeformBoundsEvent event : boundsChanges) {
             mListener.onFreeformBoundsChanged(
@@ -420,11 +477,13 @@ final class ShellTaskStateMonitor implements Closeable {
                     displayId,
                     event.state.bounds);
         }
-        for (final Integer taskId : enteredFullscreen) {
-            mListener.onNativeMaximizeChanged(taskId.intValue(), true);
-        }
-        for (final Integer taskId : exitedMaximize) {
-            mListener.onNativeMaximizeChanged(taskId.intValue(), false);
+        for (final WindowingModeEvent event : modeChanges) {
+            mListener.onWindowingModeChanged(
+                    displayId,
+                    event.taskId,
+                    event.previousMode,
+                    event.currentMode,
+                    event.previousCaptionSourceId);
         }
     }
 
@@ -477,6 +536,24 @@ final class ShellTaskStateMonitor implements Closeable {
                 final FreeformBoundsState state) {
             this.taskId = taskId;
             this.state = state;
+        }
+    }
+
+    private static final class WindowingModeEvent {
+        final int taskId;
+        final int previousMode;
+        final int currentMode;
+        final int previousCaptionSourceId;
+
+        WindowingModeEvent(
+                final int taskId,
+                final int previousMode,
+                final int currentMode,
+                final int previousCaptionSourceId) {
+            this.taskId = taskId;
+            this.previousMode = previousMode;
+            this.currentMode = currentMode;
+            this.previousCaptionSourceId = previousCaptionSourceId;
         }
     }
 

@@ -25,6 +25,8 @@ final class DesktopWindowTransitionController {
     static final int SHORTCUT_SNAP_LEFT = 3;
     static final int SHORTCUT_SNAP_RIGHT = 4;
     static final int SHORTCUT_CLOSE = 5;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE =
@@ -63,6 +65,36 @@ final class DesktopWindowTransitionController {
 
     Map<Integer, Rect> fullscreenRestoreBounds() {
         return mFullscreenRestoreBounds;
+    }
+
+    boolean hasManagedFullscreenState(final int taskId) {
+        return mFullscreenRestoreBounds.containsKey(Integer.valueOf(taskId));
+    }
+
+    void observeWindowingModeChange(
+            final int taskId,
+            final int previousMode,
+            final int currentMode) {
+        final Integer taskKey = Integer.valueOf(taskId);
+        if (!shouldForgetManagedFullscreenState(
+                previousMode,
+                currentMode,
+                mFullscreenTransitionTasks.contains(taskKey))) {
+            return;
+        }
+        // A native restore bypasses MagicDesk's restore callback. Forget its
+        // old fullscreen ownership before classifying the next transition.
+        mFullscreenRestoreBounds.remove(taskKey);
+        mAppRequestedFullscreenTasks.remove(taskKey);
+    }
+
+    static boolean shouldForgetManagedFullscreenState(
+            final int previousMode,
+            final int currentMode,
+            final boolean transitionPending) {
+        return previousMode == WINDOWING_MODE_FULLSCREEN
+                && currentMode == WINDOWING_MODE_FREEFORM
+                && !transitionPending;
     }
 
     static boolean supportsFullscreenTask(final int shortcut) {

@@ -6,6 +6,9 @@ import java.io.IOException;
 interface PlatformWindowingDriver {
     boolean requiresMirrorInputFocusSynchronization();
 
+    /** Whether native freeform-to-fullscreen transitions leave a stale client caption inset. */
+    boolean requiresNativeFullscreenCaptionRefresh();
+
     String restrictionsPropertyKey();
 
     String roundedCornersPropertyKey();

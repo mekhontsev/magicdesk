@@ -80,6 +80,21 @@ final class ShellTaskObserverManager implements Closeable {
                 .setPhoneTouchpadPreservation(enabled);
     }
 
+    void refreshTaskCaption(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final int sourceId) {
+        try {
+            requireSession(callback).observer.refreshTaskCaption(
+                    displayId, taskId, sourceId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot refresh task caption: " + usefulMessage(error),
+                    error);
+        }
+    }
+
     void stop(final ITaskObserverCallback callback) {
         final Session session;
         synchronized (mLock) {

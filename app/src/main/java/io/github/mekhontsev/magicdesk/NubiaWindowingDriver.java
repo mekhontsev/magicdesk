@@ -10,6 +10,13 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean requiresNativeFullscreenCaptionRefresh() {
+        // Nubia removes the server-side caption source without relaying the
+        // removal to every application client, leaving a caption-height strip.
+        return true;
+    }
+
+    @Override
     public String restrictionsPropertyKey() {
         return NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
     }

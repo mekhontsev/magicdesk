@@ -10,6 +10,11 @@ final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean requiresNativeFullscreenCaptionRefresh() {
+        return false;
+    }
+
+    @Override
     public String restrictionsPropertyKey() {
         return null;
     }

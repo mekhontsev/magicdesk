@@ -130,4 +130,10 @@ interface IShizukuCommandService {
 
     boolean routeImeToPhone(int displayId) = 47;
 
+    void refreshTaskCaption(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        int sourceId) = 48;
+
 }

@@ -8,8 +8,9 @@ oneway interface ITaskObserverCallback {
 
     void onTaskGone(int taskId) = 3;
 
-    void onNativeMaximizeChanged(
-        int taskId, boolean enteredFullscreen) = 4;
+    void onWindowingModeChanged(
+        int taskId, int previousMode, int currentMode,
+        int previousCaptionSourceId) = 4;
 
     void onFocusStackResult(
         long sequence, boolean success, int taskCount, String error) = 5;

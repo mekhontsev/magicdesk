@@ -21,8 +21,12 @@ final class DesktopTaskWatcher {
         void onImmersiveRequest(int generation, int taskId,
                 boolean requesting, boolean initialSample);
         void onTaskGone(int generation, int taskId);
-        void onNativeMaximizeChanged(
-                int generation, int taskId, boolean enteredFullscreen);
+        void onWindowingModeChanged(
+                int generation,
+                int taskId,
+                int previousMode,
+                int currentMode,
+                int previousCaptionSourceId);
         void onFreeformBoundsChanged(
                 int generation,
                 int taskId,
@@ -155,6 +159,27 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean refreshTaskCaption(
+            final int displayId,
+            final int taskId,
+            final int sourceId) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            mHandle.refreshTaskCaption(displayId, taskId, sourceId);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "failed to refresh native fullscreen caption", error);
+            recordFailure(
+                    "TASK-CAPTION-REFRESH-001",
+                    "Could not clear a stale fullscreen caption inset",
+                    "display=" + displayId + " task=" + taskId,
+                    error);
+            return false;
+        }
+    }
+
     private void open(final int generation) {
         final TaskObserverCallback callback =
                 new TaskObserverCallback(this, generation);
@@ -248,13 +273,19 @@ final class DesktopTaskWatcher {
                 mListener.onTaskGone(generation, taskId));
     }
 
-    private void onNativeMaximizeChanged(
+    private void onWindowingModeChanged(
             final int generation,
             final int taskId,
-            final boolean enteredFullscreen) {
+            final int previousMode,
+            final int currentMode,
+            final int previousCaptionSourceId) {
         postIfActive(generation, () ->
-                mListener.onNativeMaximizeChanged(
-                    generation, taskId, enteredFullscreen));
+                mListener.onWindowingModeChanged(
+                        generation,
+                        taskId,
+                        previousMode,
+                        currentMode,
+                        previousCaptionSourceId));
     }
 
     private void onFreeformBoundsChanged(
@@ -388,11 +419,17 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onNativeMaximizeChanged(
+        public void onWindowingModeChanged(
                 final int taskId,
-                final boolean enteredFullscreen) throws RemoteException {
-            mOwner.onNativeMaximizeChanged(
-                    mGeneration, taskId, enteredFullscreen);
+                final int previousMode,
+                final int currentMode,
+                final int previousCaptionSourceId) throws RemoteException {
+            mOwner.onWindowingModeChanged(
+                    mGeneration,
+                    taskId,
+                    previousMode,
+                    currentMode,
+                    previousCaptionSourceId);
         }
 
         @Override

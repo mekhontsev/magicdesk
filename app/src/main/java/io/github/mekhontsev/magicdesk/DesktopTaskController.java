@@ -167,18 +167,33 @@ final class DesktopTaskController {
                     }
 
                     @Override
-                    public void onNativeMaximizeChanged(
+                    public void onWindowingModeChanged(
                             final int generation,
                             final int taskId,
-                            final boolean enteredFullscreen) {
+                            final int previousMode,
+                            final int currentMode,
+                            final int previousCaptionSourceId) {
                         if (!mRunning) {
                             return;
                         }
-                        Log.d(TAG,
-                                (enteredFullscreen
-                                        ? "native maximize"
-                                        : "native maximize exit")
-                                        + " task=" + taskId);
+                        Log.d(TAG, "windowing mode task=" + taskId
+                                + " " + previousMode + " -> " + currentMode);
+                        mWindowTransitions.observeWindowingModeChange(
+                                taskId, previousMode, currentMode);
+                        // MagicDesk fullscreen commands already refresh the
+                        // client caption and retain restore geometry. Only a
+                        // native caption-button transition needs this repair.
+                        if (!mWindowTransitions.hasManagedFullscreenState(taskId)
+                                && TaskCaptionInsetsRefresher
+                                        .shouldRefreshAfterWindowingModeChange(
+                                                previousMode,
+                                                currentMode,
+                                                previousCaptionSourceId)) {
+                            mTaskWatcher.refreshTaskCaption(
+                                    mDisplayId,
+                                    taskId,
+                                    previousCaptionSourceId);
+                        }
                         scheduleRefresh(0);
                     }
 
@@ -199,6 +214,7 @@ final class DesktopTaskController {
                                 mNativeWindowBounds
                                         .getTaskbarMaximizedBounds(),
                                 mNativeWindowBounds.getFullscreenBounds());
+                        scheduleRefresh(0);
                     }
 
                     @Override
