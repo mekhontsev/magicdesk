@@ -50,6 +50,7 @@ final class NubiaMirrorInputPanelGuard
             }
             mRemovingTaskId = taskId;
         }
+        mInputOwner.preservePointer();
         try {
             if (!TaskControlCommand.removeTask(mTaskService, taskId)) {
                 throw new IllegalStateException(

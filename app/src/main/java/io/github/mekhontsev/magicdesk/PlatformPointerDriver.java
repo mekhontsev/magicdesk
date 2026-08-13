@@ -8,7 +8,7 @@ interface PlatformPointerDriver extends AutoCloseable {
 
     boolean capturePosition();
 
-    void restorePositionIfDisplaced();
+    Point restorePositionIfDisplaced();
 
     int[] getPosition(int displayId);
 
@@ -22,9 +22,6 @@ interface PlatformPointerDriver extends AutoCloseable {
             long downTime);
 
     void refreshViewport();
-
-    Point restoreKnownPosition(int displayId)
-            throws ReflectiveOperationException;
 
     @Override
     void close();

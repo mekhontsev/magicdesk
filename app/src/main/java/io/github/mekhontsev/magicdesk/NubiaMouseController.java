@@ -114,25 +114,6 @@ final class NubiaMouseController {
         return position;
     }
 
-    static Point restoreKnownPosition(final int displayId)
-            throws ReflectiveOperationException {
-        final Point position;
-        synchronized (NubiaMouseController.class) {
-            if (sKnownMouseDisplayId != displayId
-                    || sKnownMousePosition == null) {
-                return null;
-            }
-            position = new Point(sKnownMousePosition);
-        }
-        final Point displaySize = getLogicalDisplaySize(displayId);
-        position.x = clamp(position.x, displaySize.x - 1);
-        position.y = clamp(position.y, displaySize.y - 1);
-        createOrUpdateViewport();
-        setMousePosition(displayId, position);
-        showMouse();
-        return position;
-    }
-
     private static Point queryPosition()
             throws ReflectiveOperationException {
         final Point position = new Point();

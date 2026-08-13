@@ -58,6 +58,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     }
 
                     @Override
+                    public void preservePointer() {
+                        mPointerDriver.capturePosition();
+                    }
+
+                    @Override
                     public void reclaimInput() {
                         reclaimInputAfterPlatformPanel();
                     }
@@ -684,7 +689,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         try {
             final Point position =
-                    mPointerDriver.restoreKnownPosition(displayId);
+                    mPointerDriver.restorePositionIfDisplaced();
             if (position != null) {
                 DesktopPointerInjector.injectTouchpadMotion(
                         displayId,

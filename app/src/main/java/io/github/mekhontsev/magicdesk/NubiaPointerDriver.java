@@ -15,8 +15,8 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public void restorePositionIfDisplaced() {
-        mPositionGuard.restoreIfDisplaced();
+    public Point restorePositionIfDisplaced() {
+        return mPositionGuard.restoreIfDisplaced();
     }
 
     @Override
@@ -72,12 +72,6 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "pointer viewport refresh unavailable", error);
         }
-    }
-
-    @Override
-    public Point restoreKnownPosition(final int displayId)
-            throws ReflectiveOperationException {
-        return NubiaMouseController.restoreKnownPosition(displayId);
     }
 
     @Override

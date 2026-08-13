@@ -11,6 +11,8 @@ interface PlatformPhoneUiDriver {
     interface InputOwner {
         boolean isActive();
 
+        void preservePointer();
+
         void reclaimInput();
     }
 

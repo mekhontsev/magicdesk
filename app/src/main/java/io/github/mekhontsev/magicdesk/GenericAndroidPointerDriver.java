@@ -14,7 +14,8 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public void restorePositionIfDisplaced() {
+    public Point restorePositionIfDisplaced() {
+        return null;
     }
 
     @Override
@@ -40,11 +41,6 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
 
     @Override
     public void refreshViewport() {
-    }
-
-    @Override
-    public Point restoreKnownPosition(final int displayId) {
-        return null;
     }
 
     @Override

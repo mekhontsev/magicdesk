@@ -32,10 +32,10 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
         }
     }
 
-    void restoreIfDisplaced() {
+    Point restoreIfDisplaced() {
         final Point captured = consumeCapturedPosition();
         if (captured == null) {
-            return;
+            return null;
         }
         try {
             final Point current = NubiaMouseController.getPosition();
@@ -46,15 +46,17 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
             if (deltaX * deltaX + deltaY * deltaY <= maximum) {
                 Log.d(TAG, "pointer remained continuous position="
                         + current.x + "," + current.y);
-                return;
+                return current;
             }
             NubiaMouseController.setPosition(captured);
             Log.i(TAG, "restored displaced pointer from="
                     + current.x + "," + current.y
                     + " to=" + captured.x + "," + captured.y);
+            return captured;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not restore pointer position",
                     usefulCause(error));
+            return null;
         }
     }
 
