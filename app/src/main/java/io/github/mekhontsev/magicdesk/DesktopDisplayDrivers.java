@@ -62,4 +62,28 @@ final class DesktopDisplayDrivers {
         }
         return forTarget(target);
     }
+
+    static int captureDisplayId(final int desktopDisplayId) {
+        final DesktopDisplayTarget target = activeTarget(desktopDisplayId);
+        return forTarget(target).captureDisplayId(target);
+    }
+
+    static DisplayCaptureSource captureSource(final int desktopDisplayId) {
+        final DesktopDisplayTarget target = activeTarget(desktopDisplayId);
+        return forTarget(target).captureSource(target);
+    }
+
+    private static DesktopDisplayTarget activeTarget(
+            final int desktopDisplayId) {
+        final DesktopDisplayTarget target = desktopDisplayId
+                == Display.DEFAULT_DISPLAY
+                ? DesktopDisplayTarget.phone()
+                : DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId);
+        if (target == null) {
+            throw new IllegalStateException(
+                    "desktop target is unavailable for display "
+                            + desktopDisplayId);
+        }
+        return target;
+    }
 }

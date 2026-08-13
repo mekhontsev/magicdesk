@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.Collections;
 
 import io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.AbortSelfTest;
+import io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.CheckedSupplier;
 
 /** Exercises window lifecycle, placement, and display transfers. */
 final class DesktopSelfTestWindowSuite {
@@ -47,6 +48,8 @@ final class DesktopSelfTestWindowSuite {
         verifyDisplayGeometry(appContext, displayId, target, result);
 
         final int targetDisplayId = displayId;
+        DesktopSelfTestPhoneUiObserver.begin(targetDisplayId);
+        samplePhoneUiBestEffort();
         require(result, "DESKTOP-001", "Prepare desktop session", () -> {
             if (target == DesktopSelfTestTarget.SIMULATED
                     && !DesktopSessionController.show(
@@ -65,6 +68,12 @@ final class DesktopSelfTestWindowSuite {
                             entry -> "fullscreen".equals(entry.windowingMode));
                     return task;
                 }, "fullscreen host ready");
+        final DisplayCaptureSource captureSource =
+                DesktopDisplayDrivers.captureSource(
+                targetDisplayId);
+        DesktopSelfTestPhoneUiObserver.refreshTouchpadExpectation(
+                targetDisplayId);
+        samplePhoneUiBestEffort();
         final DesktopSelfTestGeometry geometry = verifyDesktopViewport(
                 appContext, targetDisplayId, result);
         verifyDesktopWallpaper(targetDisplayId, result);
@@ -78,24 +87,26 @@ final class DesktopSelfTestWindowSuite {
                         ? SurfaceReferenceResult.unavailable(
                                 "the selected desktop uses display 0")
                         : captureSurfaceReference(
-                                targetDisplayId, geometry);
+                                captureSource, geometry);
         DesktopSelfTestFixtureState.clearLaunchMarkers(appContext);
         final String token = Long.toHexString(System.nanoTime());
         final Rect requestedWindowBounds = geometry.primaryWindow();
         final DesktopSelfTestInputSuite.CaptionReference
                 requestedCaptionReference =
                 DesktopSelfTestInputSuite.captureCaptionReference(
-                        targetDisplayId,
+                        captureSource,
                         requestedWindowBounds,
                         geometry);
         final DesktopTaskLaunchProbe.Observation initialLaunch = require(
                 result,
                 "WINDOW-001", "Launch test window directly as freeform",
-                () -> launchFixtureAndObserve(
+                () -> preservePhoneTouchpad(() -> launchFixtureAndObserve(
                         targetDisplayId,
                         token,
-                        requestedWindowBounds));
+                        requestedWindowBounds)));
         final int targetFixtureTaskId = initialLaunch.taskId;
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
+                targetFixtureTaskId);
         check(result,
                 "WINDOW-007",
                 "Initial rendered task window state",
@@ -148,20 +159,21 @@ final class DesktopSelfTestWindowSuite {
             require(result,
                     "WINDOW-009",
                     "Move existing task to phone fullscreen",
-                    () -> reopenTask(
+                    () -> preservePhoneTouchpad(() -> reopenTask(
                             Display.DEFAULT_DISPLAY,
                             targetFixtureTaskId,
-                            null));
-            final TaskTransferObservation taskTransfer =
-                    require(result,
-                            "WINDOW-008",
-                            "Move phone task directly to external freeform",
-                            () -> observeTaskTransfer(
-                                    targetDisplayId,
-                                    targetFixtureTaskId,
-                                    desktopTask.taskId,
-                                    windowBounds,
-                                    surfaceReference));
+                            null)));
+            samplePhoneUiBestEffort();
+            final TaskTransferObservation taskTransfer = require(result,
+                    "WINDOW-008",
+                    "Move phone task directly to external freeform",
+                    () -> preservePhoneTouchpad(() -> observeTaskTransfer(
+                            targetDisplayId,
+                            targetFixtureTaskId,
+                            desktopTask.taskId,
+                            windowBounds,
+                            surfaceReference)));
+            samplePhoneUiBestEffort();
             if (!taskTransfer.probeError.isEmpty()) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
                         "WINDOW-014",
@@ -217,6 +229,7 @@ final class DesktopSelfTestWindowSuite {
                 result,
                 appContext,
                 targetDisplayId,
+                captureSource,
                 targetFixtureTaskId,
                 token,
                 windowBounds,
@@ -249,7 +262,7 @@ final class DesktopSelfTestWindowSuite {
                 result,
                 "CAPTION-004",
                 "Verify restored caption rendering",
-                targetDisplayId,
+                captureSource,
                 targetFixtureTaskId,
                 windowBounds,
                 captionReference);
@@ -284,6 +297,8 @@ final class DesktopSelfTestWindowSuite {
             if (manager == null) {
                 throw new IOException("DisplayManager unavailable");
             }
+            final int expectedDensityDpi = expectedDisplayDensity(
+                    context, displayId, target);
             final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
             do {
                 final Display display = manager.getDisplay(displayId);
@@ -293,12 +308,14 @@ final class DesktopSelfTestWindowSuite {
                     final boolean expected =
                             target != DesktopSelfTestTarget.SIMULATED
                             || (metrics.widthPixels == SIMULATED_WIDTH
-                                    && metrics.heightPixels == SIMULATED_HEIGHT
-                                    && metrics.densityDpi
-                                            == SIMULATED_DENSITY);
+                                    && metrics.heightPixels
+                                            == SIMULATED_HEIGHT);
                     if (metrics.widthPixels > 0
                             && metrics.heightPixels > 0
                             && metrics.densityDpi > 0
+                            && (expectedDensityDpi <= 0
+                                    || metrics.densityDpi
+                                            == expectedDensityDpi)
                             && expected) {
                         return metrics.widthPixels + "x" + metrics.heightPixels
                                 + "/" + metrics.densityDpi
@@ -309,8 +326,53 @@ final class DesktopSelfTestWindowSuite {
             } while (SystemClock.uptimeMillis() < deadline);
             throw new IOException(target == DesktopSelfTestTarget.SIMULATED
                     ? "expected " + SimulatedDisplayLease.SPEC
-                    : "selected display geometry is unavailable");
+                    : "selected display geometry or density is unavailable"
+                            + (expectedDensityDpi > 0
+                                    ? "; expected density="
+                                            + expectedDensityDpi
+                                    : ""));
         });
+    }
+
+    private static int expectedDisplayDensity(
+            final Context context,
+            final int displayId,
+            final DesktopSelfTestTarget target) {
+        if (target == DesktopSelfTestTarget.SIMULATED) {
+            return SIMULATED_DENSITY;
+        }
+        if (target != DesktopSelfTestTarget.EXTERNAL) {
+            return 0;
+        }
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileController.loadPreparedProfile(
+                        context,
+                        DesktopRuntimeBridge.getDesktopTarget(displayId));
+        return profile == null ? 0 : profile.dpi;
+    }
+
+    private static void samplePhoneUiBestEffort() {
+        try {
+            DesktopSelfTestPhoneUiObserver.sampleCurrentTasks();
+        } catch (IOException ignored) {
+            // Runtime task callbacks continue observing phone visibility.
+        }
+    }
+
+    private static <T> T preservePhoneTouchpad(
+            final CheckedSupplier<T> operation) throws Exception {
+        final boolean preserve = ConsoleModeSwitcher.isTouchpadVisible();
+        if (preserve) {
+            DesktopTaskController.expectTouchpadDisplacement();
+        }
+        try {
+            return operation.run();
+        } finally {
+            if (preserve) {
+                DesktopTaskController.finishTouchpadPreservation();
+                ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            }
+        }
     }
 
     private static DesktopSelfTestGeometry verifyDesktopViewport(
@@ -597,12 +659,12 @@ final class DesktopSelfTestWindowSuite {
             try {
                 final String visibleOutput = ShellAccess.run(
                         DesktopTransitionSurfaceProbe.createCaptureCommand(
-                                reference.displayId,
+                                reference.captureSource,
                                 reference.x,
                                 reference.y));
                 final DesktopTransitionSurfaceProbe.Reference visible =
                         DesktopTransitionSurfaceProbe.parseReference(
-                                reference.displayId,
+                                reference.captureSource,
                                 reference.x,
                                 reference.y,
                                 visibleOutput);
@@ -660,27 +722,18 @@ final class DesktopSelfTestWindowSuite {
     }
 
     private static SurfaceReferenceResult captureSurfaceReference(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final DesktopSelfTestGeometry geometry) {
         try {
-            final DesktopDisplayTarget target =
-                    DesktopRuntimeBridge.getDesktopTarget(displayId);
-            if (target == null) {
-                throw new IOException(
-                        "desktop capture target is unavailable");
-            }
-            final int captureDisplayId = DesktopDisplayDrivers
-                    .forTarget(target)
-                    .captureDisplayId(target);
             final int x = geometry.displayBounds.left
                     + geometry.displayBounds.width() * 3 / 4;
             final int y = geometry.workArea.centerY();
             final String output = ShellAccess.run(
                     DesktopTransitionSurfaceProbe.createCaptureCommand(
-                            captureDisplayId, x, y));
+                            captureSource, x, y));
             return SurfaceReferenceResult.available(
                     DesktopTransitionSurfaceProbe.parseReference(
-                            captureDisplayId, x, y, output));
+                            captureSource, x, y, output));
         } catch (IOException | IllegalArgumentException
                 | IllegalStateException error) {
             return SurfaceReferenceResult.unavailable(
@@ -726,10 +779,11 @@ final class DesktopSelfTestWindowSuite {
                 "Launch second freeform test window",
                 () -> {
                     final DesktopTaskLaunchProbe.Observation observation =
-                            launchFixtureAndObserve(
-                                    displayId,
-                                    secondToken,
-                                    rightBounds);
+                            preservePhoneTouchpad(() ->
+                                    launchFixtureAndObserve(
+                                            displayId,
+                                            secondToken,
+                                            rightBounds));
                     if (observation.taskId == firstTaskId) {
                         throw new IOException(
                                 "Android reused task " + firstTaskId);

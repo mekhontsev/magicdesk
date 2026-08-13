@@ -313,8 +313,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             taskId = mPhoneTouchpadTaskId;
         }
         try {
-            TaskControlCommand.moveTaskToFront(
-                    mService, taskId);
+            TaskWindowingCommand.focusFullscreenTask(
+                    mService, Display.DEFAULT_DISPLAY, taskId);
             Log.i(TAG, "preserved phone touchpad inside task transition");
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not preserve phone touchpad", error);

@@ -20,22 +20,20 @@ final class DesktopCaptureTarget {
         if (desktopDisplayId < 0) {
             throw new IOException("no active desktop display");
         }
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (target == null || target.displayId != desktopDisplayId) {
-            throw new IOException("active desktop target is unavailable");
-        }
-        final int captureDisplayId;
+        final DisplayCaptureSource source;
         try {
-            captureDisplayId = DesktopDisplayDrivers.forTarget(target)
-                    .captureDisplayId(target);
+            source = DesktopDisplayDrivers.captureSource(
+                    desktopDisplayId);
         } catch (IllegalArgumentException | IllegalStateException error) {
             throw new IOException(error.getMessage(), error);
         }
+        final String physicalDisplayId = source.isPhysical()
+                ? source.physicalDisplayId
+                : ConsoleDisplayController.getPhysicalDisplayId(
+                        source.logicalDisplayId);
         return new DesktopCaptureTarget(
                 desktopDisplayId,
-                ConsoleDisplayController.getPhysicalDisplayId(
-                        captureDisplayId));
+                physicalDisplayId);
     }
 
     String diagnosticDetail() {

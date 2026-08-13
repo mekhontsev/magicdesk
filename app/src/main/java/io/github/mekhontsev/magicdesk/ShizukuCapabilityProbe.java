@@ -60,6 +60,7 @@ final class ShizukuCapabilityProbe {
                 .append(readFirstLine("/proc/self/attr/current")).append('\n');
 
         appendPermissions(report, context);
+        appendCaptureBackends(report);
         appendRawInput(report);
         appendOpenResult(
                 report,
@@ -95,6 +96,31 @@ final class ShizukuCapabilityProbe {
                     Process.myPid(),
                     Process.myUid()) == PackageManager.PERMISSION_GRANTED;
             append(report, "permission." + key, granted ? "granted" : "denied", "");
+        }
+    }
+
+    private static void appendCaptureBackends(final StringBuilder report) {
+        appendExecutable(
+                report, "capture.screencap", new File("/system/bin/screencap"));
+        appendExecutable(
+                report, "capture.screenrecord", new File("/system/bin/screenrecord"));
+        append(report,
+                "capture.internal_audio_backend",
+                "nubia".equals(PlatformDrivers.current().id())
+                        ? "configured" : "unverified",
+                InternalAudioRecorder.capabilityDescription());
+    }
+
+    private static void appendExecutable(
+            final StringBuilder report,
+            final String key,
+            final File executable) {
+        if (!executable.isFile()) {
+            append(report, key, "missing", executable.getAbsolutePath());
+        } else if (!executable.canExecute()) {
+            append(report, key, "denied", executable.getAbsolutePath());
+        } else {
+            append(report, key, "available", executable.getAbsolutePath());
         }
     }
 

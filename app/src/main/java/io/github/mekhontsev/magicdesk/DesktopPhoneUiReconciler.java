@@ -50,6 +50,7 @@ final class DesktopPhoneUiReconciler {
             final List<TaskRepository.TaskEntry> phoneTasks,
             final Set<Integer> visibleAppTaskIds,
             final boolean focusingExternalTask) {
+        DesktopSelfTestPhoneUiObserver.observePhoneTasks(phoneTasks);
         if (!mPhoneUi.requiresPhoneUiReconciliation()) {
             return;
         }

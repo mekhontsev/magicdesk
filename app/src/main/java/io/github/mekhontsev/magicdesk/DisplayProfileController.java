@@ -113,20 +113,11 @@ final class DisplayProfileController {
         if (context == null || physicalDisplayId <= 0) {
             return null;
         }
-        final DisplayManager manager =
-                context.getSystemService(DisplayManager.class);
-        final Display display = manager == null
-                ? null : manager.getDisplay(physicalDisplayId);
-        if (display == null) {
-            return null;
-        }
-        final String profileKey = stableProfileKey(
-                DesktopDisplayTarget.Kind.WIRED,
-                readDisplayUniqueId(physicalDisplayId),
-                display.getName(),
-                display.getMode());
-        return DisplayProfileStore.load(
-                profileKey, initialDpi(display));
+        return loadPreparedProfile(
+                context,
+                prepareTarget(
+                        context,
+                        DesktopDisplayTarget.wired(physicalDisplayId)));
     }
 
     static DesktopDisplayTarget prepareTarget(
@@ -151,6 +142,23 @@ final class DisplayProfileController {
                         readDisplayUniqueId(target.profileDisplayId),
                         display.getName(),
                         display.getMode()));
+    }
+
+    static DisplayProfileStore.Profile loadPreparedProfile(
+            final Context context,
+            final DesktopDisplayTarget target) {
+        if (context == null || target == null || !target.hasProfile()) {
+            return null;
+        }
+        final DisplayManager manager =
+                context.getSystemService(DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(target.profileDisplayId);
+        if (display == null) {
+            return null;
+        }
+        return DisplayProfileStore.load(
+                target.profileKey, initialDpi(display));
     }
 
     private void refreshAfterDisplayChange() {

@@ -1,12 +1,18 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
 import android.os.IBinder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,8 +28,15 @@ final class DisplayPixelProbe {
             final int displayId,
             final int x,
             final int y) throws IOException {
+        return capturePixel(DisplayCaptureSource.logical(displayId), x, y);
+    }
+
+    static int capturePixel(
+            final DisplayCaptureSource source,
+            final int x,
+            final int y) throws IOException {
         final Bitmap bitmap = capture(
-                displayId, new Rect(x, y, x + 1, y + 1), 1, 1);
+                source, new Rect(x, y, x + 1, y + 1), 1, 1);
         try {
             return bitmap.getPixel(0, 0);
         } finally {
@@ -36,8 +49,20 @@ final class DisplayPixelProbe {
             final Rect sourceCrop,
             final int sampleWidth,
             final int sampleHeight) throws IOException {
+        return captureRegion(
+                DisplayCaptureSource.logical(displayId),
+                sourceCrop,
+                sampleWidth,
+                sampleHeight);
+    }
+
+    static RegionStats captureRegion(
+            final DisplayCaptureSource source,
+            final Rect sourceCrop,
+            final int sampleWidth,
+            final int sampleHeight) throws IOException {
         final Bitmap bitmap = capture(
-                displayId, sourceCrop, sampleWidth, sampleHeight);
+                source, sourceCrop, sampleWidth, sampleHeight);
         try {
             final int[] pixels = new int[sampleWidth * sampleHeight];
             bitmap.getPixels(
@@ -93,11 +118,32 @@ final class DisplayPixelProbe {
     }
 
     private static Bitmap capture(
+            final DisplayCaptureSource source,
+            final Rect sourceCrop,
+            final int outputWidth,
+            final int outputHeight) throws IOException {
+        if (source == null) {
+            throw new IllegalArgumentException("display capture source is required");
+        }
+        validateRegion(
+                source.logicalDisplayId,
+                sourceCrop,
+                outputWidth,
+                outputHeight);
+        return source.isPhysical()
+                ? capturePhysical(source, sourceCrop, outputWidth, outputHeight)
+                : captureLogical(
+                        source.logicalDisplayId,
+                        sourceCrop,
+                        outputWidth,
+                        outputHeight);
+    }
+
+    private static Bitmap captureLogical(
             final int displayId,
             final Rect sourceCrop,
             final int outputWidth,
             final int outputHeight) throws IOException {
-        validateRegion(displayId, sourceCrop, outputWidth, outputHeight);
         Bitmap hardwareBitmap = null;
         HardwareBuffer hardwareBuffer = null;
         try {
@@ -182,6 +228,68 @@ final class DisplayPixelProbe {
                 hardwareBuffer.close();
             }
         }
+    }
+
+    private static Bitmap capturePhysical(
+            final DisplayCaptureSource source,
+            final Rect sourceCrop,
+            final int outputWidth,
+            final int outputHeight) throws IOException {
+        Process process = null;
+        Bitmap fullFrame = null;
+        try {
+            process = new ProcessBuilder(
+                    "/system/bin/screencap",
+                    "-p",
+                    "-d",
+                    source.physicalDisplayId).start();
+            fullFrame = BitmapFactory.decodeStream(process.getInputStream());
+            final String error = readText(process.getErrorStream());
+            final int exitCode = process.waitFor();
+            if (exitCode != 0 || fullFrame == null) {
+                throw new IOException(
+                        "physical display capture failed"
+                                + (error.isEmpty() ? "" : ": " + error));
+            }
+            if (sourceCrop.right > fullFrame.getWidth()
+                    || sourceCrop.bottom > fullFrame.getHeight()) {
+                throw new IOException(
+                        "display capture region " + sourceCrop.toShortString()
+                                + " exceeds " + fullFrame.getWidth() + "x"
+                                + fullFrame.getHeight());
+            }
+            final Bitmap sampled = Bitmap.createBitmap(
+                    outputWidth, outputHeight, Bitmap.Config.ARGB_8888);
+            final Canvas canvas = new Canvas(sampled);
+            final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+            canvas.drawBitmap(
+                    fullFrame,
+                    sourceCrop,
+                    new Rect(0, 0, outputWidth, outputHeight),
+                    paint);
+            return sampled;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("physical display capture interrupted", error);
+        } finally {
+            if (fullFrame != null) {
+                fullFrame.recycle();
+            }
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    private static String readText(final InputStream stream)
+            throws IOException {
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        final byte[] buffer = new byte[1_024];
+        int read;
+        while ((read = stream.read(buffer)) >= 0) {
+            output.write(buffer, 0, read);
+        }
+        return output.toString(StandardCharsets.UTF_8.name()).trim();
     }
 
     private static int colorDistance(final int firstRgb, final int second) {

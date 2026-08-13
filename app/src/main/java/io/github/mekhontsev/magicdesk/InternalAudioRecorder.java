@@ -32,6 +32,11 @@ final class InternalAudioRecorder implements AutoCloseable {
         mOutputPath = outputPath;
     }
 
+    static String capabilityDescription() {
+        return "vendor MediaRecorder source=" + AUDIO_SOURCE_INTERNAL
+                + "; verified by a completed recording";
+    }
+
     @SuppressLint({"MissingPermission", "WrongConstant"})
     void start() throws IOException {
         if (mRecorder != null) {

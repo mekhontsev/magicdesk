@@ -13,17 +13,18 @@ public final class DesktopTransitionSurfaceProbe {
     }
 
     static String createCaptureCommand(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int x,
             final int y) {
-        validatePoint(displayId, x, y);
+        validatePoint(captureSource, x, y);
         return AppProcessCommand.run(
                 DesktopTransitionSurfaceProbe.class.getName(),
-                "capture " + displayId + " " + x + " " + y);
+                "capture " + captureSource.commandArgument()
+                        + " " + x + " " + y);
     }
 
     static Reference parseReference(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int x,
             final int y,
             final String output) throws IOException {
@@ -35,7 +36,7 @@ public final class DesktopTransitionSurfaceProbe {
         }
         try {
             return new Reference(
-                    displayId,
+                    captureSource,
                     x,
                     y,
                     (int) Long.parseLong(matcher.group(1), 16));
@@ -90,17 +91,18 @@ public final class DesktopTransitionSurfaceProbe {
     public static void main(final String[] args) {
         if (args.length != 4 || !"capture".equals(args[0])) {
             System.err.println("usage: DesktopTransitionSurfaceProbe "
-                    + "capture <display-id> <x> <y>");
+                    + "capture <capture-source> <x> <y>");
             System.exit(64);
             return;
         }
         try {
-            final int displayId = Integer.parseInt(args[1]);
+            final DisplayCaptureSource captureSource =
+                    DisplayCaptureSource.parse(args[1]);
             final int x = Integer.parseInt(args[2]);
             final int y = Integer.parseInt(args[3]);
-            validatePoint(displayId, x, y);
+            validatePoint(captureSource, x, y);
             System.out.println("desktop-pixel="
-                    + formatColor(capturePixel(displayId, x, y)));
+                    + formatColor(capturePixel(captureSource, x, y)));
         } catch (IOException | RuntimeException error) {
             System.err.println("desktop pixel capture failed: "
                     + usefulMessage(error));
@@ -109,17 +111,17 @@ public final class DesktopTransitionSurfaceProbe {
     }
 
     private static int capturePixel(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int x,
             final int y) throws IOException {
-        return DisplayPixelProbe.capturePixel(displayId, x, y);
+        return DisplayPixelProbe.capturePixel(captureSource, x, y);
     }
 
     private static void validatePoint(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int x,
             final int y) {
-        if (displayId < 0 || x < 0 || y < 0) {
+        if (captureSource == null || x < 0 || y < 0) {
             throw new IllegalArgumentException("invalid desktop sample point");
         }
     }
@@ -147,31 +149,31 @@ public final class DesktopTransitionSurfaceProbe {
     }
 
     static final class Reference {
-        final int displayId;
+        final DisplayCaptureSource captureSource;
         final int x;
         final int y;
         final int color;
 
         Reference(
-                final int displayId,
+                final DisplayCaptureSource captureSource,
                 final int x,
                 final int y,
                 final int color) {
-            validatePoint(displayId, x, y);
-            this.displayId = displayId;
+            validatePoint(captureSource, x, y);
+            this.captureSource = captureSource;
             this.x = x;
             this.y = y;
             this.color = color;
         }
 
         String commandArguments() {
-            return displayId + " " + x + " " + y + " "
+            return captureSource.commandArgument() + " " + x + " " + y + " "
                     + formatColor(color);
         }
 
         static Reference parse(final String[] args, final int offset) {
             return new Reference(
-                    Integer.parseInt(args[offset]),
+                    DisplayCaptureSource.parse(args[offset]),
                     Integer.parseInt(args[offset + 1]),
                     Integer.parseInt(args[offset + 2]),
                     (int) Long.parseLong(args[offset + 3], 16));
@@ -195,7 +197,7 @@ public final class DesktopTransitionSurfaceProbe {
             }
             try {
                 final int color = capturePixel(
-                        mReference.displayId,
+                        mReference.captureSource,
                         mReference.x,
                         mReference.y);
                 mSamples.add(stage + ":" + formatColor(color));

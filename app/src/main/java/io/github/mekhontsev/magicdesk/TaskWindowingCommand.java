@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
     private static final int TRANSIT_OPEN = 1;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int TRANSIT_TO_FRONT = 3;
 
@@ -182,6 +183,36 @@ public final class TaskWindowingCommand {
         // WMShell activates desktop tasks through a TO_FRONT transition. A
         // synchronous organizer transaction can update the focused root task
         // before InputDispatcher switches its focused window.
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_TO_FRONT, transactionClass, transaction);
+    }
+
+    static void focusFullscreenTask(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        final Object taskToken = HiddenTaskApi.getField(task, "token");
+        final int currentMode = HiddenTaskApi.getWindowConfigurationValue(
+                task, "getWindowingMode");
+        if (currentMode != WINDOWING_MODE_FULLSCREEN) {
+            transactionClass.getMethod(
+                    "setWindowingMode", tokenClass, Integer.TYPE)
+                    .invoke(transaction, taskToken,
+                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                    .invoke(transaction, taskToken, new Rect());
+        }
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
         TaskFullscreenTransitionCommand.startTransition(
                 TRANSIT_TO_FRONT, transactionClass, transaction);
     }

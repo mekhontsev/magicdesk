@@ -56,6 +56,7 @@ final class DisplayRecordingController {
     private final IBinder mOwnerToken = new Binder();
 
     private Snapshot mSnapshot = new Snapshot(State.IDLE, "");
+    private String mCaptureDetail;
 
     private DisplayRecordingController() {
     }
@@ -136,10 +137,18 @@ final class DisplayRecordingController {
                     throw new IOException(
                             "unexpected recording response: " + startedPath);
                 }
+                mCaptureDetail = capture.diagnosticDetail();
+                CaptureDiagnostics.recordRecordingStarted(mCaptureDetail);
                 publish(State.RECORDING, "Recording desktop display");
                 showStatus("Screen recording started", false);
             } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "recording start failed path=" + outputPath, error);
+                final String detail = (capture == null
+                        ? "capture target unavailable"
+                        : capture.diagnosticDetail())
+                        + ", error=" + usefulMessage(error);
+                mCaptureDetail = null;
+                CaptureDiagnostics.recordRecordingFailed(detail);
                 CompatibilityDiagnostics.record(
                         "RECORDING-001",
                         "Could not start desktop display recording",
@@ -167,10 +176,16 @@ final class DisplayRecordingController {
                         new String[] {"video/mp4"},
                         null);
                 final String message = "Saved to " + outputPath;
+                CaptureDiagnostics.recordRecordingCompleted(mCaptureDetail);
+                mCaptureDetail = null;
                 publish(State.IDLE, message);
                 showStatus(message, true);
             } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "recording finalization failed", error);
+                CaptureDiagnostics.recordRecordingFailed(
+                        (mCaptureDetail == null ? "" : mCaptureDetail + ", ")
+                                + "error=" + usefulMessage(error));
+                mCaptureDetail = null;
                 CompatibilityDiagnostics.record(
                         "RECORDING-002",
                         "Could not finalize desktop display recording",

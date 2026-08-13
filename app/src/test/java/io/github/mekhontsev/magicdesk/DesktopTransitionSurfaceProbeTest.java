@@ -11,12 +11,31 @@ public final class DesktopTransitionSurfaceProbeTest {
     public void parsesCapturedPixelReference() throws Exception {
         final DesktopTransitionSurfaceProbe.Reference reference =
                 DesktopTransitionSurfaceProbe.parseReference(
-                        7, 1800, 500, "desktop-pixel=ff102030\n");
+                        DisplayCaptureSource.logical(7),
+                        1800,
+                        500,
+                        "desktop-pixel=ff102030\n");
 
-        assertEquals(7, reference.displayId);
+        assertEquals(7, reference.captureSource.logicalDisplayId);
+        assertFalse(reference.captureSource.isPhysical());
         assertEquals(1800, reference.x);
         assertEquals(500, reference.y);
         assertEquals(0xFF102030, reference.color);
+    }
+
+    @Test
+    public void preservesPhysicalCaptureSourceInCommandArguments() {
+        final DisplayCaptureSource source = DisplayCaptureSource.parse(
+                "p:25,21");
+        final DesktopTransitionSurfaceProbe.Reference reference =
+                new DesktopTransitionSurfaceProbe.Reference(
+                        source, 1800, 500, 0xFF102030);
+
+        assertTrue(source.isPhysical());
+        assertEquals(25, source.logicalDisplayId);
+        assertEquals("21", source.physicalDisplayId);
+        assertEquals("p:25,21 1800 500 ff102030",
+                reference.commandArguments());
     }
 
     @Test

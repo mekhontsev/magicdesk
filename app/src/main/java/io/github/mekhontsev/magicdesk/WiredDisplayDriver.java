@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 
+import java.io.IOException;
+
 /** Hosts MagicDesk through RedMagic's wired Console Mode transport. */
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
@@ -30,6 +32,21 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         }
         // Nubia hosts tasks on a virtual display backed by this physical output.
         return target.profileDisplayId;
+    }
+
+    @Override
+    public DisplayCaptureSource captureSource(
+            final DesktopDisplayTarget target) {
+        final int logicalDisplayId = captureDisplayId(target);
+        try {
+            return DisplayCaptureSource.physical(
+                    logicalDisplayId,
+                    ConsoleDisplayController.getPhysicalDisplayId(
+                            logicalDisplayId));
+        } catch (IOException ignored) {
+            // Some Android builds expose only a capturable logical display.
+            return DisplayCaptureSource.logical(logicalDisplayId);
+        }
     }
 
     @Override

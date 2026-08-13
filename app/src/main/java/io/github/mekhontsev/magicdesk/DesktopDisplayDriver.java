@@ -22,6 +22,11 @@ interface DesktopDisplayDriver {
         return target.displayId;
     }
 
+    default DisplayCaptureSource captureSource(
+            final DesktopDisplayTarget target) {
+        return DisplayCaptureSource.logical(captureDisplayId(target));
+    }
+
     void show(Activity source, int displayId);
 
     void close(

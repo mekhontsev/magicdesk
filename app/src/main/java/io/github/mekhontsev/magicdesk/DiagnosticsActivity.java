@@ -421,12 +421,11 @@ public final class DiagnosticsActivity extends Activity {
             do {
                 final int displayId =
                         DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                // The self-test verifies host window readiness itself.
                 if (target.matchesDisplay(
                                 displayId,
                                 DesktopRuntimeBridge.getDesktopTarget(
-                                        displayId))
-                        && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
-                                displayId)) {
+                                        displayId))) {
                     ready = true;
                     break;
                 }

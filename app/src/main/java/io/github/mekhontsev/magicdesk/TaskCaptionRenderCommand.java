@@ -24,7 +24,7 @@ public final class TaskCaptionRenderCommand {
     }
 
     static String createCommand(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int taskId,
             final Rect windowBounds,
             final Rect sampleBounds) {
@@ -33,29 +33,30 @@ public final class TaskCaptionRenderCommand {
         }
         return AppProcessCommand.run(
                 TaskCaptionRenderCommand.class.getName(),
-                "caption " + displayId + " " + taskId + " "
+                "caption " + captureSource.commandArgument()
+                        + " " + taskId + " "
                         + windowBounds.left + " " + windowBounds.top + " "
                         + windowBounds.right + " " + windowBounds.bottom + " "
                         + formatArguments(sampleBounds));
     }
 
     static String createReferenceCommand(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final Rect sampleBounds) {
         if (!hasArea(sampleBounds)) {
             throw new IllegalArgumentException("invalid caption sample bounds");
         }
         return AppProcessCommand.run(
                 TaskCaptionRenderCommand.class.getName(),
-                "reference " + displayId + " "
+                "reference " + captureSource.commandArgument() + " "
                         + formatArguments(sampleBounds));
     }
 
     public static void main(final String[] args) {
         if (args.length != 6 && args.length != 11) {
             System.err.println("usage: TaskCaptionRenderCommand"
-                    + " reference <display-id> <left> <top> <right> <bottom>"
-                    + " | caption <display-id> <task-id>"
+                    + " reference <capture-source> <left> <top> <right> <bottom>"
+                    + " | caption <capture-source> <task-id>"
                     + " <window-left> <window-top> <window-right> <window-bottom>"
                     + " <sample-left> <sample-top> <sample-right> <sample-bottom>");
             System.exit(64);
@@ -64,14 +65,15 @@ public final class TaskCaptionRenderCommand {
         try {
             if (args.length == 6 && "reference".equals(args[0])) {
                 captureAndPrint(
-                        parse(args[1], "display id"),
+                        DisplayCaptureSource.parse(args[1]),
                         parseRect(args, 2, "sample"));
                 return;
             }
             if (args.length != 11 || !"caption".equals(args[0])) {
                 throw new IllegalArgumentException("invalid caption render mode");
             }
-            final int displayId = parse(args[1], "display id");
+            final DisplayCaptureSource captureSource =
+                    DisplayCaptureSource.parse(args[1]);
             final int taskId = parse(args[2], "task id");
             final TaskLocalInsetsSourceParser.Frame window =
                     new TaskLocalInsetsSourceParser.Frame(
@@ -83,7 +85,7 @@ public final class TaskCaptionRenderCommand {
             final TaskLocalInsetsSourceParser.CaptionSource source =
                     TaskCaptionInsetsRefresher.captureCaptionSource(taskId);
             validateSampleFrame(source, window, crop);
-            captureAndPrint(displayId, crop);
+            captureAndPrint(captureSource, crop);
         } catch (DisplayPixelProbe.UnavailableException error) {
             System.err.println("caption render unsupported: "
                     + usefulMessage(error));
@@ -174,11 +176,11 @@ public final class TaskCaptionRenderCommand {
     }
 
     private static void captureAndPrint(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final Rect crop) throws IOException {
         final DisplayPixelProbe.RegionStats stats =
                 DisplayPixelProbe.captureRegion(
-                        displayId, crop, SAMPLE_WIDTH, SAMPLE_HEIGHT);
+                        captureSource, crop, SAMPLE_WIDTH, SAMPLE_HEIGHT);
         System.out.printf(Locale.US,
                 "caption-render=%s sample=%dx%d dominant=%08x"
                         + " contrast=%d contrasting=%d/%d"

@@ -24,7 +24,19 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        DesktopDisplayDriverSupport.showPrepared(this, displayId);
+        final android.content.Context context =
+                MagicDeskApplication.applicationContext();
+        final DesktopDisplayTarget preparedTarget =
+                DisplayProfileController.prepareTarget(
+                        context, target(displayId));
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileController.loadPreparedProfile(
+                        context, preparedTarget);
+        if (profile != null) {
+            ConsoleDisplayController.applyStartupDensity(
+                    displayId, profile.dpi);
+        }
+        DesktopDisplayDriverSupport.showPrepared(preparedTarget);
     }
 
     @Override

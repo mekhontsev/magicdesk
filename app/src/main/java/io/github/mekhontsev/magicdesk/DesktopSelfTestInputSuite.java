@@ -37,6 +37,7 @@ final class DesktopSelfTestInputSuite {
             final DesktopSelfTestResult result,
             final Context context,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final int taskId,
             final String token,
             final Rect bounds,
@@ -52,7 +53,7 @@ final class DesktopSelfTestInputSuite {
                 result,
                 "CAPTION-003",
                 "Verify native caption rendering",
-                displayId,
+                captureSource,
                 taskId,
                 bounds,
                 captionReference);
@@ -84,7 +85,7 @@ final class DesktopSelfTestInputSuite {
             final DesktopSelfTestResult result,
             final String code,
             final String label,
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final int taskId,
             final Rect bounds,
             final CaptionReference reference) {
@@ -97,7 +98,10 @@ final class DesktopSelfTestInputSuite {
             try {
                 response = ShellAccess.executeForConsole(
                         TaskCaptionRenderCommand.createCommand(
-                                displayId, taskId, bounds, reference.crop));
+                                captureSource,
+                                taskId,
+                                bounds,
+                                reference.crop));
             } catch (IOException error) {
                 result.add(DesktopSelfTestResult.State.FAIL,
                         code, label, usefulMessage(error));
@@ -139,7 +143,7 @@ final class DesktopSelfTestInputSuite {
     }
 
     static CaptionReference captureCaptionReference(
-            final int displayId,
+            final DisplayCaptureSource captureSource,
             final Rect windowBounds,
             final DesktopSelfTestGeometry geometry) {
         final Rect crop = geometry.captionRenderSample(windowBounds);
@@ -147,7 +151,7 @@ final class DesktopSelfTestInputSuite {
             final ShellAccess.CommandResult response =
                     ShellAccess.executeForConsole(
                             TaskCaptionRenderCommand.createReferenceCommand(
-                                    displayId, crop));
+                                    captureSource, crop));
             if (response.exitCode != 0) {
                 return CaptionReference.unavailable(
                         crop, response.output.trim());

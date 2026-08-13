@@ -39,6 +39,7 @@ import java.util.List;
 /** Phone-side touch surface for every external MagicDesk display. */
 public final class MagicDeskTouchpadActivity extends Activity {
     private static final String TAG = "MagicDeskTouchpad";
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final String EXTRA_TARGET_DISPLAY_ID =
             "io.github.mekhontsev.magicdesk.extra.TOUCHPAD_DISPLAY_ID";
     private static final float BASE_POINTER_SCALE = 1.0f;
@@ -76,6 +77,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 .putExtra(EXTRA_TARGET_DISPLAY_ID, displayId);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+        DesktopShellActivity.setLaunchWindowingMode(
+                options, WINDOWING_MODE_FULLSCREEN);
         context.startActivity(intent, options.toBundle());
     }
 
@@ -181,6 +184,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         synchronized (STATE_LOCK) {
             sVisibleActivity = new WeakReference<>(this);
         }
+        DesktopSelfTestPhoneUiObserver.noteTouchpadStarted(mTargetDisplayId);
         registerDisplayListener();
         finishIfTargetUnavailable();
     }
@@ -199,6 +203,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     @Override
     protected void onStop() {
         finishPointerDrag();
+        DesktopSelfTestPhoneUiObserver.noteTouchpadStopped(mTargetDisplayId);
         synchronized (STATE_LOCK) {
             if (sVisibleActivity.get() == this) {
                 sVisibleActivity.clear();

@@ -20,7 +20,7 @@ final class PhoneTouchpadController {
     }
 
     static void open(final int displayId) {
-        if (!supports(displayId)) {
+        if (!isSupported(displayId)) {
             return;
         }
         MagicDeskTouchpadActivity.open(
@@ -29,19 +29,19 @@ final class PhoneTouchpadController {
 
     static boolean isVisible() {
         final int displayId = activeDisplayId();
-        return supports(displayId)
+        return isSupported(displayId)
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
 
     static boolean shouldRemainVisible(final int displayId) {
-        return supports(displayId)
+        return isSupported(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId);
     }
 
     static void restoreIfMissing(
             final ConsoleModeSwitcher.TouchpadRestoreCallback callback) {
         final int displayId = activeDisplayId();
-        final boolean missing = supports(displayId)
+        final boolean missing = isSupported(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
         final boolean restored = missing
@@ -53,14 +53,14 @@ final class PhoneTouchpadController {
     }
 
     static boolean restoreObservedMissing(final int displayId) {
-        return supports(displayId)
+        return isSupported(displayId)
                 && MagicDeskTouchpadActivity.restoreObservedMissing(
                         MagicDeskApplication.applicationContext(),
                         displayId);
     }
 
     static boolean bringRequestedTaskToFront(final int displayId) {
-        return supports(displayId)
+        return isSupported(displayId)
                 && MagicDeskTouchpadActivity.bringRequestedTaskToFront(
                         MagicDeskApplication.applicationContext(),
                         displayId);
@@ -70,7 +70,7 @@ final class PhoneTouchpadController {
         MagicDeskTouchpadActivity.release(displayId);
     }
 
-    private static boolean supports(final int displayId) {
+    static boolean isSupported(final int displayId) {
         if (displayId <= Display.DEFAULT_DISPLAY) {
             return false;
         }

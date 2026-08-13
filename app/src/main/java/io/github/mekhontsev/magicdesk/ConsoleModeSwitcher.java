@@ -476,6 +476,9 @@ final class ConsoleModeSwitcher {
         if (!ShellAccess.isReady()) {
             Log.w(TAG, "screenshot unavailable; shizuku="
                     + ShellAccess.statusLabel());
+            CaptureDiagnostics.recordScreenshot(
+                    false,
+                    "Shizuku unavailable: " + ShellAccess.statusLabel());
             return;
         }
         EXECUTOR.execute(new Runnable() {
@@ -543,8 +546,15 @@ final class ConsoleModeSwitcher {
             }
             Log.i(TAG, "screenshot saved path=" + path
                     + " physicalDisplay=" + physicalDisplayId);
-        } catch (IOException error) {
+            CaptureDiagnostics.recordScreenshot(
+                    true, capture.diagnosticDetail());
+        } catch (IOException | RuntimeException error) {
             Log.w(TAG, "screenshot failed path=" + path, error);
+            final String detail = (capture == null
+                    ? "capture target unavailable"
+                    : capture.diagnosticDetail())
+                    + ", error=" + error.getMessage();
+            CaptureDiagnostics.recordScreenshot(false, detail);
             CompatibilityDiagnostics.record(
                     "SCREENSHOT-001",
                     "Could not capture the desktop display",

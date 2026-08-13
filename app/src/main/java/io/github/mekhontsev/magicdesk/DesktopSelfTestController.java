@@ -114,6 +114,7 @@ final class DesktopSelfTestController {
                     usefulMessage(error));
         } finally {
             recordDesktopHostObservation(result, displayId);
+            recordPhoneUiObservation(result, displayId);
             DesktopSelfTestCleanup.run(result,
                     target,
                     displayId,
@@ -260,6 +261,59 @@ final class DesktopSelfTestController {
                 "DESKTOP-006",
                 "Keep the desktop host stable and fullscreen",
                 observation.detail);
+    }
+
+    private static void recordPhoneUiObservation(
+            final DesktopSelfTestResult result,
+            final int displayId) {
+        try {
+            DesktopSelfTestPhoneUiObserver.sampleCurrentTasks();
+        } catch (IOException ignored) {
+            // Lifecycle and runtime task observations remain available.
+        }
+        final DesktopSelfTestPhoneUiObserver.Observation observation =
+                DesktopSelfTestPhoneUiObserver.finish(displayId);
+        if (!observation.observed || !observation.touchpadExpected) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "PHONEUI-001",
+                    "Restore the phone touchpad after task transitions",
+                    observation.observed
+                            ? "selected display does not use a phone touchpad"
+                            : "desktop phone UI was not observed");
+        } else {
+            result.add(observation.touchpadStable()
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    "PHONEUI-001",
+                    "Restore the phone touchpad after task transitions",
+                    observation.detail);
+        }
+        if (!observation.observed || displayId <= Display.DEFAULT_DISPLAY) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "PHONEUI-002",
+                    "Keep unrelated test windows invisible on the phone",
+                    "the selected desktop uses display 0");
+        } else {
+            result.add(!observation.fixtureExposed
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    "PHONEUI-002",
+                    "Keep unrelated test windows invisible on the phone",
+                    observation.detail);
+        }
+        if (!observation.observed) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "PHONEUI-003",
+                    "Preserve phone task windowing modes",
+                    "desktop phone UI was not observed");
+        } else {
+            result.add(!observation.phoneTaskModeChanged
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    "PHONEUI-003",
+                    "Preserve phone task windowing modes",
+                    observation.detail);
+        }
     }
 
     private static DesktopSelfTestResult finish(
