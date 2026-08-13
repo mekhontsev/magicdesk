@@ -7,7 +7,9 @@ import java.util.Map;
 /** Diagnostics for the conservative Generic Android platform profile. */
 final class GenericAndroidPlatformDiagnostics implements PlatformDiagnostics {
     @Override
-    public void appendCapabilityProbe(final StringBuilder report) {
+    public void appendCapabilityProbe(
+            final StringBuilder report,
+            final Context context) {
     }
 
     @Override

@@ -75,7 +75,8 @@ final class ShizukuCapabilityProbe {
         appendInputControlAccess(report);
         appendInputMonitor(report);
         appendTaskAccess(report);
-        PlatformDrivers.current().diagnostics().appendCapabilityProbe(report);
+        PlatformDrivers.current().diagnostics()
+                .appendCapabilityProbe(report, context);
         appendSystemWallpaper(report, context);
         return report.toString();
     }

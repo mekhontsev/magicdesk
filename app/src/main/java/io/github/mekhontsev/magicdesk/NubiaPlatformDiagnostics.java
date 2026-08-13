@@ -8,8 +8,10 @@ import java.util.Map;
 /** Capability and runtime diagnostics specific to RedMagic firmware. */
 final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
     @Override
-    public void appendCapabilityProbe(final StringBuilder report) {
-        NubiaCapabilityProbe.appendTo(report);
+    public void appendCapabilityProbe(
+            final StringBuilder report,
+            final Context context) {
+        NubiaCapabilityProbe.appendTo(report, context);
     }
 
     @Override
