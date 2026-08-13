@@ -614,6 +614,15 @@ public final class DeviceSetupActivity extends Activity {
                 currentDisplayId == Display.DEFAULT_DISPLAY;
         final int launchDisplayId = phoneControl
                 ? Display.DEFAULT_DISPLAY : resolveLaunchDisplayId();
+        final DesktopDisplayTarget pendingTarget = phoneControl
+                ? null : DesktopRuntimeBridge.getDesktopTarget(launchDisplayId);
+        if (pendingTarget != null) {
+            finishAndRemoveTask();
+            new Thread(
+                    () -> DesktopDisplayDriverSupport.showPrepared(pendingTarget),
+                    "MagicDeskSetupDesktopResume").start();
+            return;
+        }
         final Class<?> activityClass = phoneControl
                 ? ControlActivity.class : DesktopActivity.class;
         final Intent target = new Intent(this, activityClass)

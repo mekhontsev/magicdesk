@@ -7,8 +7,16 @@ import java.lang.reflect.Method;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
+    private static final int TRANSIT_OPEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int TRANSIT_TO_FRONT = 3;
+
+    private enum FreeformApplication {
+        TRANSITION,
+        OPEN_TRANSITION,
+        HIDE_SYNC,
+        SHOW_TRANSITION
+    }
 
     private TaskWindowingCommand() {
     }
@@ -40,11 +48,6 @@ public final class TaskWindowingCommand {
                         parseInt(args[3], "focus task id"));
                 return;
             }
-            if (args.length == 3 && "restore".equals(args[0])) {
-                restore(parseInt(args[1], "display id"),
-                        parseInt(args[2], "task id"));
-                return;
-            }
             if (args.length >= 3 && "focus".equals(args[0])) {
                 focus(parseInt(args[1], "display id"), args);
                 return;
@@ -58,7 +61,7 @@ public final class TaskWindowingCommand {
             System.err.println("usage: TaskWindowingCommand "
                     + "<freeform|bounds display task left top right bottom"
                     + "|desktop-host display task"
-                    + "|minimize display task focus-task|restore display task"
+                    + "|minimize display task focus-task"
                     + "|focus display task..."
                     + "|restore-layout display task left top right bottom...>");
             System.exit(64);
@@ -142,17 +145,6 @@ public final class TaskWindowingCommand {
                 service, transactionClass, transaction);
         System.out.println("task-minimized=" + taskId
                 + " focused=" + focusTaskId);
-    }
-
-    private static void restore(final int displayId, final int taskId)
-            throws ReflectiveOperationException {
-        restoreStack(displayId, new int[]{taskId});
-    }
-
-    private static void restoreStack(final int displayId, final int[] taskIds)
-            throws ReflectiveOperationException {
-        focusTasks(HiddenTaskApi.getService(), displayId, taskIds);
-        System.out.println("task-stack-restored=" + taskIds.length);
     }
 
     private static void focus(
@@ -266,6 +258,102 @@ public final class TaskWindowingCommand {
             final int displayId,
             final int taskId,
             final Rect bounds) throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.TRANSITION);
+    }
+
+    static void revealFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.OPEN_TRANSITION);
+    }
+
+    static void prepareFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.HIDE_SYNC);
+    }
+
+    static void showPreparedFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.SHOW_TRANSITION);
+    }
+
+    static void restorePreparedTask(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final int windowingMode,
+            final Rect bounds) throws ReflectiveOperationException {
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(
+                        transaction,
+                        taskToken,
+                        Integer.valueOf(windowingMode));
+        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                .invoke(transaction, taskToken, new Rect(bounds));
+        transactionClass.getMethod(
+                "setHidden", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.FALSE);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(
+                        transaction,
+                        taskToken,
+                        Boolean.TRUE,
+                        Boolean.TRUE);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass,
+                transaction,
+                tokenClass,
+                taskToken,
+                windowingMode != WINDOWING_MODE_FREEFORM);
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+    }
+
+    private static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final FreeformApplication application)
+            throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
         final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
@@ -282,13 +370,36 @@ public final class TaskWindowingCommand {
         transactionClass.getMethod(
                 "setForceTranslucent", tokenClass, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.FALSE);
+        if (application == FreeformApplication.HIDE_SYNC
+                || application == FreeformApplication.SHOW_TRANSITION) {
+            transactionClass.getMethod(
+                    "setHidden", tokenClass, Boolean.TYPE)
+                    .invoke(
+                            transaction,
+                            taskToken,
+                            Boolean.valueOf(
+                                    application
+                                            == FreeformApplication.HIDE_SYNC));
+        }
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+                .invoke(
+                        transaction,
+                        taskToken,
+                        Boolean.TRUE,
+                        Boolean.TRUE);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, transaction, tokenClass, taskToken, false);
-        TaskFullscreenTransitionCommand.startTransition(
-                transactionClass, transaction);
+        if (application == FreeformApplication.HIDE_SYNC) {
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+        } else if (application == FreeformApplication.OPEN_TRANSITION) {
+            TaskFullscreenTransitionCommand.startTransition(
+                    TRANSIT_OPEN, transactionClass, transaction);
+        } else {
+            TaskFullscreenTransitionCommand.startTransition(
+                    transactionClass, transaction);
+        }
     }
 
     private static int parseInt(final String value, final String label) {

@@ -77,8 +77,20 @@ final class TaskRepository {
             complete(callback, false, "invalid task");
             return;
         }
-        runAction(TaskFocusCommands.createShellCommand(displayId,
-                Collections.singletonList(Integer.valueOf(taskId))), callback);
+        runFocusAction(displayId,
+                Collections.singletonList(Integer.valueOf(taskId)), callback);
+    }
+
+    static void runFocusAction(
+            final int displayId,
+            final List<Integer> taskIds,
+            final ActionCallback callback) {
+        if (displayId < 0 || taskIds == null || taskIds.isEmpty()) {
+            complete(callback, false, "invalid task focus request");
+            return;
+        }
+        runAction(TaskFocusCommands.createShellCommand(
+                displayId, taskIds), callback);
     }
 
     static void bringStackToFront(final List<TaskEntry> topFirstTasks,
@@ -192,15 +204,6 @@ final class TaskRepository {
                         + " " + focusTask.taskId), callback);
     }
 
-    static void restoreTask(final TaskEntry task, final ActionCallback callback) {
-        if (!isUsableTask(task) || !task.isFreeform()) {
-            complete(callback, false, "invalid task");
-            return;
-        }
-        runAction(createTaskWindowingCommand(
-                "restore " + task.displayId + " " + task.taskId), callback);
-    }
-
     static void configureDesktopHost(final TaskEntry task,
             final ActionCallback callback) {
         if (!isUsableTask(task)) {
@@ -280,11 +283,22 @@ final class TaskRepository {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
                                     targetDisplayId, preferredBounds);
-                    command = TaskDisplayAreaLaunchCommand.createMoveCommand(
-                            task.taskId,
-                            task.displayId,
-                            targetDisplayId,
-                            bounds);
+                    final DesktopDisplayDriver targetDriver =
+                            DesktopDisplayDrivers.forActiveDisplay(
+                                    targetDisplayId);
+                    command = targetDriver.features().rootTaskTransfer
+                            ? TaskDisplayAreaLaunchCommand
+                                    .createPhysicalMoveCommand(
+                                            task.taskId,
+                                            task.rootTaskId,
+                                            task.displayId,
+                                            targetDisplayId,
+                                            bounds)
+                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
+                                    task.taskId,
+                                    task.displayId,
+                                    targetDisplayId,
+                                    bounds);
                 } else {
                     command = CMD + " activity display move-stack "
                             + task.rootTaskId + " " + targetDisplayId;

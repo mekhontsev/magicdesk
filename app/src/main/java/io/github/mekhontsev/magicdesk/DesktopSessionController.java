@@ -14,6 +14,7 @@ final class DesktopSessionController {
     private static final String AM = "/system/bin/am";
     private static final String DESKTOP_COMPONENT =
             "io.github.mekhontsev.magicdesk/.DesktopActivity";
+    private static final int ACTIVITY_TYPE_HOME = 2;
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
     private static final Pattern DESKTOP_TASK_ID_PATTERN =
@@ -48,6 +49,7 @@ final class DesktopSessionController {
         }
         DesktopRuntimeBridge.noteDesktopTarget(preparedTarget);
         try {
+            prepareDisplayWindowing(preparedTarget);
             final Boolean visibleTaskSnapshot =
                     DesktopTaskController.hasVisibleAppTaskSnapshot(
                             preparedTarget.displayId);
@@ -73,9 +75,10 @@ final class DesktopSessionController {
             final String output = ShellAccess.run(
                     AM + " start -W --display " + preparedTarget.displayId
                             + " --windowingMode 1"
+                            + " --activityType " + ACTIVITY_TYPE_HOME
                             + " -f 0x18000000"
                             + " -a android.intent.action.MAIN"
-                            + " -c android.intent.category.LAUNCHER"
+                            + " -c android.intent.category.HOME"
                             + " --ei "
                             + DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID
                             + " " + preparedTarget.displayId
@@ -121,6 +124,18 @@ final class DesktopSessionController {
 
     private static String shellQuote(final String value) {
         return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    private static void prepareDisplayWindowing(
+            final DesktopDisplayTarget target) throws IOException {
+        if (target.displayId <= 0
+                || !PlatformDrivers.current().windowing()
+                        .requiresMirrorInputFocusSynchronization()) {
+            return;
+        }
+        ShellAccess.run(AppProcessCommand.run(
+                DisplayWindowingModeCommand.class.getName(),
+                Integer.toString(target.displayId)));
     }
 
     private static int findDesktopTask(final int displayId)

@@ -5,7 +5,7 @@ import android.app.Activity;
 /** Hosts MagicDesk on an already connected Miracast display. */
 final class WirelessDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
-            new DesktopDisplayFeatures(false, true, true);
+            new DesktopDisplayFeatures(false, true, true, true);
 
     @Override
     public DesktopDisplayTarget.Kind kind() {

@@ -400,6 +400,16 @@ final class DesktopRuntimeBridge {
         return true;
     }
 
+    static void prepareTaskFocus(
+            final int displayId, final int taskId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return;
+        }
+        activity.setDesktopWindowFocusable(taskId == activity.getTaskId());
+    }
+
     static void syncTaskbarWithSnapshot(
             final int displayId,
             final TaskRepository.Snapshot snapshot) {

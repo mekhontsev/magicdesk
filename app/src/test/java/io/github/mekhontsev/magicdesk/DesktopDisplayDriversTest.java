@@ -60,6 +60,11 @@ public final class DesktopDisplayDriversTest {
         assertFalse(wired.temporaryLaunchArea);
         assertFalse(wireless.temporaryLaunchArea);
 
+        assertFalse(phone.rootTaskTransfer);
+        assertFalse(simulated.rootTaskTransfer);
+        assertTrue(wired.rootTaskTransfer);
+        assertTrue(wireless.rootTaskTransfer);
+
         assertFalse(phone.phoneScreenControl);
         assertFalse(simulated.phoneScreenControl);
         assertTrue(wired.phoneScreenControl);

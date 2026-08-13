@@ -361,7 +361,7 @@ final class DesktopTaskController {
             completeFocusCallback(callback, true, "no tasks");
             return;
         }
-        controller.mTaskWatcher.sendFocusStack(
+        controller.sendFocusTasks(
                 controller.mDisplayId,
                 new ArrayList<>(orderedTaskIds),
                 trackedCallback);
@@ -371,17 +371,48 @@ final class DesktopTaskController {
             final int displayId,
             final int taskId,
             final TaskRepository.ActionCallback callback) {
+        focusDesktopTasks(
+                displayId,
+                Collections.singletonList(Integer.valueOf(taskId)),
+                callback);
+    }
+
+    static void focusDesktopTasks(
+            final int displayId,
+            final List<Integer> taskIds,
+            final TaskRepository.ActionCallback callback) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            completeFocusCallback(callback, false, "no tasks");
+            return;
+        }
         final DesktopTaskController controller = getActiveController();
         if (controller == null || !controller.mRunning
                 || !controller.mTaskWatcherReady
                 || controller.mDisplayId != displayId) {
-            TaskRepository.bringTaskToFront(displayId, taskId, callback);
+            TaskRepository.runFocusAction(displayId, taskIds, callback);
             return;
         }
-        controller.mTaskWatcher.sendFocusStack(
-                displayId,
-                Collections.singletonList(Integer.valueOf(taskId)),
-                callback);
+        controller.sendFocusTasks(
+                displayId, new ArrayList<>(taskIds), callback);
+    }
+
+    private void sendFocusTasks(
+            final int displayId,
+            final List<Integer> taskIds,
+            final TaskRepository.ActionCallback callback) {
+        mHandler.post(() -> {
+            if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
+                TaskRepository.runFocusAction(displayId, taskIds, callback);
+                return;
+            }
+            final int focusedTaskId = taskIds.get(
+                    taskIds.size() - 1).intValue();
+            // Release the host window before WMShell raises the target task.
+            // Otherwise Nubia WMS can leave keyboard focus on the host while
+            // reporting the client task as focused.
+            DesktopRuntimeBridge.prepareTaskFocus(displayId, focusedTaskId);
+            mTaskWatcher.sendFocusStack(displayId, taskIds, callback);
+        });
     }
 
     static boolean handleActiveTaskShortcut(final int shortcut) {

@@ -149,20 +149,25 @@ final class HiddenTaskApi {
     }
 
     static String getTaskPackage(final Object task) {
+        final ComponentName component = getTaskComponent(task);
+        return component == null ? null : component.getPackageName();
+    }
+
+    static ComponentName getTaskComponent(final Object task) {
         final String[] componentFields = {
                 "baseActivity", "realActivity", "origActivity", "topActivity"
         };
         for (final String field : componentFields) {
             final Object value = getOptionalField(task, field);
             if (value instanceof ComponentName) {
-                return ((ComponentName) value).getPackageName();
+                return (ComponentName) value;
             }
         }
         final Object baseIntent = getOptionalField(task, "baseIntent");
         if (baseIntent instanceof Intent) {
             final ComponentName component = ((Intent) baseIntent).getComponent();
             if (component != null) {
-                return component.getPackageName();
+                return component;
             }
         }
         return null;

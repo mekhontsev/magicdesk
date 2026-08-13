@@ -43,9 +43,7 @@ final class DesktopTaskSnapshotController {
             }
         }
         final boolean desktopActive =
-                activeTask != null
-                        && mActivity.getPackageName().equals(
-                                activeTask.packageName);
+                DesktopTaskController.isDesktopHostTask(activeTask);
         final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
                 mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
                 activeTask != null,

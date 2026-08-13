@@ -14,13 +14,18 @@ final class DesktopDisplayDriverSupport {
     static void showPrepared(
             final DesktopDisplayDriver driver,
             final int displayId) {
-        final DesktopDisplayTarget target = driver.target(displayId);
+        showPrepared(driver.target(displayId));
+    }
+
+    static void showPrepared(final DesktopDisplayTarget target) {
+        final DesktopDisplayDriver driver =
+                DesktopDisplayDrivers.forTarget(target);
         try {
             final DesktopSessionController.ShowResult result =
                     DesktopSessionController.show(target);
             if (result.ready && result.created
                     && driver.features().phoneTouchpad) {
-                PhoneTouchpadController.open(displayId);
+                PhoneTouchpadController.open(target.displayId);
             }
         } catch (IOException error) {
             Log.w(TAG, "Desktop launch failed", error);
@@ -28,7 +33,7 @@ final class DesktopDisplayDriverSupport {
                     "DESKTOP-LAUNCH-002",
                     "Could not open MagicDesk on the selected display",
                     "kind=" + driver.kind()
-                            + " display=" + displayId
+                            + " display=" + target.displayId
                             + " error=" + error.getMessage(),
                     error);
         }

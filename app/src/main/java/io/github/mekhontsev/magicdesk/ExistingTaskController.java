@@ -134,16 +134,22 @@ final class ExistingTaskController {
                 final DesktopDisplayDriver targetDriver =
                         DesktopDisplayDrivers.forActiveDisplay(
                                 targetDisplayId);
-                if (targetFreeform
-                        && targetDriver.kind()
-                                == DesktopDisplayTarget.Kind.SIMULATED) {
+                if (targetFreeform) {
                     final Rect bounds = resolveTargetBounds(
                             targetDisplayId, targetBounds);
-                    command = TaskDisplayAreaLaunchCommand.createMoveCommand(
-                            task.taskId,
-                            task.displayId,
-                            targetDisplayId,
-                            bounds);
+                    command = targetDriver.features().rootTaskTransfer
+                            ? TaskDisplayAreaLaunchCommand
+                                    .createPhysicalMoveCommand(
+                                            task.taskId,
+                                            task.rootTaskId,
+                                            task.displayId,
+                                            targetDisplayId,
+                                            bounds)
+                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
+                                    task.taskId,
+                                    task.displayId,
+                                    targetDisplayId,
+                                    bounds);
                     movedAsFreeform = true;
                 } else {
                     // Physical projection owns cross-display task transfer.
