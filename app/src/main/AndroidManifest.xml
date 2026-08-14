@@ -68,7 +68,6 @@
             android:exported="true"
             android:icon="@drawable/ic_desktop_folder"
             android:label="@string/file_manager_title"
-            android:launchMode="singleTop"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.files" />

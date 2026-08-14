@@ -1532,15 +1532,25 @@ public abstract class DesktopShellActivity extends Activity
 
     void showLaunchFailure(final Exception e) {
         Log.w(TAG, "launch failed", e);
-        final String message = e.getMessage() == null ? e.getClass().getSimpleName()
-                : e.getMessage();
-        setErrorStatus(
+        final String message = conciseLaunchFailure(e);
+        final String userMessage = getString(
+                R.string.status_launch_failed, message);
+        CompatibilityDiagnostics.record(
                 "APP-LAUNCH-001",
-                getString(R.string.status_launch_failed, message),
+                userMessage,
                 "display=" + getCurrentDisplayId(),
                 e);
-        Toast.makeText(this, getString(R.string.status_launch_failed, message),
-                Toast.LENGTH_LONG).show();
+        Toast.makeText(this, userMessage, Toast.LENGTH_LONG).show();
+    }
+
+    private static String conciseLaunchFailure(final Throwable error) {
+        String message = ShellAccess.usefulMessage(error).trim();
+        final int remoteStack = message.indexOf(": Remote stack trace:");
+        if (remoteStack >= 0) {
+            message = message.substring(0, remoteStack);
+        }
+        final int newline = message.indexOf('\n');
+        return newline < 0 ? message : message.substring(0, newline).trim();
     }
 
     void openDiagnostics() {

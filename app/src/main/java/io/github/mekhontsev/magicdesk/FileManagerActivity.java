@@ -76,12 +76,20 @@ public final class FileManagerActivity extends Activity
     private volatile boolean mDestroyed;
 
     static Intent createIntent(final Context context, final String path) {
-        return createIntent(context).putExtra(
-                EXTRA_PATH, path == null ? DEFAULT_PATH : path);
+        return createIntent(context)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(EXTRA_PATH,
+                        path == null ? DEFAULT_PATH : path);
     }
 
     static Intent createIntent(final Context context) {
         return new Intent(context, FileManagerActivity.class);
+    }
+
+    private static Intent createNewWindowIntent(
+            final Context context, final String path) {
+        return createIntent(context).putExtra(
+                EXTRA_PATH, path == null ? DEFAULT_PATH : path);
     }
 
     static AppLaunchTarget launchTarget(final Context context) {
@@ -549,7 +557,7 @@ public final class FileManagerActivity extends Activity
         mWorker.execute(() -> {
             try {
                 WindowedAppLauncher.launch(
-                        createIntent(this, path),
+                        createNewWindowIntent(this, path),
                         launchTarget(this),
                         displayId,
                         null,
@@ -679,13 +687,33 @@ public final class FileManagerActivity extends Activity
                         this,
                         R.string.file_manager_termux_permission,
                         Toast.LENGTH_LONG).show();
+                return;
             }
         } catch (RuntimeException error) {
             Toast.makeText(
                     this,
                     R.string.file_manager_termux_failed,
                     Toast.LENGTH_LONG).show();
+            return;
         }
+        final int displayId = getDisplay() == null
+                ? 0 : getDisplay().getDisplayId();
+        mWorker.execute(() -> {
+            try {
+                TermuxIntegration.showOnDisplay(this, displayId);
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        Toast.makeText(
+                                this,
+                                getString(
+                                        R.string.file_manager_termux_window_failed,
+                                        ShellAccess.usefulMessage(error)),
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        });
     }
 
     @Override

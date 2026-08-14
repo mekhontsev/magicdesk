@@ -5,6 +5,9 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
+
+import java.io.IOException;
 
 final class TermuxIntegration {
     static final String PACKAGE_NAME = "com.termux";
@@ -57,9 +60,38 @@ final class TermuxIntegration {
                         "/data/data/com.termux/files/usr/bin/bash")
                 .putExtra(EXTRA_WORKDIR, absolutePath)
                 .putExtra(EXTRA_BACKGROUND, false)
-                .putExtra(EXTRA_SESSION_ACTION, "0")
+                // Select the new session without letting Termux open its
+                // activity on Android's default display. MagicDesk opens the
+                // activity on the Files window's display immediately after.
+                .putExtra(EXTRA_SESSION_ACTION, "2")
                 .putExtra(EXTRA_COMMAND_LABEL, "MagicDesk Files");
-        activity.startService(intent);
+        // RunCommandService promotes itself immediately. Starting it as a
+        // background service is rejected by current Android releases.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity.startForegroundService(intent);
+        } else {
+            activity.startService(intent);
+        }
         return true;
+    }
+
+    static void showOnDisplay(
+            final Activity activity, final int displayId) throws IOException {
+        final AppLaunchTarget target = AppLaunchTarget.packageDefault(
+                PACKAGE_NAME);
+        final Intent launchIntent = target.resolve(
+                activity.getPackageManager());
+        if (launchIntent == null) {
+            throw new IOException("Termux launcher activity is unavailable");
+        }
+        WindowedAppLauncher.launch(
+                launchIntent,
+                target,
+                displayId,
+                null,
+                true,
+                null,
+                WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                null);
     }
 }

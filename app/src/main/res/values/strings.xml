@@ -119,6 +119,7 @@
     <string name="file_manager_import_failed">Could not import dropped files: %1$s</string>
     <string name="file_manager_termux_permission">Grant MagicDesk the Run commands in Termux permission, then try again.</string>
     <string name="file_manager_termux_failed">Termux could not open this folder. Enable allow-external-apps in Termux settings.</string>
+    <string name="file_manager_termux_window_failed">The Termux session was created, but its window could not be opened: %1$s</string>
     <string name="file_manager_drag_label">MagicDesk files</string>
     <string name="action_add_widget">Add widget</string>
     <string name="action_choose_wallpaper">Choose wallpaper in Files&#8230;</string>
