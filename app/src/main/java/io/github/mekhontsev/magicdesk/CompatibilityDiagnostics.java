@@ -32,7 +32,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
-final class CompatibilityDiagnostics {
+public final class CompatibilityDiagnostics {
     private static final Object LOCK = new Object();
     private static final String PREFS = "compatibility_diagnostics";
     private static final String PREF_EVENT_BUILD = "event_build";
@@ -63,12 +63,12 @@ final class CompatibilityDiagnostics {
         Thread.setDefaultUncaughtExceptionHandler(new CrashHandler(previous));
     }
 
-    static void record(final String code, final String userMessage,
+    public static void record(final String code, final String userMessage,
             final String technicalDetail) {
         record(code, userMessage, technicalDetail, null);
     }
 
-    static void record(final String code, final String userMessage,
+    public static void record(final String code, final String userMessage,
             final String technicalDetail, final Throwable error) {
         final Context context = sApplicationContext;
         if (context == null) {
@@ -356,7 +356,7 @@ final class CompatibilityDiagnostics {
                 .append(", externalInputBridge=")
                 .append(features.externalInputBridge)
                 .append(", internalAudioCapture=")
-                .append(features.internalAudioCapture)
+                .append(platform.audioCapture().isAvailable())
                 .append(", absolutePointer=")
                 .append(platform.pointer().isAvailable())
                 .append(", outputControls=")
@@ -575,7 +575,7 @@ final class CompatibilityDiagnostics {
         }
     }
 
-    static void appendCheck(final StringBuilder report, final String code,
+    public static void appendCheck(final StringBuilder report, final String code,
             final boolean passed, final String label, final String detail) {
         report.append(passed ? "PASS" : "WARN")
                 .append(" [").append(code).append("] ")
@@ -589,7 +589,7 @@ final class CompatibilityDiagnostics {
                 + (TextUtils.isEmpty(actual) ? "<empty>" : actual);
     }
 
-    static boolean hasPackage(final Context context, final String packageName) {
+    public static boolean hasPackage(final Context context, final String packageName) {
         try {
             context.getPackageManager().getApplicationInfo(
                     packageName, PackageManager.MATCH_DISABLED_COMPONENTS);

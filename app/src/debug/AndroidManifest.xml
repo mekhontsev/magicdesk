@@ -4,7 +4,7 @@
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />
     <instrumentation
-        android:name=".NubiaVendorProbeInstrumentation"
+        android:name=".platform.nubia.NubiaVendorProbeInstrumentation"
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />
     <instrumentation

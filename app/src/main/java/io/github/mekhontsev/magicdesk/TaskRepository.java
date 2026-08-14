@@ -13,7 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-final class TaskRepository {
+public final class TaskRepository {
     private static final String TAG = "MagicDeskTasks";
     private static final String CMD = "/system/bin/cmd";
     private static final String AM = "/system/bin/am";
@@ -509,20 +509,20 @@ final class TaskRepository {
         }
     }
 
-    static final class TaskEntry {
-        final int rootTaskId;
-        final int taskId;
-        final int displayId;
-        final String packageName;
-        final String componentName;
-        final String topActivityName;
-        final String windowingMode;
-        final Rect bounds;
-        final boolean home;
-        final boolean visible;
-        final boolean active;
+    public static final class TaskEntry {
+        public final int rootTaskId;
+        public final int taskId;
+        public final int displayId;
+        public final String packageName;
+        public final String componentName;
+        public final String topActivityName;
+        public final String windowingMode;
+        public final Rect bounds;
+        public final boolean home;
+        public final boolean visible;
+        public final boolean active;
 
-        TaskEntry(final int rootTaskId, final int taskId, final int displayId,
+        public TaskEntry(final int rootTaskId, final int taskId, final int displayId,
                 final String packageName, final String componentName,
                 final String topActivityName, final String windowingMode,
                 final Rect bounds, final boolean home, final boolean visible,

@@ -255,9 +255,17 @@ isolated behind these boundaries.
   `PlatformProjectionDriver` owns projection state, output modes, and caption
   transport; `PlatformPhoneUiDriver` owns phone-screen controls, input-panel
   guards, launcher reconciliation, and local-navigation policy;
-  `PlatformPointerDriver` owns optional absolute-pointer integration; and
+  `PlatformPointerDriver` owns optional absolute-pointer integration;
+  `PlatformInputRoutingDriver` owns firmware hooks layered over Android's
+  standard input-device display associations; `PlatformTextInputDriver` owns
+  optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
-- `NubiaPlatformDriver` composes the ZTE/nubia implementations of those
+- Implementations live in `platform.android` and `platform.nubia`. Shared
+  runtime code does not import either implementation; `PlatformDrivers` is the
+  single composition point. ZTE-branded devices are not assumed to expose
+  Nubia services and use the standard Android driver unless a dedicated,
+  verified platform implementation is added.
+- `NubiaPlatformDriver` composes the Nubia/REDMAGIC implementations of those
   contracts and supplies the firmware's additional exported launch targets
   and hardware runtime. Common projection, input, phone-UI, setup, and
   diagnostics code does not select Nubia services or settings through feature
@@ -863,14 +871,14 @@ Settings.Global enable_freeform_support = 1
 Settings.Global force_resizable_activities = 1
 ```
 
-The ZTE/nubia platform additionally audits:
+The Nubia/REDMAGIC platform additionally audits:
 
 ```text
 persist.wm.debug.desktop_mode_enforce_device_restrictions = false
 persist.wm.debug.desktop_use_rounded_corners = false
 ```
 
-Shell UID 2000 owns the global settings. On supported ZTE/nubia firmware, the
+Shell UID 2000 owns the global settings. On supported Nubia/REDMAGIC firmware, the
 two persistent properties are written through the firmware's
 `redmagic.app.manager` Binder
 from the ordinary APK UID. `NubiaDesktopPropertyManager` exposes a closed

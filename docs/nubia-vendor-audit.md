@@ -333,7 +333,7 @@ expected to fail before mutation:
 
 ```sh
 am instrument -w --user 0 \
-  io.github.mekhontsev.magicdesk/.NubiaVendorProbeInstrumentation
+  io.github.mekhontsev.magicdesk/.platform.nubia.NubiaVendorProbeInstrumentation
 ```
 
 The optional property test must be requested explicitly:
@@ -341,7 +341,7 @@ The optional property test must be requested explicitly:
 ```sh
 am instrument -w --user 0 \
   -e allow_mutation true \
-  io.github.mekhontsev.magicdesk/.NubiaVendorProbeInstrumentation
+  io.github.mekhontsev.magicdesk/.platform.nubia.NubiaVendorProbeInstrumentation
 ```
 
 That test accepts only the hardcoded

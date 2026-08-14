@@ -25,7 +25,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
 
-final class ShizukuCapabilityProbe {
+public final class ShizukuCapabilityProbe {
     private static final String[] PERMISSIONS = {
             "android.permission.INJECT_EVENTS",
             "android.permission.MONITOR_INPUT",
@@ -106,11 +106,10 @@ final class ShizukuCapabilityProbe {
                 report, "capture.screenrecord", new File("/system/bin/screenrecord"));
         append(report,
                 "capture.internal_audio_backend",
-                PlatformDrivers.current().features().internalAudioCapture
+                PlatformDrivers.current().audioCapture().isAvailable()
                         ? "configured" : "unsupported",
-                PlatformDrivers.current().features().internalAudioCapture
-                        ? InternalAudioRecorder.capabilityDescription()
-                        : "not provided by the selected platform");
+                PlatformDrivers.current().audioCapture()
+                        .capabilityDescription());
     }
 
     private static void appendExecutable(
@@ -141,7 +140,7 @@ final class ShizukuCapabilityProbe {
         appendOpenResult(report, "raw_input.write", device, OsConstants.O_RDWR);
     }
 
-    static void appendOpenResult(
+    public static void appendOpenResult(
             final StringBuilder report,
             final String key,
             final File file,
@@ -307,7 +306,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    static void appendMethodPresence(
+    public static void appendMethodPresence(
             final StringBuilder report,
             final String key,
             final String className,
@@ -321,7 +320,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    static void appendService(
+    public static void appendService(
             final StringBuilder report,
             final String key,
             final String serviceName) {
@@ -409,7 +408,7 @@ final class ShizukuCapabilityProbe {
         }
     }
 
-    static void append(
+    public static void append(
             final StringBuilder report,
             final String key,
             final String state,
@@ -422,7 +421,7 @@ final class ShizukuCapabilityProbe {
         report.append('\n');
     }
 
-    static String usefulMessage(final Throwable source) {
+    public static String usefulMessage(final Throwable source) {
         final Throwable error = unwrap(source);
         final String message = clean(error.getMessage());
         return error.getClass().getSimpleName()
@@ -440,7 +439,7 @@ final class ShizukuCapabilityProbe {
         return error;
     }
 
-    static String clean(final String value) {
+    public static String clean(final String value) {
         if (value == null) {
             return "";
         }

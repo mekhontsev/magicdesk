@@ -6,7 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
-final class BoundedProcessRunner {
+public final class BoundedProcessRunner {
     static final long DEFAULT_TIMEOUT_MILLIS = 30_000L;
     static final int DEFAULT_MAX_OUTPUT_BYTES = 384 * 1024;
 
@@ -16,11 +16,11 @@ final class BoundedProcessRunner {
     private BoundedProcessRunner() {
     }
 
-    static Result run(final Process process) throws IOException, InterruptedException {
+    public static Result run(final Process process) throws IOException, InterruptedException {
         return run(process, DEFAULT_TIMEOUT_MILLIS, DEFAULT_MAX_OUTPUT_BYTES);
     }
 
-    static Result run(
+    public static Result run(
             final Process process,
             final long timeoutMillis,
             final int maxOutputBytes) throws IOException, InterruptedException {
@@ -100,10 +100,10 @@ final class BoundedProcessRunner {
         return trimmed.isEmpty() ? "" : ": " + trimmed;
     }
 
-    static final class Result {
-        final int exitCode;
-        final String output;
-        final boolean truncated;
+    public static final class Result {
+        public final int exitCode;
+        public final String output;
+        public final boolean truncated;
 
         Result(
                 final int exitCode,

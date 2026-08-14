@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.os.Binder;
 import android.os.IBinder;
 import android.os.SystemClock;
 
@@ -12,15 +11,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-final class DesktopInputRoutingSession implements AutoCloseable {
+public final class DesktopInputRoutingSession implements AutoCloseable {
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
     private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
     private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
-    private static final long DISPLAY_COMMAND_TIMEOUT_MILLIS = 3_000L;
-    private static final int DISPLAY_COMMAND_OUTPUT_LIMIT_BYTES = 64 * 1024;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
             "magicdesk-keyboard-";
-    private static final String DUMPSYS = "/system/bin/dumpsys";
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
@@ -29,11 +25,7 @@ final class DesktopInputRoutingSession implements AutoCloseable {
     private Method mAddAssociation;
     private Method mRemoveAssociation;
     private Object mAssociationTarget;
-    private Object mDisplayManager;
-    private Method mNotePanelStatus;
-    private Binder mPanelToken;
-    private boolean mUsesPlatformConsoleHooks;
-    private boolean mMouseInputSourceOverride;
+    private PlatformInputRoutingDriver.Session mPlatformSession;
     private int mDisplayId = -1;
     private int mKeyboardAssociationCount;
     private int mVirtualKeyboardCount;
@@ -152,8 +144,6 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             mRemoveAssociation = inputManagerInterface.getMethod(
                     "removeUniqueIdAssociationByPort", String.class);
         }
-        mUsesPlatformConsoleHooks = target.platformConsole;
-
         final Set<String> requestedPorts = new LinkedHashSet<>();
         for (final DesktopKeyboardDevice keyboard : keyboards) {
             addRequestedPort(requestedPorts, keyboard.location);
@@ -175,13 +165,9 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             associatePort(mouse.location);
         }
 
-        if (PlatformDrivers.current().phoneUi().usesMirrorInputPanel()) {
-            initializePanelRegistration();
-        }
-        registerPanelToken();
-        if (mUsesPlatformConsoleHooks) {
-            setMouseInputSourceOverride(true);
-        } else {
+        mPlatformSession = PlatformDrivers.current()
+                .inputRouting().open(target.platformConsole);
+        if (!target.platformConsole) {
             PlatformDrivers.current().pointer().refreshViewport();
         }
     }
@@ -191,7 +177,9 @@ final class DesktopInputRoutingSession implements AutoCloseable {
                 || mAddAssociation == null || mAssociationTarget == null) {
             return 0;
         }
-        registerPanelToken();
+        if (mPlatformSession != null) {
+            mPlatformSession.refresh();
+        }
         int added = 0;
         for (final DesktopKeyboardDevice keyboard
                 : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
@@ -213,46 +201,6 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         return added;
     }
 
-    private void initializePanelRegistration() {
-        try {
-            mDisplayManager = getService(
-                    "display", "android.hardware.display.IDisplayManager");
-            mNotePanelStatus = resolvePanelStatusMethod();
-            mPanelToken = new Binder();
-        } catch (Exception error) {
-            mDisplayManager = null;
-            mNotePanelStatus = null;
-            mPanelToken = null;
-            System.err.println(
-                    "MAGICDESK_INPUT_ROUTING_PANEL unavailable="
-                            + error);
-        }
-    }
-
-    static void verifyMirrorPanelApi() throws ReflectiveOperationException {
-        resolvePanelStatusMethod();
-    }
-
-    private static Method resolvePanelStatusMethod()
-            throws ReflectiveOperationException {
-        return Class.forName("android.hardware.display.IDisplayManager")
-                .getMethod("noteMirrorInputPanelStatus", IBinder.class);
-    }
-
-    private void registerPanelToken() {
-        if (mNotePanelStatus != null
-                && mDisplayManager != null
-                && mPanelToken != null) {
-            try {
-                mNotePanelStatus.invoke(mDisplayManager, mPanelToken);
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                System.err.println(
-                        "MAGICDESK_INPUT_ROUTING_PANEL registration="
-                                + error);
-            }
-        }
-    }
-
     private boolean associatePort(final String location)
             throws ReflectiveOperationException {
         if (location == null
@@ -268,25 +216,6 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             mAssociatedInputPorts.remove(location);
             throw error;
         }
-    }
-
-    private void setMouseInputSourceOverride(final boolean enabled)
-            throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(
-                DUMPSYS, "display", "dmctrl", "inputSource",
-                enabled ? "mouse" : "none")
-                .redirectErrorStream(true)
-                .start();
-        final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
-                process,
-                DISPLAY_COMMAND_TIMEOUT_MILLIS,
-                DISPLAY_COMMAND_OUTPUT_LIMIT_BYTES);
-        if (result.exitCode != 0 || result.truncated) {
-            throw new IOException(
-                    "display mirror input source failed "
-                            + result.exitCode + ": " + result.output);
-        }
-        mMouseInputSourceOverride = enabled;
     }
 
     private static void addRequestedPort(
@@ -385,25 +314,9 @@ final class DesktopInputRoutingSession implements AutoCloseable {
         }
         mClosed = true;
 
-        if (mMouseInputSourceOverride) {
-            try {
-                setMouseInputSourceOverride(false);
-            } catch (Exception error) {
-                System.err.println(
-                        "MAGICDESK_INPUT_ROUTING_CLEANUP mouseSource="
-                                + error);
-            }
-            mMouseInputSourceOverride = false;
-        }
-        if (mNotePanelStatus != null && mDisplayManager != null) {
-            try {
-                mNotePanelStatus.invoke(
-                        mDisplayManager, new Object[] {null});
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                System.err.println(
-                        "MAGICDESK_INPUT_ROUTING_CLEANUP panel="
-                                + error);
-            }
+        if (mPlatformSession != null) {
+            mPlatformSession.close();
+            mPlatformSession = null;
         }
         boolean associationsRemoved = mAssociatedInputPorts.isEmpty();
         if (mRemoveAssociation != null && mInputManager != null) {
@@ -430,10 +343,8 @@ final class DesktopInputRoutingSession implements AutoCloseable {
             }
         }
         mAssociatedInputPorts.clear();
-        mPanelToken = null;
         mDisplayId = -1;
         mAssociationTarget = null;
-        mUsesPlatformConsoleHooks = false;
         mKeyboardAssociationCount = 0;
         mVirtualKeyboardCount = 0;
     }

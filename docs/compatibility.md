@@ -3,7 +3,9 @@
 MagicDesk targets capable Android 15+ firmware through one APK and one common
 desktop runtime. The standard Android driver supports phone, simulated, and
 already connected secondary-display sessions. A platform-driver boundary
-separates that baseline from optional ZTE/nubia integration.
+separates that baseline from optional Nubia/REDMAGIC integration. A device
+branded ZTE is not automatically treated as Nubia-compatible; until its
+firmware interfaces are verified, it uses the standard Android driver.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, phone UI recovery, absolute-pointer access, optional

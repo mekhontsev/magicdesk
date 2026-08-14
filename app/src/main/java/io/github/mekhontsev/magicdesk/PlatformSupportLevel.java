@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-enum PlatformSupportLevel {
+public enum PlatformSupportLevel {
     MAINTAINER_VERIFIED,
     COMMUNITY_TESTED,
     UNVERIFIED

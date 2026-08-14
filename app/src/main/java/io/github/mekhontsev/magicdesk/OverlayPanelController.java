@@ -462,9 +462,9 @@ final class OverlayPanelController {
             return false;
         }
         switch (action) {
-            case DesktopMirrorTextInput.COMMIT_TEXT:
+            case PlatformTextInputDriver.COMMIT_TEXT:
                 return connection.commitText(safeText(text), arg1);
-            case DesktopMirrorTextInput.SEND_KEY:
+            case PlatformTextInputDriver.SEND_KEY:
                 final long eventTime = android.os.SystemClock.uptimeMillis();
                 return connection.sendKeyEvent(new KeyEvent(
                         eventTime,
@@ -473,13 +473,13 @@ final class OverlayPanelController {
                         arg2,
                         0,
                         arg3));
-            case DesktopMirrorTextInput.SET_COMPOSING_TEXT:
+            case PlatformTextInputDriver.SET_COMPOSING_TEXT:
                 return connection.setComposingText(safeText(text), arg1);
-            case DesktopMirrorTextInput.SET_COMPOSING_REGION:
+            case PlatformTextInputDriver.SET_COMPOSING_REGION:
                 return connection.setComposingRegion(arg1, arg2);
-            case DesktopMirrorTextInput.FINISH_COMPOSING:
+            case PlatformTextInputDriver.FINISH_COMPOSING:
                 return connection.finishComposingText();
-            case DesktopMirrorTextInput.DELETE_SURROUNDING:
+            case PlatformTextInputDriver.DELETE_SURROUNDING:
                 return connection.deleteSurroundingText(arg1, arg2);
             default:
                 return false;

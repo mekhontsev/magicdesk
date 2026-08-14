@@ -432,6 +432,11 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskbarController;
     }
 
+    /** Updates the taskbar indicator owned by platform-specific controls. */
+    public void updatePlatformChargeSeparation(final boolean enabled) {
+        mTaskbarController.updateChargeSeparation(enabled);
+    }
+
     void scheduleDisplayProfileRefresh() {
         mDisplayProfiles.scheduleRefresh();
     }
@@ -1466,15 +1471,15 @@ public abstract class DesktopShellActivity extends Activity
         return mUi.actionButton(textResId, accentColor);
     }
 
-    void setStatus(final int stringResId) {
+    public void setStatus(final int stringResId) {
         setStatus(getString(stringResId));
     }
 
-    void setErrorStatus(final String code, final String message) {
+    public void setErrorStatus(final String code, final String message) {
         setErrorStatus(code, message, "", null);
     }
 
-    void setErrorStatus(final String code, final String message,
+    public void setErrorStatus(final String code, final String message,
             final String technicalDetail, final Throwable error) {
         CompatibilityDiagnostics.record(code, message, technicalDetail, error);
         setStatus(message + " [" + code + "]");

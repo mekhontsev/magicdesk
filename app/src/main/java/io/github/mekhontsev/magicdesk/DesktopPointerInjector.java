@@ -14,15 +14,15 @@ import android.view.MotionEvent;
 import java.lang.reflect.Method;
 
 /** Injects display-targeted pointer actions. */
-final class DesktopPointerInjector {
+public final class DesktopPointerInjector {
     private static final int MAGICDESK_VENDOR_ID = 0x4d44;
     private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
     private static final int INJECTION_MODE_ASYNC = 0;
     private static final int INJECTION_MODE_WAIT_FOR_RESULT = 1;
-    static final int TOUCHPAD_HOVER = 0;
-    static final int TOUCHPAD_DRAG_START = 1;
-    static final int TOUCHPAD_DRAG_MOVE = 2;
-    static final int TOUCHPAD_DRAG_END = 3;
+    public static final int TOUCHPAD_HOVER = 0;
+    public static final int TOUCHPAD_DRAG_START = 1;
+    public static final int TOUCHPAD_DRAG_MOVE = 2;
+    public static final int TOUCHPAD_DRAG_END = 3;
 
     private static volatile InjectionContext sInjectionContext;
     private static volatile int sMagicDeskMouseDeviceId = -1;
@@ -31,7 +31,7 @@ final class DesktopPointerInjector {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectClickAt(
+    public static void injectClickAt(
             final int displayId,
             final Point position,
             final int button) {
@@ -73,7 +73,7 @@ final class DesktopPointerInjector {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectTouchpadMotion(
+    public static void injectTouchpadMotion(
             final int displayId,
             final Point position,
             final int action,

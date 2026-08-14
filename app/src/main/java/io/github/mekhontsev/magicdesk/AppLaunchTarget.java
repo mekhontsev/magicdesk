@@ -5,10 +5,22 @@ import android.content.pm.PackageManager;
 
 import java.util.Objects;
 
-final class AppLaunchTarget {
+public final class AppLaunchTarget {
     final String packageName;
     final String activityClassName;
     final String action;
+
+    public String packageName() {
+        return packageName;
+    }
+
+    public String activityClassName() {
+        return activityClassName;
+    }
+
+    public String action() {
+        return action;
+    }
 
     private AppLaunchTarget(
             final String packageName,
@@ -23,7 +35,7 @@ final class AppLaunchTarget {
         this.action = action == null ? "" : action;
     }
 
-    static AppLaunchTarget explicit(
+    public static AppLaunchTarget explicit(
             final String packageName,
             final String activityClassName,
             final String action) {

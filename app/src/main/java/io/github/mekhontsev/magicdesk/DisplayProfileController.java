@@ -11,7 +11,7 @@ import android.view.Display;
 import java.io.IOException;
 import java.util.Locale;
 
-final class DisplayProfileController {
+public final class DisplayProfileController {
     private static final String TAG = "MagicDeskDisplayProfile";
     private static final long DISPLAY_SETTLE_MILLIS = 1_000L;
 
@@ -108,7 +108,7 @@ final class DisplayProfileController {
         return initialDpi(getProfileDisplay());
     }
 
-    static DisplayProfileStore.Profile prepareExternalProfile(
+    public static DisplayProfileStore.Profile prepareExternalProfile(
             final Context context, final int physicalDisplayId) {
         if (context == null || physicalDisplayId <= 0) {
             return null;

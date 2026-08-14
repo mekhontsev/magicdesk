@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-final class AppProcessCommand {
+public final class AppProcessCommand {
     private static final String PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk";
     private static final String APK_ASSIGNMENT =
@@ -11,16 +11,16 @@ final class AppProcessCommand {
     private AppProcessCommand() {
     }
 
-    static String run(final String mainClass) {
+    public static String run(final String mainClass) {
         return run(mainClass, "");
     }
 
-    static String run(final String mainClass, final String arguments) {
+    public static String run(final String mainClass, final String arguments) {
         return APK_ASSIGNMENT + "CLASSPATH=\"$APK\" "
                 + invocation(mainClass, arguments);
     }
 
-    static String exec(final String mainClass, final String arguments) {
+    public static String exec(final String mainClass, final String arguments) {
         return environment() + "exec " + invocation(mainClass, arguments);
     }
 

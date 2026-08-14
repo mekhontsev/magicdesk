@@ -12,13 +12,13 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-final class DesktopUiFactory {
+public final class DesktopUiFactory {
     static final int COLOR_BACKGROUND = 0xFF090D14;
     static final int COLOR_PANEL = 0xFF111827;
-    static final int COLOR_PANEL_ALT = 0xFF172033;
-    static final int COLOR_TEXT = 0xFFE5E7EB;
-    static final int COLOR_MUTED = 0xFF94A3B8;
-    static final int COLOR_CYAN = 0xFF22D3EE;
+    public static final int COLOR_PANEL_ALT = 0xFF172033;
+    public static final int COLOR_TEXT = 0xFFE5E7EB;
+    public static final int COLOR_MUTED = 0xFF94A3B8;
+    public static final int COLOR_CYAN = 0xFF22D3EE;
     static final int COLOR_RED = 0xFFF43F5E;
     static final int COLOR_AMBER = 0xFFF59E0B;
 
@@ -28,7 +28,7 @@ final class DesktopUiFactory {
         mContext = context;
     }
 
-    int dp(final int value) {
+    public int dp(final int value) {
         return Math.round(value
                 * mContext.getResources().getDisplayMetrics().density);
     }
@@ -40,7 +40,7 @@ final class DesktopUiFactory {
         return dp(compact ? compactValue : normalValue);
     }
 
-    TextView sectionTitle(final int titleResId) {
+    public TextView sectionTitle(final int titleResId) {
         final TextView title = new TextView(mContext);
         title.setText(titleResId);
         title.setTextColor(COLOR_TEXT);
@@ -49,7 +49,7 @@ final class DesktopUiFactory {
         return title;
     }
 
-    Button actionButton(final int textResId, final int accentColor) {
+    public Button actionButton(final int textResId, final int accentColor) {
         return actionButton(mContext.getString(textResId), accentColor);
     }
 
@@ -107,7 +107,7 @@ final class DesktopUiFactory {
         return button;
     }
 
-    GradientDrawable rounded(
+    public GradientDrawable rounded(
             final int color,
             final int radius,
             final int strokeColor) {

@@ -14,7 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-final class DeviceSetupManager {
+public final class DeviceSetupManager {
     private static final String PREFS = "magicdesk_device_setup";
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
@@ -483,7 +483,7 @@ final class DeviceSetupManager {
 
     }
 
-    static boolean hasRequiredWindowingSettings(
+    public static boolean hasRequiredWindowingSettings(
             final boolean freeformEnabled,
             final boolean resizableEnabled) {
         return freeformEnabled && resizableEnabled;

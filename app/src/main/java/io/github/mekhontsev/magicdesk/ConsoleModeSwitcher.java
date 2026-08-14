@@ -11,7 +11,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-final class ConsoleModeSwitcher {
+public final class ConsoleModeSwitcher {
     private static final String TAG = "MagicDeskConsoleSwitcher";
     private static final String CONSOLE_TASK_RETURN_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleTaskReturnCommand";
@@ -500,7 +500,7 @@ final class ConsoleModeSwitcher {
         HardwareKeyboardLayoutController.refresh();
     }
 
-    static void executeSerialized(final Runnable action) {
+    public static void executeSerialized(final Runnable action) {
         EXECUTOR.execute(action);
     }
 

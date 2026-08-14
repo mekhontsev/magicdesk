@@ -36,12 +36,14 @@ public final class DesktopSelfTestCapabilityAuditTest {
                 classifyRuntime("not_tested"));
         assertEquals(DesktopSelfTestResult.State.NOT_TESTED,
                 DesktopSelfTestCapabilityAudit
-                        .classifyMirrorTextInputRuntime(null));
+                        .classifyRuntimeCapability(
+                                null, "working", "failed"));
     }
 
     private static DesktopSelfTestResult.State classifyRuntime(
             final String state) {
-        return DesktopSelfTestCapabilityAudit.classifyMirrorTextInputRuntime(
-                new DesktopSelfTestCapabilityAudit.ProbeEntry(state, ""));
+        return DesktopSelfTestCapabilityAudit.classifyRuntimeCapability(
+                new DesktopSelfTestCapabilityAudit.ProbeEntry(state, ""),
+                "working", "failed");
     }
 }

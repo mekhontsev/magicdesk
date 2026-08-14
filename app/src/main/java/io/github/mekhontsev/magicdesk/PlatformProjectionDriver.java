@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.List;
 
 /** Platform projection lifecycle and optional external output controls. */
-interface PlatformProjectionDriver {
+public interface PlatformProjectionDriver {
     enum Transport {
         NONE,
         WIRED,
@@ -17,23 +17,23 @@ interface PlatformProjectionDriver {
     }
 
     final class Mode {
-        final String timingKey;
-        final String displayLabel;
+        public final String timingKey;
+        public final String displayLabel;
 
-        Mode(final String timingKey, final String displayLabel) {
+        public Mode(final String timingKey, final String displayLabel) {
             this.timingKey = timingKey == null ? "" : timingKey;
             this.displayLabel = displayLabel == null ? "" : displayLabel;
         }
     }
 
     final class ModeSelection {
-        final Mode current;
-        final Mode target;
-        final Mode defaultTarget;
-        final List<Mode> availableModes;
-        final boolean configurable;
+        public final Mode current;
+        public final Mode target;
+        public final Mode defaultTarget;
+        public final List<Mode> availableModes;
+        public final boolean configurable;
 
-        ModeSelection(
+        public ModeSelection(
                 final Mode current,
                 final Mode target,
                 final Mode defaultTarget,
@@ -49,7 +49,7 @@ interface PlatformProjectionDriver {
             this.configurable = configurable;
         }
 
-        ModeSelection withPreferredTiming(final String timingKey) {
+        public ModeSelection withPreferredTiming(final String timingKey) {
             if (!configurable) {
                 return this;
             }

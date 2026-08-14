@@ -5,16 +5,16 @@ import android.os.Build;
 import java.util.Locale;
 
 /** Immutable device identity used to select a platform driver. */
-final class PlatformDevice {
-    final String manufacturer;
-    final String brand;
-    final String model;
-    final String device;
-    final String product;
-    final String fingerprint;
-    final int sdkInt;
+public final class PlatformDevice {
+    public final String manufacturer;
+    public final String brand;
+    public final String model;
+    public final String device;
+    public final String product;
+    public final String fingerprint;
+    public final int sdkInt;
 
-    PlatformDevice(
+    public PlatformDevice(
             final String manufacturer,
             final String brand,
             final String model,
@@ -31,7 +31,7 @@ final class PlatformDevice {
         this.sdkInt = sdkInt;
     }
 
-    static PlatformDevice current() {
+    public static PlatformDevice current() {
         return new PlatformDevice(
                 Build.MANUFACTURER,
                 Build.BRAND,
@@ -42,7 +42,7 @@ final class PlatformDevice {
                 Build.VERSION.SDK_INT);
     }
 
-    boolean familyNameContains(final String token) {
+    public boolean familyNameContains(final String token) {
         final String normalized = token.toLowerCase(Locale.US);
         return contains(manufacturer, normalized)
                 || contains(brand, normalized)

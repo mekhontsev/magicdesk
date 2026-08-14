@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import rikka.shizuku.Shizuku;
 
-final class ShellAccess {
+public final class ShellAccess {
     static final int REQUEST_PERMISSION_CODE = 7104;
     static final int ROOT_UID = 0;
     static final int SHELL_UID = 2000;
@@ -72,11 +72,11 @@ final class ShellAccess {
         refresh();
     }
 
-    static boolean isReady() {
+    public static boolean isReady() {
         return sSnapshot.isReady();
     }
 
-    static String statusLabel() {
+    public static String statusLabel() {
         return isReady() ? "ready" : "unavailable";
     }
 
@@ -155,7 +155,7 @@ final class ShellAccess {
         return uid == SHELL_UID || uid == ROOT_UID;
     }
 
-    static String run(final String command) throws IOException {
+    public static String run(final String command) throws IOException {
         final CommandResult result = executeForConsole(command);
         if (result.exitCode != 0) {
             throw new IOException("Shizuku command failed " + result.exitCode + ": "
@@ -164,7 +164,7 @@ final class ShellAccess {
         return result.output;
     }
 
-    static CommandResult executeForConsole(final String command) throws IOException {
+    public static CommandResult executeForConsole(final String command) throws IOException {
         final String encoded;
         try {
             encoded = requireService().execute(command);
@@ -228,7 +228,7 @@ final class ShellAccess {
         }
     }
 
-    static boolean capturePointerPosition() {
+    public static boolean capturePointerPosition() {
         if (!isReady()) {
             return false;
         }
@@ -244,7 +244,7 @@ final class ShellAccess {
         }
     }
 
-    static void restorePointerPositionIfDisplaced() {
+    public static void restorePointerPositionIfDisplaced() {
         if (!isReady()) {
             return;
         }
@@ -277,7 +277,7 @@ final class ShellAccess {
         }
     }
 
-    static Point getMousePosition(final int displayId) {
+    public static Point getMousePosition(final int displayId) {
         if (!isReady() || displayId <= 0) {
             return null;
         }
@@ -295,7 +295,7 @@ final class ShellAccess {
         }
     }
 
-    static boolean updateMousePosition(
+    public static boolean updateMousePosition(
             final int displayId,
             final int x,
             final int y,
@@ -661,7 +661,7 @@ final class ShellAccess {
         return openStream(command, false);
     }
 
-    static ShellStreamHandle openHeartbeatStream(final String command)
+    public static ShellStreamHandle openHeartbeatStream(final String command)
             throws IOException {
         return openStream(command, true);
     }
@@ -938,17 +938,17 @@ final class ShellAccess {
         }
     }
 
-    static String usefulMessage(final Throwable error) {
+    public static String usefulMessage(final Throwable error) {
         final String message = error.getMessage();
         return message == null || message.isEmpty()
                 ? error.getClass().getSimpleName() : message;
     }
 
-    static final class CommandResult {
-        final int exitCode;
-        final String output;
+    public static final class CommandResult {
+        public final int exitCode;
+        public final String output;
 
-        CommandResult(final int exitCode, final String output) {
+        public CommandResult(final int exitCode, final String output) {
             this.exitCode = exitCode;
             this.output = output == null ? "" : output;
         }

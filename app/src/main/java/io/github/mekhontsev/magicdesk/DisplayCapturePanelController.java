@@ -37,8 +37,8 @@ final class DisplayCapturePanelController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
-        mRecordingSupported = PlatformDrivers.current().features()
-                .internalAudioCapture;
+        mRecordingSupported = PlatformDrivers.current().audioCapture()
+                .isAvailable();
         mSettings = DisplayRecordingSettings.load(activity);
     }
 

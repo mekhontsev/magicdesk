@@ -33,11 +33,10 @@ final class MagicDeskSessionController {
                     @Override
                     public void restoreHardware(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        if (ShellAccess.isReady()
-                                && PlatformDrivers.current().features()
-                                        .vendorHardware) {
-                            RedmagicHardwareController.restoreChangedState(
-                                    callback::onComplete);
+                        if (ShellAccess.isReady()) {
+                            PlatformDrivers.current().restoreRuntimeState(
+                                    success -> callback.onComplete(
+                                            success.booleanValue()));
                         } else {
                             callback.onComplete(true);
                         }
@@ -276,7 +275,7 @@ final class MagicDeskSessionController {
         switch (step) {
             case RESTORE_HARDWARE:
                 reportExitFailure(
-                        "REDMAGIC-HW-RESTORE-001",
+                        "PLATFORM-HW-RESTORE-001",
                         mActivity.getString(R.string.hardware_restore_failed),
                         error);
                 break;

@@ -194,7 +194,7 @@ public final class TaskControlCommand {
         return baseActivity != null && PACKAGE_NAME.equals(baseActivity.getPackageName());
     }
 
-    static boolean removeTask(final Object service, final int taskId)
+    public static boolean removeTask(final Object service, final int taskId)
             throws ReflectiveOperationException {
         for (final Method method : service.getClass().getMethods()) {
             final Class<?>[] parameterTypes = method.getParameterTypes();

@@ -278,7 +278,8 @@ public final class DiagnosticsActivity extends Activity {
         }
         new Thread(() -> {
             final int activeWiredDisplayId =
-                    ConsoleDisplayController.getActiveConsoleDisplayId();
+                    PlatformDrivers.current().projection()
+                            .activeDesktopDisplayId(this);
             final int physicalWiredDisplayId =
                     ConsoleDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =

@@ -30,6 +30,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final PlatformPointerDriver mPointerDriver;
+    private final PlatformTextInputDriver mTextInputDriver;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
@@ -38,7 +39,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
-    private DesktopMirrorTextInput.Session mMirrorTextInputSession;
+    private PlatformTextInputDriver.Session mMirrorTextInputSession;
     private int mMirrorTextInputDisplayId = -1;
 
     public ShizukuCommandService() {
@@ -68,6 +69,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     }
                 });
         mPointerDriver = PlatformDrivers.current().pointer();
+        mTextInputDriver = PlatformDrivers.current().textInput();
         mNavigationGuard = PlatformDrivers.current().phoneUi()
                 .createNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
@@ -299,7 +301,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         if (displayId <= 0) {
             return false;
         }
-        final DesktopMirrorTextInput.Session session;
+        final PlatformTextInputDriver.Session session;
         synchronized (mMirrorTextInputLock) {
             session = displayId == mMirrorTextInputDisplayId
                     ? mMirrorTextInputSession : null;
@@ -334,8 +336,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             }
         }
         try {
-            final DesktopMirrorTextInput.Session session =
-                    DesktopMirrorTextInput.capture();
+            final PlatformTextInputDriver.Session session =
+                    mTextInputDriver.capture();
             if (session == null) {
                 return false;
             }

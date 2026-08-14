@@ -5,9 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import org.junit.Test;
 
 public final class AppLaunchTargetTest {
@@ -27,17 +24,6 @@ public final class AppLaunchTargetTest {
                 "com.example.Main_Activity$Alias"));
         assertFalse(AppLaunchTarget.isSafeClassName("com.example.Main;id"));
         assertFalse(AppLaunchTarget.isSafeClassName(null));
-    }
-
-    @Test
-    public void redmagicCatalogContainsUniqueExplicitTargets() {
-        final Set<String> packages = new HashSet<>();
-        for (final AppLaunchTarget target
-                : RedmagicEntryPointCatalog.targets()) {
-            assertTrue(packages.add(target.packageName));
-            assertFalse(target.activityClassName.isEmpty());
-            assertFalse(target.action.isEmpty());
-        }
     }
 
     @Test

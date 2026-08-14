@@ -7,7 +7,7 @@ import android.os.IBinder;
 import java.util.List;
 
 /** Firmware-specific phone UI behavior while a desktop session is active. */
-interface PlatformPhoneUiDriver {
+public interface PlatformPhoneUiDriver {
     interface InputOwner {
         boolean isActive();
 

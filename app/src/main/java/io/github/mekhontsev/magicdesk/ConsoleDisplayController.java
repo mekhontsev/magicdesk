@@ -7,16 +7,13 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class ConsoleDisplayController {
+public final class ConsoleDisplayController {
     static final long START_TIMEOUT_MS = 10_000L;
     static final long STATE_POLL_MS = 100L;
 
     private static final String TAG = "MagicDeskConsoleDisplay";
-    private static final String SETTINGS = "/system/bin/settings";
     private static final String DISPLAY = "/system/bin/cmd display";
     private static final String WM = "/system/bin/wm";
-    private static final String CONSOLE_DISPLAY_COMMAND =
-            "io.github.mekhontsev.magicdesk.ConsoleDisplayCommand";
     private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
     private static final Pattern DISPLAY_UNIQUE_ID_PATTERN = Pattern.compile(
             "Display id (\\d+):.*?uniqueId \"([^\"]+)\"");
@@ -28,12 +25,7 @@ final class ConsoleDisplayController {
     private ConsoleDisplayController() {
     }
 
-    static int getActiveConsoleDisplayId() {
-        final int displayId = getMirrorDisplayId();
-        return displayId > 0 && displayExists(displayId) ? displayId : -1;
-    }
-
-    static int findExternalDisplayId() {
+    public static int findExternalDisplayId() {
         return findFirstDisplayId(runCommand(
                 DISPLAY + " get-displays --ids-only --type external"));
     }
@@ -60,62 +52,6 @@ final class ConsoleDisplayController {
         return -1;
     }
 
-    static boolean requestConsoleMode(final int externalDisplayId) {
-        final String output = runCommand(
-                AppProcessCommand.run(
-                        CONSOLE_DISPLAY_COMMAND,
-                        "expand " + externalDisplayId)).trim();
-        if (!output.contains("display-command=expand")) {
-            Log.w(TAG, "Console mode request failed output=" + output);
-            CompatibilityDiagnostics.record(
-                    "NUBIA-CONSOLE-003",
-                    "The firmware rejected the external desktop request",
-                    output);
-            return false;
-        }
-        return true;
-    }
-
-    static boolean requestMirrorMode() {
-        final String output = runCommand(
-                AppProcessCommand.run(
-                        CONSOLE_DISPLAY_COMMAND,
-                        "mirror 0")).trim();
-        if (output.contains("display-command=mirror")) {
-            return true;
-        }
-        Log.w(TAG, "Mirror mode request failed output=" + output);
-        return false;
-    }
-
-    static boolean isMirrorMode() {
-        return "0".equals(runCommand(
-                SETTINGS + " get global app_mirror_status").trim());
-    }
-
-    static int waitForConsoleDisplay() {
-        final long deadline = SystemClock.uptimeMillis() + START_TIMEOUT_MS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            final int displayId = getActiveConsoleDisplayId();
-            if (displayId > 0) {
-                return displayId;
-            }
-            SystemClock.sleep(STATE_POLL_MS);
-        }
-        return -1;
-    }
-
-    static boolean waitForConsoleStop() {
-        final long deadline = SystemClock.uptimeMillis() + START_TIMEOUT_MS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            if (getActiveConsoleDisplayId() <= 0) {
-                return true;
-            }
-            SystemClock.sleep(STATE_POLL_MS);
-        }
-        return false;
-    }
-
     static boolean waitForWirelessDisplayStop() {
         final long deadline = SystemClock.uptimeMillis() + START_TIMEOUT_MS;
         while (SystemClock.uptimeMillis() < deadline) {
@@ -127,7 +63,7 @@ final class ConsoleDisplayController {
         return false;
     }
 
-    static boolean displayExists(final int displayId) {
+    public static boolean displayExists(final int displayId) {
         final String output = runCommand(
                 DISPLAY + " get-displays --ids-only");
         for (final String line : output.split("\\r?\\n")) {
@@ -261,17 +197,6 @@ final class ConsoleDisplayController {
                             + output.trim());
         }
         return new DisplaySize(width, height);
-    }
-
-    private static int getMirrorDisplayId() {
-        final String output = runCommand(
-                SETTINGS + " get global app_mirror_displayid");
-        try {
-            return Integer.parseInt(output.trim());
-        } catch (NumberFormatException error) {
-            Log.w(TAG, "bad app_mirror_displayid: " + output);
-            return -1;
-        }
     }
 
     private static String runCommand(final String command) {

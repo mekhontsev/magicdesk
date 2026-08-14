@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Point;
 
 /** Optional absolute-pointer API supplied by a firmware platform. */
-interface PlatformPointerDriver extends AutoCloseable {
+public interface PlatformPointerDriver extends AutoCloseable {
     boolean isAvailable();
 
     boolean capturePosition();

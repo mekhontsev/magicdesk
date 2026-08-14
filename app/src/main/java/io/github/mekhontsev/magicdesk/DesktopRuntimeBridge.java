@@ -9,7 +9,7 @@ import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
 
-final class DesktopRuntimeBridge {
+public final class DesktopRuntimeBridge {
     private static final String TAG = "MagicDesk";
     private static final Handler MAIN_HANDLER =
             new Handler(Looper.getMainLooper());
@@ -229,7 +229,7 @@ final class DesktopRuntimeBridge {
         });
     }
 
-    static void refreshDesktopControls() {
+    public static void refreshDesktopControls() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null) {
             return;

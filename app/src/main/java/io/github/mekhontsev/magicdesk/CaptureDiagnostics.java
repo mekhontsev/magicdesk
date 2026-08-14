@@ -55,7 +55,7 @@ final class CaptureDiagnostics {
         final boolean currentBuild = buildId().equals(
                 preferences.getString(KEY_BUILD, null));
         appendEntry(report, "Screenshot", preferences, SCREENSHOT, currentBuild);
-        if (!PlatformDrivers.current().features().internalAudioCapture) {
+        if (!PlatformDrivers.current().audioCapture().isAvailable()) {
             report.append("Screen recording with internal audio: "
                             + "NOT_SUPPORTED | not provided by the selected "
                             + "platform\n\n");

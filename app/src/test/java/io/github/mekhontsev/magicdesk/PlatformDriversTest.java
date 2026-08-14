@@ -17,7 +17,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
         assertTrue(driver.features().externalInputBridge);
-        assertTrue(driver.features().internalAudioCapture);
+        assertTrue(driver.audioCapture().isAvailable());
+        assertTrue(driver.textInput().isAvailable());
         assertTrue(driver.pointer().isAvailable());
         assertTrue(driver.projection().supportsOutputConfiguration());
         assertTrue(driver.projection().ownsTransportLifecycle(
@@ -53,7 +54,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
         assertFalse(driver.features().externalInputBridge);
-        assertFalse(driver.features().internalAudioCapture);
+        assertFalse(driver.audioCapture().isAvailable());
+        assertFalse(driver.textInput().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());
         assertFalse(driver.projection().ownsTransportLifecycle(
@@ -72,6 +74,14 @@ public final class PlatformDriversTest {
         assertTrue(driver.additionalLaunchTargets().isEmpty());
         assertNull(driver.windowing().restrictionsPropertyKey());
         assertNull(driver.windowing().roundedCornersPropertyKey());
+    }
+
+    @Test
+    public void zteBrandedDeviceDoesNotAssumeNubiaFirmware() {
+        final PlatformDriver driver = PlatformDrivers.resolve(device(
+                "ZTE", "zte", "ZTE A2026", "zte_device", "zte_product"));
+
+        assertEquals("android", driver.id());
     }
 
     @Test

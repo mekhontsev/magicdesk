@@ -17,11 +17,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 
-final class DesktopSelfTestResult {
+public final class DesktopSelfTestResult {
     private static final String RESULT_FILE = "desktop-self-test.txt";
     private static final int MAX_RESULT_CHARS = 32_000;
 
-    enum State {
+    public enum State {
         PASS,
         WARN,
         FAIL,
@@ -36,7 +36,7 @@ final class DesktopSelfTestResult {
         mStartedAtMillis = startedAtMillis;
     }
 
-    void add(final State state, final String code,
+    public void add(final State state, final String code,
             final String label, final String detail) {
         if (state == null || code == null || label == null) {
             throw new IllegalArgumentException("self-test check is incomplete");

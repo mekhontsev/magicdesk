@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-final class ShellStreamHandle implements Closeable {
+public final class ShellStreamHandle implements Closeable {
     private final long mRequestId;
     private final InputStream mInput;
     // The remote UserService owns the stream only while this Binder is alive.
@@ -29,11 +29,11 @@ final class ShellStreamHandle implements Closeable {
         mService = service;
     }
 
-    InputStream inputStream() {
+    public InputStream inputStream() {
         return mInput;
     }
 
-    void writeLine(final String line) throws IOException {
+    public void writeLine(final String line) throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shizuku stream is closed");
         }

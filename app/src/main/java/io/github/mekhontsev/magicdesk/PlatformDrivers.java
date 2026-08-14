@@ -1,5 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import io.github.mekhontsev.magicdesk.platform.android.GenericAndroidPlatformDriver;
+import io.github.mekhontsev.magicdesk.platform.nubia.NubiaPlatformDriver;
+
 /** Selects one platform driver for the lifetime of the process. */
 final class PlatformDrivers {
     private static final PlatformDriver NUBIA = new NubiaPlatformDriver();

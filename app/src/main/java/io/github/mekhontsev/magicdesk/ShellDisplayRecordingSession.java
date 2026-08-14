@@ -35,7 +35,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
     private final Context mContext;
     private State mState = State.IDLE;
     private Process mVideoProcess;
-    private InternalAudioRecorder mAudioRecorder;
+    private PlatformAudioCaptureDriver.Recorder mAudioRecorder;
     private IBinder mOwnerToken;
     private IBinder.DeathRecipient mOwnerDeath;
     private String mOutputPath;
@@ -178,7 +178,8 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
     }
 
     private void startAudio() throws IOException {
-        mAudioRecorder = new InternalAudioRecorder(mContext, mAudioPath);
+        mAudioRecorder = PlatformDrivers.current().audioCapture()
+                .createRecorder(mContext, mAudioPath);
         mAudioRecorder.start();
         mAudioStartedNanos = SystemClock.elapsedRealtimeNanos();
     }

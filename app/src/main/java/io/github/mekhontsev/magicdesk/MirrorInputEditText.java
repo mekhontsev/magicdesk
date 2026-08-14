@@ -63,7 +63,7 @@ final class MirrorInputEditText extends EditText {
                 final boolean backward =
                         event.getKeyCode() == KeyEvent.KEYCODE_DEL;
                 return dispatch(
-                        DesktopMirrorTextInput.DELETE_SURROUNDING,
+                        PlatformTextInputDriver.DELETE_SURROUNDING,
                         "",
                         backward ? 1 : 0,
                         backward ? 0 : 1,
@@ -71,7 +71,7 @@ final class MirrorInputEditText extends EditText {
             }
         }
         return dispatch(
-                DesktopMirrorTextInput.SEND_KEY,
+                PlatformTextInputDriver.SEND_KEY,
                 "",
                 event.getAction(),
                 event.getKeyCode(),
@@ -113,7 +113,7 @@ final class MirrorInputEditText extends EditText {
                 final CharSequence text,
                 final int newCursorPosition) {
             return dispatch(
-                    DesktopMirrorTextInput.COMMIT_TEXT,
+                    PlatformTextInputDriver.COMMIT_TEXT,
                     text,
                     newCursorPosition,
                     0,
@@ -130,7 +130,7 @@ final class MirrorInputEditText extends EditText {
                 final CharSequence text,
                 final int newCursorPosition) {
             return dispatch(
-                    DesktopMirrorTextInput.SET_COMPOSING_TEXT,
+                    PlatformTextInputDriver.SET_COMPOSING_TEXT,
                     text,
                     newCursorPosition,
                     0,
@@ -142,7 +142,7 @@ final class MirrorInputEditText extends EditText {
                 final int start,
                 final int end) {
             return dispatch(
-                    DesktopMirrorTextInput.SET_COMPOSING_REGION,
+                    PlatformTextInputDriver.SET_COMPOSING_REGION,
                     "",
                     start,
                     end,
@@ -152,7 +152,7 @@ final class MirrorInputEditText extends EditText {
         @Override
         public boolean finishComposingText() {
             return dispatch(
-                    DesktopMirrorTextInput.FINISH_COMPOSING,
+                    PlatformTextInputDriver.FINISH_COMPOSING,
                     "",
                     0,
                     0,
@@ -164,7 +164,7 @@ final class MirrorInputEditText extends EditText {
                 final int beforeLength,
                 final int afterLength) {
             return dispatch(
-                    DesktopMirrorTextInput.DELETE_SURROUNDING,
+                    PlatformTextInputDriver.DELETE_SURROUNDING,
                     "",
                     beforeLength,
                     afterLength,

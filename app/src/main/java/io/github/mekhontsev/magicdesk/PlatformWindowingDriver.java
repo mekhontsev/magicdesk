@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import java.io.IOException;
 
 /** Firmware-specific part of desktop windowing provisioning. */
-interface PlatformWindowingDriver {
+public interface PlatformWindowingDriver {
     boolean requiresMirrorInputFocusSynchronization();
 
     /** Whether native freeform-to-fullscreen transitions leave a stale client caption inset. */

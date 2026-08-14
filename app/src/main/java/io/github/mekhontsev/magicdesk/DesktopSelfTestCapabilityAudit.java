@@ -10,7 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Interprets the non-destructive shell capability probe for the self-test. */
-final class DesktopSelfTestCapabilityAudit {
+public final class DesktopSelfTestCapabilityAudit {
     private DesktopSelfTestCapabilityAudit() {
     }
 
@@ -181,7 +181,7 @@ final class DesktopSelfTestCapabilityAudit {
         return available;
     }
 
-    static void optional(
+    public static void optional(
             final DesktopSelfTestResult result,
             final Map<String, ProbeEntry> capabilities,
             final String key,
@@ -203,27 +203,34 @@ final class DesktopSelfTestCapabilityAudit {
                 + (entry.detail.isEmpty() ? "" : " (" + entry.detail + ")");
     }
 
-    static void mirrorTextInputRuntime(
+    public static void runtimeCapability(
             final DesktopSelfTestResult result,
-            final Map<String, ProbeEntry> capabilities) {
-        final ProbeEntry entry = capabilities.get("runtime.mirror_text_input");
-        result.add(classifyMirrorTextInputRuntime(entry),
-                "API-NUBIA-010", "RedMagic mirrored text input runtime",
-                detail(entry));
+            final Map<String, ProbeEntry> capabilities,
+            final String key,
+            final String workingState,
+            final String failedState,
+            final String code,
+            final String label) {
+        final ProbeEntry entry = capabilities.get(key);
+        result.add(classifyRuntimeCapability(
+                        entry, workingState, failedState),
+                code, label, detail(entry));
     }
 
-    static DesktopSelfTestResult.State classifyMirrorTextInputRuntime(
-            final ProbeEntry entry) {
-        if (entry != null && "working".equals(entry.state)) {
+    static DesktopSelfTestResult.State classifyRuntimeCapability(
+            final ProbeEntry entry,
+            final String workingState,
+            final String failedState) {
+        if (entry != null && workingState.equals(entry.state)) {
             return DesktopSelfTestResult.State.PASS;
         }
-        if (entry != null && "failed".equals(entry.state)) {
+        if (entry != null && failedState.equals(entry.state)) {
             return DesktopSelfTestResult.State.WARN;
         }
         return DesktopSelfTestResult.State.NOT_TESTED;
     }
 
-    static void optionalComponent(
+    public static void optionalComponent(
             final Context context,
             final DesktopSelfTestResult result,
             final String packageName,
@@ -246,11 +253,11 @@ final class DesktopSelfTestCapabilityAudit {
                 code, label, detail);
     }
 
-    static final class ProbeEntry {
-        final String state;
-        final String detail;
+    public static final class ProbeEntry {
+        public final String state;
+        public final String detail;
 
-        ProbeEntry(final String state, final String detail) {
+        public ProbeEntry(final String state, final String detail) {
             this.state = state;
             this.detail = detail;
         }

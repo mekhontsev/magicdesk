@@ -103,7 +103,7 @@ public final class MagicDeskRuntimeService extends Service {
         context.stopService(new Intent(context, MagicDeskRuntimeService.class));
     }
 
-    static void refreshNotificationIfRunning() {
+    public static void refreshNotificationIfRunning() {
         final MagicDeskRuntimeService service = sInstance.get();
         if (service == null || service.mDestroyed) {
             return;

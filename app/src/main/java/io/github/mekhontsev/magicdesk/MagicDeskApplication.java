@@ -14,7 +14,7 @@ public final class MagicDeskApplication extends Application {
         CompatibilityDiagnostics.initialize(this);
     }
 
-    static Context applicationContext() {
+    public static Context applicationContext() {
         return sApplicationContext;
     }
 }

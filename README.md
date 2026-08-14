@@ -359,14 +359,15 @@ The trust boundaries are deliberately narrow:
   and have the effective privileges displayed by the Console.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
-  settings; supported ZTE/nubia firmware additionally uses two documented
+  settings; supported Nubia/REDMAGIC firmware additionally uses two documented
   persistent properties. **Restore defaults** removes those overrides instead of
   guessing firmware values. The RedMagic property writer accepts only those
   two hardcoded boolean/absent properties.
 - Projection, phone-screen and launcher integration, absolute-pointer access,
   optional firmware app entry points, and vendor diagnostics are selected
   through the same platform-driver boundary. The standard Android profile does
-  not probe or invoke ZTE/nubia interfaces.
+  not probe or invoke Nubia/REDMAGIC interfaces. ZTE-branded devices are not
+  assumed to use Nubia firmware and therefore start with the standard profile.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every
@@ -445,7 +446,7 @@ Build the debug APK:
 ./gradlew :app:assembleDebug
 ```
 
-To exercise the Standard Android platform driver on ZTE/nubia development
+To exercise the Standard Android platform driver on Nubia/REDMAGIC development
 hardware, build a debug APK with an explicit platform override:
 
 ```sh

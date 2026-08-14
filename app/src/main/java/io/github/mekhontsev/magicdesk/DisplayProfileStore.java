@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-final class DisplayProfileStore {
+public final class DisplayProfileStore {
     private DisplayProfileStore() {
     }
 
@@ -40,12 +40,12 @@ final class DisplayProfileStore {
         return copy;
     }
 
-    static final class Profile {
-        final String key;
-        int dpi;
-        boolean dpiExplicit;
-        boolean fillDisplay = true;
-        String outputTiming;
+    public static final class Profile {
+        public final String key;
+        public int dpi;
+        public boolean dpiExplicit;
+        public boolean fillDisplay = true;
+        public String outputTiming;
         Profile(final String key) {
             this.key = key;
         }

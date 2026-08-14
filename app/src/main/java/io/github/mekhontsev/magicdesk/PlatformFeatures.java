@@ -1,27 +1,24 @@
 package io.github.mekhontsev.magicdesk;
 
 /** Capability groups owned by a firmware platform rather than a display. */
-final class PlatformFeatures {
-    final boolean wiredDesktop;
-    final boolean wirelessDesktop;
-    final boolean externalInputBridge;
-    final boolean vendorHardware;
-    final boolean internalAudioCapture;
+public final class PlatformFeatures {
+    public final boolean wiredDesktop;
+    public final boolean wirelessDesktop;
+    public final boolean externalInputBridge;
+    public final boolean vendorHardware;
 
-    PlatformFeatures(
+    public PlatformFeatures(
             final boolean wiredDesktop,
             final boolean wirelessDesktop,
             final boolean externalInputBridge,
-            final boolean vendorHardware,
-            final boolean internalAudioCapture) {
+            final boolean vendorHardware) {
         this.wiredDesktop = wiredDesktop;
         this.wirelessDesktop = wirelessDesktop;
         this.externalInputBridge = externalInputBridge;
         this.vendorHardware = vendorHardware;
-        this.internalAudioCapture = internalAudioCapture;
     }
 
-    boolean supportsDisplay(final DesktopDisplayTarget.Kind kind) {
+    public boolean supportsDisplay(final DesktopDisplayTarget.Kind kind) {
         if (kind == null) {
             return false;
         }
@@ -38,7 +35,7 @@ final class PlatformFeatures {
         }
     }
 
-    boolean supportsExternalDesktop() {
+    public boolean supportsExternalDesktop() {
         return wiredDesktop || wirelessDesktop;
     }
 }
