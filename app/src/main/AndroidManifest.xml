@@ -104,8 +104,11 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.desktop" />
 
+        <!-- Keep a running self-test alive while external-display setup changes
+             the phone's orientation and display metrics. -->
         <activity
             android:name=".DiagnosticsActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize"
             android:exported="false"
             android:label="@string/diagnostics_title"
             android:launchMode="singleTop"
