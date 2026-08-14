@@ -51,11 +51,12 @@ final class DesktopSelfTestWindowSuite {
         DesktopSelfTestPhoneUiObserver.begin(targetDisplayId);
         samplePhoneUiBestEffort();
         require(result, "DESKTOP-001", "Prepare desktop session", () -> {
-            if (target == DesktopSelfTestTarget.SIMULATED
-                    && !DesktopSessionController.show(
-                            DesktopDisplayTarget.simulated(
-                                    targetDisplayId)).ready) {
-                throw new IOException("desktop did not become ready");
+            if (target == DesktopSelfTestTarget.SIMULATED) {
+                // Exercise the same display policy as a user-started session,
+                // including profiles and the phone-side touchpad.
+                DesktopDisplayDrivers
+                        .forKind(DesktopDisplayTarget.Kind.SIMULATED)
+                        .show(null, targetDisplayId);
             }
             final TaskStackParser.Entry desktop = waitForTask(
                     targetDisplayId, DESKTOP_CLASS, null);

@@ -44,7 +44,11 @@ final class DesktopSelfTestCleanup {
             }
         }
         if (displayId >= Display.DEFAULT_DISPLAY) {
-            if (target == DesktopSelfTestTarget.EXTERNAL) {
+            final DesktopDisplayTarget displayTarget =
+                    DesktopRuntimeBridge.getDesktopTarget(displayId);
+            if (displayTarget != null
+                    && DesktopDisplayDrivers.forTarget(displayTarget)
+                            .features().phoneTouchpad) {
                 PhoneTouchpadController.release(displayId);
             }
             DesktopRuntimeBridge.closeDesktopSession(displayId);

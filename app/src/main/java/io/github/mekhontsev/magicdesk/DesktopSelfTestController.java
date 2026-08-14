@@ -287,13 +287,17 @@ final class DesktopSelfTestController {
         }
         final DesktopSelfTestPhoneUiObserver.Observation observation =
                 DesktopSelfTestPhoneUiObserver.finish(displayId);
-        if (!observation.observed || !observation.touchpadExpected) {
+        if (!observation.observed
+                || !observation.touchpadExpected
+                || !observation.touchpadRequested) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "PHONEUI-001",
                     "Restore the phone touchpad after task transitions",
-                    observation.observed
-                            ? "selected display does not use a phone touchpad"
-                            : "desktop phone UI was not observed");
+                    !observation.observed
+                            ? "desktop phone UI was not observed"
+                            : !observation.touchpadExpected
+                                    ? "selected display does not use a phone touchpad"
+                                    : "automatic phone touchpad is disabled");
         } else {
             result.add(observation.touchpadStable()
                             ? DesktopSelfTestResult.State.PASS
