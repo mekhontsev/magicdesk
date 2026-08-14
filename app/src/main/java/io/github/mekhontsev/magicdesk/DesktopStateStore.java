@@ -160,6 +160,8 @@ final class DesktopStateStore {
                 state.desktopPlacements);
         readAppWindows(
                 root.optJSONObject("appWindows"), state.appWindows);
+        state.settings = MagicDeskSettings.Values.fromJson(
+                root.optJSONObject("settings"));
 
         final JSONObject profiles = root.optJSONObject("displayProfiles");
         if (profiles != null) {
@@ -216,6 +218,7 @@ final class DesktopStateStore {
         snapshot.taskbarPackages.addAll(sState.taskbarPackages);
         snapshot.desktopPlacements.putAll(sState.desktopPlacements);
         snapshot.appWindows.putAll(sState.appWindows);
+        snapshot.settings = sState.settings.copy();
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
                 : sState.displayProfiles.entrySet()) {
             snapshot.displayProfiles.put(
@@ -246,6 +249,7 @@ final class DesktopStateStore {
                 "desktopPlacements",
                 desktopPlacementsToJson(state.desktopPlacements));
         root.put("appWindows", appWindowsToJson(state.appWindows));
+        root.put("settings", state.settings.toJson());
 
         final JSONObject profiles = new JSONObject();
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
@@ -534,6 +538,7 @@ final class DesktopStateStore {
                 new LinkedHashMap<>();
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();
+        MagicDeskSettings.Values settings = MagicDeskSettings.Values.defaults();
     }
 
     static final class ExternalSnapshot {

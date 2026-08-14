@@ -170,7 +170,11 @@ public final class DesktopRuntimeBridge {
             return null;
         }
         final DesktopViewport viewport = activity.getDesktopViewport();
-        return viewport == null ? null
+        if (viewport == null) {
+            return null;
+        }
+        return activity.isTaskbarAutoHideEnabled()
+                ? viewport.contentBounds()
                 : viewport.workAreaBounds(activity.getTaskbarHeight());
     }
 
@@ -350,6 +354,22 @@ public final class DesktopRuntimeBridge {
         }
         activity.runOnUiThread(activity::toggleSystemPanel);
         return true;
+    }
+
+    static boolean openSettings() {
+        final DesktopShellActivity activity = usableDesktop(true);
+        if (activity == null) {
+            return false;
+        }
+        activity.runOnUiThread(activity::openSettings);
+        return true;
+    }
+
+    static void refreshSettings() {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity != null) {
+            activity.runOnUiThread(activity::refreshSettings);
+        }
     }
 
     static boolean isDesktopReadyOnDisplay(final int displayId) {

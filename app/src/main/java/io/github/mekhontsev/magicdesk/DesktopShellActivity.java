@@ -100,6 +100,7 @@ public abstract class DesktopShellActivity extends Activity
     private boolean mDesktopWindowFocusable = true;
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
+    private boolean mTaskbarAutoHide;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
@@ -227,6 +228,7 @@ public abstract class DesktopShellActivity extends Activity
         mTaskbarController = new TaskbarController(this, mUi);
         mTaskbarRevealController =
                 new DesktopTaskbarRevealController(this);
+        refreshSettings();
         mAltTabController = new AltTabController(this);
         mDesktopWorkspaceController =
                 new DesktopWorkspaceController(this, mUi);
@@ -823,6 +825,8 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         mDisplayProfiles.reloadStoredProfile();
+        refreshSettings();
+        MagicDeskRuntimeService.refreshSettingsIfRunning();
         renderApps();
         updateDesktopControls();
     }
@@ -1243,6 +1247,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openControlPanel();
     }
 
+    void openSettings() {
+        mSystemActions.openSettings();
+    }
+
     void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
                 mOverlayPanelController,
@@ -1274,6 +1282,10 @@ public abstract class DesktopShellActivity extends Activity
 
     int getTaskbarHeight() {
         return desktopDp(TASKBAR_HEIGHT_DP, COMPACT_TASKBAR_HEIGHT_DP);
+    }
+
+    boolean isTaskbarAutoHideEnabled() {
+        return mTaskbarAutoHide;
     }
 
     DesktopViewport getDesktopViewport() {
@@ -1378,6 +1390,14 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean isTaskbarVisible() {
         return mTaskbarVisible;
+    }
+
+    void refreshSettings() {
+        final boolean autoHide = MagicDeskSettings.load().taskbarAutoHide;
+        mTaskbarAutoHide = autoHide;
+        if (mTaskbarRevealController != null) {
+            mTaskbarRevealController.setAutoHide(autoHide);
+        }
     }
 
     void exitMagicDesk() {

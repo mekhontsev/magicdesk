@@ -310,6 +310,21 @@ public final class CompatibilityDiagnostics {
                         : audit.platform.features().externalInputBridge
                                 ? "idle; an external desktop is required"
                                 : "not required by the selected platform");
+        report.append("Keyboard bridge runtime: ")
+                .append(InputBridgeDiagnostics.snapshot().reportLine())
+                .append('\n');
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        report.append("MagicDesk settings: taskbarAutoHide=")
+                .append(settings.taskbarAutoHide)
+                .append(", openTouchpadAutomatically=")
+                .append(settings.openTouchpadAutomatically)
+                .append(", keepDesktopAwake=")
+                .append(settings.keepDesktopAwake)
+                .append('\n');
+        report.append("Desktop wake lock held: ")
+                .append(MagicDeskRuntimeService
+                        .isSessionWakeLockHeldIfRunning())
+                .append('\n');
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
                 audit.platform.features().externalInputBridge

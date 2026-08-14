@@ -172,6 +172,9 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
+- `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
+  user-selected desktop behavior. They are separate from the transient System
+  panel, which remains a quick control surface for the active session.
 - `DesktopActivity` is the concrete desktop Activity.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
@@ -183,7 +186,10 @@ runtime integration and are not distributed through the same release path.
   foreground task. It never appears in Recents and is removed after the real
   desktop host task is ready.
 - `MagicDeskRuntimeService` owns the persistent notification and process-level
-  runtime. There is no boot receiver; the user starts MagicDesk manually.
+  runtime. An optional non-reference-counted partial wake lock is held only
+  while both its setting and a MagicDesk desktop session are active, and is
+  released by the same service lifecycle. There is no boot receiver; the user
+  starts MagicDesk manually.
 
 ### Desktop UI
 
@@ -197,7 +203,8 @@ runtime integration and are not distributed through the same release path.
   `FileObserver`. `DesktopWidgetController` owns the process-wide
   `AppWidgetHost` lifecycle and widget binding/configuration.
 - `DesktopStateStore` is the single typed model for persistent desktop content,
-  taskbar pins, global layout, application window state, and display profiles.
+  taskbar pins, global layout, application window state, settings, and display
+  profiles.
   `DesktopContentStore`, `DesktopLayoutStore`, `AppWindowStateStore`,
   `DesktopPreferences`, and `DisplayProfileStore` are narrow domain facades over
   that model. `DesktopPlacementEngine` is the platform-independent collision
@@ -477,7 +484,16 @@ no separate phone implementation of the desktop.
 
 The taskbar is a display-scoped application overlay. It remains above freeform
 tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
-This also avoids tying shell visibility to Activity focus callbacks.
+When automatic hiding is enabled, the same existing pointer-edge state machine
+reveals it without introducing a second overlay or polling loop, and window
+placement uses the full viewport. IME and other forced-visible policy still
+take precedence. This also avoids tying shell visibility to Activity focus
+callbacks.
+
+The phone touchpad startup preference is evaluated once after a newly
+created external desktop becomes ready. It does not disable manual opening or
+change the existing requested/visible lifecycle used to preserve an open
+panel across task transitions.
 
 On display 0, Nubia Quickstep can crash while binding Recents to a desktop
 group containing freeform tasks. Its `DesktopTaskView.bind()` creates task
@@ -925,6 +941,12 @@ built. The issue report includes firmware identity, displays, external input,
 desktop settings, Shizuku UID/domain/capability probes, and MagicDesk-only
 logcat. It excludes user files, accounts, notification content, clipboard, and
 the installed-app catalog.
+
+Input bridge diagnostics are event-driven lifecycle counters: startup attempts,
+ready or pointer-only sessions, source-refresh failures, bridge anomalies, and
+the last routing display. They do not poll, record key events, or retain typed
+text. The report also states whether the optional desktop-session wake policy
+is enabled and currently held.
 
 Compatibility probes are non-destructive: they inspect permissions and reject
 invalid/null mutations after framework permission checks rather than changing

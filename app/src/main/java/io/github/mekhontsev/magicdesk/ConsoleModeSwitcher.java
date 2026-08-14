@@ -471,6 +471,12 @@ public final class ConsoleModeSwitcher {
         }
     }
 
+    static void openSettings() {
+        if (!DesktopRuntimeBridge.openSettings()) {
+            Log.w(TAG, "MagicDesk desktop is unavailable for settings");
+        }
+    }
+
     static void captureScreenshot() {
         if (!ShellAccess.isReady()) {
             Log.w(TAG, "screenshot unavailable; shizuku="

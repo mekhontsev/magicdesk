@@ -62,6 +62,7 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mKeyboardWatcherRunning;
     private int mKeyboardRoutingDisplayId = android.view.Display.INVALID_DISPLAY;
     private DesktopMouseBridge mDesktopMouseBridge;
+    private DesktopSessionWakeLock mSessionWakeLock;
     private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
@@ -71,6 +72,7 @@ public final class MagicDeskRuntimeService extends Service {
     private int mInputSourceRefreshGeneration;
     private String mOperationStatus;
     private boolean mShowImeOverrideActive;
+    private boolean mKeepDesktopAwake;
     private String mPreviousShowImeWithHardKeyboard;
     private int mPhoneImePolicyDisplayId =
             android.view.Display.INVALID_DISPLAY;
@@ -135,6 +137,22 @@ public final class MagicDeskRuntimeService extends Service {
             service.refreshDesktopOwnership();
             service.updateDesktopTasks();
         });
+    }
+
+    static void refreshSettingsIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed || service.mHandler == null) {
+            return;
+        }
+        service.mHandler.post(service::refreshRuntimeSettings);
+    }
+
+    static boolean isSessionWakeLockHeldIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        return service != null
+                && !service.mDestroyed
+                && service.mSessionWakeLock != null
+                && service.mSessionWakeLock.isHeld();
     }
 
     static void reconcileFailedDesktopLaunchIfRunning(final int displayId) {
@@ -327,6 +345,7 @@ public final class MagicDeskRuntimeService extends Service {
         mDestroyed = false;
         sInstance = new WeakReference<>(this);
         mHandler = new Handler(Looper.getMainLooper());
+        mSessionWakeLock = new DesktopSessionWakeLock(this);
         ShellAccess.addStateListener(mShellStateListener);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
@@ -347,6 +366,7 @@ public final class MagicDeskRuntimeService extends Service {
         mHasHardwareKeyboard = inputState.hardwareKeyboard;
         mHasExternalMouse = inputState.externalMouse;
         mExternalInputDeviceSignature = inputState.deviceSignature;
+        mKeepDesktopAwake = MagicDeskSettings.load().keepDesktopAwake;
         mDisplayCoordinator = new RuntimeDisplayCoordinator(
                 this, mHandler, this::handleDisplayStateChanged);
         mDisplayCoordinator.start();
@@ -462,6 +482,9 @@ public final class MagicDeskRuntimeService extends Service {
         }
         if (mDesktopMouseBridge != null) {
             mDesktopMouseBridge.stop();
+        }
+        if (mSessionWakeLock != null) {
+            mSessionWakeLock.release();
         }
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
@@ -827,6 +850,7 @@ public final class MagicDeskRuntimeService extends Service {
                     }
                 });
             } catch (IOException error) {
+                InputBridgeDiagnostics.noteSourceRefreshFailure(error);
                 Log.w(TAG, "Could not refresh desktop input sources", error);
             }
         }, "MagicDeskInputRefresh");
@@ -881,12 +905,14 @@ public final class MagicDeskRuntimeService extends Service {
         if (desktopDisplayId == mOwnedDesktopDisplayId
                 && ownsConsoleDesktop == mOwnsConsoleDesktop) {
             updateExternalImePolicy();
+            updateSessionWakeLock();
             return;
         }
         mOwnedDesktopDisplayId = desktopDisplayId;
         mOwnsConsoleDesktop = ownsConsoleDesktop;
         updateShowImeOverride();
         updateExternalImePolicy();
+        updateSessionWakeLock();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
@@ -901,6 +927,20 @@ public final class MagicDeskRuntimeService extends Service {
         if (ownsExternalDesktop()) {
             refreshDesktopInputSources();
         }
+    }
+
+    private void updateSessionWakeLock() {
+        if (mSessionWakeLock == null) {
+            return;
+        }
+        mSessionWakeLock.reconcile(
+                mKeepDesktopAwake,
+                mOwnedDesktopDisplayId);
+    }
+
+    private void refreshRuntimeSettings() {
+        mKeepDesktopAwake = MagicDeskSettings.load().keepDesktopAwake;
+        updateSessionWakeLock();
     }
 
     private boolean ownsConsoleDesktop() {

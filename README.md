@@ -73,7 +73,7 @@ Galaxy device and One UI version.
 | Application launch policy | Explicit Auto, Windowed, and Fullscreen modes; Auto remembers the last explicit mode and window position | Resizable or fixed-size mode according to application compatibility |
 | Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
 | Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
-| Notifications and settings | Desktop notification center plus a MagicDesk System panel; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
+| Notifications and settings | Desktop notification center, quick System controls, and persistent MagicDesk settings; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files |
 | Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
@@ -145,6 +145,9 @@ and Android user; neither kind of state is written into the desktop folder.
   display** for sinks that otherwise add letterboxing.
 - Media-volume and connected audio-output controls, plus phone-touchpad control
   when absolute pointer positioning is available.
+- A dedicated **Settings** window for persistent behavior, including optional
+  taskbar auto-hide, automatic touchpad startup, and keeping an active
+  desktop session awake.
 - Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through
@@ -300,7 +303,8 @@ The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
 in the **System** panel, opened from the taskbar battery indicator or with
 `Win+Q`, and is remembered per monitor. **Reset** removes the MagicDesk density
-override.
+override. Persistent MagicDesk behavior is configured in **Settings**, opened
+from System, Tools, Phone Control Panel, or with `Win+I`.
 
 ### Phone notification
 
@@ -329,6 +333,7 @@ supports tablets and allows development without an external monitor.
 | `Win+L` | Lock the phone |
 | `Win+N` | Toggle the notification center |
 | `Win+Q` | Toggle the System panel |
+| `Win+I` | Open MagicDesk settings |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
 | `Win+Shift+Print Screen` | Start or stop desktop recording with internal audio; save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |

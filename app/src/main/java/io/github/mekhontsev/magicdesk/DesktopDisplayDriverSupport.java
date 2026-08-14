@@ -41,7 +41,9 @@ final class DesktopDisplayDriverSupport {
             final DesktopSessionController.ShowResult result =
                     DesktopSessionController.show(target);
             if (result.ready && result.created
-                    && driver.features().phoneTouchpad) {
+                    && driver.features().phoneTouchpad
+                    && MagicDeskSettings.load()
+                            .openTouchpadAutomatically) {
                 PhoneTouchpadController.open(target.displayId);
             }
         } catch (IOException error) {

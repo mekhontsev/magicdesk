@@ -17,6 +17,7 @@ final class DesktopTaskbarRevealController {
             new PointerEdgeRevealState();
 
     private boolean mPolicyVisible = true;
+    private boolean mAutoHide;
     private boolean mForcedVisible;
     private boolean mStarted;
     private boolean mReleased;
@@ -43,7 +44,7 @@ final class DesktopTaskbarRevealController {
         }
         mStarted = true;
         mActivity.taskbar().setEdgeHoverListener(this::onHoverEvent);
-        mState.setArmed(!mPolicyVisible && !mForcedVisible);
+        mState.setArmed(shouldArm());
         applyPresentation();
     }
 
@@ -56,7 +57,19 @@ final class DesktopTaskbarRevealController {
         }
         mPolicyVisible = visible;
         cancelTimers();
-        mState.setArmed(!visible && !mForcedVisible);
+        mState.setArmed(shouldArm());
+        if (mStarted) {
+            applyPresentation();
+        }
+    }
+
+    void setAutoHide(final boolean enabled) {
+        if (mReleased || mAutoHide == enabled) {
+            return;
+        }
+        mAutoHide = enabled;
+        cancelTimers();
+        mState.setArmed(shouldArm());
         if (mStarted) {
             applyPresentation();
         }
@@ -68,7 +81,7 @@ final class DesktopTaskbarRevealController {
         }
         mForcedVisible = visible;
         cancelTimers();
-        mState.setArmed(!mPolicyVisible && !visible);
+        mState.setArmed(shouldArm());
         if (mStarted) {
             applyPresentation();
         }
@@ -90,7 +103,7 @@ final class DesktopTaskbarRevealController {
     }
 
     private void onHoverEvent(final MotionEvent event) {
-        if (mReleased || mPolicyVisible || mForcedVisible
+        if (mReleased || isPinnedVisible() || mForcedVisible
                 || event == null) {
             return;
         }
@@ -171,7 +184,7 @@ final class DesktopTaskbarRevealController {
             return;
         }
         final boolean visible = mForcedVisible
-                || mPolicyVisible
+                || isPinnedVisible()
                 || mState.isRevealed();
         final Rect normalBounds = mActivity.getTaskbarBounds();
         if (visible) {
@@ -195,5 +208,13 @@ final class DesktopTaskbarRevealController {
     private void cancelTimers() {
         mHandler.removeCallbacks(mRevealTimeout);
         mHandler.removeCallbacks(mHideTimeout);
+    }
+
+    private boolean isPinnedVisible() {
+        return mPolicyVisible && !mAutoHide;
+    }
+
+    private boolean shouldArm() {
+        return !mForcedVisible && !isPinnedVisible();
     }
 }

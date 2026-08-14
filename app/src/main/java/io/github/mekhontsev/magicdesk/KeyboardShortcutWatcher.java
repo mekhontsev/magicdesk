@@ -116,6 +116,7 @@ final class KeyboardShortcutWatcher {
                 inputRouting.refresh();
             }
         } catch (IOException error) {
+            InputBridgeDiagnostics.noteSourceRefreshFailure(error);
             Log.w(TAG, "Could not refresh desktop input sources", error);
         }
     }
@@ -134,6 +135,7 @@ final class KeyboardShortcutWatcher {
         try {
             inputRouting.refresh();
         } catch (IOException error) {
+            InputBridgeDiagnostics.noteSourceRefreshFailure(error);
             Log.w(TAG, "Could not refresh desktop input routing", error);
         }
     }
@@ -142,6 +144,7 @@ final class KeyboardShortcutWatcher {
             final int routingDisplayId,
             final long generation) {
         while (isRunning(generation)) {
+            InputBridgeDiagnostics.noteAttempt(routingDisplayId);
             ShellStreamHandle inputStream = null;
             BufferedReader reader = null;
             try {
@@ -169,6 +172,7 @@ final class KeyboardShortcutWatcher {
                 }
             } catch (IOException e) {
                 if (isRunning(generation)) {
+                    InputBridgeDiagnostics.noteFailure(e);
                     Log.w(TAG, "input watcher failed", e);
                     CompatibilityDiagnostics.record(
                             "INPUT-BRIDGE-001",
@@ -247,6 +251,7 @@ final class KeyboardShortcutWatcher {
                     "MAGICDESK_KEYBOARD_STARTED",
                     "keyboard capture");
             setFullShortcutMode(true, generation);
+            InputBridgeDiagnostics.noteReady(true);
             Log.i(TAG, "input watcher started shell="
                     + ShellAccess.statusLabel()
                     + " full=true routingDisplay=" + routingDisplayId
@@ -288,6 +293,7 @@ final class KeyboardShortcutWatcher {
         try {
             inputRouting = ShellAccess.openInputRouting(routingDisplayId, 0);
             setInputRouting(inputRouting, generation);
+            InputBridgeDiagnostics.noteReady(false);
             Log.i(TAG, "input watcher started shell="
                     + ShellAccess.statusLabel()
                     + " full=false routingDisplay=" + routingDisplayId
@@ -392,6 +398,7 @@ final class KeyboardShortcutWatcher {
         }
         if (!line.startsWith("MAGICDESK_SHORTCUT ")) {
             if (line.contains("_ERROR")) {
+                InputBridgeDiagnostics.noteBridgeAnomaly(line);
                 Log.w(TAG, line);
             } else if (!line.isEmpty()) {
                 Log.d(TAG, line);
@@ -431,6 +438,10 @@ final class KeyboardShortcutWatcher {
         }
         if ("META_Q".equals(action)) {
             ConsoleModeSwitcher.toggleSystemPanel();
+            return;
+        }
+        if ("META_I".equals(action)) {
+            ConsoleModeSwitcher.openSettings();
             return;
         }
         if ("META_UP".equals(action)) {
@@ -523,6 +534,9 @@ final class KeyboardShortcutWatcher {
                 break;
             case SYSTEM:
                 ConsoleModeSwitcher.toggleSystemPanel();
+                break;
+            case SETTINGS:
+                ConsoleModeSwitcher.openSettings();
                 break;
             case FULLSCREEN:
                 ConsoleModeSwitcher.manageActiveWindow(

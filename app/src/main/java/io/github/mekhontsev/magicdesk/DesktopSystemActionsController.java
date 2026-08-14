@@ -72,6 +72,21 @@ final class DesktopSystemActionsController {
         }
     }
 
+    void openSettings() {
+        mActivity.hideAllPanels();
+        try {
+            mActivity.startActivity(
+                    SettingsActivity.createIntent(mActivity),
+                    optionsForCurrentDisplay().toBundle());
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "SETTINGS-001",
+                    "Cannot open MagicDesk settings",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     private ActivityOptions optionsForCurrentDisplay() {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(mActivity.getCurrentDisplayId());

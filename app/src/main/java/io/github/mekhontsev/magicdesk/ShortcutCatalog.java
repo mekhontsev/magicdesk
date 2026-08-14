@@ -20,6 +20,8 @@ final class ShortcutCatalog {
                 R.string.shortcut_notifications_action),
         new Entry(R.string.shortcut_system,
                 R.string.shortcut_system_action),
+        new Entry(R.string.shortcut_settings,
+                R.string.shortcut_settings_action),
         new Entry(R.string.shortcut_screenshot,
                 R.string.shortcut_screenshot_action),
         new Entry(R.string.shortcut_recording,

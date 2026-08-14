@@ -93,6 +93,8 @@ public final class KeyboardShortcutStateMachineTest {
                 KeyboardShortcutStateMachine.Action.NOTIFICATIONS);
         assertMetaAction(state, "KEY_Q",
                 KeyboardShortcutStateMachine.Action.SYSTEM);
+        assertMetaAction(state, "KEY_I",
+                KeyboardShortcutStateMachine.Action.SETTINGS);
         assertMetaAction(state, "KEY_UP",
                 KeyboardShortcutStateMachine.Action.FULLSCREEN);
         assertMetaAction(state, "KEY_DOWN",

@@ -445,6 +445,13 @@ public final class ControlActivity extends Activity
     }
 
     @Override
+    public void openSettings() {
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(currentDisplayId());
+        startActivity(SettingsActivity.createIntent(this), options.toBundle());
+    }
+
+    @Override
     public void showAbout() {
         AboutDialog.show(this);
     }

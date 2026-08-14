@@ -9,6 +9,7 @@ import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -100,6 +101,19 @@ final class SystemPanelController {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+
+        final ImageButton settings = new ImageButton(mActivity);
+        settings.setImageResource(android.R.drawable.ic_menu_preferences);
+        settings.setContentDescription(
+                mActivity.getString(R.string.action_settings));
+        settings.setBackground(mUi.rounded(
+                COLOR_PANEL_ALT, dp(6), COLOR_PANEL_ALT));
+        settings.setOnClickListener(view -> mActivity.openSettings());
+        final LinearLayout.LayoutParams settingsParams =
+                new LinearLayout.LayoutParams(
+                        dp(46), dp(46));
+        settingsParams.setMargins(0, 0, dp(8), 0);
+        header.addView(settings, settingsParams);
 
         final Button close =
                 mUi.smallButton(R.string.action_close, COLOR_PANEL_ALT);

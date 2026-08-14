@@ -54,6 +54,8 @@ final class PhoneControlPanelController {
 
         void openDiagnostics();
 
+        void openSettings();
+
         void showAbout();
 
         void exitMagicDesk();
@@ -514,6 +516,11 @@ final class PhoneControlPanelController {
                 R.string.action_diagnostics, COLOR_PANEL_ALT);
         diagnostics.setOnClickListener(view -> mActions.openDiagnostics());
         addGridAction(actions, diagnostics);
+
+        final Button settings = actionButton(
+                R.string.action_settings, COLOR_PANEL_ALT);
+        settings.setOnClickListener(view -> mActions.openSettings());
+        addGridAction(actions, settings);
 
         final Button about = actionButton(
                 R.string.action_about, COLOR_PANEL_ALT);
