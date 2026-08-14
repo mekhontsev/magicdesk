@@ -164,7 +164,7 @@ and Android user; neither kind of state is written into the desktop folder.
 MagicDesk's verified external-desktop implementation is RedMagic/ZTE-specific
 and requires:
 
-- a ZTE, nubia, or RedMagic device running Android 16 / API 36 or newer;
+- a ZTE, nubia, or RedMagic device running Android 15 / API 35 or newer;
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
@@ -179,7 +179,7 @@ wireless projection depends on the phone model and firmware. **Open desktop
 here** runs the same desktop implementation on the device display without an
 external display.
 
-An experimental Generic Android platform driver is available on Android 16+
+An experimental Generic Android platform driver is available on Android 15+
 for **Open desktop here** and the simulated self-test. It deliberately does
 not expose wired or wireless desktop startup until a platform-specific
 external-display backend has been verified.

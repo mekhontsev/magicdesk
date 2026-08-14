@@ -143,6 +143,23 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void android15RecoveryUsesLegacyDesktopCommand() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        environment.desktopMoveAction = "moveToDesktop";
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                        95, () -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasDesktopMoveCommand("moveToDesktop"));
+        assertFalse(environment.hasDesktopMoveCommand("moveTaskToDesk"));
+    }
+
+    @Test
     public void resumesAfterLateTaskMigrationFromRemovedDisplay() {
         final FakeEnvironment environment = new FakeEnvironment(false);
         environment.freeform = false;
@@ -261,6 +278,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean removedRepositoryContainsTask;
         boolean removedRepositoryContainsSecondTask;
         boolean reviveMissingTask = true;
+        String desktopMoveAction = "moveTaskToDesk";
         String packageName = "net.sf.golly";
         String componentName = ".MainActivity";
         String topActivityComponent;
@@ -294,6 +312,10 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 return PhoneDesktopTaskRecovery.CommandResult.success(
                         repositoryOutput());
             }
+            if (command.contains("wmshell-passthrough help")) {
+                return PhoneDesktopTaskRecovery.CommandResult.success(
+                        "desktopmode " + desktopMoveAction + " <taskId>");
+            }
             if (command.contains("PhoneDesktopTaskRecoveryCommand")) {
                 if (!reviveMissingTask) {
                     return PhoneDesktopTaskRecovery.CommandResult.failure(
@@ -311,7 +333,8 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 removedRepositoryContainsTask = false;
                 return PhoneDesktopTaskRecovery.CommandResult.success("");
             }
-            if (command.contains("desktopmode moveTaskToDesk")) {
+            if (command.contains(
+                    "desktopmode " + desktopMoveAction)) {
                 freeform = true;
                 return PhoneDesktopTaskRecovery.CommandResult.success("");
             }
@@ -332,6 +355,10 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
 
         boolean hasMoveToDeskCommand() {
             return findCommand("desktopmode moveTaskToDesk") >= 0;
+        }
+
+        boolean hasDesktopMoveCommand(final String action) {
+            return findCommand("desktopmode " + action) >= 0;
         }
 
         int indexOfRevive() {

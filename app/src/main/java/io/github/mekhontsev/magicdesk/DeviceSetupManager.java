@@ -134,7 +134,7 @@ final class DeviceSetupManager {
         }
         if (!before.compatibleDevice) {
             throw new IOException(
-                    "requires a supported Android 16 platform");
+                    "requires a supported Android 15 platform");
         }
 
         final SharedPreferences preferences = preferences(context);
@@ -178,7 +178,7 @@ final class DeviceSetupManager {
         }
         if (!before.compatibleDevice) {
             throw new IOException(
-                    "requires a supported Android 16 platform");
+                    "requires a supported Android 15 platform");
         }
 
         DeviceSetupRuntimeController.revoke(context);

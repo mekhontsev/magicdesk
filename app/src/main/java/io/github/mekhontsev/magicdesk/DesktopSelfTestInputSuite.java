@@ -23,7 +23,7 @@ final class DesktopSelfTestInputSuite {
     private static final String FIXTURE_CLASS =
             DesktopSelfTestComponents.FIXTURE_CLASS;
     private static final int RESIZE_EDGE_OUTSET_PX = 8;
-    // Android 16 WMShell caption dimensions, using 160 dpi as the baseline.
+    // Current WMShell caption geometry, using 160 dpi as the baseline.
     private static final int CAPTION_BUTTON_CENTER_Y_PX = 20;
     private static final int MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX = 82;
     private static final int SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP = 96;

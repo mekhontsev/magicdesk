@@ -47,7 +47,7 @@ final class NubiaPlatformDriver implements PlatformDriver {
     @Override
     public boolean supports(final PlatformDevice device) {
         return device != null
-                && device.sdkInt >= Build.VERSION_CODES.BAKLAVA
+                && device.sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM
                 && isNubiaFamily(device);
     }
 

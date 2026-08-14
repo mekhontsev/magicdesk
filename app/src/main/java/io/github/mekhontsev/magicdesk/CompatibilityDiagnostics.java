@@ -216,7 +216,7 @@ final class CompatibilityDiagnostics {
                 .append("\n\n")
                 .append("## Capability checks\n");
         appendCheck(report, "PLATFORM-001", audit.compatibleDevice,
-                "Android 16 platform baseline",
+                "Android 15 platform baseline",
                 audit.platform.name() + "; "
                         + audit.manufacturer + " " + audit.model);
         appendCheck(report, "PROFILE-001",
@@ -284,7 +284,7 @@ final class CompatibilityDiagnostics {
                         || privilegedTransactions,
                 "Desktop task transition backend",
                 nativeDesktopAvailable
-                        ? "wmshell-passthrough desktopmode"
+                        ? NativeDesktopController.backendDescription()
                         : privilegedTransactions
                                 ? "direct WindowContainerTransaction fallback"
                         : taskControl

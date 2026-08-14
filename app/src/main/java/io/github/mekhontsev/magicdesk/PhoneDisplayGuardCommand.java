@@ -15,6 +15,8 @@ public final class PhoneDisplayGuardCommand {
     static final String ERROR = "MAGICDESK_PHONE_DISPLAY_ERROR";
     static final String HEARTBEAT = "ping";
     static final String RESTORE = "restore";
+    static final String POWER_RESET = "power-reset";
+    static final String POWER_ON = "power-on";
 
     private static final long HEARTBEAT_TIMEOUT_MILLIS = 4_000L;
     private static final long WATCHDOG_INTERVAL_MILLIS = 500L;
@@ -25,17 +27,24 @@ public final class PhoneDisplayGuardCommand {
             new AtomicBoolean();
     private final AtomicLong mLastHeartbeat = new AtomicLong();
     private final int mAppUid;
+    private final String mRestoreOperation;
     private volatile boolean mFinished;
     private volatile NubiaCpuFreezerWorkingState.Session mFreezerSession;
 
-    private PhoneDisplayGuardCommand(final int appUid) {
+    private PhoneDisplayGuardCommand(
+            final int appUid,
+            final String restoreOperation) {
         mAppUid = appUid;
+        mRestoreOperation = restoreOperation;
     }
 
     public static void main(final String[] arguments) {
         final PhoneDisplayGuardCommand guard;
         try {
-            guard = new PhoneDisplayGuardCommand(parseAppUid(arguments));
+            validateArguments(arguments);
+            guard = new PhoneDisplayGuardCommand(
+                    parseAppUid(arguments[0]),
+                    parseRestoreOperation(arguments[1]));
         } catch (IllegalArgumentException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
             return;
@@ -86,7 +95,8 @@ public final class PhoneDisplayGuardCommand {
                     if (restoreDisplay()) {
                         System.out.println(RESTORED);
                     } else {
-                        System.out.println(ERROR + " power-reset-failed");
+                        System.out.println(ERROR + " "
+                                + mRestoreOperation + "-failed");
                     }
                     System.out.flush();
                     return;
@@ -122,9 +132,10 @@ public final class PhoneDisplayGuardCommand {
 
     private boolean restoreDisplay() {
         if (mDisplayOverrideActive.compareAndSet(true, false)) {
-            if (!requestDisplayPower("power-reset")) {
+            if (!requestDisplayPower(mRestoreOperation)) {
                 mDisplayOverrideActive.set(true);
-                System.err.println(ERROR + " power-reset-failed");
+                System.err.println(ERROR + " "
+                        + mRestoreOperation + "-failed");
                 return false;
             }
         }
@@ -137,13 +148,17 @@ public final class PhoneDisplayGuardCommand {
         return false;
     }
 
-    private static int parseAppUid(final String[] arguments) {
-        if (arguments == null || arguments.length != 1) {
-            throw new IllegalArgumentException("expected application UID");
+    private static void validateArguments(final String[] arguments) {
+        if (arguments == null || arguments.length != 2) {
+            throw new IllegalArgumentException(
+                    "expected application UID and display restore operation");
         }
+    }
+
+    private static int parseAppUid(final String argument) {
         final int uid;
         try {
-            uid = Integer.parseInt(arguments[0]);
+            uid = Integer.parseInt(argument);
         } catch (NumberFormatException error) {
             throw new IllegalArgumentException("invalid application UID", error);
         }
@@ -151,6 +166,18 @@ public final class PhoneDisplayGuardCommand {
             throw new IllegalArgumentException("invalid application UID " + uid);
         }
         return uid;
+    }
+
+    private static String parseRestoreOperation(final String operation) {
+        if (!isRestoreOperation(operation)) {
+            throw new IllegalArgumentException(
+                    "unsupported display restore operation " + operation);
+        }
+        return operation;
+    }
+
+    static boolean isRestoreOperation(final String operation) {
+        return POWER_RESET.equals(operation) || POWER_ON.equals(operation);
     }
 
     private static boolean requestDisplayPower(final String operation) {

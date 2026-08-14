@@ -14,24 +14,32 @@ final class PhoneDisplayGuard {
     private static final String TAG = "MagicDeskPhoneDisplay";
     private static final String GUARD_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDisplayGuardCommand";
-    private static final String POWER_RESET =
-            "/system/bin/cmd display power-reset 0";
+    private static final String DISPLAY_HELP =
+            "/system/bin/cmd display help";
+    private static final String DISPLAY_COMMAND =
+            "/system/bin/cmd display ";
     private static final long START_TIMEOUT_MILLIS = 6_000L;
     private static final long STOP_TIMEOUT_MILLIS = 3_000L;
 
     private static final Object LOCK = new Object();
     private static Session sSession;
     private static int sGeneration;
+    private static volatile String sRestoreOperation;
 
     private PhoneDisplayGuard() {
     }
 
     static boolean enable() {
+        final String restoreOperation = resolveRestoreOperation();
+        if (restoreOperation == null) {
+            Log.w(TAG, "DisplayManager has no supported display restore command");
+            return false;
+        }
         final Session session;
         final boolean startSession;
         synchronized (LOCK) {
             if (sSession == null) {
-                session = new Session(++sGeneration);
+                session = new Session(++sGeneration, restoreOperation);
                 sSession = session;
                 startSession = true;
             } else {
@@ -131,13 +139,70 @@ final class PhoneDisplayGuard {
     }
 
     private static boolean resetWithoutSession() {
+        final String restoreOperation = resolveRestoreOperation();
+        if (restoreOperation == null) {
+            return false;
+        }
         try {
-            ShellAccess.run(POWER_RESET);
+            ShellAccess.run(DISPLAY_COMMAND + restoreOperation + " 0");
             return true;
         } catch (IOException error) {
             Log.w(TAG, "Cannot reset phone display", error);
             return false;
         }
+    }
+
+    private static String resolveRestoreOperation() {
+        final String cached = sRestoreOperation;
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            String operation = selectRestoreOperation(
+                    ShellAccess.executeForConsole(DISPLAY_HELP).output);
+            if (operation == null && isRecognizedRestoreProbe(
+                    ShellAccess.executeForConsole(
+                            DISPLAY_COMMAND
+                                    + PhoneDisplayGuardCommand.POWER_RESET))) {
+                operation = PhoneDisplayGuardCommand.POWER_RESET;
+            }
+            if (operation == null && isRecognizedRestoreProbe(
+                    ShellAccess.executeForConsole(
+                            DISPLAY_COMMAND
+                                    + PhoneDisplayGuardCommand.POWER_ON))) {
+                operation = PhoneDisplayGuardCommand.POWER_ON;
+            }
+            if (operation != null) {
+                sRestoreOperation = operation;
+            }
+            return operation;
+        } catch (IOException error) {
+            Log.w(TAG, "Cannot inspect display power commands", error);
+            return null;
+        }
+    }
+
+    static String selectRestoreOperation(final String help) {
+        if (help == null) {
+            return null;
+        }
+        if (help.contains(PhoneDisplayGuardCommand.POWER_RESET)) {
+            return PhoneDisplayGuardCommand.POWER_RESET;
+        }
+        if (help.contains(PhoneDisplayGuardCommand.POWER_ON)) {
+            return PhoneDisplayGuardCommand.POWER_ON;
+        }
+        return null;
+    }
+
+    static boolean isRecognizedRestoreProbe(
+            final ShellAccess.CommandResult result) {
+        if (result == null || result.output == null) {
+            return false;
+        }
+        final String output = result.output.toLowerCase(java.util.Locale.ROOT);
+        return output.contains("no displayid specified")
+                && !output.contains("unknown command");
     }
 
     private static void publishState(final boolean screenOff) {
@@ -167,6 +232,7 @@ final class PhoneDisplayGuard {
 
     private static final class Session implements Runnable {
         private final int mGeneration;
+        private final String mRestoreOperation;
         private final CountDownLatch mReady = new CountDownLatch(1);
         private final CountDownLatch mStopped = new CountDownLatch(1);
         private volatile boolean mRestoreRequested;
@@ -174,8 +240,9 @@ final class PhoneDisplayGuard {
         private volatile String mFailure = "guard exited before ready";
         private volatile ShellStreamHandle mStream;
 
-        Session(final int generation) {
+        Session(final int generation, final String restoreOperation) {
             mGeneration = generation;
+            mRestoreOperation = restoreOperation;
         }
 
         void start() {
@@ -242,7 +309,8 @@ final class PhoneDisplayGuard {
                 stream = ShellAccess.openHeartbeatStream(
                         AppProcessCommand.exec(
                                 GUARD_COMMAND,
-                                Integer.toString(android.os.Process.myUid())));
+                                Integer.toString(android.os.Process.myUid())
+                                        + " " + mRestoreOperation));
                 mStream = stream;
                 if (mRestoreRequested) {
                     requestRestore();

@@ -23,6 +23,8 @@ final class PhoneDesktopTaskRecovery {
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".MagicDeskTouchpadActivity");
     private static final String CMD = "/system/bin/cmd";
+    private static final String WMSHELL_HELP =
+            CMD + " statusbar wmshell-passthrough help";
     private static final String RECOVERY_COMMAND =
             "io.github.mekhontsev.magicdesk.PhoneDesktopTaskRecoveryCommand";
     private static final String REPOSITORY_DUMP =
@@ -291,6 +293,7 @@ final class PhoneDesktopTaskRecovery {
                             + unavailableRemovedTaskIds);
         }
 
+        String desktopMoveAction = null;
         for (final Integer taskId : taskIds) {
             final PhoneTask task = liveTasks.get(taskId);
             if (!isRecoverable(task)) {
@@ -298,8 +301,25 @@ final class PhoneDesktopTaskRecovery {
                         "phone desktop task unavailable: " + taskId);
             }
             if (!task.freeform) {
+                if (desktopMoveAction == null) {
+                    final CommandResult help = runRead(
+                            WMSHELL_HELP, continuation, environment);
+                    if (help.cancelled) {
+                        return Result.cancelled();
+                    }
+                    desktopMoveAction = help.success
+                            ? NativeDesktopController.selectMoveAction(
+                                    help.output)
+                            : null;
+                    if (desktopMoveAction == null) {
+                        return Result.failure(
+                                "WMShell desktop command unavailable: "
+                                        + help.output.trim());
+                    }
+                }
                 final CommandResult enteredDesktop = runMutation(
-                        CMD + " window shell desktopmode moveTaskToDesk "
+                        CMD + " window shell desktopmode "
+                                + desktopMoveAction + " "
                                 + taskId.intValue(),
                         continuation,
                         environment);

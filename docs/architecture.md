@@ -670,6 +670,11 @@ MagicDesk operates on exact task IDs. Windowed launches and restores use native
 WMShell desktop transitions when available. Snap and maximize reserve the
 MagicDesk taskbar; true fullscreen does not.
 
+The native transition probe reads WMShell help instead of branching on the
+Android version. It selects Android 15's `desktopmode moveToDesktop` or Android
+16's `desktopmode moveTaskToDesk` command when present, and otherwise uses the
+direct `WindowContainerTransaction` path.
+
 `AppWindowStateStore` keeps one stable record per package: the last explicit
 Windowed or Fullscreen choice and, independently, the last confirmed freeform
 bounds. Auto launch honors an explicit choice first and otherwise retains the
@@ -758,8 +763,10 @@ only the virtual device receives key-up. No timing threshold is involved.
 
 RedMagic's `nubia_screen_off_tp` path lets its text-input activity wake display
 0 whenever an external text field receives focus. MagicDesk instead uses the
-shell DisplayManager `power-off 0`/`power-reset 0` contract. A heartbeat-owned
-`PhoneDisplayGuard` restores power after normal or abnormal teardown.
+shell DisplayManager `power-off 0` contract. A heartbeat-owned
+`PhoneDisplayGuard` probes and uses the platform's matching restore operation
+(`power-on` on Android 15 or `power-reset` on Android 16) after normal or
+abnormal teardown.
 
 While display 0 is off, RedMagic's independent `cfreezer` can freeze even a
 foreground-service HOME process. The same heartbeat refreshes the vendor's
@@ -833,7 +840,7 @@ setting names and vendor services can change across firmware.
 
 ## Device Setup And Recovery
 
-Device Setup requires Android 16+, a selected compatible platform driver, and
+Device Setup requires Android 15+, a selected compatible platform driver, and
 a live, authorized Shizuku UserService. Every platform audits the two standard
 Android settings:
 

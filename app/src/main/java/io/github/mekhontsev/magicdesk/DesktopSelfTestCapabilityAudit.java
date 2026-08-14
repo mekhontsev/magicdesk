@@ -100,7 +100,7 @@ final class DesktopSelfTestCapabilityAudit {
                         : DesktopSelfTestResult.State.WARN,
                 "API-WMSHELL-001", "WMShell desktop command",
                 nativeDesktopAvailable
-                        ? "desktopmode passthrough available"
+                        ? NativeDesktopController.backendDescription()
                         : "unavailable; direct WindowContainerTransaction path required");
 
         final int activeDisplayId =

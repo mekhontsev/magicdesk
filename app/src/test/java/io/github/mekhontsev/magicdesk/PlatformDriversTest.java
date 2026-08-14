@@ -59,15 +59,29 @@ public final class PlatformDriversTest {
     }
 
     @Test
-    public void oldAndroidDoesNotMeetPlatformBaseline() {
-        final PlatformDriver driver = PlatformDrivers.resolve(
-                new PlatformDevice(
-                        "Google", "google", "Pixel", "pixel", "pixel",
-                        "fingerprint", 35));
-
-        assertFalse(driver.supports(new PlatformDevice(
+    public void android15MeetsPlatformBaseline() {
+        final PlatformDevice genericDevice = new PlatformDevice(
                 "Google", "google", "Pixel", "pixel", "pixel",
-                "fingerprint", 35)));
+                "fingerprint", 35);
+        final PlatformDevice nubiaDevice = new PlatformDevice(
+                "nubia", "nubia", "NX769J", "NX769J", "NX769J",
+                "fingerprint", 35);
+
+        assertTrue(PlatformDrivers.resolve(genericDevice).supports(
+                genericDevice));
+        assertTrue(PlatformDrivers.resolve(nubiaDevice).supports(
+                nubiaDevice));
+        assertEquals("nubia", PlatformDrivers.resolve(nubiaDevice).id());
+    }
+
+    @Test
+    public void android14DoesNotMeetPlatformBaseline() {
+        final PlatformDevice device = new PlatformDevice(
+                "Google", "google", "Pixel", "pixel", "pixel",
+                "fingerprint", 34);
+        final PlatformDriver driver = PlatformDrivers.resolve(device);
+
+        assertFalse(driver.supports(device));
     }
 
     private static PlatformDevice device(

@@ -228,6 +228,8 @@ not supported runtime modes:
   had root and whose desktop properties retain stock values.
 - [ ] Test another RedMagic/ZTE Android 16 firmware and record every changed
   Binder service, component, setting, and diagnostic code.
+- [ ] Run onboarding, Diagnostics, simulated self-test, phone desktop, HDMI,
+  SmartCast, capture, input, and launcher cleanup on RedMagic Android 15.
 - [ ] Validate System audio output across HDMI, USB, Bluetooth, and phone speaker.
 - [ ] On display 0, leave multiple freeform tasks open and verify the system
   Home and Recents gestures are unavailable while MagicDesk task switching

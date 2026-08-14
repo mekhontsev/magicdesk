@@ -1,6 +1,6 @@
 # Compatibility and issue reports
 
-MagicDesk primarily targets ZTE-family firmware on Android 16 and newer. A
+MagicDesk primarily targets ZTE-family firmware on Android 15 and newer. A
 platform-driver boundary now separates standard Android desktop behavior from
 ZTE/nubia integration. The conservative Generic Android driver permits only
 phone and simulated desktops; wired and wireless desktop backends remain
@@ -26,7 +26,7 @@ transitions can depend on undocumented firmware behavior.
   confirmed the relevant fixes and desktop workflows on that exact firmware.
   It is known compatible, but has not received the complete maintainer test
   matrix.
-- **Compatible baseline, unverified** means an Android 16+ platform driver can
+- **Compatible baseline, unverified** means an Android 15+ platform driver can
   provide the selected session type. MagicDesk allows startup, probes
   capabilities, and reports unavailable features individually. On Generic
   Android this currently covers only phone and simulated sessions.
@@ -38,6 +38,11 @@ An OTA changes the fingerprint. A previously tested model therefore becomes
 unverified until that firmware has been tested. This is intentional: private
 Binder methods, component names, shell commands, and framework behavior can
 change without an Android API-level change.
+
+Android 15 is an installable compatibility baseline, not yet a verified
+firmware profile. Its WMShell uses the older `desktopmode moveToDesktop`
+command when that backend is enabled; MagicDesk detects either command name
+and retains its direct transaction fallback.
 
 ## Tested firmware
 

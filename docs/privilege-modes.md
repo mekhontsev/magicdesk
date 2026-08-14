@@ -80,10 +80,11 @@ layout cycling; changing the IME is the appropriate workaround.
 
 While the external desktop remains active, MagicDesk can dim display 0 without
 breaking external physical input. A shell helper owns DisplayManager's
-`power-off 0` state and restores it with `power-reset 0`. It deliberately does
-not set Nubia's `nubia_screen_off_tp` flag, because that flag lets the vendor
-text-input panel wake the phone whenever an external application requests
-input.
+`power-off 0` state and restores it with the operation advertised by the
+platform (`power-on` on Android 15 or `power-reset` on Android 16). It
+deliberately does not set Nubia's `nubia_screen_off_tp` flag, because that flag
+lets the vendor text-input panel wake the phone whenever an external
+application requests input.
 
 The same heartbeat marks MagicDesk's foreground service as active through
 RedMagic's transient `cfreezer` API. Without that signal the firmware can
