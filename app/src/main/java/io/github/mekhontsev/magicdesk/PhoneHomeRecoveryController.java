@@ -213,15 +213,17 @@ final class PhoneHomeRecoveryController {
             }
             return;
         }
+        final boolean localDesktopStillActive = localDesktopActive
+                || DesktopRuntimeBridge.isLocalDesktopActiveOrStarting();
         final boolean secondaryHomeCleanupSucceeded =
                 removeSecondaryPhoneHomeTasks(snapshot.tasks, home);
         final boolean desktopCleanupSucceeded =
                 removeStrandedDesktopTasks(
-                        snapshot.tasks, localDesktopActive);
+                        snapshot.tasks, localDesktopStillActive);
         final boolean removeSystemDesktopWallpaper =
                 ensureVisiblePhoneTask
                         && !forcePrimaryHome
-                        && !localDesktopActive;
+                        && !localDesktopStillActive;
         final boolean wallpaperCleanupSucceeded =
                 removeStrandedSystemDesktopWallpaperTasks(
                         snapshot.tasks, removeSystemDesktopWallpaper);
@@ -230,13 +232,15 @@ final class PhoneHomeRecoveryController {
                 desktopCleanupSucceeded,
                 wallpaperCleanupSucceeded);
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
-                snapshot.tasks, includeStrandedDesktop, home);
+                snapshot.tasks,
+                includeStrandedDesktop && !localDesktopStillActive,
+                home);
         if (!forcePrimaryHome
                 && !needsPrimaryHome
                 && (!ensureVisiblePhoneTask
                         || hasVisiblePhoneTaskAfterCleanup(
                                 snapshot.tasks,
-                                localDesktopActive,
+                                localDesktopStillActive,
                                 home,
                                 removeSystemDesktopWallpaper))) {
             complete(callback, cleanupSucceeded);

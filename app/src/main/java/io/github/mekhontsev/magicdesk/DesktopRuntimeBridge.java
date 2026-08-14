@@ -156,6 +156,16 @@ public final class DesktopRuntimeBridge {
         return sDesktopTarget;
     }
 
+    static boolean isLocalDesktopActiveOrStarting() {
+        if (getActiveDesktopDisplayId() == Display.DEFAULT_DISPLAY) {
+            return true;
+        }
+        final DesktopDisplayTarget target = sDesktopTarget;
+        return target != null
+                && target.displayId == Display.DEFAULT_DISPLAY
+                && target.kind == DesktopDisplayTarget.Kind.PHONE;
+    }
+
     static DesktopViewport getDesktopViewport(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || activity.getCurrentDisplayId() != displayId) {

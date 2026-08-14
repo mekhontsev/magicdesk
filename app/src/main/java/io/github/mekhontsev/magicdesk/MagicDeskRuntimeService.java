@@ -69,6 +69,7 @@ public final class MagicDeskRuntimeService extends Service {
     private boolean mDestroyed;
     private boolean mInitialized;
     private boolean mLocalDesktopCleanupInFlight;
+    private boolean mLocalDesktopExitRecoveryPending;
     private int mInputSourceRefreshGeneration;
     private String mOperationStatus;
     private boolean mShowImeOverrideActive;
@@ -683,7 +684,8 @@ public final class MagicDeskRuntimeService extends Service {
 
     private void handleTaskStackChanged() {
         if (mRemovedDesktopDisplayId > android.view.Display.DEFAULT_DISPLAY
-                || mConsoleExitRecoveryPending) {
+                || mConsoleExitRecoveryPending
+                || mLocalDesktopExitRecoveryPending) {
             schedulePhoneHomeRecovery();
         }
     }
@@ -712,11 +714,13 @@ public final class MagicDeskRuntimeService extends Service {
         final boolean includeStrandedDesktop =
                 PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
                         mConsoleModeActive,
-                        mConsoleExitRecoveryPending);
+                        mConsoleExitRecoveryPending)
+                        || mLocalDesktopExitRecoveryPending;
+        final boolean localDesktopExitRecoveryPending =
+                mLocalDesktopExitRecoveryPending;
         final int removedDisplayId = mRemovedDesktopDisplayId;
         final boolean localDesktopActive =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                        == android.view.Display.DEFAULT_DISPLAY;
+                DesktopRuntimeBridge.isLocalDesktopActiveOrStarting();
         PhoneHomeRecoveryController.restoreIfNeeded(
                 includeStrandedDesktop,
                 removedDisplayId,
@@ -747,6 +751,15 @@ public final class MagicDeskRuntimeService extends Service {
                     if (!mDestroyed && recoveryComplete
                             && includeStrandedDesktop) {
                         mConsoleExitRecoveryPending = false;
+                    }
+                    if (!mDestroyed && recoveryComplete
+                            && localDesktopExitRecoveryPending
+                            && mLocalDesktopExitRecoveryPending) {
+                        if (!DesktopRuntimeBridge
+                                .isLocalDesktopActiveOrStarting()) {
+                            LocalDesktopSessionState.clearCleanupPending(this);
+                        }
+                        mLocalDesktopExitRecoveryPending = false;
                     }
                     if (!mDestroyed && mPhoneHomeRecoveryAgain) {
                         mPhoneHomeRecoveryAgain = false;
@@ -1079,6 +1092,7 @@ public final class MagicDeskRuntimeService extends Service {
     private void cleanupClosedLocalDesktop() {
         if (mDestroyed
                 || mLocalDesktopCleanupInFlight
+                || mLocalDesktopExitRecoveryPending
                 || !LocalDesktopSessionState.isCleanupPending(this)
                 || DesktopRuntimeBridge.getActiveDesktopDisplayId()
                         == android.view.Display.DEFAULT_DISPLAY) {
@@ -1114,8 +1128,10 @@ public final class MagicDeskRuntimeService extends Service {
                         }
                         return;
                     }
-                    LocalDesktopSessionState.clearCleanupPending(this);
-                    Log.i(TAG, "recovered phone desktop tasks after local desktop");
+                    mLocalDesktopExitRecoveryPending = true;
+                    schedulePhoneHomeRecovery();
+                    Log.i(TAG, "recovered phone desktop tasks; restoring Home"
+                            + " after local desktop");
                 });
     }
 

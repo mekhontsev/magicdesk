@@ -174,7 +174,9 @@ runtime integration and are not distributed through the same release path.
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
-  panel, which remains a quick control surface for the active session.
+  panel, which remains a quick control surface for the active session. Settings
+  also provides the stable entry points for device setup, diagnostics, and
+  About, keeping the phone control surface focused on session actions.
 - `DesktopActivity` is the concrete desktop Activity.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
@@ -418,9 +420,9 @@ check.
 - Phone control and external desktop are separate tasks and may coexist.
 
 Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
-The script temporarily sets `overlay_display_devices`, starts the real
-`DesktopActivity` on that display, verifies task placement, and restores the
-previous setting on exit.
+The script invokes the debug lifecycle instrumentation, so it uses the same
+display driver, owned overlay lease, desktop session, window suite, and cleanup
+as the built-in simulated self-test.
 
 The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
 on a selected simulated, external, or phone display. A desktop session must be
@@ -516,7 +518,9 @@ used on an external display.
 The active shell observer removes orphaned entries as tasks disappear. Normal
 local-desktop shutdown first converts remaining live freeform tasks to
 fullscreen and removes verified orphaned Recents entries, then releases the
-navigation guard before exposing the phone launcher. Explicit Exit attempts
+navigation guard. The shared phone recovery removes SystemUI's stranded
+desktop wallpaper task and keeps the primary Home task underneath the
+foreground control or Diagnostics window. Explicit Exit attempts
 the same stateless reconciliation, including debris left by an older
 MagicDesk process or a phone reboot, but it always completes at the user's
 request. A failed reconciliation remains marked as pending and is retried by a
@@ -961,8 +965,7 @@ input. The last bounded result is included in the normal compatibility report;
 no periodic self-test or diagnostic polling runs in the background.
 
 Debug builds also expose this production path through
-`DesktopLifecycleInstrumentation`. It adds Activity recreation to the same
-owned simulated-display session and reports the complete self-test result to
+`DesktopLifecycleInstrumentation`. It reports the complete self-test result to
 `am instrument`; it is intentionally not run by host-only CI.
 
 Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk

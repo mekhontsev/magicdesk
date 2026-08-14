@@ -150,7 +150,7 @@ public final class PhoneHomeRecoveryControllerTest {
     }
 
     @Test
-    public void removesSystemDesktopWallpaperOnlyAfterExternalRecovery() {
+    public void removesSystemDesktopWallpaperOnlyDuringDesktopExitRecovery() {
         final TaskRepository.TaskEntry wallpaper = task(
                 SYSTEM_DESKTOP_WALLPAPER,
                 true,
