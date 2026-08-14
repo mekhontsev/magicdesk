@@ -650,6 +650,25 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void setPreferredFileHandler(
+            final String mimeType,
+            final String[] candidateComponents,
+            final String selectedComponent,
+            final int match) {
+        PreferredFileHandlerCommand.set(
+                mimeType,
+                candidateComponents,
+                selectedComponent,
+                match);
+    }
+
+    @Override
+    public String getSelectedFileHandler(
+            final String mimeType, final String dataUri) {
+        return PreferredFileHandlerCommand.getSelected(mimeType, dataUri);
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,

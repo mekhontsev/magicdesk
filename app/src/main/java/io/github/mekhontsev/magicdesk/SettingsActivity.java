@@ -46,6 +46,11 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setOpenFilesWithSingleClick(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setOpenFilesWithSingleClick(enabled));
+    }
+
+    @Override
     public void openDeviceSetup() {
         startActivityOnCurrentDisplay(
                 DeviceSetupActivity.createManualIntent(this));

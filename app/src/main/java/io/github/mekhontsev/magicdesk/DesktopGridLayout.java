@@ -78,7 +78,8 @@ final class DesktopGridLayout extends ViewGroup {
             final int offsetX,
             final int offsetY) {
         final Object state = event.getLocalState();
-        if (!(state instanceof DragToken)) {
+        final String desktopItemId = desktopItemId(state);
+        if (desktopItemId == null) {
             if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
                 return mListener != null
                         && event.getClipDescription() != null;
@@ -95,9 +96,19 @@ final class DesktopGridLayout extends ViewGroup {
             final int row = Math.max(0, Math.min(
                     Math.max(0, mRows - 1),
                     (int) ((event.getY() + offsetY) / mCellHeight)));
-            mListener.onItemDropped(((DragToken) state).itemId, column, row);
+            mListener.onItemDropped(desktopItemId, column, row);
         }
         return true;
+    }
+
+    private static String desktopItemId(final Object state) {
+        if (state instanceof DragToken) {
+            return ((DragToken) state).itemId;
+        }
+        if (state instanceof FileDragPayload) {
+            return ((FileDragPayload) state).desktopItemId;
+        }
+        return null;
     }
 
     @Override

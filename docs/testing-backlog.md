@@ -196,6 +196,8 @@ retired prototypes are listed separately and are not current product modes.
   MagicDesk into a compatible file manager, from the system file picker into
   MagicDesk, and between application windows. Confirm that source gestures not
   published as global Android drag sessions do not reach MagicDesk.
+- [ ] Verify file and recursive-folder move between built-in Files and Desktop,
+  drop onto a Files folder row, and `Ctrl`-drag copy in both directions.
 
 ## Historical Experiments: Retired Paths
 

@@ -4,6 +4,8 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
+import android.view.DragEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
@@ -21,12 +23,25 @@ import java.util.Locale;
 import java.util.Set;
 
 final class ShellFileListAdapter extends BaseAdapter {
+    interface ClickListener {
+        void onClick(ShellFileInfo file, int metaState, long eventTime);
+    }
+
     interface SelectionListener {
         void onSelectionChanged(ShellFileInfo file, boolean selected);
     }
 
     interface ContextListener {
         boolean onContextClick(View anchor, ShellFileInfo file);
+    }
+
+    interface LongClickListener {
+        boolean onLongClick(
+                View anchor, ShellFileInfo file, int metaState);
+    }
+
+    interface DropListener {
+        boolean onDrop(DragEvent event, ShellFileInfo destination);
     }
 
     private static final int COLOR_BACKGROUND = Color.rgb(9, 13, 20);
@@ -36,19 +51,28 @@ final class ShellFileListAdapter extends BaseAdapter {
     private static final int COLOR_ACCENT = Color.rgb(34, 211, 238);
 
     private final Context mContext;
+    private final ClickListener mClickListener;
     private final SelectionListener mListener;
     private final ContextListener mContextListener;
+    private final LongClickListener mLongClickListener;
+    private final DropListener mDropListener;
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
     private final Set<String> mSelected = new HashSet<>();
     private boolean mDetails = true;
 
     ShellFileListAdapter(
             final Context context,
+            final ClickListener clickListener,
             final SelectionListener listener,
-            final ContextListener contextListener) {
+            final ContextListener contextListener,
+            final LongClickListener longClickListener,
+            final DropListener dropListener) {
         mContext = context;
+        mClickListener = clickListener;
         mListener = listener;
         mContextListener = contextListener;
+        mLongClickListener = longClickListener;
+        mDropListener = dropListener;
     }
 
     void set(
@@ -102,9 +126,57 @@ final class ShellFileListAdapter extends BaseAdapter {
         row.root.setBackgroundColor(
                 mSelected.contains(file.absolutePath)
                         ? COLOR_ACTIVE : COLOR_BACKGROUND);
+        row.metaState = 0;
+        row.eventTime = 0L;
+        row.root.setOnTouchListener((view, event) -> {
+            final int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN
+                    || action == MotionEvent.ACTION_BUTTON_PRESS
+                    || action == MotionEvent.ACTION_UP) {
+                row.metaState = event.getMetaState();
+                row.eventTime = event.getEventTime();
+            }
+            return false;
+        });
+        row.root.setOnClickListener(view ->
+                mClickListener.onClick(
+                        file, row.metaState, row.eventTime));
+        row.root.setOnLongClickListener(view ->
+                mLongClickListener.onLongClick(
+                        view, file, row.metaState));
         row.root.setOnContextClickListener(view ->
                 mContextListener.onContextClick(view, file));
+        row.root.setOnDragListener(file.directory
+                ? (view, event) -> handleFolderDrag(
+                        row, file, event)
+                : null);
         return row.root;
+    }
+
+    private boolean handleFolderDrag(
+            final Row row,
+            final ShellFileInfo folder,
+            final DragEvent event) {
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return event.getClipDescription() != null;
+            case DragEvent.ACTION_DRAG_ENTERED:
+                row.root.setBackgroundColor(COLOR_ACTIVE);
+                return true;
+            case DragEvent.ACTION_DRAG_EXITED:
+            case DragEvent.ACTION_DRAG_ENDED:
+                row.root.setBackgroundColor(
+                        mSelected.contains(folder.absolutePath)
+                                ? COLOR_ACTIVE : COLOR_BACKGROUND);
+                return true;
+            case DragEvent.ACTION_DROP:
+                row.root.setBackgroundColor(
+                        mSelected.contains(folder.absolutePath)
+                                ? COLOR_ACTIVE : COLOR_BACKGROUND);
+                return mDropListener.onDrop(event, folder);
+            default:
+                return true;
+        }
     }
 
     private Row createRow() {
@@ -182,6 +254,8 @@ final class ShellFileListAdapter extends BaseAdapter {
         final ImageView icon;
         final TextView name;
         final TextView details;
+        int metaState;
+        long eventTime;
 
         Row(
                 final LinearLayout root,

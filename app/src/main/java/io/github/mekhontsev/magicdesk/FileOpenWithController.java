@@ -1,0 +1,388 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.RadioButton;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Resolves file handlers without opening Android's overlay-hiding resolver. */
+final class FileOpenWithController {
+    interface Launcher {
+        void launch(Intent intent);
+    }
+
+    private final Activity mActivity;
+    private AlertDialog mDialog;
+
+    FileOpenWithController(final Activity activity) {
+        mActivity = activity;
+    }
+
+    boolean open(
+            final Intent source,
+            final boolean alwaysAsk,
+            final Launcher launcher) {
+        final List<Target> targets = queryTargets(source);
+        if (targets.isEmpty()) {
+            return false;
+        }
+        final Target preferred = preferredTarget(source, targets);
+        if (!alwaysAsk && (preferred != null || targets.size() == 1)) {
+            launcher.launch(explicitIntent(
+                    source, preferred != null ? preferred : targets.get(0)));
+            return true;
+        }
+        showDialog(source, targets, preferred, launcher);
+        return true;
+    }
+
+    void close() {
+        if (mDialog != null) {
+            mDialog.dismiss();
+            mDialog = null;
+        }
+    }
+
+    private List<Target> queryTargets(final Intent source) {
+        final PackageManager packageManager = mActivity.getPackageManager();
+        final List<ResolveInfo> matches = packageManager.queryIntentActivities(
+                source,
+                PackageManager.ResolveInfoFlags.of(
+                        PackageManager.MATCH_DEFAULT_ONLY));
+        final Map<ComponentName, Target> unique = new LinkedHashMap<>();
+        for (final ResolveInfo match : matches) {
+            final ActivityInfo activityInfo = match.activityInfo;
+            if (activityInfo == null || !activityInfo.exported) {
+                continue;
+            }
+            final ComponentName component = new ComponentName(
+                    activityInfo.packageName, activityInfo.name);
+            unique.put(component, new Target(
+                    component,
+                    String.valueOf(match.loadLabel(packageManager)),
+                    activityInfo.packageName,
+                    loadIcon(packageManager, match),
+                    match.match));
+        }
+        final List<Target> targets = new ArrayList<>(unique.values());
+        targets.sort(Comparator
+                .comparing((Target target) -> target.label,
+                        String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(target -> target.component.flattenToString()));
+        return targets;
+    }
+
+    private Target preferredTarget(
+            final Intent source,
+            final List<Target> targets) {
+        final ResolveInfo resolved = mActivity.getPackageManager()
+                .resolveActivity(
+                        source,
+                        PackageManager.ResolveInfoFlags.of(
+                                PackageManager.MATCH_DEFAULT_ONLY));
+        if (resolved == null || resolved.activityInfo == null) {
+            return null;
+        }
+        final ComponentName component = new ComponentName(
+                resolved.activityInfo.packageName,
+                resolved.activityInfo.name);
+        for (final Target target : targets) {
+            if (target.component.equals(component)) {
+                return target;
+            }
+        }
+        try {
+            final String encoded = ShellAccess.getSelectedFileHandler(
+                    source.getType(), source.getDataString());
+            final ComponentName selected = encoded == null
+                    ? null : ComponentName.unflattenFromString(encoded);
+            if (selected != null) {
+                for (final Target target : targets) {
+                    if (target.component.equals(selected)) {
+                        return target;
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // The custom chooser remains usable when shell lookup is absent.
+        }
+        return null;
+    }
+
+    private void showDialog(
+            final Intent source,
+            final List<Target> targets,
+            final Target preferred,
+            final Launcher launcher) {
+        close();
+        final int preferredIndex = preferred == null
+                ? -1 : targets.indexOf(preferred);
+        final TargetAdapter adapter = new TargetAdapter(
+                targets, preferred, preferredIndex);
+        final ListView list = new ListView(mActivity);
+        list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
+        list.setAdapter(adapter);
+        final AlertDialog dialog = new AlertDialog.Builder(mActivity)
+                .setTitle(R.string.file_manager_open_with)
+                .setView(list)
+                .setNegativeButton(R.string.file_manager_just_once, null)
+                .setPositiveButton(R.string.file_manager_always, null)
+                .create();
+        mDialog = dialog;
+        dialog.setOnDismissListener(ignored -> {
+            if (mDialog == dialog) {
+                mDialog = null;
+            }
+        });
+        dialog.show();
+        final Button once = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+        final Button always = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        updateButtons(adapter, once, always);
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            adapter.select(position);
+            updateButtons(adapter, once, always);
+        });
+        once.setOnClickListener(view -> {
+            final Target selected = adapter.selected();
+            if (selected != null) {
+                launcher.launch(explicitIntent(source, selected));
+                dialog.dismiss();
+            }
+        });
+        always.setOnClickListener(view -> {
+            final Target selected = adapter.selected();
+            if (selected == null) {
+                return;
+            }
+            try {
+                ShellAccess.setPreferredFileHandler(
+                        source.getType(),
+                        encodedComponents(targets),
+                        selected.component.flattenToString(),
+                        bestMatch(targets));
+                launcher.launch(explicitIntent(source, selected));
+                dialog.dismiss();
+            } catch (IOException error) {
+                Toast.makeText(
+                        mActivity,
+                        mActivity.getString(
+                                R.string.file_manager_default_failed,
+                                ShellAccess.usefulMessage(error)),
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private static void updateButtons(
+            final TargetAdapter adapter,
+            final Button once,
+            final Button always) {
+        final boolean selected = adapter.selected() != null;
+        once.setEnabled(selected);
+        always.setEnabled(selected);
+    }
+
+    private static String[] encodedComponents(final List<Target> targets) {
+        final String[] encoded = new String[targets.size()];
+        for (int index = 0; index < targets.size(); index++) {
+            encoded[index] = targets.get(index).component.flattenToString();
+        }
+        return encoded;
+    }
+
+    private static int bestMatch(final List<Target> targets) {
+        int best = 0;
+        for (final Target target : targets) {
+            best = Math.max(best, target.match);
+        }
+        return best;
+    }
+
+    private static Intent explicitIntent(
+            final Intent source,
+            final Target target) {
+        return new Intent(source).setComponent(target.component);
+    }
+
+    private static Drawable loadIcon(
+            final PackageManager packageManager,
+            final ResolveInfo resolveInfo) {
+        try {
+            return resolveInfo.loadIcon(packageManager);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private int dp(final int value) {
+        return Math.round(value * mActivity.getResources()
+                .getDisplayMetrics().density);
+    }
+
+    private final class TargetAdapter extends BaseAdapter {
+        private final List<Target> mTargets;
+        private final Target mPreferred;
+        private int mSelectedIndex;
+
+        TargetAdapter(
+                final List<Target> targets,
+                final Target preferred,
+                final int selectedIndex) {
+            mTargets = targets;
+            mPreferred = preferred;
+            mSelectedIndex = selectedIndex;
+        }
+
+        void select(final int position) {
+            if (position >= 0 && position < mTargets.size()) {
+                mSelectedIndex = position;
+                notifyDataSetChanged();
+            }
+        }
+
+        Target selected() {
+            return mSelectedIndex >= 0 && mSelectedIndex < mTargets.size()
+                    ? mTargets.get(mSelectedIndex) : null;
+        }
+
+        @Override
+        public int getCount() {
+            return mTargets.size();
+        }
+
+        @Override
+        public Target getItem(final int position) {
+            return mTargets.get(position);
+        }
+
+        @Override
+        public long getItemId(final int position) {
+            return getItem(position).component.hashCode();
+        }
+
+        @Override
+        public View getView(
+                final int position,
+                final View recycled,
+                final ViewGroup parent) {
+            final Row row = recycled instanceof LinearLayout
+                    && recycled.getTag() instanceof Row
+                    ? (Row) recycled.getTag() : createRow();
+            final Target target = getItem(position);
+            row.icon.setImageDrawable(target.icon);
+            row.label.setText(target.label);
+            row.packageName.setText(target == mPreferred
+                    ? mActivity.getString(
+                            R.string.file_manager_system_default,
+                            target.packageName)
+                    : target.packageName);
+            row.selection.setChecked(position == mSelectedIndex);
+            return row.root;
+        }
+
+        private Row createRow() {
+            final LinearLayout root = new LinearLayout(mActivity);
+            root.setOrientation(LinearLayout.HORIZONTAL);
+            root.setGravity(Gravity.CENTER_VERTICAL);
+            root.setPadding(dp(12), dp(6), dp(12), dp(6));
+            root.setMinimumHeight(dp(58));
+
+            final ImageView icon = new ImageView(mActivity);
+            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            root.addView(icon, new LinearLayout.LayoutParams(
+                    dp(42), dp(42)));
+
+            final LinearLayout labels = new LinearLayout(mActivity);
+            labels.setOrientation(LinearLayout.VERTICAL);
+            labels.setPadding(dp(12), 0, 0, 0);
+            final TextView label = new TextView(mActivity);
+            label.setTextColor(Color.rgb(232, 238, 245));
+            label.setTextSize(15f);
+            label.setSingleLine(true);
+            final TextView packageName = new TextView(mActivity);
+            packageName.setTextColor(Color.rgb(157, 170, 184));
+            packageName.setTextSize(11f);
+            packageName.setSingleLine(true);
+            labels.addView(label);
+            labels.addView(packageName);
+            root.addView(labels, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            final RadioButton selection = new RadioButton(mActivity);
+            selection.setClickable(false);
+            selection.setFocusable(false);
+            root.addView(selection, new LinearLayout.LayoutParams(
+                    dp(42), dp(42)));
+
+            final Row row = new Row(
+                    root, icon, label, packageName, selection);
+            root.setTag(row);
+            return row;
+        }
+    }
+
+    private static final class Target {
+        final ComponentName component;
+        final String label;
+        final String packageName;
+        final Drawable icon;
+        final int match;
+
+        Target(
+                final ComponentName component,
+                final String label,
+                final String packageName,
+                final Drawable icon,
+                final int match) {
+            this.component = component;
+            this.label = label;
+            this.packageName = packageName;
+            this.icon = icon;
+            this.match = match;
+        }
+    }
+
+    private static final class Row {
+        final LinearLayout root;
+        final ImageView icon;
+        final TextView label;
+        final TextView packageName;
+        final RadioButton selection;
+
+        Row(
+                final LinearLayout root,
+                final ImageView icon,
+                final TextView label,
+                final TextView packageName,
+                final RadioButton selection) {
+            this.root = root;
+            this.icon = icon;
+            this.label = label;
+            this.packageName = packageName;
+            this.selection = selection;
+        }
+    }
+}

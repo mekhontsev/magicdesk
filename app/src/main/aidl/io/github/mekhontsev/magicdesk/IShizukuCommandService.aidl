@@ -175,4 +175,14 @@ interface IShizukuCommandService {
     ShellFileInfo createAvailableShellEntry(
         String parentPath, String name, boolean directory) = 57;
 
+    void setPreferredFileHandler(
+        String mimeType,
+        in String[] candidateComponents,
+        String selectedComponent,
+        int match) = 58;
+
+    String getSelectedFileHandler(
+        String mimeType,
+        String dataUri) = 59;
+
 }

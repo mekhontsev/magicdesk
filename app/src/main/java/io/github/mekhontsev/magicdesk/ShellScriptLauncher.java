@@ -10,24 +10,36 @@ final class ShellScriptLauncher {
     }
 
     static boolean supports(final ShellFileInfo file) {
-        if (file == null || file.directory) {
+        return file != null
+                && supports(file.name, file.mimeType, file.directory);
+    }
+
+    static boolean supports(
+            final String fileName,
+            final String mimeType,
+            final boolean directory) {
+        if (directory) {
             return false;
         }
-        final String name = file.name.toLowerCase(Locale.ROOT);
+        final String name = fileName.toLowerCase(Locale.ROOT);
         return name.endsWith(".sh")
-                || SHELL_MIME_TYPE.equals(file.mimeType)
-                || SHELL_TEXT_MIME_TYPE.equals(file.mimeType);
+                || SHELL_MIME_TYPE.equals(mimeType)
+                || SHELL_TEXT_MIME_TYPE.equals(mimeType);
     }
 
     static String command(final ShellFileInfo file) {
         if (!supports(file)) {
             throw new IllegalArgumentException("file is not a shell script");
         }
-        final int separator = file.absolutePath.lastIndexOf('/');
+        return command(file.absolutePath);
+    }
+
+    static String command(final String absolutePath) {
+        final int separator = absolutePath.lastIndexOf('/');
         final String parent = separator <= 0
-                ? "/" : file.absolutePath.substring(0, separator);
+                ? "/" : absolutePath.substring(0, separator);
         return "cd -- " + ShellCommandLine.quote(parent)
                 + "\n/system/bin/sh -- "
-                + ShellCommandLine.quote(file.absolutePath);
+                + ShellCommandLine.quote(absolutePath);
     }
 }

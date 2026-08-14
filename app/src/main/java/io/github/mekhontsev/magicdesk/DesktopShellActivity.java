@@ -891,6 +891,78 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWorkspaceController.openFile(file);
     }
 
+    void openDesktopFileWith(final DesktopFile file) {
+        mDesktopWorkspaceController.openFileWith(file);
+    }
+
+    void copyDesktopFile(final DesktopFile file, final boolean move) {
+        mDesktopWorkspaceController.copyFile(file, move);
+    }
+
+    void pasteDesktopFiles() {
+        hideAllPanels();
+        mDesktopWorkspaceController.pasteFiles();
+    }
+
+    void copyDesktopFilePath(final DesktopFile file) {
+        mDesktopWorkspaceController.copyFilePath(file);
+    }
+
+    void showDesktopFileProperties(final DesktopFile file) {
+        mDesktopWorkspaceController.showFileProperties(file);
+    }
+
+    void showDesktopFileProperties(final ShellFileInfo file) {
+        hideAllPanels();
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(file.name)
+                .setMessage(FilePropertiesFormatter.format(this, file))
+                .setNeutralButton(
+                        R.string.file_manager_copy_path,
+                        (ignored, which) -> {
+                            final android.content.ClipboardManager clipboard =
+                                    getSystemService(
+                                            android.content.ClipboardManager
+                                                    .class);
+                            if (clipboard != null) {
+                                clipboard.setPrimaryClip(
+                                        android.content.ClipData.newPlainText(
+                                                file.name,
+                                                file.absolutePath));
+                            }
+                        })
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        configureOverlayDialog(dialog);
+        dialog.show();
+    }
+
+    void installDesktopApk(final DesktopFile file) {
+        hideAllPanels();
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.file_manager_install_title)
+                .setMessage(getString(
+                        R.string.file_manager_install_message,
+                        ShellDesktopDirectory.ABSOLUTE_PATH
+                                + "/" + file.relativePath))
+                .setPositiveButton(
+                        R.string.file_manager_install_apk,
+                        (ignored, which) ->
+                                mDesktopWorkspaceController.installApk(file))
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        configureOverlayDialog(dialog);
+        dialog.show();
+    }
+
+    void runDesktopScript(final DesktopFile file) {
+        mDesktopWorkspaceController.runScript(file);
+    }
+
+    void setDesktopWallpaperFromFile(final DesktopFile file) {
+        mDesktopWorkspaceController.setWallpaper(file);
+    }
+
     void createDesktopFile(final boolean directory) {
         showDesktopNameDialog(
                 directory
@@ -1080,7 +1152,7 @@ public abstract class DesktopShellActivity extends Activity
         dialog.show();
     }
 
-    private void configureOverlayDialog(final AlertDialog dialog) {
+    void configureOverlayDialog(final AlertDialog dialog) {
         final Window window = dialog.getWindow();
         if (window != null && Settings.canDrawOverlays(this)) {
             window.setType(
@@ -1420,10 +1492,13 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void refreshSettings() {
-        final boolean autoHide = MagicDeskSettings.load().taskbarAutoHide;
-        mTaskbarAutoHide = autoHide;
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        mTaskbarAutoHide = settings.taskbarAutoHide;
         if (mTaskbarRevealController != null) {
-            mTaskbarRevealController.setAutoHide(autoHide);
+            mTaskbarRevealController.setAutoHide(mTaskbarAutoHide);
+        }
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.refreshSettings(settings);
         }
     }
 

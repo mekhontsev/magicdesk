@@ -851,6 +851,50 @@ public final class ShellAccess {
         }
     }
 
+    static void setPreferredFileHandler(
+            final String mimeType,
+            final String[] candidateComponents,
+            final String selectedComponent,
+            final int match) throws IOException {
+        try {
+            requireService().setPreferredFileHandler(
+                    mimeType,
+                    candidateComponents,
+                    selectedComponent,
+                    match);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "Shizuku preferred-handler update failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku preferred-handler update failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static String getSelectedFileHandler(
+            final String mimeType, final String dataUri) throws IOException {
+        try {
+            return requireService().getSelectedFileHandler(
+                    mimeType, dataUri);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "Shizuku selected-handler lookup failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku selected-handler lookup failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static ShellStreamHandle openOwnedStream(final String command)
             throws IOException {
         return openStream(command, false);

@@ -277,6 +277,7 @@ public final class DesktopRuntimeBridge {
         final DesktopScreenPolicy.WorkspaceAction action =
                 DesktopScreenPolicy.workspaceAction(
                         displayId,
+                        activity != null && activity.hasWindowFocus(),
                         displayId < 0 ? null
                                 : DesktopTaskController
                                         .hasVisibleAppTaskSnapshot(displayId));
@@ -293,6 +294,10 @@ public final class DesktopRuntimeBridge {
             if (action == DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS) {
                 activity.restoreLastVisibleWindows();
             } else {
+                // A system activity can become focused before the task watcher
+                // publishes its next snapshot. Win+D must still expose an
+                // immediate route back to the desktop and taskbar.
+                activity.setTaskbarVisible(true);
                 focusDesktopOnDisplay(displayId);
             }
         });

@@ -11,26 +11,33 @@ public final class DesktopScreenPolicyTest {
     public void workspaceActionDoesNotDependOnInternalOrExternalDisplay() {
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(0, Boolean.TRUE));
+                DesktopScreenPolicy.workspaceAction(0, true, Boolean.TRUE));
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS,
-                DesktopScreenPolicy.workspaceAction(0, Boolean.FALSE));
+                DesktopScreenPolicy.workspaceAction(0, true, Boolean.FALSE));
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(7, Boolean.TRUE));
+                DesktopScreenPolicy.workspaceAction(7, true, Boolean.TRUE));
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(7, null));
+                DesktopScreenPolicy.workspaceAction(7, true, null));
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS,
-                DesktopScreenPolicy.workspaceAction(7, Boolean.FALSE));
+                DesktopScreenPolicy.workspaceAction(7, true, Boolean.FALSE));
+    }
+
+    @Test
+    public void unfocusedDesktopWinsOverStaleEmptyTaskSnapshot() {
+        assertEquals(
+                DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
+                DesktopScreenPolicy.workspaceAction(7, false, Boolean.FALSE));
     }
 
     @Test
     public void missingDesktopStartsExternalSession() {
         assertEquals(
                 DesktopScreenPolicy.WorkspaceAction.START_EXTERNAL_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(-1, null));
+                DesktopScreenPolicy.workspaceAction(-1, false, null));
     }
 
     @Test

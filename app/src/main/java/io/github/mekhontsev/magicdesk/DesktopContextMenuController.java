@@ -29,16 +29,9 @@ final class DesktopContextMenuController {
     }
 
     LinearLayout create() {
-        final LinearLayout menu = new LinearLayout(mActivity);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(10), dp(10), dp(10), dp(10));
-        menu.setBackground(mUi.rounded(
-                DesktopUiFactory.COLOR_PANEL,
-                dp(8),
-                DesktopUiFactory.COLOR_CYAN));
+        final LinearLayout menu = FileItemContextMenu.createPanel(
+                mActivity, mUi);
         menu.setVisibility(View.GONE);
-        menu.setClickable(true);
-        menu.setFocusable(true);
         mPanel = menu;
         return menu;
     }
@@ -172,6 +165,11 @@ final class DesktopContextMenuController {
                 true,
                 view -> mActivity.createDesktopFile(true));
         addAction(
+                R.string.file_manager_paste,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                !FileManagerClipboard.snapshot().isEmpty(),
+                view -> mActivity.pasteDesktopFiles());
+        addAction(
                 R.string.action_add_widget,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
@@ -264,22 +262,73 @@ final class DesktopContextMenuController {
             final float x,
             final float y,
             final DesktopFile file) {
-        prepareMenuTitle(file.name);
-        addAction(
-                R.string.action_open,
-                DesktopUiFactory.COLOR_CYAN,
-                true,
-                view -> mActivity.openDesktopFile(file));
-        addAction(
-                R.string.action_rename,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> mActivity.renameDesktopFile(file));
-        addAction(
-                R.string.action_delete,
-                DesktopUiFactory.COLOR_RED,
-                true,
-                view -> mActivity.confirmDeleteDesktopFile(file));
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        if (mPanel == null || overlays == null) {
+            return;
+        }
+        overlays.hide(mPanel);
+        FileItemContextMenu.populate(
+                mActivity,
+                mUi,
+                mPanel,
+                FileItemContextMenu.Target.from(file),
+                new FileItemContextMenu.Actions() {
+                    @Override
+                    public void open() {
+                        mActivity.openDesktopFile(file);
+                    }
+
+                    @Override
+                    public void openWith() {
+                        mActivity.openDesktopFileWith(file);
+                    }
+
+                    @Override
+                    public void install() {
+                        mActivity.installDesktopApk(file);
+                    }
+
+                    @Override
+                    public void runScript() {
+                        mActivity.runDesktopScript(file);
+                    }
+
+                    @Override
+                    public void setWallpaper() {
+                        mActivity.setDesktopWallpaperFromFile(file);
+                    }
+
+                    @Override
+                    public void copy() {
+                        mActivity.copyDesktopFile(file, false);
+                    }
+
+                    @Override
+                    public void cut() {
+                        mActivity.copyDesktopFile(file, true);
+                    }
+
+                    @Override
+                    public void rename() {
+                        mActivity.renameDesktopFile(file);
+                    }
+
+                    @Override
+                    public void delete() {
+                        mActivity.confirmDeleteDesktopFile(file);
+                    }
+
+                    @Override
+                    public void copyPath() {
+                        mActivity.copyDesktopFilePath(file);
+                    }
+
+                    @Override
+                    public void properties() {
+                        mActivity.showDesktopFileProperties(file);
+                    }
+                },
+                () -> overlays.hide(mPanel));
         positionAndShow(x, y);
     }
 

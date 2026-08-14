@@ -503,6 +503,12 @@ placement uses the full viewport. IME and other forced-visible policy still
 take precedence. This also avoids tying shell visibility to Activity focus
 callbacks.
 
+`Win+D` gives the live desktop-host focus state precedence over the cached task
+snapshot. A newly opened system activity can therefore never make a stale
+"no visible app" snapshot select Restore; MagicDesk exposes the taskbar and
+raises the desktop host first. Once the watcher confirms that state, the next
+`Win+D` can restore the previously visible freeform stack normally.
+
 The phone touchpad startup preference is evaluated once after a newly
 created external desktop becomes ready. It does not disable manual opening or
 change the existing requested/visible lifecycle used to preserve an open
@@ -614,6 +620,20 @@ operation: it is offered only for a selected APK, requires a confirmation that
 shows the absolute path, and executes as the already-authorized UserService
 identity.
 
+`FileItemContextMenu` renders the same file/folder command model into the
+desktop overlay and the Files popup. `ItemActivationPolicy` likewise owns the
+shared single-click/double-click decision; selection remains local to each
+surface. Desktop placement updates still use the fixed-folder API, while
+general copy/move work remains in `ShellFileSystem`, so UI integration does not
+widen the automatic desktop-filesystem boundary.
+
+File rows receive ordinary Android pointer meta state. The keyboard bridge
+forwards `Ctrl` and `Shift` immediately through its virtual keyboard so
+modifier-click selection works consistently in Files and third-party apps;
+`Alt` and `Meta` remain deferred while global shortcuts are classified. Files
+and desktop files/folders use double-click to open by default, with one shared
+optional single-click mode in Settings.
+
 Files windows are separate Android tasks with independent navigation and
 selection state. Their copy/cut buffer is shared only inside the MagicDesk
 process and is never persisted or published to Android's text clipboard. A
@@ -632,14 +652,25 @@ the UserService and accepted only when device and inode still match. Drag
 grants are read-only, while an explicit open grants write only when the
 UserService reported the file writable. The receiving application never
 receives Shizuku access, a raw privileged path, or the UserService Binder.
+The in-task **Open with** dialog avoids Android ResolverActivity hiding the
+desktop taskbar. It reads Android's current preferred handler. Its **Always**
+action asks the shell UserService to write the same PackageManager preferred
+activity record used by the system resolver; MagicDesk does not maintain a
+second file-association database.
 
 Incoming global Android URI drops are copied into the visible Files directory.
 Incomplete imports are removed, conflicts gain a numeric suffix, and the
 incoming drag grant is released. Cross-window import depends on the source
 publishing an Android global drag session; private in-window drag gestures are
-not visible to MagicDesk. The built-in Console can be prefilled with the
-current directory. Optional Termux integration uses Termux's documented
-`RUN_COMMAND` intent and permission; it is not required by Files.
+not visible to MagicDesk. For drags between MagicDesk's own Desktop and Files
+windows, `FileDragPayload` keeps absolute paths in process-local state. That
+typed path supports files and recursive folders without publishing privileged
+paths or inventing directory content URIs; the default action is move and
+holding `Ctrl` when the drag starts selects copy. Only ordinary files receive
+temporary URIs for drops into other Android applications. The built-in Console
+can be prefilled with the current directory. Optional Termux integration uses
+Termux's documented `RUN_COMMAND` intent and permission; it is not required by
+Files.
 Shell scripts can be handed to Console as a safely quoted initial command.
 Console still requires its normal explicit Run action and first-run warning;
 opening a script from Files never executes it automatically.

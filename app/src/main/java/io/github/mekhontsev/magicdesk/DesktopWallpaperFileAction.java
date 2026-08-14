@@ -11,9 +11,14 @@ final class DesktopWallpaperFileAction {
 
     static boolean supports(final ShellFileInfo file) {
         return file != null
-                && !file.directory
-                && file.mimeType != null
-                && file.mimeType.startsWith("image/");
+                && supports(file.mimeType, file.directory);
+    }
+
+    static boolean supports(
+            final String mimeType, final boolean directory) {
+        return !directory
+                && mimeType != null
+                && mimeType.startsWith("image/");
     }
 
     static void apply(final ShellFileInfo file) throws IOException {

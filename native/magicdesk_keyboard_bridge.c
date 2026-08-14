@@ -80,6 +80,13 @@ static bool is_meta_modifier(const unsigned short code) {
     return code == KEY_LEFTMETA || code == KEY_RIGHTMETA;
 }
 
+static bool is_pointer_modifier(const unsigned short code) {
+    return code == KEY_LEFTCTRL
+            || code == KEY_RIGHTCTRL
+            || code == KEY_LEFTSHIFT
+            || code == KEY_RIGHTSHIFT;
+}
+
 static unsigned int modifier_mask(
         const struct bridge_state *state) {
     unsigned int mask = 0;
@@ -231,11 +238,22 @@ static int process_modifier_event(
         }
         source->key_down[code] = true;
         if (state->key_down_count[code]++ == 0) {
-            state->modifier_pending[code] = true;
             state->modifier_consumed[code] = false;
-            state->modifier_order[code] =
-                    ++state->next_modifier_order;
-            state->modifier_down_event[code] = *event;
+            if (is_pointer_modifier(code)) {
+                // Pointer gestures need Ctrl/Shift to reach Android before
+                // the mouse event. Alt/Meta remain deferred so their global
+                // shortcuts do not leak into the focused application.
+                if (write_event(active_uinput_fd(state), event) < 0) {
+                    return -1;
+                }
+                state->forwarded_down[code] = true;
+                state->modifier_pending[code] = false;
+            } else {
+                state->modifier_pending[code] = true;
+                state->modifier_order[code] =
+                        ++state->next_modifier_order;
+                state->modifier_down_event[code] = *event;
+            }
         }
         return 0;
     }

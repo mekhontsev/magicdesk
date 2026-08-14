@@ -320,6 +320,8 @@ public final class CompatibilityDiagnostics {
                 .append(settings.openTouchpadAutomatically)
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
+                .append(", openItemsWithSingleClick=")
+                .append(settings.openFilesWithSingleClick)
                 .append('\n');
         report.append("Desktop wake lock held: ")
                 .append(MagicDeskRuntimeService

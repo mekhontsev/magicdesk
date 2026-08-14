@@ -110,16 +110,21 @@ and selected-display recording.
 - Use `/storage/emulated/0/Desktop` as the normal desktop filesystem: create,
   open, rename, and delete files or folders directly from the desktop, and
   drag files between the desktop and application windows that support
-  Android's global drag-and-drop protocol.
+  Android's global drag-and-drop protocol. Files and folders can also be moved
+  directly between the desktop and built-in Files; hold `Ctrl` while starting
+  the drag to copy instead.
 - Open the built-in **Files** window for the complete filesystem visible to
   the connected Shizuku UserService. It supports path navigation, hidden
   files, sorting, selection, create, rename, permanent
   delete, copy, cut, paste, current-folder name filtering, properties,
   external editors, and global file
   drag-and-drop. Conflicting copies receive a numeric suffix instead of
-  silently replacing data. Desktop context menus and standard file shortcuts
-  cover keyboard and mouse workflows; Properties reports the actual owner and
-  mode. Multiple Files windows can use the same process-local copy/cut buffer.
+  silently replacing data. Desktop and Files items use the same context menu,
+  activation preference, and process-local copy/cut buffer; Properties reports
+  the actual owner and mode. Files uses the Android system default application
+  when one exists, and its in-window **Open with** dialog can set the same
+  system-wide default.
+  Multiple Files windows can use the same process-local copy/cut buffer.
   An APK can be installed or updated only after an explicit confirmation.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
@@ -166,8 +171,8 @@ and Android user; neither kind of state is written into the desktop folder.
 - Media-volume and connected audio-output controls, plus phone-touchpad control
   when absolute pointer positioning is available.
 - A dedicated **Settings** window for persistent behavior, including optional
-  taskbar auto-hide, automatic touchpad startup, and keeping an active
-  desktop session awake.
+  taskbar auto-hide, single-click file activation, automatic touchpad startup,
+  and keeping an active desktop session awake.
 - Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through

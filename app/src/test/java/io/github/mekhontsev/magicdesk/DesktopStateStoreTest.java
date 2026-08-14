@@ -46,6 +46,7 @@ public final class DesktopStateStoreTest {
         source.settings.taskbarAutoHide = true;
         source.settings.keepDesktopAwake = true;
         source.settings.openTouchpadAutomatically = false;
+        source.settings.openFilesWithSingleClick = true;
 
         final DisplayProfileStore.Profile profile =
                 new DisplayProfileStore.Profile("display:primary");
@@ -79,6 +80,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.taskbarAutoHide);
         assertTrue(decoded.settings.keepDesktopAwake);
         assertFalse(decoded.settings.openTouchpadAutomatically);
+        assertTrue(decoded.settings.openFilesWithSingleClick);
         final DisplayProfileStore.Profile decodedProfile =
                 decoded.displayProfiles.get("display:primary");
         assertEquals(160, decodedProfile.dpi);
@@ -107,6 +109,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.appWindows.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
+        assertFalse(decoded.settings.openFilesWithSingleClick);
     }
 
     @Test

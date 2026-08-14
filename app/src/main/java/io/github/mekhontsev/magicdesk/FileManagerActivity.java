@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.content.ClipData;
-import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
@@ -15,15 +14,15 @@ import android.view.DragEvent;
 import android.view.DragAndDropPermissions;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.widget.EditText;
+import android.widget.PopupWindow;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
 import java.io.IOException;
-import java.text.DateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,7 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class FileManagerActivity extends Activity
-        implements FileManagerView.Listener, FileManagerItemMenu.Listener,
+        implements FileManagerView.Listener,
         ShellAccess.StateListener {
     static final String EXTRA_PATH =
             "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_PATH";
@@ -44,8 +43,6 @@ public final class FileManagerActivity extends Activity
     private static final String PREFERENCES = "file_manager";
     private static final String PREF_LAST_PATH = "last_path";
     private static final int PAGE_SIZE = 500;
-    private static final Object INTERNAL_DRAG = new Object();
-
     private final ExecutorService mWorker =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -58,12 +55,17 @@ public final class FileManagerActivity extends Activity
     private final Map<String, ShellFileInfo> mSelected =
             new LinkedHashMap<>();
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
+    private final Set<Integer> mHeldModifierKeys = new HashSet<>();
 
     private FileManagerView mView;
     private FileManagerOperationController mOperations;
     private FileManagerImportController mImporter;
+    private FileOpenWithController mOpenWith;
+    private PopupWindow mItemMenu;
     private OnBackInvokedCallback mBackCallback;
     private String mCurrentPath = DEFAULT_PATH;
+    private String mSelectionAnchorPath;
+    private ItemActivationPolicy mItemActivation;
     private int mHistoryIndex = -1;
     private boolean mShowHidden;
     private int mSortMode = ShellFileSystem.SORT_NAME;
@@ -93,6 +95,10 @@ public final class FileManagerActivity extends Activity
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mView = new FileManagerView(this, this);
+        mItemActivation = new ItemActivationPolicy(
+                MagicDeskSettings.load().openFilesWithSingleClick,
+                ViewConfiguration.getDoubleTapTimeout());
+        mOpenWith = new FileOpenWithController(this);
         mOperations = new FileManagerOperationController(
                 this,
                 mWorker,
@@ -164,6 +170,13 @@ public final class FileManagerActivity extends Activity
         if (mOperations != null) {
             mOperations.close();
         }
+        if (mOpenWith != null) {
+            mOpenWith.close();
+        }
+        if (mItemMenu != null) {
+            mItemMenu.dismiss();
+            mItemMenu = null;
+        }
         if (mBackCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
                     mBackCallback);
@@ -174,11 +187,32 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        mItemActivation.setSingleClick(MagicDeskSettings.load()
+                .openFilesWithSingleClick);
+    }
+
+    @Override
+    protected void onPause() {
+        mHeldModifierKeys.clear();
+        super.onPause();
+    }
+
+    @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus && mView != null) {
             updateActionState();
+        } else if (!hasFocus) {
+            mHeldModifierKeys.clear();
         }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(final KeyEvent event) {
+        updateModifierState(event);
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -249,7 +283,73 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
-    public void onOpen(final ShellFileInfo file) {
+    public void onItemClick(
+            final ShellFileInfo file,
+            final int metaState,
+            final long eventTime) {
+        final int normalized = KeyEvent.normalizeMetaState(
+                metaState | heldModifierMetaState());
+        final boolean control = (normalized & KeyEvent.META_CTRL_ON) != 0;
+        final boolean shift = (normalized & KeyEvent.META_SHIFT_ON) != 0;
+        if (shift) {
+            mItemActivation.reset();
+            selectRange(file, control);
+            return;
+        }
+        if (control) {
+            mItemActivation.reset();
+            mSelectionAnchorPath = file.absolutePath;
+            if (mSelected.containsKey(file.absolutePath)) {
+                mSelected.remove(file.absolutePath);
+            } else {
+                mSelected.put(file.absolutePath, file);
+            }
+            renderFiles();
+            return;
+        }
+        final long clickTime = eventTime > 0L
+                ? eventTime : android.os.SystemClock.uptimeMillis();
+        if (mItemActivation.shouldActivate(
+                file.absolutePath, clickTime)) {
+            onOpen(file);
+        } else {
+            selectOnly(file);
+        }
+    }
+
+    private void updateModifierState(final KeyEvent event) {
+        if (!isSelectionModifier(event.getKeyCode())) {
+            return;
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            mHeldModifierKeys.add(event.getKeyCode());
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            mHeldModifierKeys.remove(event.getKeyCode());
+        }
+    }
+
+    private int heldModifierMetaState() {
+        int state = 0;
+        for (final int keyCode : mHeldModifierKeys) {
+            if (keyCode == KeyEvent.KEYCODE_CTRL_LEFT
+                    || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT) {
+                state |= KeyEvent.META_CTRL_ON;
+            } else if (keyCode == KeyEvent.KEYCODE_SHIFT_LEFT
+                    || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) {
+                state |= KeyEvent.META_SHIFT_ON;
+            }
+        }
+        return state;
+    }
+
+    private static boolean isSelectionModifier(final int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_CTRL_LEFT
+                || keyCode == KeyEvent.KEYCODE_CTRL_RIGHT
+                || keyCode == KeyEvent.KEYCODE_SHIFT_LEFT
+                || keyCode == KeyEvent.KEYCODE_SHIFT_RIGHT;
+    }
+
+    private void onOpen(final ShellFileInfo file) {
         if (file.directory) {
             loadDirectory(file.absolutePath, true, -1);
         } else {
@@ -260,33 +360,111 @@ public final class FileManagerActivity extends Activity
     @Override
     public void onSelectionChanged(
             final ShellFileInfo file, final boolean selected) {
+        mItemActivation.reset();
         if (selected) {
             mSelected.put(file.absolutePath, file);
         } else {
             mSelected.remove(file.absolutePath);
         }
+        mSelectionAnchorPath = file.absolutePath;
         renderFiles();
     }
 
     @Override
     public boolean onContextMenu(
             final View anchor, final ShellFileInfo file) {
-        FileManagerItemMenu.show(this, anchor, file, this);
+        if (mItemMenu != null) {
+            mItemMenu.dismiss();
+        }
+        final PopupWindow itemMenu = FileItemContextMenu.showPopup(
+                this,
+                anchor,
+                FileItemContextMenu.Target.from(file),
+                fileMenuActions(file));
+        mItemMenu = itemMenu;
+        itemMenu.setOnDismissListener(() -> {
+            if (mItemMenu == itemMenu) {
+                mItemMenu = null;
+            }
+        });
         return true;
     }
 
+    private FileItemContextMenu.Actions fileMenuActions(
+            final ShellFileInfo file) {
+        return new FileItemContextMenu.Actions() {
+            @Override
+            public void open() {
+                onItemOpen(file);
+            }
+
+            @Override
+            public void openWith() {
+                onItemOpenWith(file);
+            }
+
+            @Override
+            public void install() {
+                onItemInstall(file);
+            }
+
+            @Override
+            public void runScript() {
+                onItemRunScript(file);
+            }
+
+            @Override
+            public void setWallpaper() {
+                onItemSetWallpaper(file);
+            }
+
+            @Override
+            public void copy() {
+                onItemCopy(file);
+            }
+
+            @Override
+            public void cut() {
+                onItemCut(file);
+            }
+
+            @Override
+            public void rename() {
+                onItemRename(file);
+            }
+
+            @Override
+            public void delete() {
+                onItemDelete(file);
+            }
+
+            @Override
+            public void copyPath() {
+                onItemCopyPath(file);
+            }
+
+            @Override
+            public void properties() {
+                onItemProperties(file);
+            }
+        };
+    }
+
     @Override
-    public void onStartDrag(final View source, final ShellFileInfo file) {
+    public void onStartDrag(
+            final View source,
+            final ShellFileInfo file,
+            final int metaState) {
+        mItemActivation.reset();
         if (!mSelected.containsKey(file.absolutePath)) {
             mSelected.clear();
             mSelected.put(file.absolutePath, file);
+            mSelectionAnchorPath = file.absolutePath;
             renderFiles();
         }
         final List<ShellFileInfo> dragged = new ArrayList<>();
         for (final ShellFileInfo selected : mSelected.values()) {
-            if (!selected.directory) {
-                dragged.add(selected);
-            }
+            dragged.add(selected);
         }
         if (dragged.isEmpty()) {
             return;
@@ -294,10 +472,22 @@ public final class FileManagerActivity extends Activity
         try {
             final List<Uri> uris = new ArrayList<>();
             for (final ShellFileInfo selected : dragged) {
-                uris.add(ShellFileGrantStore.create(
-                        this, selected, false));
+                if (!selected.directory) {
+                    uris.add(ShellFileGrantStore.create(
+                            this, selected, false));
+                }
             }
-            startFileDrag(source, uris);
+            final List<String> paths = new ArrayList<>(dragged.size());
+            for (final ShellFileInfo selected : dragged) {
+                paths.add(selected.absolutePath);
+            }
+            startFileDrag(
+                    source,
+                    new FileDragPayload(
+                            paths,
+                            null,
+                            (metaState & KeyEvent.META_CTRL_ON) != 0),
+                    uris);
         } catch (RuntimeException error) {
             mView.setStatus(getString(
                     R.string.file_manager_open_failed,
@@ -306,9 +496,24 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
-    public boolean onDrop(final DragEvent event) {
-        if (event.getLocalState() == INTERNAL_DRAG) {
-            return false;
+    public boolean onDrop(
+            final DragEvent event,
+            final ShellFileInfo destination) {
+        final String destinationPath = destination == null
+                ? mCurrentPath : destination.absolutePath;
+        final FileDragPayload payload = FileDragPayload.from(event);
+        if (payload != null) {
+            final List<String> paths =
+                    payload.pathsForDestination(destinationPath);
+            if (!paths.isEmpty()) {
+                startOperation(
+                        payload.copy
+                                ? ShellFileSystem.OPERATION_COPY
+                                : ShellFileSystem.OPERATION_MOVE,
+                        paths,
+                        destinationPath);
+            }
+            return true;
         }
         final ClipData data = event.getClipData();
         if (data == null) {
@@ -328,10 +533,10 @@ public final class FileManagerActivity extends Activity
         try {
             permissions = requestDragAndDropPermissions(event);
         } catch (RuntimeException error) {
-            importDroppedFiles(uris, null);
+            importDroppedFiles(destinationPath, uris, null);
             return true;
         }
-        importDroppedFiles(uris, permissions);
+        importDroppedFiles(destinationPath, uris, permissions);
         return true;
     }
 
@@ -526,6 +731,7 @@ public final class FileManagerActivity extends Activity
         }
         mFilterQuery = normalized;
         mSelected.clear();
+        mSelectionAnchorPath = null;
         renderFiles();
     }
 
@@ -635,51 +841,42 @@ public final class FileManagerActivity extends Activity
         return super.onKeyDown(keyCode, event);
     }
 
-    @Override
     public void onItemOpen(final ShellFileInfo file) {
         onOpen(file);
     }
 
-    @Override
     public void onItemCopy(final ShellFileInfo file) {
         selectOnly(file);
         onCopy();
     }
 
-    @Override
     public void onItemCut(final ShellFileInfo file) {
         selectOnly(file);
         onCut();
     }
 
-    @Override
     public void onItemRename(final ShellFileInfo file) {
         selectOnly(file);
         onRename();
     }
 
-    @Override
     public void onItemDelete(final ShellFileInfo file) {
         selectOnly(file);
         onDelete();
     }
 
-    @Override
     public void onItemProperties(final ShellFileInfo file) {
         showProperties(file);
     }
 
-    @Override
     public void onItemOpenWith(final ShellFileInfo file) {
         openFile(file, true);
     }
 
-    @Override
     public void onItemCopyPath(final ShellFileInfo file) {
         copyPath(file);
     }
 
-    @Override
     public void onItemInstall(final ShellFileInfo file) {
         if (!ShellPackageInstaller.supports(file)) {
             return;
@@ -695,7 +892,6 @@ public final class FileManagerActivity extends Activity
                 .show();
     }
 
-    @Override
     public void onItemRunScript(final ShellFileInfo file) {
         if (!ShellScriptLauncher.supports(file)) {
             return;
@@ -710,7 +906,6 @@ public final class FileManagerActivity extends Activity
         }
     }
 
-    @Override
     public void onItemSetWallpaper(final ShellFileInfo file) {
         if (!DesktopWallpaperFileAction.supports(file)) {
             return;
@@ -741,6 +936,7 @@ public final class FileManagerActivity extends Activity
             final String requestedPath,
             final boolean addHistory,
             final int requestedHistoryIndex) {
+        mItemActivation.reset();
         if (!ShellAccess.isReady()) {
             final ShellAccess.Snapshot snapshot = ShellAccess.currentSnapshot();
             mView.setStatus(getString(
@@ -783,6 +979,7 @@ public final class FileManagerActivity extends Activity
                     mFiles.clear();
                     mFiles.addAll(loaded);
                     mSelected.clear();
+                    mSelectionAnchorPath = null;
                     if (addHistory) {
                         while (mHistory.size() > mHistoryIndex + 1) {
                             mHistory.remove(mHistory.size() - 1);
@@ -844,18 +1041,65 @@ public final class FileManagerActivity extends Activity
 
     private void clearSelection() {
         mSelected.clear();
+        mSelectionAnchorPath = null;
         renderFiles();
     }
 
     private void selectOnly(final ShellFileInfo file) {
         mSelected.clear();
         mSelected.put(file.absolutePath, file);
+        mSelectionAnchorPath = file.absolutePath;
         renderFiles();
     }
 
     private void selectAll() {
         mSelected.clear();
-        for (final ShellFileInfo file : visibleFiles()) {
+        final List<ShellFileInfo> visible = visibleFiles();
+        for (final ShellFileInfo file : visible) {
+            mSelected.put(file.absolutePath, file);
+        }
+        mSelectionAnchorPath = visible.isEmpty()
+                ? null : visible.get(0).absolutePath;
+        renderFiles();
+    }
+
+    private void selectRange(
+            final ShellFileInfo target,
+            final boolean additive) {
+        final List<ShellFileInfo> visible = visibleFiles();
+        int targetIndex = -1;
+        int anchorIndex = -1;
+        for (int index = 0; index < visible.size(); index++) {
+            final String path = visible.get(index).absolutePath;
+            if (path.equals(target.absolutePath)) {
+                targetIndex = index;
+            }
+            if (path.equals(mSelectionAnchorPath)) {
+                anchorIndex = index;
+            }
+        }
+        if (targetIndex < 0) {
+            return;
+        }
+        if (anchorIndex < 0) {
+            for (int index = 0; index < visible.size(); index++) {
+                if (mSelected.containsKey(visible.get(index).absolutePath)) {
+                    anchorIndex = index;
+                    break;
+                }
+            }
+        }
+        if (anchorIndex < 0) {
+            anchorIndex = targetIndex;
+            mSelectionAnchorPath = target.absolutePath;
+        }
+        if (!additive) {
+            mSelected.clear();
+        }
+        final int first = Math.min(anchorIndex, targetIndex);
+        final int last = Math.max(anchorIndex, targetIndex);
+        for (int index = first; index <= last; index++) {
+            final ShellFileInfo file = visible.get(index);
             mSelected.put(file.absolutePath, file);
         }
         renderFiles();
@@ -942,6 +1186,7 @@ public final class FileManagerActivity extends Activity
             }
             mPendingClipboardGeneration = -1L;
             mSelected.clear();
+            mSelectionAnchorPath = null;
             onRefresh();
         } else {
             mPendingClipboardGeneration = -1L;
@@ -963,14 +1208,22 @@ public final class FileManagerActivity extends Activity
                                     : 0));
             view.setClipData(ClipData.newUri(
                     getContentResolver(), file.name, uri));
-            final Intent intent = chooser
-                    ? Intent.createChooser(view,
-                            getString(R.string.file_manager_open_with))
-                    : view;
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    | (file.writable
-                            ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                            : 0));
+            if (!mOpenWith.open(
+                    view,
+                    chooser,
+                    this::launchFileIntent)) {
+                mView.setStatus(getString(
+                        R.string.file_manager_no_handler));
+            }
+        } catch (RuntimeException error) {
+            mView.setStatus(getString(
+                    R.string.file_manager_open_failed,
+                    ShellAccess.usefulMessage(error)));
+        }
+    }
+
+    private void launchFileIntent(final Intent intent) {
+        try {
             startOnCurrentDisplay(intent);
         } catch (RuntimeException error) {
             mView.setStatus(getString(
@@ -981,29 +1234,27 @@ public final class FileManagerActivity extends Activity
 
     private void startFileDrag(
             final View source,
+            final FileDragPayload payload,
             final List<Uri> uris) {
-        if (uris.isEmpty()) {
-            return;
-        }
-        final ClipData data = new ClipData(
+        final ClipData data = payload.clipData(
                 getString(R.string.file_manager_drag_label),
-                new String[]{ClipDescription.MIMETYPE_TEXT_URILIST},
-                new ClipData.Item(uris.get(0)));
-        for (int index = 1; index < uris.size(); index++) {
-            data.addItem(new ClipData.Item(uris.get(index)));
-        }
+                uris);
+        final int flags = View.DRAG_FLAG_GLOBAL
+                | (uris.isEmpty()
+                        ? 0 : View.DRAG_FLAG_GLOBAL_URI_READ);
         source.startDragAndDrop(
                 data,
                 new View.DragShadowBuilder(source),
-                INTERNAL_DRAG,
-                View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_GLOBAL_URI_READ);
+                payload,
+                flags);
     }
 
     private void importDroppedFiles(
+            final String destination,
             final List<Uri> uris,
             final DragAndDropPermissions permissions) {
         mImporter.importFiles(
-                mCurrentPath,
+                destination,
                 uris,
                 permissions);
     }
@@ -1038,35 +1289,9 @@ public final class FileManagerActivity extends Activity
     }
 
     private void showProperties(final ShellFileInfo file) {
-        final StringBuilder message = new StringBuilder()
-                .append(getString(R.string.file_manager_path,
-                        file.absolutePath)).append('\n')
-                .append(getString(R.string.file_manager_type,
-                        file.symbolicLink ? "symbolic link"
-                                : file.directory ? "folder" : file.mimeType))
-                .append('\n')
-                .append(getString(R.string.file_manager_size,
-                        formatSize(file.size))).append('\n')
-                .append(getString(R.string.file_manager_modified,
-                        DateFormat.getDateTimeInstance().format(
-                                new Date(file.modified))))
-                .append('\n')
-                .append(getString(R.string.file_manager_permissions,
-                        permissions(file))).append('\n')
-                .append(getString(R.string.file_manager_mode,
-                        String.format(Locale.ROOT, "%04o",
-                                file.mode & 07777))).append('\n')
-                .append(getString(R.string.file_manager_owner,
-                        file.ownerUid, file.ownerGid)).append('\n')
-                .append(getString(R.string.file_manager_identity,
-                        ShellAccess.currentSnapshot().uid));
-        if (file.symbolicLink) {
-            message.append('\n').append(getString(
-                    R.string.file_manager_link_target, file.linkTarget));
-        }
         new AlertDialog.Builder(this)
                 .setTitle(file.name)
-                .setMessage(message.toString())
+                .setMessage(FilePropertiesFormatter.format(this, file))
                 .setNeutralButton(R.string.file_manager_copy_path,
                         (dialog, which) -> copyPath(file))
                 .setPositiveButton(android.R.string.ok, null)
@@ -1141,26 +1366,6 @@ public final class FileManagerActivity extends Activity
         }
         final String trimmed = path.trim();
         return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
-    }
-
-    private static String permissions(final ShellFileInfo file) {
-        return (file.readable ? "r" : "-")
-                + (file.writable ? "w" : "-")
-                + (file.executable ? "x" : "-");
-    }
-
-    private static String formatSize(final long bytes) {
-        if (bytes < 1024L) {
-            return bytes + " B";
-        }
-        final String[] units = {"KB", "MB", "GB", "TB"};
-        double value = bytes;
-        int unit = -1;
-        do {
-            value /= 1024d;
-            unit++;
-        } while (value >= 1024d && unit < units.length - 1);
-        return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
     }
 
     private interface NameConsumer {

@@ -36,11 +36,13 @@ final class FileManagerView {
         void onUp();
         void onRefresh();
         void onNavigate(String path);
-        void onOpen(ShellFileInfo file);
+        void onItemClick(
+                ShellFileInfo file, int metaState, long eventTime);
         void onSelectionChanged(ShellFileInfo file, boolean selected);
         boolean onContextMenu(View anchor, ShellFileInfo file);
-        void onStartDrag(View source, ShellFileInfo file);
-        boolean onDrop(DragEvent event);
+        void onStartDrag(
+                View source, ShellFileInfo file, int metaState);
+        boolean onDrop(DragEvent event, ShellFileInfo destination);
         void onNewWindow();
         void onNewFile();
         void onNewFolder();
@@ -328,21 +330,21 @@ final class FileManagerView {
         mList.setBackgroundColor(COLOR_BACKGROUND);
         mAdapter = new ShellFileListAdapter(
                 context,
+                listener::onItemClick,
                 listener::onSelectionChanged,
-                listener::onContextMenu);
+                listener::onContextMenu,
+                (row, file, metaState) -> {
+                    listener.onStartDrag(row, file, metaState);
+                    return true;
+                },
+                listener::onDrop);
         mList.setAdapter(mAdapter);
-        mList.setOnItemClickListener((parent, row, position, id) ->
-                listener.onOpen(mAdapter.getItem(position)));
-        mList.setOnItemLongClickListener((parent, row, position, id) -> {
-            listener.onStartDrag(row, mAdapter.getItem(position));
-            return true;
-        });
         listFrame.setOnDragListener((view, event) -> {
             if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
                 return event.getClipDescription() != null;
             }
             if (event.getAction() == DragEvent.ACTION_DROP) {
-                return listener.onDrop(event);
+                return listener.onDrop(event, null);
             }
             return true;
         });

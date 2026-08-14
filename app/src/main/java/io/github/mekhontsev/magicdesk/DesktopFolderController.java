@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.net.Uri;
+import android.os.Binder;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
 import android.view.DragAndDropPermissions;
@@ -31,6 +33,7 @@ final class DesktopFolderController {
     private final Listener mListener;
     private final MetadataListener mMetadataListener;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private final IBinder mFileOperationOwner = new Binder();
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor(
             runnable -> new Thread(runnable, "MagicDeskDesktopFolder"));
     private int mLoadGeneration;
@@ -245,6 +248,122 @@ final class DesktopFolderController {
         });
     }
 
+    void transferPaths(
+            final List<String> paths, final boolean copy) {
+        transferPaths(paths, copy, -1L);
+    }
+
+    void transferPaths(
+            final List<String> paths,
+            final boolean copy,
+            final long clipboardGeneration) {
+        if (mReleased || paths == null || paths.isEmpty()) {
+            return;
+        }
+        final IFileOperationCallback callback =
+                new IFileOperationCallback.Stub() {
+                    @Override
+                    public void onProgress(
+                            final long operationId,
+                            final int completedItems,
+                            final int totalItems,
+                            final String currentPath,
+                            final long bytesCompleted) {
+                        // The desktop observer owns incremental refreshes.
+                    }
+
+                    @Override
+                    public void onFinished(
+                            final long operationId,
+                            final boolean successful,
+                            final String message) {
+                        mHandler.post(() -> onTransferCompleted(
+                                paths.size(),
+                                copy,
+                                clipboardGeneration,
+                                successful,
+                                message));
+                    }
+                };
+        mExecutor.execute(() -> {
+            try {
+                ShellAccess.startShellFileOperation(
+                        copy
+                                ? ShellFileSystem.OPERATION_COPY
+                                : ShellFileSystem.OPERATION_MOVE,
+                        paths.toArray(new String[0]),
+                        ShellDesktopDirectory.ABSOLUTE_PATH,
+                        callback,
+                        mFileOperationOwner);
+            } catch (IOException | RuntimeException error) {
+                postOperationFailure(error);
+            }
+        });
+    }
+
+    void inspect(
+            final DesktopFile file,
+            final Consumer<ShellFileInfo> completed) {
+        if (mReleased || file == null || completed == null) {
+            return;
+        }
+        mExecutor.execute(() -> {
+            try {
+                final ShellFileInfo info = ShellAccess.getShellFileInfo(
+                        absolutePath(file));
+                mHandler.post(() -> {
+                    if (!mReleased) {
+                        completed.accept(info);
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                postOperationFailure(error);
+            }
+        });
+    }
+
+    void installApk(final DesktopFile file) {
+        if (mReleased || file == null) {
+            return;
+        }
+        mExecutor.execute(() -> {
+            try {
+                ShellAccess.run(ShellPackageInstaller.command(
+                        absolutePath(file)));
+                mHandler.post(() -> {
+                    if (!mReleased) {
+                        mActivity.setStatus(mActivity.getString(
+                                R.string.file_manager_install_complete,
+                                file.name));
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                postOperationFailure(error);
+            }
+        });
+    }
+
+    void setWallpaper(final DesktopFile file) {
+        if (mReleased || file == null) {
+            return;
+        }
+        mExecutor.execute(() -> {
+            try {
+                final ShellFileInfo info = ShellAccess.getShellFileInfo(
+                        absolutePath(file));
+                DesktopWallpaperFileAction.apply(info);
+                mHandler.post(() -> {
+                    if (!mReleased) {
+                        mActivity.setStatus(R.string
+                                .status_desktop_wallpaper_changed);
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                postOperationFailure(error);
+            }
+        });
+    }
+
     private void executeOperation(
             final FileOperation operation,
             final Consumer<DesktopFileInfo> completed) {
@@ -365,6 +484,31 @@ final class DesktopFolderController {
         }
     }
 
+    private void onTransferCompleted(
+            final int count,
+            final boolean copy,
+            final long clipboardGeneration,
+            final boolean successful,
+            final String message) {
+        if (mReleased) {
+            return;
+        }
+        if (!successful) {
+            postOperationFailure(new IOException(message));
+            return;
+        }
+        if (!copy && clipboardGeneration >= 0L) {
+            FileManagerClipboard.clearIfGeneration(clipboardGeneration);
+        }
+        mActivity.setStatus(mActivity.getResources().getQuantityString(
+                copy
+                        ? R.plurals.status_desktop_items_copied
+                        : R.plurals.status_desktop_items_moved,
+                count,
+                Integer.valueOf(count)));
+        refresh(true, mThumbnailLimit);
+    }
+
     private static void releasePermissions(
             final DragAndDropPermissions permissions) {
         if (permissions == null) {
@@ -375,6 +519,11 @@ final class DesktopFolderController {
         } catch (RuntimeException ignored) {
             // The owning activity may already have released the drag grant.
         }
+    }
+
+    private static String absolutePath(final DesktopFile file) {
+        return ShellDesktopDirectory.ABSOLUTE_PATH
+                + "/" + file.relativePath;
     }
 
     @FunctionalInterface

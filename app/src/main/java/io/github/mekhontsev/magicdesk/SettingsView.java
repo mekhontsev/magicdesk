@@ -21,6 +21,8 @@ final class SettingsView {
 
         void setOpenTouchpadAutomatically(boolean enabled);
 
+        void setOpenFilesWithSingleClick(boolean enabled);
+
         void openDeviceSetup();
 
         void openDiagnostics();
@@ -36,6 +38,7 @@ final class SettingsView {
     private Switch mTaskbarAutoHide;
     private Switch mKeepDesktopAwake;
     private Switch mOpenTouchpadAutomatically;
+    private Switch mOpenFilesWithSingleClick;
     private boolean mRendering;
 
     SettingsView(final Activity activity, final Actions actions) {
@@ -71,6 +74,14 @@ final class SettingsView {
                 mActions.setTaskbarAutoHide(checked);
             }
         });
+        mOpenFilesWithSingleClick = addSwitch(
+                content, R.string.settings_open_files_single_click);
+        mOpenFilesWithSingleClick.setOnCheckedChangeListener(
+                (button, checked) -> {
+                    if (!mRendering) {
+                        mActions.setOpenFilesWithSingleClick(checked);
+                    }
+                });
 
         addSection(content, R.string.settings_section_session, 22);
         mOpenTouchpadAutomatically = addSwitch(
@@ -118,11 +129,14 @@ final class SettingsView {
     void render(final MagicDeskSettings.Values settings) {
         if (settings == null || mTaskbarAutoHide == null
                 || mKeepDesktopAwake == null
-                || mOpenTouchpadAutomatically == null) {
+                || mOpenTouchpadAutomatically == null
+                || mOpenFilesWithSingleClick == null) {
             return;
         }
         mRendering = true;
         mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
+        mOpenFilesWithSingleClick.setChecked(
+                settings.openFilesWithSingleClick);
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
         mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);

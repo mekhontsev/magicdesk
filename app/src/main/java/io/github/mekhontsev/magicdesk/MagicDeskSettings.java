@@ -27,15 +27,23 @@ final class MagicDeskSettings {
                 state -> state.settings.openTouchpadAutomatically = enabled);
     }
 
+    static boolean setOpenFilesWithSingleClick(final boolean enabled) {
+        return DesktopStateStore.update(
+                state -> state.settings.openFilesWithSingleClick = enabled);
+    }
+
     static final class Values {
         private static final String TASKBAR_AUTO_HIDE = "taskbarAutoHide";
         private static final String KEEP_DESKTOP_AWAKE = "keepDesktopAwake";
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
+        private static final String OPEN_FILES_WITH_SINGLE_CLICK =
+                "openFilesWithSingleClick";
 
         boolean taskbarAutoHide;
         boolean keepDesktopAwake;
         boolean openTouchpadAutomatically;
+        boolean openFilesWithSingleClick;
 
         static Values defaults() {
             final Values values = new Values();
@@ -52,6 +60,8 @@ final class MagicDeskSettings {
                         KEEP_DESKTOP_AWAKE, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
+                values.openFilesWithSingleClick = json.optBoolean(
+                        OPEN_FILES_WITH_SINGLE_CLICK, false);
             }
             return values;
         }
@@ -61,6 +71,7 @@ final class MagicDeskSettings {
             copy.taskbarAutoHide = taskbarAutoHide;
             copy.keepDesktopAwake = keepDesktopAwake;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
+            copy.openFilesWithSingleClick = openFilesWithSingleClick;
             return copy;
         }
 
@@ -71,6 +82,9 @@ final class MagicDeskSettings {
             json.put(
                     OPEN_TOUCHPAD_AUTOMATICALLY,
                     openTouchpadAutomatically);
+            json.put(
+                    OPEN_FILES_WITH_SINGLE_CLICK,
+                    openFilesWithSingleClick);
             return json;
         }
     }

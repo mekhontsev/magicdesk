@@ -11,10 +11,16 @@ final class ShellPackageInstaller {
 
     static boolean supports(final ShellFileInfo file) {
         return file != null
-                && !file.directory
-                && (APK_MIME_TYPE.equals(file.mimeType)
-                        || file.name.toLowerCase(Locale.ROOT)
-                                .endsWith(".apk"));
+                && supports(file.name, file.mimeType, file.directory);
+    }
+
+    static boolean supports(
+            final String name,
+            final String mimeType,
+            final boolean directory) {
+        return !directory
+                && (APK_MIME_TYPE.equals(mimeType)
+                        || name.toLowerCase(Locale.ROOT).endsWith(".apk"));
     }
 
     static String command(final String absolutePath) {

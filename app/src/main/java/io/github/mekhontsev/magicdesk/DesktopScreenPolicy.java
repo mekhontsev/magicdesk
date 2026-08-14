@@ -15,9 +15,13 @@ final class DesktopScreenPolicy {
 
     static WorkspaceAction workspaceAction(
             final int activeDisplayId,
+            final boolean desktopFocused,
             final Boolean hasVisibleAppTask) {
         if (activeDisplayId < 0) {
             return WorkspaceAction.START_EXTERNAL_DESKTOP;
+        }
+        if (!desktopFocused) {
+            return WorkspaceAction.FOCUS_DESKTOP;
         }
         return Boolean.FALSE.equals(hasVisibleAppTask)
                 ? WorkspaceAction.RESTORE_WINDOWS

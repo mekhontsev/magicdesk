@@ -68,6 +68,11 @@
     <string name="file_manager_paste">Paste</string>
     <string name="file_manager_properties">Properties</string>
     <string name="file_manager_open_with">Open with</string>
+    <string name="file_manager_just_once">Just once</string>
+    <string name="file_manager_always">Always</string>
+    <string name="file_manager_system_default">%1$s - System default</string>
+    <string name="file_manager_default_failed">Could not save the default application: %1$s</string>
+    <string name="file_manager_no_handler">No compatible application is available</string>
     <string name="file_manager_copy_path">Copy path</string>
     <string name="file_manager_path_copied">Path copied</string>
     <string name="file_manager_install_apk">Install APK</string>
@@ -255,6 +260,8 @@
     <string name="status_desktop_folder_failed">Desktop folder unavailable: %1$s</string>
     <string name="status_desktop_folder_open_failed">Cannot open the Desktop folder</string>
     <string name="status_desktop_file_operation_failed">Desktop file operation failed: %1$s</string>
+    <string name="status_desktop_item_copied">Item copied to the Files clipboard</string>
+    <string name="status_desktop_item_cut">Item cut to the Files clipboard</string>
     <plurals name="status_desktop_files_partially_copied">
         <item quantity="one">Copied %1$d of %2$d file to Desktop</item>
         <item quantity="other">Copied %1$d of %2$d files to Desktop</item>
@@ -262,6 +269,14 @@
     <plurals name="status_desktop_files_copied">
         <item quantity="one">%1$d file copied to Desktop</item>
         <item quantity="other">%1$d files copied to Desktop</item>
+    </plurals>
+    <plurals name="status_desktop_items_copied">
+        <item quantity="one">%1$d item copied to Desktop</item>
+        <item quantity="other">%1$d items copied to Desktop</item>
+    </plurals>
+    <plurals name="status_desktop_items_moved">
+        <item quantity="one">%1$d item moved to Desktop</item>
+        <item quantity="other">%1$d items moved to Desktop</item>
     </plurals>
     <string name="status_desktop_entry_created">%1$s created</string>
     <string name="status_desktop_entry_renamed">Renamed to %1$s</string>
@@ -430,6 +445,7 @@
     <string name="settings_section_session">Session</string>
     <string name="settings_section_support">Support</string>
     <string name="settings_taskbar_auto_hide">Automatically hide taskbar</string>
+    <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>
     <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
     <string name="settings_save_failed">Could not save MagicDesk settings</string>

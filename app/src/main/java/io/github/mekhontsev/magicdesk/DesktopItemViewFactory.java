@@ -33,8 +33,14 @@ final class DesktopItemViewFactory {
         return item;
     }
 
-    View file(final DesktopFile file) {
+    View file(final DesktopFile file, final boolean selected) {
         final LinearLayout item = iconContainer();
+        if (selected) {
+            item.setBackground(mUi.rounded(
+                    0x661F2C3A,
+                    dp(8),
+                    DesktopUiFactory.COLOR_CYAN));
+        }
         final ImageView icon = new ImageView(mActivity);
         icon.setScaleType(file.thumbnail == null
                 ? ImageView.ScaleType.CENTER_INSIDE
