@@ -186,13 +186,6 @@ public final class ControlActivity extends Activity
         return isFinishing() || isDestroyed();
     }
 
-    static boolean hasActiveInstance() {
-        synchronized (ControlActivity.class) {
-            final ControlActivity activity = sActive.get();
-            return activity != null && !activity.isActivityUnavailable();
-        }
-    }
-
     @Override
     protected void onResume() {
         super.onResume();

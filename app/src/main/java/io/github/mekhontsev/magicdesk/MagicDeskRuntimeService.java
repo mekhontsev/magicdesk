@@ -28,13 +28,13 @@ import java.util.List;
 public final class MagicDeskRuntimeService extends Service {
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
-    private static final String ACTION_SHOW_MAGIC_DESK =
-            "io.github.mekhontsev.magicdesk.action.SHOW_MAGIC_DESK";
+    private static final String ACTION_OPEN_CONTROL_PANEL =
+            "io.github.mekhontsev.magicdesk.action.OPEN_CONTROL_PANEL";
     private static final String ACTION_OPEN_TOUCHPAD =
             "io.github.mekhontsev.magicdesk.action.OPEN_TOUCHPAD";
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
-    private static final int SHOW_MAGIC_DESK_REQUEST_CODE = 2;
+    private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final long DISPLAY_REMOVAL_WATCHDOG_MILLIS = 2000;
     private static final String SETTINGS = "/system/bin/settings";
@@ -404,26 +404,8 @@ public final class MagicDeskRuntimeService extends Service {
         startForeground(NOTIFICATION_ID, buildNotification());
         initialize();
         if (intent != null) {
-            if (ACTION_SHOW_MAGIC_DESK.equals(intent.getAction())) {
-                final int desktopDisplayId =
-                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
-                if (desktopDisplayId >= 0) {
-                    ConsoleModeSwitcher.toggleDesktopWorkspace();
-                    Log.i(TAG, "toggled existing desktop from notification"
-                            + " display=" + desktopDisplayId);
-                } else if (mConsoleModeActive) {
-                    ConsoleModeSwitcher.showMagicDesk(mConsoleDisplayId);
-                    Log.i(TAG, "restored console desktop from notification"
-                            + " display=" + mConsoleDisplayId);
-                } else if (ControlActivity.hasActiveInstance()) {
-                    startActivity(ControlActivity.createLaunchIntent(this));
-                    Log.i(TAG, "focused phone control panel from notification");
-                } else if (ShellAccess.isReady()) {
-                    startActivity(ControlActivity.createLaunchIntent(this));
-                    Log.i(TAG, "opened phone control panel from notification");
-                } else {
-                    startActivity(DeviceSetupActivity.createLaunchIntent(this));
-                }
+            if (ACTION_OPEN_CONTROL_PANEL.equals(intent.getAction())) {
+                openPhoneControlPanel();
             } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
                     && ShellAccess.isReady()) {
                 ConsoleModeSwitcher.openTouchpad();
@@ -1169,14 +1151,14 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private Notification buildNotification() {
-        final Intent showMagicDeskIntent =
+        final Intent openControlPanelIntent =
                 new Intent(this, MagicDeskRuntimeService.class)
-                        .setAction(ACTION_SHOW_MAGIC_DESK);
-        final PendingIntent showMagicDeskPendingIntent =
+                        .setAction(ACTION_OPEN_CONTROL_PANEL);
+        final PendingIntent openControlPanelPendingIntent =
                 PendingIntent.getForegroundService(
                         this,
-                        SHOW_MAGIC_DESK_REQUEST_CODE,
-                        showMagicDeskIntent,
+                        OPEN_CONTROL_PANEL_REQUEST_CODE,
+                        openControlPanelIntent,
                         pendingIntentFlags());
         final Intent openTouchpadIntent = new Intent(this, MagicDeskRuntimeService.class)
                 .setAction(ACTION_OPEN_TOUCHPAD);
@@ -1200,7 +1182,7 @@ public final class MagicDeskRuntimeService extends Service {
                 .setContentText(text)
                 .setOngoing(true)
                 .setShowWhen(false)
-                .setContentIntent(showMagicDeskPendingIntent);
+                .setContentIntent(openControlPanelPendingIntent);
         if (ShellAccess.isReady()) {
             builder.addAction(
                         R.drawable.ic_touchpad,
@@ -1208,6 +1190,15 @@ public final class MagicDeskRuntimeService extends Service {
                         openTouchpadPendingIntent);
         }
         return builder.build();
+    }
+
+    private void openPhoneControlPanel() {
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
+        startActivity(
+                ControlActivity.createLaunchIntent(this),
+                options.toBundle());
+        Log.i(TAG, "opened phone control panel from notification");
     }
 
     private static int pendingIntentFlags() {
