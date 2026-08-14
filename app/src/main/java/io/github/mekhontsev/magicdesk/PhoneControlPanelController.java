@@ -50,13 +50,7 @@ final class PhoneControlPanelController {
 
         void togglePhoneScreen();
 
-        void openDeviceSetup();
-
-        void openDiagnostics();
-
         void openSettings();
-
-        void showAbout();
 
         void exitMagicDesk();
     }
@@ -136,11 +130,13 @@ final class PhoneControlPanelController {
     private TextView mRuntime;
     private TextView mDisplay;
     private TextView mExternalDisplay;
+    private LinearLayout mExternalDisplayOptions;
     private Button mConnectWirelessDisplay;
     private Button mExternalDesktop;
     private Button mMirror;
     private Button mTouchpad;
     private Button mPhoneScreen;
+    private GridLayout mSessionActions;
     private Switch mFillDisplay;
     private Spinner mOutputMode;
     private ArrayAdapter<String> mOutputModeAdapter;
@@ -232,13 +228,13 @@ final class PhoneControlPanelController {
         mExternalDesktop.setEnabled(
                 state.consoleControlAvailable
                         && canStartOrShowExternalDesktop);
-        mConnectWirelessDisplay.setVisibility(
-                state.wirelessConnectionUiAvailable
-                        ? View.VISIBLE : View.GONE);
-        mConnectWirelessDisplay.setEnabled(
+        final boolean canConnectWireless =
                 state.wirelessConnectionUiAvailable
                         && !state.externalDesktopActive
-                        && !state.wirelessDisplayConnected);
+                        && !state.wirelessDisplayConnected;
+        mConnectWirelessDisplay.setVisibility(
+                canConnectWireless ? View.VISIBLE : View.GONE);
+        mConnectWirelessDisplay.setEnabled(canConnectWireless);
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
                         && state.consoleControlAvailable
@@ -246,25 +242,35 @@ final class PhoneControlPanelController {
                         && state.wiredDisplayConnected
                         && state.externalDisplayState
                                 == ExternalDisplayState.CONNECTED;
+        mExternalDisplayOptions.setVisibility(
+                canConfigureOutput ? View.VISIBLE : View.GONE);
         mFillDisplay.setChecked(state.fillExternalDisplay);
         mFillDisplay.setEnabled(canConfigureOutput);
         renderOutputModes(state.externalModeSelection);
         mOutputMode.setEnabled(canConfigureOutput
                 && mOutputModesConfigurable
                 && !mOutputModes.isEmpty());
-        mMirror.setEnabled(
-                state.consoleModeActive
-                        && state.consoleControlAvailable);
-        mTouchpad.setEnabled(
-                state.externalDesktopActive
-                        && state.consoleControlAvailable
-                        && state.phoneTouchpadAvailable);
+        final boolean canMirror = state.consoleModeActive
+                && state.consoleControlAvailable;
+        final boolean canOpenTouchpad = state.externalDesktopActive
+                && state.consoleControlAvailable
+                && state.phoneTouchpadAvailable;
+        final boolean canControlPhoneScreen = state.consoleModeActive
+                && state.phoneScreenControlAvailable;
+        mMirror.setVisibility(canMirror ? View.VISIBLE : View.GONE);
+        mMirror.setEnabled(canMirror);
+        mTouchpad.setVisibility(
+                canOpenTouchpad ? View.VISIBLE : View.GONE);
+        mTouchpad.setEnabled(canOpenTouchpad);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);
-        mPhoneScreen.setEnabled(
-                state.consoleModeActive
-                        && state.phoneScreenControlAvailable);
+        mPhoneScreen.setVisibility(
+                canControlPhoneScreen ? View.VISIBLE : View.GONE);
+        mPhoneScreen.setEnabled(canControlPhoneScreen);
+        mSessionActions.setVisibility(
+                canMirror || canOpenTouchpad || canControlPhoneScreen
+                        ? View.VISIBLE : View.GONE);
         mRendering = false;
     }
 
@@ -335,45 +341,51 @@ final class PhoneControlPanelController {
     private void addDesktopActions(final LinearLayout parent) {
         addSectionTitle(parent, R.string.control_section_desktop, dp(22));
 
-        addExternalDisplayOptions(parent);
-
-        mConnectWirelessDisplay = actionButton(
-                R.string.action_connect_wireless_display, COLOR_PANEL_ALT);
-        mConnectWirelessDisplay.setOnClickListener(
-                view -> mActions.connectWirelessDisplay());
-        parent.addView(mConnectWirelessDisplay, fullWidthActionParams());
-
         mExternalDesktop = actionButton(
                 R.string.action_start_external_desktop, COLOR_CYAN);
         mExternalDesktop.setOnClickListener(
                 view -> mActions.showExternalDesktop());
         parent.addView(mExternalDesktop, fullWidthActionParams());
 
-        final GridLayout actions = actionGrid();
+        final LinearLayout secondaryActions = new LinearLayout(mActivity);
+        secondaryActions.setOrientation(LinearLayout.HORIZONTAL);
+        mConnectWirelessDisplay = actionButton(
+                R.string.action_connect_wireless_display, COLOR_PANEL_ALT);
+        mConnectWirelessDisplay.setOnClickListener(
+                view -> mActions.connectWirelessDisplay());
+        secondaryActions.addView(
+                mConnectWirelessDisplay, rowActionParams(false));
+
+        final Button desktopHere = actionButton(
+                R.string.action_desktop_this_screen, COLOR_PANEL_ALT);
+        desktopHere.setOnClickListener(view -> mActions.openDesktopHere());
+        secondaryActions.addView(desktopHere, rowActionParams(true));
+        parent.addView(secondaryActions, fullWidthWrapParams(0));
+
+        addExternalDisplayOptions(parent);
+
+        mSessionActions = actionGrid();
         mMirror = actionButton(
                 R.string.action_switch_to_mirror, COLOR_CYAN);
         mMirror.setOnClickListener(
                 view -> mActions.switchToMirror());
-        addGridAction(actions, mMirror);
-
-        final Button desktopHere = actionButton(
-                R.string.action_desktop_this_screen, COLOR_CYAN);
-        desktopHere.setOnClickListener(view -> mActions.openDesktopHere());
-        addGridAction(actions, desktopHere);
+        addGridAction(mSessionActions, mMirror);
 
         mTouchpad = actionButton(
                 R.string.action_open_touchpad, COLOR_CYAN);
         mTouchpad.setOnClickListener(view -> mActions.openTouchpad());
-        addGridAction(actions, mTouchpad);
+        addGridAction(mSessionActions, mTouchpad);
 
         mPhoneScreen = actionButton(
                 R.string.action_phone_screen_off, COLOR_CYAN);
         mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
-        addGridAction(actions, mPhoneScreen);
-        parent.addView(actions, fullWidthWrapParams(dp(6)));
+        addGridAction(mSessionActions, mPhoneScreen);
+        parent.addView(mSessionActions, fullWidthWrapParams(dp(6)));
     }
 
     private void addExternalDisplayOptions(final LinearLayout parent) {
+        mExternalDisplayOptions = new LinearLayout(mActivity);
+        mExternalDisplayOptions.setOrientation(LinearLayout.VERTICAL);
         final LinearLayout fitRow = optionRow();
         fitRow.addView(optionLabel(R.string.external_display_fill),
                 new LinearLayout.LayoutParams(
@@ -387,7 +399,7 @@ final class PhoneControlPanelController {
             }
         });
         fitRow.addView(mFillDisplay);
-        parent.addView(fitRow);
+        mExternalDisplayOptions.addView(fitRow);
 
         final LinearLayout resolutionRow = optionRow();
         resolutionRow.addView(optionLabel(R.string.external_display_resolution),
@@ -426,7 +438,8 @@ final class PhoneControlPanelController {
         resolutionRow.addView(mOutputMode, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 dp(48)));
-        parent.addView(resolutionRow);
+        mExternalDisplayOptions.addView(resolutionRow);
+        parent.addView(mExternalDisplayOptions);
     }
 
     private void renderOutputModes(
@@ -504,33 +517,17 @@ final class PhoneControlPanelController {
     }
 
     private void addSystemActions(final LinearLayout parent) {
-        addSectionTitle(parent, R.string.section_system, dp(20));
         final GridLayout actions = actionGrid();
-
-        final Button setup = actionButton(
-                R.string.action_device_setup, COLOR_PANEL_ALT);
-        setup.setOnClickListener(view -> mActions.openDeviceSetup());
-        addGridAction(actions, setup);
-
-        final Button diagnostics = actionButton(
-                R.string.action_diagnostics, COLOR_PANEL_ALT);
-        diagnostics.setOnClickListener(view -> mActions.openDiagnostics());
-        addGridAction(actions, diagnostics);
 
         final Button settings = actionButton(
                 R.string.action_settings, COLOR_PANEL_ALT);
         settings.setOnClickListener(view -> mActions.openSettings());
         addGridAction(actions, settings);
 
-        final Button about = actionButton(
-                R.string.action_about, COLOR_PANEL_ALT);
-        about.setOnClickListener(view -> mActions.showAbout());
-        addGridAction(actions, about);
-
         final Button exit = actionButton(R.string.action_exit, COLOR_RED);
         exit.setOnClickListener(view -> mActions.exitMagicDesk());
         addGridAction(actions, exit);
-        parent.addView(actions, fullWidthWrapParams(0));
+        parent.addView(actions, fullWidthWrapParams(dp(16)));
     }
 
     private void addSectionTitle(
@@ -590,6 +587,18 @@ final class PhoneControlPanelController {
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         dp(ACTION_HEIGHT_DP));
         params.setMargins(dp(3), dp(3), dp(3), dp(3));
+        return params;
+    }
+
+    private LinearLayout.LayoutParams rowActionParams(
+            final boolean addStartMargin) {
+        final LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(0, dp(ACTION_HEIGHT_DP), 1);
+        params.setMargins(
+                addStartMargin ? dp(3) : 0,
+                dp(3),
+                addStartMargin ? 0 : dp(3),
+                dp(3));
         return params;
     }
 

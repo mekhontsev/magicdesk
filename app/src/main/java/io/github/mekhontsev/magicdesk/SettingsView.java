@@ -5,6 +5,8 @@ import android.graphics.Typeface;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
+import android.widget.GridLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -18,6 +20,12 @@ final class SettingsView {
         void setKeepDesktopAwake(boolean enabled);
 
         void setOpenTouchpadAutomatically(boolean enabled);
+
+        void openDeviceSetup();
+
+        void openDiagnostics();
+
+        void showAbout();
 
         void closeSettings();
     }
@@ -80,6 +88,19 @@ final class SettingsView {
                 mActions.setKeepDesktopAwake(checked);
             }
         });
+
+        addSection(content, R.string.settings_section_support, 22);
+        final GridLayout support = new GridLayout(mActivity);
+        support.setColumnCount(3);
+        addAction(support, R.string.action_device_setup,
+                mActions::openDeviceSetup);
+        addAction(support, R.string.action_diagnostics,
+                mActions::openDiagnostics);
+        addAction(support, R.string.action_about,
+                mActions::showAbout);
+        content.addView(support, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         final ScrollView scroll = new ScrollView(mActivity);
         scroll.setFillViewport(true);
@@ -159,6 +180,24 @@ final class SettingsView {
         parent.addView(toggle, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(54)));
         return toggle;
+    }
+
+    private void addAction(
+            final GridLayout parent,
+            final int labelResId,
+            final Runnable action) {
+        final Button button = mUi.actionButton(
+                labelResId, DesktopUiFactory.COLOR_PANEL_ALT);
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        button.setOnClickListener(view -> action.run());
+        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+        params.width = 0;
+        params.height = dp(52);
+        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+        params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED, GridLayout.FILL);
+        params.setMargins(dp(3), dp(3), dp(3), dp(3));
+        parent.addView(button, params);
     }
 
     private int dp(final int value) {

@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -45,6 +46,23 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void openDeviceSetup() {
+        startActivityOnCurrentDisplay(
+                DeviceSetupActivity.createManualIntent(this));
+    }
+
+    @Override
+    public void openDiagnostics() {
+        startActivityOnCurrentDisplay(
+                DiagnosticsActivity.createIntent(this));
+    }
+
+    @Override
+    public void showAbout() {
+        AboutDialog.show(this);
+    }
+
+    @Override
     public void closeSettings() {
         finish();
     }
@@ -61,6 +79,15 @@ public final class SettingsActivity extends Activity
         DesktopRuntimeBridge.refreshSettings();
         MagicDeskRuntimeService.refreshSettingsIfRunning();
         render();
+    }
+
+    private void startActivityOnCurrentDisplay(final Intent intent) {
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        final android.view.Display display = getDisplay();
+        options.setLaunchDisplayId(display == null
+                ? android.view.Display.DEFAULT_DISPLAY
+                : display.getDisplayId());
+        startActivity(intent, options.toBundle());
     }
 
     private void render() {
