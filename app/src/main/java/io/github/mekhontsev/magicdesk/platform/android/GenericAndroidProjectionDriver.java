@@ -5,9 +5,6 @@ import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.provider.Settings;
 
 import java.io.IOException;
 
@@ -17,27 +14,13 @@ final class GenericAndroidProjectionDriver
     private static final String[] NO_SETTINGS = new String[0];
 
     @Override
-    public boolean isWirelessDisplayAvailable(final Context context) {
-        if (context == null) {
-            return false;
-        }
-        final PackageManager packageManager = context.getPackageManager();
-        return packageManager != null
-                && new Intent(Settings.ACTION_CAST_SETTINGS)
-                        .resolveActivity(packageManager) != null;
+    public boolean hasWirelessConnectionUi(final Context context) {
+        return false;
     }
 
     @Override
-    public boolean openWirelessDisplayPicker(final Activity activity) {
-        if (!isWirelessDisplayAvailable(activity)) {
-            return false;
-        }
-        try {
-            activity.startActivity(new Intent(Settings.ACTION_CAST_SETTINGS));
-            return true;
-        } catch (RuntimeException error) {
-            return false;
-        }
+    public boolean openWirelessConnectionUi(final Activity activity) {
+        return false;
     }
 
     @Override

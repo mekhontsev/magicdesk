@@ -42,8 +42,8 @@ public final class ControlActivity extends Activity
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
     private boolean mStartExternalDesktopAfterProbe;
-    private boolean mAwaitingWirelessDisplay;
-    private boolean mWirelessDisplayAvailable;
+    private boolean mReturnToPanelAfterWirelessConnection;
+    private boolean mWirelessConnectionUiAvailable;
     private int mDisplayProbeGeneration;
     private int mWiredDisplayId = Display.INVALID_DISPLAY;
     private int mWirelessDisplayId = Display.INVALID_DISPLAY;
@@ -159,8 +159,8 @@ public final class ControlActivity extends Activity
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         mPanel = new PhoneControlPanelController(this, ui, this);
         mSessionController = new MagicDeskSessionController(this);
-        mWirelessDisplayAvailable =
-                mProjection.isWirelessDisplayAvailable(this);
+        mWirelessConnectionUiAvailable =
+                mProjection.hasWirelessConnectionUi(this);
         mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
@@ -196,6 +196,8 @@ public final class ControlActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        // Returning from a cancelled picker already leaves the panel visible.
+        mReturnToPanelAfterWirelessConnection = false;
         MagicDeskRuntimeService.refreshNotificationIfRunning();
         mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
@@ -298,11 +300,24 @@ public final class ControlActivity extends Activity
             launchWirelessDesktop(mWirelessDisplayId);
             return;
         }
-        if (mWirelessDisplayAvailable
-                && mProjection.openWirelessDisplayPicker(this)) {
-            mAwaitingWirelessDisplay = true;
+        mStatus = getString(R.string.status_external_display_unavailable);
+        refresh();
+    }
+
+    @Override
+    public void connectWirelessDisplay() {
+        if (!mWirelessConnectionUiAvailable
+                || isExternalDesktopActive()
+                || isDisplayConnected(mWirelessDisplayId)) {
+            mStatus = getString(R.string.status_external_display_unavailable);
+            refresh();
+            return;
+        }
+        mReturnToPanelAfterWirelessConnection = true;
+        if (mProjection.openWirelessConnectionUi(this)) {
             mStatus = getString(R.string.status_wireless_display_connecting);
         } else {
+            mReturnToPanelAfterWirelessConnection = false;
             mStatus = getString(R.string.status_external_display_unavailable);
         }
         refresh();
@@ -499,7 +514,8 @@ public final class ControlActivity extends Activity
                 mExternalDisplaySummary,
                 mExternalDisplayState,
                 mWiredDisplayId > Display.DEFAULT_DISPLAY,
-                mWirelessDisplayAvailable,
+                mWirelessConnectionUiAvailable,
+                mWirelessDisplayId > Display.DEFAULT_DISPLAY,
                 mStatus,
                 ShellAccess.statusLabel(),
                 currentDisplayId(),
@@ -641,11 +657,13 @@ public final class ControlActivity extends Activity
                 : PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
         final boolean shouldStart = mStartExternalDesktopAfterProbe;
         mStartExternalDesktopAfterProbe = false;
-        final boolean shouldStartWireless =
-                mAwaitingWirelessDisplay && wirelessConnected;
-        if (shouldStartWireless) {
-            mAwaitingWirelessDisplay = false;
-            launchWirelessDesktop(wirelessDisplayId);
+        final boolean shouldReturnToPanel =
+                mReturnToPanelAfterWirelessConnection && wirelessConnected;
+        if (shouldReturnToPanel) {
+            mReturnToPanelAfterWirelessConnection = false;
+            mStatus = getString(R.string.control_status_ready);
+            refresh();
+            PhoneControlPanelLauncher.open(this);
             return;
         }
         if (shouldStart && connected) {

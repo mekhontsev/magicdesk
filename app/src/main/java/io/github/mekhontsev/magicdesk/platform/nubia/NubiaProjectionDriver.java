@@ -18,12 +18,12 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     };
 
     @Override
-    public boolean isWirelessDisplayAvailable(final Context context) {
+    public boolean hasWirelessConnectionUi(final Context context) {
         return WirelessDisplayController.isAvailable(context);
     }
 
     @Override
-    public boolean openWirelessDisplayPicker(final Activity activity) {
+    public boolean openWirelessConnectionUi(final Activity activity) {
         return WirelessDisplayController.openPicker(activity);
     }
 

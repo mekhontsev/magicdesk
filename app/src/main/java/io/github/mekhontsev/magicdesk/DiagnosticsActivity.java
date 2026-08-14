@@ -308,7 +308,7 @@ public final class DiagnosticsActivity extends Activity {
                     awaitWirelessDisplay();
                     if (mWirelessDisplayListener != null
                             && PlatformDrivers.current().projection()
-                                    .openWirelessDisplayPicker(this)) {
+                                    .openWirelessConnectionUi(this)) {
                         mStatus.setText(
                                 R.string.diagnostics_self_test_connect_wireless);
                     } else {

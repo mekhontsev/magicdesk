@@ -86,9 +86,10 @@ public interface PlatformProjectionDriver {
     /** Whether closing this desktop should also change the platform transport. */
     boolean ownsTransportLifecycle(Transport transport);
 
-    boolean isWirelessDisplayAvailable(Context context);
+    /** Whether this platform exposes a verified wireless-display connection UI. */
+    boolean hasWirelessConnectionUi(Context context);
 
-    boolean openWirelessDisplayPicker(Activity activity);
+    boolean openWirelessConnectionUi(Activity activity);
 
     boolean disconnectWirelessDisplay() throws IOException;
 

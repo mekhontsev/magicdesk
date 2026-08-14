@@ -178,11 +178,7 @@ public final class ConsoleModeSwitcher {
                     .show(null, wirelessDisplayId);
             return;
         }
-        if (wiredSupported) {
-            DesktopDisplayDrivers
-                    .forKind(DesktopDisplayTarget.Kind.WIRED)
-                    .show(null, knownConsoleDisplayId);
-        }
+        Log.i(TAG, "No connected external display is available");
     }
 
     static void toggleDesktopWorkspace() {

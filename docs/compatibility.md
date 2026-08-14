@@ -33,7 +33,8 @@ firmware behavior.
   provide the selected session type. MagicDesk allows startup, probes
   capabilities, and reports unavailable features individually. On the
   standard Android profile, external sessions use a secondary display that is
-  already connected and reported by Android.
+  already connected and reported by Android. A wireless connection button is
+  shown only when the selected platform exposes a verified connection UI.
 - **Unsupported platform** means the Android-version baseline or selected
   session requirements are not met. Device Setup does not apply unsupported
   platform-specific properties.

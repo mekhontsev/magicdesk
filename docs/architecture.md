@@ -367,10 +367,16 @@ launcher-navigation guard, then starts the same desktop host and controllers.
   firmware to turn a physical USB-C output into Nubia's virtual desktop
   display, applies its output profile, and enables the wired input-routing
   path. The corresponding driver also owns the return to mirror mode.
-- With no connected target, the common external-desktop action opens the
-  selected platform's wireless-display settings. Once Android reports a Wi-Fi
-  display, MagicDesk passes that display ID to the common desktop session. It
-  does not implement a second discovery or streaming stack.
+- Starting an external desktop requires an existing Android secondary display.
+  A separate **Connect wireless display** action is exposed only when the
+  selected platform driver provides a verified connection UI. The Nubia
+  implementation opens SmartCast and returns to Phone Control Panel after
+  Android reports the Wi-Fi display; it does not start the desktop implicitly.
+  Standard Android has no assumed picker because a generic cast-settings
+  activity does not guarantee Miracast display projection.
+- Once Android reports a Wi-Fi display, MagicDesk passes that display ID to the
+  common desktop session. It does not implement a second discovery or streaming
+  stack.
 - An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.

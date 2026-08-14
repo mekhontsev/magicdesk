@@ -58,6 +58,8 @@ public final class PlatformDriversTest {
         assertFalse(driver.textInput().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());
+        assertFalse(driver.projection().hasWirelessConnectionUi(null));
+        assertFalse(driver.projection().openWirelessConnectionUi(null));
         assertFalse(driver.projection().ownsTransportLifecycle(
                 PlatformProjectionDriver.Transport.WIRED));
         assertFalse(driver.projection().ownsTransportLifecycle(

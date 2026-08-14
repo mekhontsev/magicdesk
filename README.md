@@ -188,10 +188,11 @@ the device display without an external display.
 
 On the standard Android profile, MagicDesk opens an already connected
 secondary display directly and leaves connection, disconnection, mirror mode,
-and output timing to system settings. Compatible RedMagic firmware additionally
-provides managed Console/SmartCast transitions, output controls, phone-screen
-control, absolute pointer positioning, and hardware controls. Unsupported
-optional integrations remain disabled instead of blocking the desktop.
+and output timing to the system. Compatible RedMagic firmware additionally
+provides a **Connect wireless display** action backed by SmartCast, managed
+Console transitions, output controls, phone-screen control, absolute pointer
+positioning, and hardware controls. Unsupported optional integrations remain
+disabled instead of blocking the desktop.
 
 MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
 permission is denied. All privileged operations use the same Shizuku
@@ -287,9 +288,9 @@ display size, density, and scaling to platform defaults.
 3. For a wired session, connect a USB-C display. When the selected platform
    exposes output controls, optionally select an **Output mode** and enable
    **Fill display**, then select **Start external desktop** or press `Win+D`.
-4. For a wireless session with no display connected, select **Start external
-   desktop**, then choose a Miracast receiver in the system wireless-display
-   interface. MagicDesk starts the desktop when Android reports the display.
+4. For a wireless session, connect a Miracast receiver through the system UI
+   or, on a supported platform, select **Connect wireless display**. After the
+   display appears in Phone Control Panel, select **Start external desktop**.
 5. Select **Close desktop** to close the MagicDesk session. A platform-managed
    transport also returns to mirroring or disconnects; a direct Android
    secondary display remains connected under system control. Select **Exit
@@ -402,10 +403,11 @@ switching between two windows. It also recreates the desktop Activity and
 checks hidden Android and RedMagic APIs that can be inspected safely.
 
 The external target uses an already connected HDMI or Miracast display. If no
-external display is present, MagicDesk opens the platform's wireless-display
-settings and asks you to connect one before running the test again. A managed
-wired display temporarily switched from mirror mode is restored afterward;
-an existing direct secondary-display connection is left connected. Hardware
+external display is present and the selected platform exposes a verified
+connection UI, the test opens it and waits for Android to report the display.
+Otherwise connect the display before starting the test. A managed wired
+display temporarily switched from mirror mode is restored afterward; an
+existing direct secondary-display connection is left connected. Hardware
 keyboard, mouse, and phone touchpad input remain explicitly **NOT TESTED**
 because the automated test injects its own input. Native mouse resize-cursor
 selection is checked when WMShell exposes a transition trace.
