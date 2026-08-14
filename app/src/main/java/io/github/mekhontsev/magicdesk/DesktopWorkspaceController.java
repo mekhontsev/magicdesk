@@ -7,7 +7,6 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Intent;
 import android.net.Uri;
-import android.provider.DocumentsContract;
 import android.util.Log;
 import android.view.DragAndDropPermissions;
 import android.view.DragEvent;
@@ -345,28 +344,22 @@ final class DesktopWorkspaceController {
 
     private void openDirectory(final String relativePath) {
         mActivity.hideAllPanels();
-        final StringBuilder documentId = new StringBuilder("primary:Desktop");
-        if (relativePath != null && relativePath.length() > 0) {
-            documentId.append('/').append(relativePath);
-        }
-        final Uri uri = DocumentsContract.buildDocumentUri(
-                "com.android.externalstorage.documents",
-                documentId.toString());
-        final Intent intent = new Intent(Intent.ACTION_VIEW)
-                .setDataAndType(
-                        uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        final String path = relativePath == null || relativePath.length() == 0
+                ? ShellDesktopDirectory.ABSOLUTE_PATH
+                : ShellDesktopDirectory.ABSOLUTE_PATH + "/" + relativePath;
+        final Intent intent = FileManagerActivity.createIntent(
+                mActivity, path).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
         try {
             mActivity.startActivity(intent, options.toBundle());
         } catch (RuntimeException error) {
-            Log.w(TAG, "Cannot open desktop directory " + uri, error);
+            Log.w(TAG, "Cannot open desktop directory " + path, error);
             mActivity.setErrorStatus(
                     "FILES-003",
                     mActivity.getString(
                             R.string.status_desktop_folder_open_failed),
-                    "uri=" + uri,
+                    "path=" + path,
                     error);
         }
     }

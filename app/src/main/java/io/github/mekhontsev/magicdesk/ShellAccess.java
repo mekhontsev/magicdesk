@@ -545,6 +545,196 @@ public final class ShellAccess {
         }
     }
 
+    static ShellFilePage listShellDirectory(
+            final String absolutePath,
+            final int offset,
+            final int limit,
+            final boolean showHidden,
+            final int sortMode,
+            final boolean ascending) throws IOException {
+        try {
+            final ShellFilePage page = requireService().listShellDirectory(
+                    absolutePath,
+                    offset,
+                    limit,
+                    showHidden,
+                    sortMode,
+                    ascending);
+            if (page == null) {
+                throw new IOException(
+                        "Shizuku command service returned no file page");
+            }
+            return page;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("directory read", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("directory read", error);
+        }
+    }
+
+    static ShellFileInfo getShellFileInfo(final String absolutePath)
+            throws IOException {
+        try {
+            final ShellFileInfo info = requireService()
+                    .getShellFileInfo(absolutePath);
+            if (info == null) {
+                throw new IOException(
+                        "Shizuku command service returned no file info");
+            }
+            return info;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("file info", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("file info", error);
+        }
+    }
+
+    static ParcelFileDescriptor openShellFile(
+            final String absolutePath, final String mode) throws IOException {
+        try {
+            final ParcelFileDescriptor descriptor = requireService()
+                    .openShellFile(absolutePath, mode);
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no file");
+            }
+            return descriptor;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("file open", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("file open", error);
+        }
+    }
+
+    static ParcelFileDescriptor openVerifiedShellFile(
+            final ShellFileInfo info, final String mode) throws IOException {
+        if (info == null) {
+            throw new IOException("missing file grant");
+        }
+        try {
+            final ParcelFileDescriptor descriptor = requireService()
+                    .openVerifiedShellFile(
+                            info.absolutePath,
+                            mode,
+                            info.deviceId,
+                            info.inode);
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no verified file");
+            }
+            return descriptor;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("verified file open", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("verified file open", error);
+        }
+    }
+
+    static ShellFileInfo createShellEntry(
+            final String parentPath,
+            final String name,
+            final boolean directory) throws IOException {
+        try {
+            final ShellFileInfo info = requireService().createShellEntry(
+                    parentPath, name, directory);
+            if (info == null) {
+                throw new IOException(
+                        "Shizuku command service returned no created entry");
+            }
+            return info;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("entry creation", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("entry creation", error);
+        }
+    }
+
+    static ShellFileInfo createAvailableShellEntry(
+            final String parentPath,
+            final String name,
+            final boolean directory) throws IOException {
+        try {
+            final ShellFileInfo info = requireService()
+                    .createAvailableShellEntry(
+                            parentPath, name, directory);
+            if (info == null) {
+                throw new IOException(
+                        "Shizuku command service returned no created entry");
+            }
+            return info;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("available entry creation", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("available entry creation", error);
+        }
+    }
+
+    static ShellFileInfo renameShellEntry(
+            final String absolutePath, final String newName)
+            throws IOException {
+        try {
+            final ShellFileInfo info = requireService().renameShellEntry(
+                    absolutePath, newName);
+            if (info == null) {
+                throw new IOException(
+                        "Shizuku command service returned no renamed entry");
+            }
+            return info;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("entry rename", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("entry rename", error);
+        }
+    }
+
+    static long startShellFileOperation(
+            final int operation,
+            final String[] sourcePaths,
+            final String destinationDirectory,
+            final IFileOperationCallback callback,
+            final IBinder ownerToken) throws IOException {
+        try {
+            return requireService().startShellFileOperation(
+                    operation,
+                    sourcePaths,
+                    destinationDirectory,
+                    callback,
+                    ownerToken);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("operation start", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("operation start", error);
+        }
+    }
+
+    static void cancelShellFileOperation(final long operationId)
+            throws IOException {
+        try {
+            requireService().cancelShellFileOperation(operationId);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("operation cancellation", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("operation cancellation", error);
+        }
+    }
+
+    private static IOException shellFileFailure(
+            final String action, final Throwable error) {
+        return new IOException(
+                "Shizuku filesystem " + action + " failed: "
+                        + usefulMessage(error),
+                error);
+    }
+
     static ShellDesktopFolderHandle openDesktopFolderObserver(
             final IDesktopFolderObserverCallback callback,
             final Runnable disconnected) throws IOException {

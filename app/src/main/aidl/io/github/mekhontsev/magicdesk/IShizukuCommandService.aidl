@@ -4,7 +4,10 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.DesktopFileInfo;
 import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
+import io.github.mekhontsev.magicdesk.IFileOperationCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
+import io.github.mekhontsev.magicdesk.ShellFileInfo;
+import io.github.mekhontsev.magicdesk.ShellFilePage;
 
 interface IShizukuCommandService {
     void destroy() = 16777114;
@@ -135,5 +138,41 @@ interface IShizukuCommandService {
         int displayId,
         int taskId,
         int sourceId) = 48;
+
+    ShellFilePage listShellDirectory(
+        String absolutePath,
+        int offset,
+        int limit,
+        boolean showHidden,
+        int sortMode,
+        boolean ascending) = 49;
+
+    ShellFileInfo getShellFileInfo(String absolutePath) = 50;
+
+    ParcelFileDescriptor openShellFile(String absolutePath, String mode) = 51;
+
+    ShellFileInfo createShellEntry(
+        String parentPath, String name, boolean directory) = 52;
+
+    ShellFileInfo renameShellEntry(
+        String absolutePath, String newName) = 53;
+
+    long startShellFileOperation(
+        int operation,
+        in String[] sourcePaths,
+        String destinationDirectory,
+        IFileOperationCallback callback,
+        IBinder ownerToken) = 54;
+
+    void cancelShellFileOperation(long operationId) = 55;
+
+    ParcelFileDescriptor openVerifiedShellFile(
+        String absolutePath,
+        String mode,
+        long deviceId,
+        long inode) = 56;
+
+    ShellFileInfo createAvailableShellEntry(
+        String parentPath, String name, boolean directory) = 57;
 
 }

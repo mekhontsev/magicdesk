@@ -76,7 +76,7 @@ Galaxy device and One UI version.
 | Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
 | Notifications and settings | Desktop notification center, quick System controls, and persistent MagicDesk settings; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
-| Desktop files | A real `/storage/emulated/0/Desktop` directory with file and folder operations | File workflows are primarily provided through My Files |
+| Desktop files | A real Desktop directory plus built-in Files for the complete shell-accessible filesystem, file operations, external editors, drag-and-drop, and Console/Termux handoff | File workflows are primarily provided through My Files |
 | Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
 | Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
@@ -111,6 +111,17 @@ and selected-display recording.
   open, rename, and delete files or folders directly from the desktop, and
   drag files between the desktop and application windows that support
   Android's global drag-and-drop protocol.
+- Open the built-in **Files** window for the complete filesystem visible to
+  the connected Shizuku UserService. It supports path and breadcrumb
+  navigation, hidden files, sorting, selection, create, rename, permanent
+  delete, copy, cut, paste, properties, external editors, and global file
+  drag-and-drop. Conflicting copies receive a numeric suffix instead of
+  silently replacing data. Desktop context menus and standard file shortcuts
+  cover keyboard and mouse workflows; Properties reports the actual owner and
+  mode. An APK can be installed or updated only after an explicit confirmation.
+- Open the current Files directory in MagicDesk's built-in Console, or hand it
+  to Termux when Termux is installed and its documented `RUN_COMMAND` access
+  has been enabled.
 - Add native Android widgets, move them on the desktop, and resize supported
   providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
@@ -353,8 +364,10 @@ cycles the same configured layouts as `Ctrl+Space`.
 MagicDesk uses the official `dev.rikka.shizuku` UserService API for external
 desktop sessions, native task control, display density, screenshots,
 phone-screen dimming, locking, wallpaper access, vendor cooling and bypass
-charging, and physical input routing. MagicDesk does not independently acquire
-elevated privileges.
+charging, physical input routing, and the built-in Files window. Files sees
+exactly what that UserService identity can access: normally Android shell UID
+2000, or UID 0 when the user deliberately started Shizuku as root. MagicDesk
+does not independently acquire elevated privileges.
 
 The trust boundaries are deliberately narrow:
 
@@ -368,6 +381,9 @@ The trust boundaries are deliberately narrow:
 - The diagnostic Console executes only commands entered and confirmed by the
   user. Those commands are not restricted to MagicDesk's internal allowlists
   and have the effective privileges displayed by the Console.
+- Built-in Files performs typed filesystem operations inside the same
+  UserService. Applications opened from Files receive only a temporary URI for
+  the selected file; they do not inherit Shizuku or its filesystem identity.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
   settings; supported Nubia/REDMAGIC firmware additionally uses two documented

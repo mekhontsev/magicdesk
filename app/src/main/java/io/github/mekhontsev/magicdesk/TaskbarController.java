@@ -342,8 +342,7 @@ final class TaskbarController {
                     Integer.valueOf(task.taskId))) {
                 continue;
             }
-            final AppItem app = mActivity.findOrLoadApp(
-                    apps, task.packageName);
+            final AppItem app = mActivity.findOrLoadApp(apps, task);
             if (app != null) {
                 addPin(app, task);
             }

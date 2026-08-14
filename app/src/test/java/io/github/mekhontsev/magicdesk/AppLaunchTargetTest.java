@@ -51,4 +51,43 @@ public final class AppLaunchTargetTest {
         assertFalse(first.equals(second));
         assertFalse(first.stableKey().equals(second.stableKey()));
     }
+
+    @Test
+    public void explicitTargetMatchesOnlyItsTaskComponent() {
+        final AppLaunchTarget target = AppLaunchTarget.explicit(
+                "io.example.app",
+                "io.example.app.FilesActivity",
+                "android.intent.action.MAIN");
+        final TaskRepository.TaskEntry matching = new TaskRepository.TaskEntry(
+                1, 2, 3,
+                "io.example.app",
+                "io.example.app/.FilesActivity",
+                "io.example.app/io.example.app.FilesActivity",
+                "freeform",
+                null,
+                false,
+                true,
+                true);
+        final TaskRepository.TaskEntry other = new TaskRepository.TaskEntry(
+                1, 3, 3,
+                "io.example.app",
+                "io.example.app/.MainActivity",
+                "io.example.app/.MainActivity",
+                "freeform",
+                null,
+                false,
+                true,
+                true);
+
+        assertTrue(target.matchesTask(matching));
+        assertFalse(target.matchesTask(other));
+        assertTrue(target.matchesTask(
+                "io.example.app",
+                "io.example.app/.FilesActivity",
+                "io.example.app/.FilesActivity"));
+        assertFalse(target.matchesTask(
+                "io.example.app",
+                "io.example.app/.MainActivity",
+                "io.example.app/.MainActivity"));
+    }
 }

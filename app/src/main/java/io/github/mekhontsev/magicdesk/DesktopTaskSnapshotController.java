@@ -94,6 +94,18 @@ final class DesktopTaskSnapshotController {
         return null;
     }
 
+    TaskRepository.TaskEntry findFirstTask(final AppLaunchTarget target) {
+        if (target == null) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : mSnapshot.tasks) {
+            if (isTaskbarTask(task) && target.matchesTask(task)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
     List<TaskRepository.TaskEntry> findTasks(final String packageName) {
         final List<TaskRepository.TaskEntry> result = new ArrayList<>();
         for (final TaskRepository.TaskEntry task : mSnapshot.tasks) {
@@ -109,7 +121,9 @@ final class DesktopTaskSnapshotController {
         return task != null
                 && !task.home
                 && task.packageName != null
-                && !mActivity.getPackageName().equals(task.packageName);
+                && (!mActivity.getPackageName().equals(task.packageName)
+                        || FileManagerActivity.launchTarget(mActivity)
+                                .matchesTask(task));
     }
 
     void release() {

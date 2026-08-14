@@ -82,7 +82,7 @@ final class AppTaskController {
             return;
         }
         final TaskRepository.TaskEntry existingTask =
-                mActivity.findFirstTask(app.packageName);
+                mActivity.findFirstTask(app.launchTarget);
         if (existingTask != null
                 && existingTask.displayId == mActivity.getCurrentDisplayId()
                 && existingTask.isFreeform()) {
@@ -120,7 +120,7 @@ final class AppTaskController {
             try {
                 WindowedAppLauncher.launch(
                         launchIntent,
-                        app.packageName,
+                        app.launchTarget,
                         displayId,
                         getTaskIds(visibleTasks),
                         explicitWindowed,
@@ -183,7 +183,7 @@ final class AppTaskController {
             if (ShellAccess.isReady()) {
                 final ExistingTaskController.ReuseResult reuseResult =
                         ExistingTaskController.reuseIfExists(
-                                app.packageName,
+                                app.launchTarget,
                                 mActivity.getCurrentDisplayId(),
                                 false);
                 if (reuseResult.found) {
@@ -225,7 +225,7 @@ final class AppTaskController {
             FullscreenAppLauncher.launch(
                     launchIntent, mActivity.getCurrentDisplayId());
             ExistingTaskController.normalizeLaunchedFullscreen(
-                    app.packageName,
+                    app.launchTarget,
                     mActivity.getCurrentDisplayId());
             if (rememberMode) {
                 AppWindowStateStore.rememberMode(

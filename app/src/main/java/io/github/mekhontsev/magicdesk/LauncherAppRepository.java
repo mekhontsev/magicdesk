@@ -77,6 +77,7 @@ final class LauncherAppRepository {
                     AppLaunchTarget.packageDefault(packageName)));
         }
 
+        addMagicDeskEntryPoints(result, addedPackages, universalFreeform);
         addPlatformEntryPoints(result, addedPackages, universalFreeform);
 
         Collections.sort(result, new Comparator<AppItem>() {
@@ -232,6 +233,36 @@ final class LauncherAppRepository {
                 Log.d(TAG, "Optional platform entry point is unavailable: "
                         + target.packageName);
             }
+        }
+    }
+
+    private void addMagicDeskEntryPoints(
+            final List<AppItem> result,
+            final Set<String> addedPackages,
+            final boolean universalFreeform) {
+        final AppLaunchTarget target = FileManagerActivity.launchTarget(mContext);
+        try {
+            final ActivityInfo activityInfo = mPackageManager.getActivityInfo(
+                    new ComponentName(
+                            target.packageName, target.activityClassName),
+                    0);
+            if (!activityInfo.enabled || activityInfo.applicationInfo == null
+                    || !activityInfo.applicationInfo.enabled) {
+                return;
+            }
+            final CharSequence label = activityInfo.loadLabel(mPackageManager);
+            result.add(new AppItem(
+                    label == null || label.length() == 0
+                            ? mContext.getString(R.string.file_manager_title)
+                            : label.toString(),
+                    target.packageName,
+                    universalFreeform,
+                    AppItem.FULLSCREEN_REASON_NONE,
+                    loadIcon(activityInfo, activityInfo.applicationInfo),
+                    target));
+            addedPackages.add(target.packageName);
+        } catch (PackageManager.NameNotFoundException error) {
+            Log.w(TAG, "MagicDesk Files activity is unavailable", error);
         }
     }
 

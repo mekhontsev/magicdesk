@@ -172,6 +172,10 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
+- `FileManagerActivity` is an ordinary resizable desktop task. Its view owns
+  navigation and selection only; `FileManagerOperationController` owns
+  lifecycle-bound remote operations and `FileManagerImportController` owns
+  incoming Android URI drops. It has no vendor dependency.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
   panel, which remains a quick control surface for the active session. Settings
@@ -207,6 +211,10 @@ runtime integration and are not distributed through the same release path.
   typed UserService operations to `/storage/emulated/0/Desktop` and owns its
   `FileObserver`. `DesktopWidgetController` owns the process-wide
   `AppWidgetHost` lifecycle and widget binding/configuration.
+- `ShellFileSystem` is the separate, general filesystem boundary used by the
+  built-in Files task. It intentionally accepts any absolute path available to
+  the connected UserService identity; this broader contract is not reused by
+  desktop metadata or automatic background work.
 - `DesktopStateStore` is the single typed model for persistent desktop content,
   taskbar pins, global layout, application window state, settings, and display
   profiles.
@@ -579,25 +587,48 @@ explicitly from the context menu so drag handling cannot steal controls or
 scroll gestures from the provider. Binding and optional configuration use the
 system widget activities and do not depend on Shizuku.
 
-Desktop filesystem operations cross one typed AIDL boundary instead of
-interpolating filenames into shell commands. The UserService rejects paths
-outside the fixed root, symbolic-link traversal, invalid names, and accidental
-overwrite. Explicit physical deletion is recursive only after user
-confirmation; removing an application shortcut or widget never deletes
-application data. MagicDesk does not delete the Desktop directory or its
-contents during Exit or uninstall.
+The fixed Desktop surface and the general Files task use separate typed AIDL
+contracts instead of interpolating filenames into shell commands.
+`ShellDesktopDirectory` rejects paths outside its fixed root, symbolic-link
+traversal, invalid names, and accidental overwrite. Removing an application
+shortcut or widget never deletes application data, and MagicDesk does not
+delete the Desktop directory or its contents during Exit or uninstall.
+Desktop changes arrive through `FileObserver`; the fixed folder is not polled.
 
-Files opened or dragged into another application are exposed through a
-non-exported `ContentProvider` with a temporary URI grant. Drag grants are
-read-only; an explicit open also grants write access so an editor can save the
-file. The receiving application never receives Shizuku access or a raw
-privileged filesystem handle. One or more external URI drops are copied into
-Desktop on the existing folder executor; incomplete targets are removed,
-conflicts gain a numeric suffix, and the incoming drag grant is then released.
-Cross-window import depends on the source publishing an Android global drag
-session; private in-window drag gestures are not visible to MagicDesk.
-Directory changes are delivered by `FileObserver`; there is no folder polling
-while the desktop is idle.
+`ShellFileSystem` deliberately exposes the complete filesystem visible to the
+connected UserService identity. Path validation requires normalized absolute
+paths, protects the filesystem root from mutation, prevents recursive copies,
+and treats symbolic links as links during copy and delete. Copy, move, and
+recursive delete run on one operation executor only after an explicit user
+action. Operations support cancellation and Binder-owner death; there is no
+file-manager polling or idle worker loop. Name conflicts receive a numeric
+suffix, so an interrupted copy never begins by deleting an existing target.
+If cross-filesystem move cleanup fails after a complete copy, the destination
+is retained rather than risking loss of both copies.
+
+`FileManagerActivity` maps the selection model to the same typed operations
+for toolbar commands, item context menus, and standard file-manager keyboard
+shortcuts. Metadata displayed by Properties comes from the same `stat` result
+used for capability identity checks. APK installation is the only package
+operation: it is offered only for a selected APK, requires a confirmation that
+shows the absolute path, and executes as the already-authorized UserService
+identity.
+
+Files opened or dragged into another application are exposed through the
+non-exported `ShellFileProvider` and a process-lifetime capability URI. A grant
+records the selected path and file identity; each open is performed again by
+the UserService and accepted only when device and inode still match. Drag
+grants are read-only, while an explicit open grants write only when the
+UserService reported the file writable. The receiving application never
+receives Shizuku access, a raw privileged path, or the UserService Binder.
+
+Incoming global Android URI drops are copied into the visible Files directory.
+Incomplete imports are removed, conflicts gain a numeric suffix, and the
+incoming drag grant is released. Cross-window import depends on the source
+publishing an Android global drag session; private in-window drag gestures are
+not visible to MagicDesk. The built-in Console can be prefilled with the
+current directory. Optional Termux integration uses Termux's documented
+`RUN_COMMAND` intent and permission; it is not required by Files.
 
 ## External Desktop Activation
 

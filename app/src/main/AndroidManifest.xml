@@ -6,9 +6,11 @@
     <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.termux" />
         <package android:name="cn.nubia.keymapcenter" />
         <package android:name="cn.nubia.redmagickyi" />
         <package android:name="cn.zte.chargeseparation" />
@@ -49,6 +51,22 @@
             android:authorities="${applicationId}.desktop-files"
             android:exported="false"
             android:grantUriPermissions="true" />
+
+        <provider
+            android:name=".ShellFileProvider"
+            android:authorities="${applicationId}.shell-files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <activity
+            android:name=".FileManagerActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_desktop_folder"
+            android:label="@string/file_manager_title"
+            android:launchMode="singleTop"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.files" />
 
         <activity
             android:name=".DeviceSetupActivity"

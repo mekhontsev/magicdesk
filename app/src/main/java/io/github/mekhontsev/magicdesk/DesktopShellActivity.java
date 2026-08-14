@@ -963,6 +963,10 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskSnapshots.findFirstTask(packageName);
     }
 
+    TaskRepository.TaskEntry findFirstTask(final AppLaunchTarget target) {
+        return mTaskSnapshots.findFirstTask(target);
+    }
+
     static TaskRepository.TaskEntry findTask(
             final TaskRepository.Snapshot snapshot, final int taskId) {
         if (snapshot == null) {
@@ -1108,6 +1112,16 @@ public abstract class DesktopShellActivity extends Activity
     AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
         return mLauncherApps.findOrLoad(
                 apps, packageName, isUniversalFreeformEnabled());
+    }
+
+    AppItem findOrLoadApp(
+            final List<AppItem> apps,
+            final TaskRepository.TaskEntry task) {
+        final AppLaunchTarget files = FileManagerActivity.launchTarget(this);
+        return files.matchesTask(task)
+                ? mLauncherApps.findOrLoad(
+                        apps, files, isUniversalFreeformEnabled())
+                : findOrLoadApp(apps, task.packageName);
     }
 
     AppItem findOrLoadApp(

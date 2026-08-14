@@ -58,6 +58,42 @@ public final class AppLaunchTarget {
         return packageName + "|" + activityClassName + "|" + action;
     }
 
+    boolean matchesTask(final TaskRepository.TaskEntry task) {
+        return task != null && matchesTask(
+                task.packageName,
+                task.componentName,
+                task.topActivityName);
+    }
+
+    boolean matchesTask(
+            final String taskPackageName,
+            final String componentName,
+            final String topActivityName) {
+        if (!packageName.equals(taskPackageName)) {
+            return false;
+        }
+        if (activityClassName.length() == 0) {
+            return true;
+        }
+        return matchesComponent(componentName)
+                || matchesComponent(topActivityName);
+    }
+
+    private boolean matchesComponent(final String flattened) {
+        if (flattened == null) {
+            return false;
+        }
+        final int separator = flattened.indexOf('/');
+        if (separator <= 0
+                || !packageName.equals(flattened.substring(0, separator))) {
+            return false;
+        }
+        final String rawClass = flattened.substring(separator + 1);
+        final String fullClass = rawClass.startsWith(".")
+                ? packageName + rawClass : rawClass;
+        return activityClassName.equals(fullClass);
+    }
+
     @Override
     public boolean equals(final Object other) {
         if (this == other) {

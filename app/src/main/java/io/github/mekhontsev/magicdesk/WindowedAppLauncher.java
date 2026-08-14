@@ -19,7 +19,7 @@ final class WindowedAppLauncher {
 
     static void launch(
             final Intent launchIntent,
-            final String packageName,
+            final AppLaunchTarget launchTarget,
             final int displayId,
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
@@ -30,7 +30,7 @@ final class WindowedAppLauncher {
         final boolean nativeDesktop = NativeDesktopController.shouldUse();
         final ExistingTaskController.ReuseResult existing = reuse(
                 nativeDesktop,
-                packageName,
+                launchTarget,
                 displayId,
                 preservedTaskIds,
                 false,
@@ -75,7 +75,7 @@ final class WindowedAppLauncher {
             }
             final ExistingTaskController.ReuseResult launched = reuse(
                     nativeDesktop,
-                    packageName,
+                    launchTarget,
                     displayId,
                     preservedTaskIds,
                     true,
@@ -97,7 +97,7 @@ final class WindowedAppLauncher {
 
     private static ExistingTaskController.ReuseResult reuse(
             final boolean nativeDesktop,
-            final String packageName,
+            final AppLaunchTarget launchTarget,
             final int displayId,
             final int[] preservedTaskIds,
             final boolean waitForTask,
@@ -105,14 +105,14 @@ final class WindowedAppLauncher {
             final Rect targetBounds) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
-                        packageName,
+                        launchTarget,
                         displayId,
                         preservedTaskIds,
                         waitForTask,
                         explicitWindowed,
                         targetBounds)
                 : ExistingTaskController.reuseFreeformIfExists(
-                        packageName,
+                        launchTarget,
                         displayId,
                         preservedTaskIds,
                         waitForTask,

@@ -375,7 +375,7 @@ final class DesktopContextMenuController {
 
         final TaskRepository.TaskEntry task = exactTask != null
                 ? exactTask
-                : mActivity.findFirstTask(app.packageName);
+                : mActivity.findFirstTask(app.launchTarget);
         if (task != null) {
             final TextView taskInfo = new TextView(mActivity);
             taskInfo.setText(mActivity.getString(

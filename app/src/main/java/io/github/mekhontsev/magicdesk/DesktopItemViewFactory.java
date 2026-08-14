@@ -50,7 +50,7 @@ final class DesktopItemViewFactory {
         } else {
             icon.setImageResource(file.directory
                     ? R.drawable.ic_desktop_folder
-                    : fileIcon(file.mimeType));
+                    : FileIconResolver.forMimeType(file.mimeType));
         }
         icon.setContentDescription(file.name);
         item.addView(icon, iconParams());
@@ -104,33 +104,6 @@ final class DesktopItemViewFactory {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(6), 0, 0);
         item.addView(label, params);
-    }
-
-    private int fileIcon(final String mimeType) {
-        if (mimeType != null && mimeType.startsWith("image/")) {
-            return R.drawable.ic_desktop_file_image;
-        }
-        if (mimeType != null
-                && (mimeType.startsWith("audio/")
-                        || mimeType.startsWith("video/"))) {
-            return R.drawable.ic_desktop_file_media;
-        }
-        if ("application/pdf".equals(mimeType)) {
-            return R.drawable.ic_desktop_file_pdf;
-        }
-        if (mimeType != null
-                && (mimeType.startsWith("text/")
-                        || mimeType.contains("json")
-                        || mimeType.contains("xml"))) {
-            return R.drawable.ic_desktop_file_text;
-        }
-        if (mimeType != null
-                && (mimeType.contains("zip")
-                        || mimeType.contains("archive")
-                        || mimeType.contains("compressed"))) {
-            return R.drawable.ic_desktop_file_archive;
-        }
-        return R.drawable.ic_desktop_file_document;
     }
 
     private int dp(final int value) {

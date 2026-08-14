@@ -34,6 +34,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
+    private final ShellFileSystem mFileSystem;
     private final Object mInputRoutingLock = new Object();
     private final Object mMirrorTextInputLock = new Object();
     private DesktopInputRoutingSession mInputRoutingSession;
@@ -74,6 +75,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 .createNavigationGuard();
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
+        mFileSystem = new ShellFileSystem();
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
@@ -568,6 +570,86 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public ShellFilePage listShellDirectory(
+            final String absolutePath,
+            final int offset,
+            final int limit,
+            final boolean showHidden,
+            final int sortMode,
+            final boolean ascending) {
+        return mFileSystem.list(
+                absolutePath,
+                offset,
+                limit,
+                showHidden,
+                sortMode,
+                ascending);
+    }
+
+    @Override
+    public ShellFileInfo getShellFileInfo(final String absolutePath) {
+        return mFileSystem.info(absolutePath);
+    }
+
+    @Override
+    public ParcelFileDescriptor openShellFile(
+            final String absolutePath, final String mode) {
+        return mFileSystem.open(absolutePath, mode);
+    }
+
+    @Override
+    public ShellFileInfo createShellEntry(
+            final String parentPath,
+            final String name,
+            final boolean directory) {
+        return mFileSystem.create(parentPath, name, directory);
+    }
+
+    @Override
+    public ShellFileInfo renameShellEntry(
+            final String absolutePath, final String newName) {
+        return mFileSystem.rename(absolutePath, newName);
+    }
+
+    @Override
+    public long startShellFileOperation(
+            final int operation,
+            final String[] sourcePaths,
+            final String destinationDirectory,
+            final IFileOperationCallback callback,
+            final IBinder ownerToken) {
+        return mFileSystem.startOperation(
+                operation,
+                sourcePaths,
+                destinationDirectory,
+                callback,
+                ownerToken);
+    }
+
+    @Override
+    public void cancelShellFileOperation(final long operationId) {
+        mFileSystem.cancel(operationId);
+    }
+
+    @Override
+    public ParcelFileDescriptor openVerifiedShellFile(
+            final String absolutePath,
+            final String mode,
+            final long deviceId,
+            final long inode) {
+        return mFileSystem.openVerified(
+                absolutePath, mode, deviceId, inode);
+    }
+
+    @Override
+    public ShellFileInfo createAvailableShellEntry(
+            final String parentPath,
+            final String name,
+            final boolean directory) {
+        return mFileSystem.createAvailable(parentPath, name, directory);
+    }
+
+    @Override
     public ParcelFileDescriptor openHeartbeatStream(
             final String command,
             final long requestId,
@@ -660,6 +742,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         Log.i(TAG, "command service stopped");
         mDisplayRecording.close();
         mDesktopDirectory.close();
+        mFileSystem.close();
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
         }

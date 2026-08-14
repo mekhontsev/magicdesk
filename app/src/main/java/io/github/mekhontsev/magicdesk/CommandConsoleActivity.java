@@ -31,6 +31,8 @@ import java.util.Locale;
 
 public final class CommandConsoleActivity extends Activity
         implements ShellAccess.StateListener {
+    private static final String EXTRA_INITIAL_COMMAND =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_COMMAND";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_PANEL_ALT = 0xFF172033;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -54,6 +56,13 @@ public final class CommandConsoleActivity extends Activity
         return new Intent(context, CommandConsoleActivity.class);
     }
 
+    static Intent createIntent(
+            final Context context, final String initialCommand) {
+        return createIntent(context).putExtra(
+                EXTRA_INITIAL_COMMAND,
+                initialCommand == null ? "" : initialCommand);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,8 +70,16 @@ public final class CommandConsoleActivity extends Activity
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         mSnapshot = ShellAccess.currentSnapshot();
         setContentView(createContentView());
+        applyInitialCommand(getIntent());
         updateShellStatus();
         updateActions();
+    }
+
+    @Override
+    protected void onNewIntent(final Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        applyInitialCommand(intent);
     }
 
     @Override
@@ -259,6 +276,17 @@ public final class CommandConsoleActivity extends Activity
                     execute(command);
                 })
                 .show();
+    }
+
+    private void applyInitialCommand(final Intent intent) {
+        if (mScript == null || intent == null) {
+            return;
+        }
+        final String command = intent.getStringExtra(EXTRA_INITIAL_COMMAND);
+        if (command != null && command.length() > 0) {
+            mScript.setText(command);
+            mScript.setSelection(mScript.length());
+        }
     }
 
     private void execute(final String command) {

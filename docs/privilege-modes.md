@@ -33,6 +33,10 @@ On the verified firmware, shell UID 2000 can:
 - reveal native WMShell captions while the desktop session is active;
 - lock the phone and control the physical state of display 0;
 - read the current static wallpaper;
+- browse and mutate every filesystem path available to shell through the
+  built-in Files task, while sharing only individual capability URIs with
+  ordinary Android applications;
+- install a user-confirmed APK through Android's shell package-manager command;
 - change physical-keyboard layouts;
 - read and grab external input devices and create `/dev/uinput` devices;
 - use stock RedMagic bypass-charging, fan, pump, and thermal interfaces.
