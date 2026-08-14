@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -26,5 +27,15 @@ public final class DesktopSelfTestTargetTest {
                 195, DesktopDisplayTarget.simulated(195)));
         assertFalse(DesktopSelfTestTarget.EXTERNAL.matchesDisplay(
                 3, DesktopDisplayTarget.wireless(4)));
+    }
+
+    @Test
+    public void platformDesktopBlocksSimulatedTestWithoutLocalActivity() {
+        assertEquals(4, DesktopSelfTestController
+                .findBlockingDesktopDisplay(-1, 4));
+        assertEquals(3, DesktopSelfTestController
+                .findBlockingDesktopDisplay(3, 4));
+        assertEquals(-1, DesktopSelfTestController
+                .findBlockingDesktopDisplay(-1, -1));
     }
 }

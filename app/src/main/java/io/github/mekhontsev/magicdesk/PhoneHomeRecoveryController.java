@@ -213,14 +213,22 @@ final class PhoneHomeRecoveryController {
             }
             return;
         }
-        removeSecondaryPhoneHomeTasks(snapshot.tasks, home);
-        removeStrandedDesktopTasks(snapshot.tasks, localDesktopActive);
+        final boolean secondaryHomeCleanupSucceeded =
+                removeSecondaryPhoneHomeTasks(snapshot.tasks, home);
+        final boolean desktopCleanupSucceeded =
+                removeStrandedDesktopTasks(
+                        snapshot.tasks, localDesktopActive);
         final boolean removeSystemDesktopWallpaper =
                 ensureVisiblePhoneTask
                         && !forcePrimaryHome
                         && !localDesktopActive;
-        removeStrandedSystemDesktopWallpaperTasks(
-                snapshot.tasks, removeSystemDesktopWallpaper);
+        final boolean wallpaperCleanupSucceeded =
+                removeStrandedSystemDesktopWallpaperTasks(
+                        snapshot.tasks, removeSystemDesktopWallpaper);
+        final boolean cleanupSucceeded = allTaskCleanupSucceeded(
+                secondaryHomeCleanupSucceeded,
+                desktopCleanupSucceeded,
+                wallpaperCleanupSucceeded);
         final boolean needsPrimaryHome = needsPrimaryHomeRestore(
                 snapshot.tasks, includeStrandedDesktop, home);
         if (!forcePrimaryHome
@@ -231,18 +239,27 @@ final class PhoneHomeRecoveryController {
                                 localDesktopActive,
                                 home,
                                 removeSystemDesktopWallpaper))) {
-            complete(callback, true);
+            complete(callback, cleanupSucceeded);
             return;
         }
-        restorePrimaryHome(home, callback);
+        restorePrimaryHome(home, restored ->
+                complete(callback, cleanupSucceeded && restored));
     }
 
-    private static void removeSecondaryPhoneHomeTasks(
+    static boolean allTaskCleanupSucceeded(
+            final boolean secondaryHome,
+            final boolean desktop,
+            final boolean wallpaper) {
+        return secondaryHome && desktop && wallpaper;
+    }
+
+    private static boolean removeSecondaryPhoneHomeTasks(
             final List<TaskRepository.TaskEntry> tasks,
             final PhoneHomeComponents home) {
         if (tasks == null) {
-            return;
+            return true;
         }
+        boolean succeeded = true;
         for (final TaskRepository.TaskEntry task : tasks) {
             if (!isRemovableSecondaryPhoneHomeTask(task, home)) {
                 continue;
@@ -261,16 +278,19 @@ final class PhoneHomeRecoveryController {
                         "Could not remove a secondary launcher task"
                                 + " from the phone screen",
                         error.getMessage());
+                succeeded = false;
             }
         }
+        return succeeded;
     }
 
-    private static void removeStrandedDesktopTasks(
+    private static boolean removeStrandedDesktopTasks(
             final List<TaskRepository.TaskEntry> tasks,
             final boolean localDesktopActive) {
         if (tasks == null || localDesktopActive) {
-            return;
+            return true;
         }
+        boolean succeeded = true;
         for (final TaskRepository.TaskEntry task : tasks) {
             if (!isStrandedDesktopTask(task, localDesktopActive)) {
                 continue;
@@ -289,16 +309,19 @@ final class PhoneHomeRecoveryController {
                         "Could not remove a desktop task stranded"
                                 + " on the phone screen",
                         error.getMessage());
+                succeeded = false;
             }
         }
+        return succeeded;
     }
 
-    private static void removeStrandedSystemDesktopWallpaperTasks(
+    private static boolean removeStrandedSystemDesktopWallpaperTasks(
             final List<TaskRepository.TaskEntry> tasks,
             final boolean cleanupEnabled) {
         if (tasks == null || !cleanupEnabled) {
-            return;
+            return true;
         }
+        boolean succeeded = true;
         for (final TaskRepository.TaskEntry task : tasks) {
             if (!isStrandedSystemDesktopWallpaperTask(
                     task, cleanupEnabled)) {
@@ -318,8 +341,10 @@ final class PhoneHomeRecoveryController {
                         "Could not remove a SystemUI desktop wallpaper task"
                                 + " stranded on the phone screen",
                         error.getMessage());
+                succeeded = false;
             }
         }
+        return succeeded;
     }
 
     private static void restorePrimaryHome(

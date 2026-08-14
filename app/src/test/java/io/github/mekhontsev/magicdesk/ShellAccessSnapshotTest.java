@@ -28,6 +28,18 @@ public final class ShellAccessSnapshotTest {
                 new IllegalStateException("operation rejected")));
     }
 
+    @Test
+    public void commandServiceReconnectNotifiesUnchangedRuntime() {
+        final ShellAccess.Snapshot previous = snapshot(
+                true, true, 2000, 13);
+        final ShellAccess.Snapshot current = snapshot(
+                true, true, 2000, 13);
+        assertFalse(ShellAccess.shouldNotifyStateListeners(
+                previous, current, false));
+        assertTrue(ShellAccess.shouldNotifyStateListeners(
+                previous, current, true));
+    }
+
     private static ShellAccess.Snapshot snapshot(
             final boolean running,
             final boolean permissionGranted,

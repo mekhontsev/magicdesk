@@ -32,7 +32,12 @@ public final class ShellAccess {
             new CopyOnWriteArraySet<>();
 
     private static final ShellServiceConnection SERVICE_CONNECTION =
-            new ShellServiceConnection(() -> publish(inspectNow()));
+            new ShellServiceConnection(() -> {
+                // The Shizuku manager may stay ready while its per-app
+                // command service is recreated. Runtime reconciliation must
+                // still run after that second connection becomes usable.
+                publish(inspectNow(), true);
+            });
     private static boolean sInitialized;
     private static volatile Snapshot sSnapshot = Snapshot.unavailable(
             false, "Shizuku access is not initialized");
@@ -904,15 +909,31 @@ public final class ShellAccess {
     }
 
     private static synchronized Snapshot publish(final Snapshot snapshot) {
+        return publish(snapshot, false);
+    }
+
+    private static synchronized Snapshot publish(
+            final Snapshot snapshot,
+            final boolean notifyUnchanged) {
         final Snapshot previous = sSnapshot;
         sSnapshot = snapshot;
-        if (previous.sameState(snapshot)) {
+        if (!shouldNotifyStateListeners(
+                previous, snapshot, notifyUnchanged)) {
             return snapshot;
         }
         for (final StateListener listener : STATE_LISTENERS) {
             listener.onShellStateChanged(snapshot);
         }
         return snapshot;
+    }
+
+    static boolean shouldNotifyStateListeners(
+            final Snapshot previous,
+            final Snapshot current,
+            final boolean commandServiceConnected) {
+        return commandServiceConnected
+                || previous == null
+                || !previous.sameState(current);
     }
 
     private static boolean isManagerInstalled(final Context context) {

@@ -58,6 +58,18 @@ public final class PhoneHomeRecoveryControllerTest {
     }
 
     @Test
+    public void anyTaskRemovalFailureKeepsRecoveryPending() {
+        assertTrue(PhoneHomeRecoveryController.allTaskCleanupSucceeded(
+                true, true, true));
+        assertFalse(PhoneHomeRecoveryController.allTaskCleanupSucceeded(
+                false, true, true));
+        assertFalse(PhoneHomeRecoveryController.allTaskCleanupSucceeded(
+                true, false, true));
+        assertFalse(PhoneHomeRecoveryController.allTaskCleanupSucceeded(
+                true, true, false));
+    }
+
+    @Test
     public void ignoresInvisibleOrNonHomeSecondaryTask() {
         assertFalse(PhoneHomeRecoveryController.needsPrimaryHomeRestore(
                 Arrays.asList(

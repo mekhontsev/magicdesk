@@ -82,7 +82,7 @@ final class DesktopSelfTestController {
                 throw new AbortSelfTest();
             }
             if (target == DesktopSelfTestTarget.SIMULATED) {
-                requireNoActiveDesktop(result);
+                requireNoActiveDesktop(appContext, result);
                 requireNoConfiguredOverlay(result);
                 requireNoStaleDesktopRepositories(result);
                 lease = require(result,
@@ -126,8 +126,12 @@ final class DesktopSelfTestController {
     }
 
     private static void requireNoActiveDesktop(
+            final Context context,
             final DesktopSelfTestResult result) throws AbortSelfTest {
-        final int activeDisplay = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int activeDisplay = findBlockingDesktopDisplay(
+                DesktopRuntimeBridge.getActiveDesktopDisplayId(),
+                PlatformDrivers.current().projection()
+                        .activeDesktopDisplayId(context));
         if (activeDisplay >= 0) {
             failAndAbort(result, "SELFTEST-PRECONDITION-001",
                     "No active desktop session",
@@ -149,6 +153,16 @@ final class DesktopSelfTestController {
         }
         result.add(DesktopSelfTestResult.State.PASS,
                 "SELFTEST-PRECONDITION-001", "No active desktop session", "ready");
+    }
+
+    static int findBlockingDesktopDisplay(
+            final int runtimeDisplay,
+            final int platformDisplay) {
+        if (runtimeDisplay >= Display.DEFAULT_DISPLAY) {
+            return runtimeDisplay;
+        }
+        return platformDisplay > Display.DEFAULT_DISPLAY
+                ? platformDisplay : Display.INVALID_DISPLAY;
     }
 
     private static int requirePreparedDisplay(
