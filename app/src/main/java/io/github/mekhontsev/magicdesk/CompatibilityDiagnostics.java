@@ -197,6 +197,8 @@ final class CompatibilityDiagnostics {
                 .append("Platform driver: ")
                 .append(audit.platform.name())
                 .append(" (").append(audit.platform.id()).append(")\n")
+                .append("Platform selection: ")
+                .append(PlatformDrivers.selectionDetail()).append('\n')
                 .append("Shizuku runtime: ")
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
@@ -296,17 +298,21 @@ final class CompatibilityDiagnostics {
                 phoneHome.hasPrimary(),
                 "Phone launcher HOME activity",
                 phoneHome.diagnosticDetail());
-        final boolean globalInput = ShellAccess.isReady();
+        final boolean globalInput = ShellAccess.isReady()
+                && audit.platform.features().externalInputBridge
+                && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),
                 "Global keyboard/input bridge",
                 globalInput
                         ? (KeyboardShortcutWatcher.isFullShortcutMode()
                                 ? "running" : "not running")
-                        : "Shizuku runtime unavailable");
+                        : audit.platform.features().externalInputBridge
+                                ? "idle; an external desktop is required"
+                                : "not required by the selected platform");
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
-                audit.platform.pointer().isAvailable()
+                audit.platform.features().externalInputBridge
                         && shellRightClick
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
@@ -317,6 +323,9 @@ final class CompatibilityDiagnostics {
         if (!shellRightClick) {
             mouseBridgeDetail =
                     "Shizuku runtime unavailable";
+        } else if (!audit.platform.features().externalInputBridge) {
+            mouseBridgeDetail =
+                    "not required by the selected platform";
         } else if (!mouseBridgeExpected) {
             mouseBridgeDetail =
                     "idle; an external desktop is required";
@@ -344,10 +353,20 @@ final class CompatibilityDiagnostics {
         report.append("Platform features: wired=")
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
+                .append(", externalInputBridge=")
+                .append(features.externalInputBridge)
+                .append(", internalAudioCapture=")
+                .append(features.internalAudioCapture)
                 .append(", absolutePointer=")
                 .append(platform.pointer().isAvailable())
-                .append(", projection=")
-                .append(platform.projection().isAvailable())
+                .append(", outputControls=")
+                .append(platform.projection().supportsOutputConfiguration())
+                .append(", managedWired=")
+                .append(platform.projection().ownsTransportLifecycle(
+                        PlatformProjectionDriver.Transport.WIRED))
+                .append(", managedWireless=")
+                .append(platform.projection().ownsTransportLifecycle(
+                        PlatformProjectionDriver.Transport.WIRELESS))
                 .append(", phoneUi=")
                 .append(platform.phoneUi().isAvailable())
                 .append('\n');

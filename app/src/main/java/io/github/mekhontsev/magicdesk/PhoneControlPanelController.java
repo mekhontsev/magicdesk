@@ -64,6 +64,8 @@ final class PhoneControlPanelController {
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
+        final boolean phoneTouchpadAvailable;
+        final boolean externalOutputControlAvailable;
         final boolean fillExternalDisplay;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final String externalDisplaySummary;
@@ -82,6 +84,8 @@ final class PhoneControlPanelController {
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
+                final boolean phoneTouchpadAvailable,
+                final boolean externalOutputControlAvailable,
                 final boolean fillExternalDisplay,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final String externalDisplaySummary,
@@ -98,6 +102,9 @@ final class PhoneControlPanelController {
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
+            this.phoneTouchpadAvailable = phoneTouchpadAvailable;
+            this.externalOutputControlAvailable =
+                    externalOutputControlAvailable;
             this.fillExternalDisplay = fillExternalDisplay;
             this.externalModeSelection = externalModeSelection;
             this.externalDisplaySummary = externalDisplaySummary;
@@ -222,6 +229,7 @@ final class PhoneControlPanelController {
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
                         && state.consoleControlAvailable
+                        && state.externalOutputControlAvailable
                         && state.wiredDisplayConnected
                         && state.externalDisplayState
                                 == ExternalDisplayState.CONNECTED;
@@ -236,7 +244,8 @@ final class PhoneControlPanelController {
                         && state.consoleControlAvailable);
         mTouchpad.setEnabled(
                 state.externalDesktopActive
-                        && state.consoleControlAvailable);
+                        && state.consoleControlAvailable
+                        && state.phoneTouchpadAvailable);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);

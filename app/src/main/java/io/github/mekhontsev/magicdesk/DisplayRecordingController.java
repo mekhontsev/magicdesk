@@ -83,6 +83,15 @@ final class DisplayRecordingController {
     }
 
     synchronized void toggle() {
+        if (mSnapshot.state == State.IDLE
+                && !PlatformDrivers.current().features()
+                        .internalAudioCapture) {
+            final String message =
+                    "Screen recording is unavailable on this device";
+            publish(State.IDLE, message);
+            showStatus(message, false);
+            return;
+        }
         switch (mSnapshot.state) {
             case IDLE:
                 start();

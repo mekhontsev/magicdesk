@@ -33,7 +33,9 @@ final class MagicDeskSessionController {
                     @Override
                     public void restoreHardware(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        if (ShellAccess.isReady()) {
+                        if (ShellAccess.isReady()
+                                && PlatformDrivers.current().features()
+                                        .vendorHardware) {
                             RedmagicHardwareController.restoreChangedState(
                                     callback::onComplete);
                         } else {
@@ -44,6 +46,10 @@ final class MagicDeskSessionController {
                     @Override
                     public void restorePhoneScreen(
                             final MagicDeskExitCoordinator.Callback callback) {
+                        if (!PlatformDrivers.current().phoneUi().isAvailable()) {
+                            callback.onComplete(true);
+                            return;
+                        }
                         ConsoleModeSwitcher.setPhoneScreenOff(
                                 false, callback::onComplete);
                     }
@@ -52,7 +58,7 @@ final class MagicDeskSessionController {
                     public void returnConsoleTasks(
                             final MagicDeskExitCoordinator.Callback callback) {
                         ConsoleModeSwitcher.returnConsoleTasksToPhone(
-                                callback::onComplete);
+                                desktopTarget, callback::onComplete);
                     }
 
                     @Override
@@ -99,16 +105,8 @@ final class MagicDeskSessionController {
                 true,
                 success -> finishCloseDesktop(
                         success,
-                        target != null
-                                && target.kind
-                                        == DesktopDisplayTarget.Kind.WIRELESS
-                                ? "WIRELESS-DISPLAY-002"
-                                : "NUBIA-CONSOLE-001",
-                        target != null
-                                && target.kind
-                                        == DesktopDisplayTarget.Kind.WIRELESS
-                                ? R.string.status_close_desktop_failed
-                                : R.string.status_mirror_failed));
+                        closeFailureCode(target),
+                        closeFailureMessage(target)));
     }
 
     private void closeDesktopBeforeExit(
@@ -136,6 +134,33 @@ final class MagicDeskSessionController {
         return target != null
                         && target.displayId > Display.DEFAULT_DISPLAY
                 ? target : null;
+    }
+
+    private static String closeFailureCode(
+            final DesktopDisplayTarget target) {
+        if (target != null
+                && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
+            return "WIRELESS-DISPLAY-002";
+        }
+        if (target != null
+                && target.kind == DesktopDisplayTarget.Kind.WIRED
+                && PlatformDrivers.current().projection()
+                        .ownsTransportLifecycle(
+                                PlatformProjectionDriver.Transport.WIRED)) {
+            return "NUBIA-CONSOLE-001";
+        }
+        return "DISPLAY-CLOSE-001";
+    }
+
+    private static int closeFailureMessage(
+            final DesktopDisplayTarget target) {
+        return target != null
+                && target.kind == DesktopDisplayTarget.Kind.WIRED
+                && PlatformDrivers.current().projection()
+                        .ownsTransportLifecycle(
+                                PlatformProjectionDriver.Transport.WIRED)
+                ? R.string.status_mirror_failed
+                : R.string.status_close_desktop_failed;
     }
 
     private void finishCloseDesktop(

@@ -1,8 +1,8 @@
 # MagicDesk Architecture
 
 This document describes the implementation boundaries behind MagicDesk's
-DeX-style desktop on RedMagic firmware. It is intended for contributors,
-reviewers, and users diagnosing compatibility problems.
+DeX-style desktop on Android with optional RedMagic integration. It is intended
+for contributors, reviewers, and users diagnosing compatibility problems.
 
 ## Design Principles
 
@@ -262,11 +262,11 @@ isolated behind these boundaries.
   and hardware runtime. Common projection, input, phone-UI, setup, and
   diagnostics code does not select Nubia services or settings through feature
   booleans. Hardware controls remain an explicit optional platform capability.
-  `GenericAndroidPlatformDriver` is deliberately conservative: it enables
-  only phone and simulated desktops and uses the two standard Android
-  freeform/resizable settings. Its projection, phone-UI, and absolute-pointer
-  integrations fail closed, and its diagnostics omit vendor probes. Unverified
-  wired and wireless backends are not exposed.
+  `GenericAndroidPlatformDriver` provides the Android 15 baseline: phone,
+  simulated, and direct sessions on already connected secondary displays,
+  using the two standard freeform/resizable settings. It does not own the
+  system projection transport, and its phone-UI, absolute-pointer, output-mode,
+  and hardware integrations fail closed. Its diagnostics omit vendor probes.
 - Platform and display are independent axes. A platform declares which
   display kinds it supports, while the display driver owns the lifecycle of
   one session type. Do not create platform-by-display combination classes.
@@ -281,12 +281,14 @@ isolated behind these boundaries.
 - `DesktopDisplayDrivers` is the only registry for resolving those drivers.
   `ConsoleModeSwitcher` serializes public session transitions and delegates
   the selected target to the registry.
-- `ConsoleSessionController` owns the RedMagic wired Console activation path.
+- `ConsoleSessionController` owns the optional RedMagic wired Console
+  activation path. Standard Android displays bypass it and enter the common
+  desktop session directly.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
-- `PhoneTouchpadController` starts and repairs the common phone touchpad for
-  every external display transport.
+- `PhoneTouchpadController` starts and repairs the phone touchpad when the
+  selected platform provides absolute pointer positioning.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,
   monitoring, and baseline restoration.
 - `DesktopNotificationListenerService` owns Android notification-listener state;
@@ -349,30 +351,37 @@ transport-specific code stops at that boundary. `ConsoleModeSwitcher` also
 owns the common target-aware close operation. Local startup retains its
 launcher-navigation guard, then starts the same desktop host and controllers.
 
-- `ConsoleSessionController` asks RedMagic firmware to turn a physical USB-C
-  display into Nubia's virtual desktop display, applies its output profile, and
-  enables the wired input-routing path.
-- With no connected target, the common external-desktop action opens the stock
-  SmartCast/Miracast picker. Once Android reports a Wi-Fi presentation display,
-  MagicDesk passes that display ID to the common desktop session. It does not
-  implement a second discovery or streaming stack.
+- On the standard Android profile, an already connected wired or wireless
+  secondary display enters `DesktopSessionController` directly. Closing the
+  desktop returns its application tasks to the phone but does not disconnect
+  or reconfigure the system-owned transport.
+- `ConsoleSessionController` is the managed RedMagic extension: it asks the
+  firmware to turn a physical USB-C output into Nubia's virtual desktop
+  display, applies its output profile, and enables the wired input-routing
+  path. The corresponding driver also owns the return to mirror mode.
+- With no connected target, the common external-desktop action opens the
+  selected platform's wireless-display settings. Once Android reports a Wi-Fi
+  display, MagicDesk passes that display ID to the common desktop session. It
+  does not implement a second discovery or streaming stack.
 - An Android overlay display is used only by explicit contributor tests. It
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.
 
-When a new wired or wireless desktop task is ready, the same
-`PhoneTouchpadController` opens `MagicDeskTouchpadActivity` on display 0.
+When a new wired or wireless desktop task is ready and the selected platform
+provides absolute pointer positioning, `PhoneTouchpadController` opens
+`MagicDeskTouchpadActivity` on display 0.
 
-The runtime owns native caption visibility for wired and wireless external
-desktops. It selects the matching Nubia privacy filter for the active transport;
-simulated displays do not modify vendor SurfaceFlinger state. Nubia's mouse and
-keyboard port association remains limited to its wired Console display because
-Miracast and simulated displays do not expose the same physical display port
-contract. Simulated sessions deliberately exercise the same phone IME policy,
-keyboard watcher, and virtual input lifecycle as a real desktop. Virtual input
-remains scoped to the session and cleanup waits for its removal before the test
-completes. The test inspects WMShell's caption and resize input windows after a
-cross-display move, including their display ID, frame, input channel, token, and
+The runtime asks the selected platform to expose native captions for wired and
+wireless desktops. The Nubia driver applies its matching privacy filter;
+standard Android and simulated displays do not modify vendor SurfaceFlinger
+state. Nubia's mouse and keyboard port association remains limited to its
+wired Console display because Miracast and simulated displays do not expose the
+same physical display port contract. Simulated sessions deliberately exercise
+the same phone IME policy, keyboard watcher, and virtual input lifecycle as a
+real desktop. Virtual input remains scoped to the session and cleanup waits for
+its removal before the test completes. The test inspects WMShell's caption and
+resize input windows after a cross-display move, including their display ID,
+frame, input channel, token, and
 touchable region. Nubia's absolute-pointer API has no viewport for Android
 overlay displays, so actual pointer drag remains a real-display compatibility
 check.
@@ -796,6 +805,11 @@ system `screenrecord --display-id` command. Internal audio uses the firmware's
 screen recorder and Game Highlights. The source is accepted by
 `MediaRecorder`, but the audio HAL rejects it through `AudioRecord`; these APIs
 are not interchangeable on the verified firmware.
+
+Internal-audio recording is an explicit platform capability. The Standard
+Android driver leaves it disabled instead of probing source `80`; screenshots
+remain available independently. A future platform can expose recording only
+after supplying and verifying its own internal-audio backend.
 
 The Capture panel stores a global resolution scale (`100%`, `75%`, or `50%`)
 and H.264 bitrate (`4`-`40 Mbps`). Native resolution omits `screenrecord`'s

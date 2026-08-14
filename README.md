@@ -1,15 +1,16 @@
 # MagicDesk
 
-MagicDesk is an open-source, DeX-style desktop environment for RedMagic
-devices. It turns RedMagic wired and wireless display output into a practical
-desktop workspace with native Android windows, a taskbar, Start menu, desktop
-shortcuts, global keyboard controls, notifications, and phone-based touchpad
-support.
+MagicDesk is an open-source, DeX-style desktop environment for Android 15 and
+newer. It turns a phone, tablet, or Android-reported secondary display into a
+practical desktop workspace with native Android windows, a taskbar, Start menu,
+desktop shortcuts, global keyboard controls, notifications, and optional
+phone-based touchpad support.
 
-MagicDesk is intended to be the RedMagic counterpart to Samsung DeX. It is not
-a port of DeX and is not affiliated with Samsung. It builds on Android's own
-desktop window manager and the external-display services already present in
-RedMagic firmware.
+MagicDesk started as the RedMagic counterpart to Samsung DeX and retains deep
+integration with compatible RedMagic firmware. It is not a port of DeX and is
+not affiliated with Samsung. The common desktop builds on Android's own task,
+window, and external-display APIs; focused platform drivers add capabilities
+that are not part of standard Android.
 
 The compatibility goal is to support as many capable devices and firmware
 versions as practical with one MagicDesk APK and one codebase. Runtime
@@ -18,8 +19,8 @@ creating separate device builds or forks.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
 > through iterative AI-assisted development and hands-on testing on real
-> RedMagic hardware. Its Shizuku integration and undocumented vendor interfaces
-> make independent source review especially important.
+> Android hardware. Its Shizuku integration and optional undocumented vendor
+> interfaces make independent source review especially important.
 
 > **Project status:** MagicDesk is under active development. The current
 > firmware verification is limited to the RedMagic 11 Pro profile listed below.
@@ -30,10 +31,10 @@ creating separate device builds or forks.
 
 ## Why MagicDesk
 
-RedMagic phones can drive an external display, but their stock interface does
-not provide the complete desktop workflow available in Samsung DeX. MagicDesk
-supplies that missing shell while continuing to use native Android tasks and
-RedMagic's existing projection stack.
+Many Android devices can drive a secondary display, but their stock interface
+does not provide the complete desktop workflow available in Samsung DeX.
+MagicDesk supplies that missing shell while continuing to use native Android
+tasks and the projection transport provided by the device firmware.
 
 The result is a familiar desktop model:
 
@@ -45,7 +46,8 @@ The result is a familiar desktop model:
   navigation.
 - DeX-style global shortcuts manage windows without application-specific
   configuration.
-- The phone can remain available as a touchpad and text-input panel.
+- On supported firmware, the phone can remain available as a touchpad and
+  text-input panel.
 - Fullscreen applications and in-app fullscreen video use the entire external
   display.
 
@@ -57,9 +59,9 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 
 This comparison is deliberately scoped. The MagicDesk column describes
 behavior verified on a RedMagic 11 Pro (`NX809J`) running Android 16 and the
-firmware build listed under **Requirements**. Other RedMagic devices and OTA
-versions may behave differently. Samsung DeX capabilities also vary by Galaxy
-device and One UI version.
+firmware build listed under **Currently verified**. Other RedMagic devices and
+OTA versions may behave differently. Samsung DeX capabilities also vary by
+Galaxy device and One UI version.
 
 | Capability | MagicDesk on the verified RedMagic 11 Pro | Samsung DeX |
 | --- | --- | --- |
@@ -134,19 +136,25 @@ and Android user; neither kind of state is written into the desktop folder.
 - Right-click context menus in MagicDesk and ordinary applications.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.
-- Calendar panel, battery state, active keyboard-layout indicator,
-  phone-screen control, screenshots, and configurable external-display
-  recording with internal audio.
-- Connected-display identification, output resolution and refresh-rate
-  selection, and an optional **Fill display** mode for sinks that otherwise
-  add letterboxing.
-- Media-volume, connected audio-output, and phone-touchpad controls.
+- Calendar panel, battery state, active keyboard-layout indicator, screenshots,
+  and optional phone-screen control.
+- Configurable selected-display recording with internal audio when the
+  firmware exposes the required capture and audio sources.
+- Connected-display identification and per-monitor DPI. Platform extensions
+  may also expose output resolution, refresh-rate selection, and **Fill
+  display** for sinks that otherwise add letterboxing.
+- Media-volume and connected audio-output controls, plus phone-touchpad control
+  when absolute pointer positioning is available.
 - Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Automatic external-desktop startup and window-layout restoration through
   `Win+D`.
 
 ### Physical input
+
+The standard Android profile leaves system keyboard and mouse routing intact.
+On firmware that misroutes external input, a platform extension can enable
+MagicDesk's full input bridge to provide the following behavior:
 
 - Native key repeat and physical keyboard layouts on the external display.
 - `Ctrl+Space` cycles through layouts exposed to Android by the active input
@@ -161,28 +169,29 @@ and Android user; neither kind of state is written into the desktop folder.
 
 ## Requirements
 
-MagicDesk's verified external-desktop implementation is RedMagic/ZTE-specific
-and requires:
+MagicDesk requires:
 
-- a ZTE, nubia, or RedMagic device running Android 15 / API 35 or newer;
+- a device running Android 15 / API 35 or newer;
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
 An external desktop requires either:
 
-- USB-C DisplayPort output and RedMagic external-display support; or
-- the stock RedMagic SmartCast/Miracast interface and a compatible wireless
-  display receiver.
+- a wired display output exposed to Android as a secondary display; or
+- a system Miracast/wireless-display interface and a compatible receiver.
 
 USB-C DisplayPort output is therefore not mandatory. Availability of wired and
-wireless projection depends on the phone model and firmware. **Open desktop
-here** runs the same desktop implementation on the device display without an
-external display.
+wireless projection, the ability to host application tasks on the reported
+display, physical input routing, and native window behavior depend on the
+device firmware. **Open desktop here** runs the same desktop implementation on
+the device display without an external display.
 
-An experimental Generic Android platform driver is available on Android 15+
-for **Open desktop here** and the simulated self-test. It deliberately does
-not expose wired or wireless desktop startup until a platform-specific
-external-display backend has been verified.
+On the standard Android profile, MagicDesk opens an already connected
+secondary display directly and leaves connection, disconnection, mirror mode,
+and output timing to system settings. Compatible RedMagic firmware additionally
+provides managed Console/SmartCast transitions, output controls, phone-screen
+control, absolute pointer positioning, and hardware controls. Unsupported
+optional integrations remain disabled instead of blocking the desktop.
 
 MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
 permission is denied. All privileged operations use the same Shizuku
@@ -195,10 +204,10 @@ UserService path, keeping runtime behavior predictable and reviewable.
 - Firmware fingerprint:
   `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
 
-Other models and OTA versions are treated as unverified. They can continue
-after an explicit warning so compatibility reports can identify missing or
-changed vendor hooks. Passing the baseline check does not guarantee every
-feature works on different firmware.
+Other devices and OTA versions are treated as unverified. They can continue
+after an explicit warning so compatibility reports can identify missing,
+changed, or vendor-specific capabilities. Passing the baseline check does not
+guarantee every feature works on different firmware.
 
 See [Compatibility and issue reports](docs/compatibility.md) before reporting a
 device-specific failure.
@@ -275,15 +284,16 @@ display size, density, and scaling to platform defaults.
 
 1. Optionally connect a physical keyboard, mouse, or combined touchpad device.
 2. Launch MagicDesk on the phone.
-3. For a wired session, connect a USB-C display. If needed, select an **Output
-   mode** reported by the display and enable **Fill display** to remove
-   letterboxing, then select **Start external desktop** or press `Win+D`.
+3. For a wired session, connect a USB-C display. When the selected platform
+   exposes output controls, optionally select an **Output mode** and enable
+   **Fill display**, then select **Start external desktop** or press `Win+D`.
 4. For a wireless session with no display connected, select **Start external
-   desktop**, then choose a Miracast receiver in the stock SmartCast interface.
-   MagicDesk starts the desktop when Android reports the wireless display.
-5. Select **Close desktop** to return a wired display to screen mirroring or to
-   disconnect a wireless display. Select **Exit MagicDesk** to stop MagicDesk
-   and its background services completely.
+   desktop**, then choose a Miracast receiver in the system wireless-display
+   interface. MagicDesk starts the desktop when Android reports the display.
+5. Select **Close desktop** to close the MagicDesk session. A platform-managed
+   transport also returns to mirroring or disconnects; a direct Android
+   secondary display remains connected under system control. Select **Exit
+   MagicDesk** to stop MagicDesk and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
@@ -355,7 +365,7 @@ The trust boundaries are deliberately narrow:
   two hardcoded boolean/absent properties.
 - Projection, phone-screen and launcher integration, absolute-pointer access,
   optional firmware app entry points, and vendor diagnostics are selected
-  through the same platform-driver boundary. The Generic Android profile does
+  through the same platform-driver boundary. The standard Android profile does
   not probe or invoke ZTE/nubia interfaces.
 - The system `ShellTaskOrganizer` remains the only task organizer.
 - `libmagicdesk_uinput_bridge.so` and
@@ -391,13 +401,13 @@ switching between two windows. It also recreates the desktop Activity and
 checks hidden Android and RedMagic APIs that can be inspected safely.
 
 The external target uses an already connected HDMI or Miracast display. If no
-external display is present, MagicDesk opens SmartCast and asks you to connect
-one before running the test again. A wired display temporarily switched from
-mirror mode is restored to mirror mode afterward; an existing Miracast
-connection is left connected. Hardware keyboard, mouse, and Touch Panel input
-remain explicitly **NOT TESTED** because the automated test injects its own
-input. Native mouse resize-cursor selection is checked when WMShell exposes a
-transition trace.
+external display is present, MagicDesk opens the platform's wireless-display
+settings and asks you to connect one before running the test again. A managed
+wired display temporarily switched from mirror mode is restored afterward;
+an existing direct secondary-display connection is left connected. Hardware
+keyboard, mouse, and phone touchpad input remain explicitly **NOT TESTED**
+because the automated test injects its own input. Native mouse resize-cursor
+selection is checked when WMShell exposes a transition trace.
 
 The simulated target owns a temporary 1920x1080 display through a
 lifecycle-bound Shizuku stream. Its setting is restored when the test finishes
@@ -434,6 +444,17 @@ Build the debug APK:
 ```sh
 ./gradlew :app:assembleDebug
 ```
+
+To exercise the Standard Android platform driver on ZTE/nubia development
+hardware, build a debug APK with an explicit platform override:
+
+```sh
+./gradlew :app:assembleDebug -PMAGICDESK_PLATFORM_OVERRIDE=android
+```
+
+The override is ignored by release builds and is reported in Compatibility
+Diagnostics. It changes only platform-driver selection; it does not use a
+separate product flavor or source set.
 
 On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On desktop
 systems, Gradle finds a side-by-side NDK through the Android SDK;
@@ -472,7 +493,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 
 - Author: [Dmitry Mekhontsev](https://github.com/mekhontsev)
 - Main package: `io.github.mekhontsev.magicdesk`
-- Minimum SDK: 36
+- Minimum SDK: 35
 - Target SDK: 36
 - License: [MIT](LICENSE)
 

@@ -6,7 +6,7 @@ final class PlatformDrivers {
     private static final PlatformDriver GENERIC =
             new GenericAndroidPlatformDriver();
     private static final PlatformDriver CURRENT = resolve(
-            PlatformDevice.current());
+            PlatformDevice.current(), BuildConfig.PLATFORM_OVERRIDE);
 
     private PlatformDrivers() {
     }
@@ -16,9 +16,24 @@ final class PlatformDrivers {
     }
 
     static PlatformDriver resolve(final PlatformDevice device) {
+        return resolve(device, "");
+    }
+
+    static PlatformDriver resolve(
+            final PlatformDevice device,
+            final String platformOverride) {
+        if ("android".equals(platformOverride)) {
+            return GENERIC;
+        }
         if (NUBIA.supports(device)) {
             return NUBIA;
         }
         return GENERIC;
+    }
+
+    static String selectionDetail() {
+        return BuildConfig.PLATFORM_OVERRIDE.isEmpty()
+                ? "automatic"
+                : "debug override=" + BuildConfig.PLATFORM_OVERRIDE;
     }
 }

@@ -4,7 +4,7 @@ import android.content.Context;
 
 import java.util.Map;
 
-/** Diagnostics for the conservative Generic Android platform profile. */
+/** Diagnostics for the standard Android platform profile. */
 final class GenericAndroidPlatformDiagnostics implements PlatformDiagnostics {
     @Override
     public void appendCapabilityProbe(
@@ -30,7 +30,7 @@ final class GenericAndroidPlatformDiagnostics implements PlatformDiagnostics {
     public String supportDetail(
             final PlatformDevice device,
             final PlatformSupportLevel supportLevel) {
-        return "unverified Generic Android profile; local and simulated "
-                + "desktops only";
+        return "unverified Android 15+ profile; standard phone, simulated, "
+                + "and direct secondary-display sessions are enabled";
     }
 }

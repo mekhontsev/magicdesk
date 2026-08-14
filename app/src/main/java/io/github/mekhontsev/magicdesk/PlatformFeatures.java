@@ -4,15 +4,21 @@ package io.github.mekhontsev.magicdesk;
 final class PlatformFeatures {
     final boolean wiredDesktop;
     final boolean wirelessDesktop;
+    final boolean externalInputBridge;
     final boolean vendorHardware;
+    final boolean internalAudioCapture;
 
     PlatformFeatures(
             final boolean wiredDesktop,
             final boolean wirelessDesktop,
-            final boolean vendorHardware) {
+            final boolean externalInputBridge,
+            final boolean vendorHardware,
+            final boolean internalAudioCapture) {
         this.wiredDesktop = wiredDesktop;
         this.wirelessDesktop = wirelessDesktop;
+        this.externalInputBridge = externalInputBridge;
         this.vendorHardware = vendorHardware;
+        this.internalAudioCapture = internalAudioCapture;
     }
 
     boolean supportsDisplay(final DesktopDisplayTarget.Kind kind) {

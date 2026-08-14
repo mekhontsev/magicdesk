@@ -218,7 +218,7 @@
     <string name="status_console_starting">Starting external desktop&#8230;</string>
     <string name="status_external_display_checking">Checking external display&#8230;</string>
     <string name="status_external_display_unavailable">No external display detected</string>
-    <string name="status_wireless_display_connecting">Choose a wireless display in SmartCast&#8230;</string>
+    <string name="status_wireless_display_connecting">Choose a wireless display in system settings&#8230;</string>
     <string name="status_wireless_desktop_starting">Starting wireless desktop&#8230;</string>
     <string name="status_desktop_opening">Opening desktop here&#8230;</string>
     <string name="status_desktop_closing">Closing desktop&#8230;</string>
@@ -329,6 +329,7 @@
     <string name="recording_scale_value">%1$d%%</string>
     <string name="recording_output_size">%1$d x %2$d</string>
     <string name="recording_display_unavailable">Desktop display unavailable</string>
+    <string name="recording_platform_unavailable">Internal-audio recording is unavailable on this device</string>
     <string name="recording_bitrate">Video bitrate</string>
     <string name="recording_bitrate_value">%1$d Mbps</string>
     <string name="action_bitrate_decrease">Decrease recording bitrate</string>
@@ -424,7 +425,7 @@
     <string name="diagnostics_self_test_external">External display</string>
     <string name="diagnostics_self_test_phone">Phone display</string>
     <string name="diagnostics_self_test_preparing">Preparing the selected desktop&#8230;</string>
-    <string name="diagnostics_self_test_connect_wireless">Connect a wireless display in SmartCast, then run the self-test again.</string>
+    <string name="diagnostics_self_test_connect_wireless">Connect a wireless display in system settings, then run the self-test again.</string>
     <string name="diagnostics_self_test_prepare_failed">The selected desktop could not be prepared.</string>
     <string name="diagnostics_self_test_running">Running desktop and API self-test&#8230;</string>
     <string name="diagnostics_self_test_complete">Self-test complete: %1$s</string>

@@ -24,19 +24,7 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        final android.content.Context context =
-                MagicDeskApplication.applicationContext();
-        final DesktopDisplayTarget preparedTarget =
-                DisplayProfileController.prepareTarget(
-                        context, target(displayId));
-        final DisplayProfileStore.Profile profile =
-                DisplayProfileController.loadPreparedProfile(
-                        context, preparedTarget);
-        if (profile != null) {
-            ConsoleDisplayController.applyStartupDensity(
-                    displayId, profile.dpi);
-        }
-        DesktopDisplayDriverSupport.showPrepared(preparedTarget);
+        DesktopDisplayDriverSupport.showConnectedExternal(this, displayId);
     }
 
     @Override
@@ -45,6 +33,13 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
             final boolean restorePhonePanel,
             final CompletionCallback callback) {
         requireTarget(target);
+        if (!PlatformDrivers.current().projection()
+                .ownsTransportLifecycle(
+                        PlatformProjectionDriver.Transport.WIRELESS)) {
+            DesktopDisplayDriverSupport.closeDirectExternal(
+                    target, restorePhonePanel, callback);
+            return;
+        }
         ConsoleModeSwitcher.disconnectWirelessDisplay(success -> {
             if (success && restorePhonePanel) {
                 MagicDeskRuntimeService

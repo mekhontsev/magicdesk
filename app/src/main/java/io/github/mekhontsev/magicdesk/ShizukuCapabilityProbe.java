@@ -106,9 +106,11 @@ final class ShizukuCapabilityProbe {
                 report, "capture.screenrecord", new File("/system/bin/screenrecord"));
         append(report,
                 "capture.internal_audio_backend",
-                "nubia".equals(PlatformDrivers.current().id())
-                        ? "configured" : "unverified",
-                InternalAudioRecorder.capabilityDescription());
+                PlatformDrivers.current().features().internalAudioCapture
+                        ? "configured" : "unsupported",
+                PlatformDrivers.current().features().internalAudioCapture
+                        ? InternalAudioRecorder.capabilityDescription()
+                        : "not provided by the selected platform");
     }
 
     private static void appendExecutable(

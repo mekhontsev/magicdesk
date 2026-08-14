@@ -493,7 +493,7 @@ public final class MagicDeskRuntimeService extends Service {
         if (keyboardChanged) {
             updateNotification();
         }
-        if (ownsExternalDesktop()) {
+        if (requiresExternalInputBridge()) {
             if (mHasHardwareKeyboard
                     && !KeyboardShortcutWatcher.isFullShortcutMode()) {
                 restartKeyboardWatcher();
@@ -747,7 +747,7 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void updateKeyboardWatcher() {
-        final int routingDisplayId = ownsExternalDesktop()
+        final int routingDisplayId = requiresExternalInputBridge()
                 ? mOwnedDesktopDisplayId
                 : android.view.Display.INVALID_DISPLAY;
         final boolean shouldRun = ShellAccess.isReady()
@@ -798,12 +798,12 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private boolean shouldRunDesktopMouseBridge() {
-        return ownsExternalDesktop()
+        return requiresExternalInputBridge()
                 && ShellAccess.isReady();
     }
 
     private void refreshDesktopInputSources() {
-        if (!ownsExternalDesktop() || !ShellAccess.isReady()) {
+        if (!requiresExternalInputBridge() || !ShellAccess.isReady()) {
             return;
         }
         final int generation = ++mInputSourceRefreshGeneration;
@@ -816,7 +816,7 @@ public final class MagicDeskRuntimeService extends Service {
                 final List<DesktopMouseDevice> mice =
                         DesktopInputDeviceDiscovery.findMice(inputDump);
                 mHandler.post(() -> {
-                    if (mDestroyed || !ownsExternalDesktop()
+                    if (mDestroyed || !requiresExternalInputBridge()
                             || generation != mInputSourceRefreshGeneration) {
                         return;
                     }
@@ -918,6 +918,11 @@ public final class MagicDeskRuntimeService extends Service {
                 > android.view.Display.DEFAULT_DISPLAY;
     }
 
+    private boolean requiresExternalInputBridge() {
+        return ownsExternalDesktop()
+                && PlatformDrivers.current().features().externalInputBridge;
+    }
+
     private void updateShowImeOverride() {
         final boolean shouldBeActive = ownsExternalDesktop()
                 && ShellAccess.isReady();
@@ -977,7 +982,9 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void updateExternalImePolicy() {
-        if (!ownsExternalDesktop()) {
+        if (!ownsExternalDesktop()
+                || !PlatformDrivers.current().phoneUi()
+                        .usesMirrorInputPanel()) {
             mPhoneImePolicyDisplayId =
                     android.view.Display.INVALID_DISPLAY;
             return;

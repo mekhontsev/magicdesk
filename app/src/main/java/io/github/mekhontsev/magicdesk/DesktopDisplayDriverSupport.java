@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.util.Log;
 
 import java.io.IOException;
@@ -15,6 +16,22 @@ final class DesktopDisplayDriverSupport {
             final DesktopDisplayDriver driver,
             final int displayId) {
         showPrepared(driver.target(displayId));
+    }
+
+    static void showConnectedExternal(
+            final DesktopDisplayDriver driver,
+            final int displayId) {
+        final Context context = MagicDeskApplication.applicationContext();
+        final DesktopDisplayTarget target =
+                DisplayProfileController.prepareTarget(
+                        context, driver.target(displayId));
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileController.loadPreparedProfile(context, target);
+        if (profile != null) {
+            ConsoleDisplayController.applyStartupDensity(
+                    displayId, profile.dpi);
+        }
+        showPrepared(target);
     }
 
     static void showPrepared(final DesktopDisplayTarget target) {
@@ -44,6 +61,33 @@ final class DesktopDisplayDriverSupport {
             final boolean success) {
         if (callback != null) {
             callback.onComplete(success);
+        }
+    }
+
+    static void closeDirectExternal(
+            final DesktopDisplayTarget target,
+            final boolean restorePhonePanel,
+            final DesktopDisplayDriver.CompletionCallback callback) {
+        final ConsoleModeSwitcher.ResultCallback finish = success -> {
+            if (!success) {
+                CompatibilityDiagnostics.record(
+                        "DISPLAY-TASKS-001",
+                        "Some desktop tasks could not be returned to the phone",
+                        "display=" + target.displayId
+                                + " kind=" + target.kind);
+            }
+            DesktopRuntimeBridge.closeDesktopSession(target.displayId);
+            if (restorePhonePanel) {
+                PhoneControlPanelLauncher.openOnPhoneWithShell();
+            }
+            // Transport-independent close must finish even if task recovery
+            // was only partially supported by the current firmware.
+            complete(callback, true);
+        };
+        if (restorePhonePanel) {
+            ConsoleModeSwitcher.returnConsoleTasksToPhone(target, finish);
+        } else {
+            finish.onComplete(true);
         }
     }
 }

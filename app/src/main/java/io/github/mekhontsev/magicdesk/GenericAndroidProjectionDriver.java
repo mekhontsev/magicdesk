@@ -2,22 +2,39 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.provider.Settings;
 
 import java.io.IOException;
 
-/** No-op projection implementation for the local Generic Android profile. */
+/** Standard Android projection entry points without transport ownership. */
 final class GenericAndroidProjectionDriver
         implements PlatformProjectionDriver {
     private static final String[] NO_SETTINGS = new String[0];
 
     @Override
     public boolean isWirelessDisplayAvailable(final Context context) {
-        return false;
+        if (context == null) {
+            return false;
+        }
+        final PackageManager packageManager = context.getPackageManager();
+        return packageManager != null
+                && new Intent(Settings.ACTION_CAST_SETTINGS)
+                        .resolveActivity(packageManager) != null;
     }
 
     @Override
     public boolean openWirelessDisplayPicker(final Activity activity) {
-        return false;
+        if (!isWirelessDisplayAvailable(activity)) {
+            return false;
+        }
+        try {
+            activity.startActivity(new Intent(Settings.ACTION_CAST_SETTINGS));
+            return true;
+        } catch (RuntimeException error) {
+            return false;
+        }
     }
 
     @Override
@@ -73,16 +90,25 @@ final class GenericAndroidProjectionDriver
             final Context context,
             final int physicalDisplayId,
             final DisplayProfileStore.Profile profile) throws IOException {
-        throw new IOException("external projection is unsupported");
+        throw new IOException("managed external projection is unavailable");
     }
 
     @Override
     public boolean setCaptionTransport(final Transport transport) {
-        return transport == Transport.NONE;
+        if (transport == null) {
+            throw new IllegalArgumentException("transport is required");
+        }
+        // Standard Android captions do not require transport-specific setup.
+        return true;
     }
 
     @Override
-    public boolean isAvailable() {
+    public boolean supportsOutputConfiguration() {
+        return false;
+    }
+
+    @Override
+    public boolean ownsTransportLifecycle(final Transport transport) {
         return false;
     }
 }

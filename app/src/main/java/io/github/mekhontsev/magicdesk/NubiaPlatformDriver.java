@@ -20,7 +20,7 @@ final class NubiaPlatformDriver implements PlatformDriver {
                     + "BQ2A.250705.001-BP2A.250605.031.A3/"
                     + "20251229.234747:user/release-keys";
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            true, true, true);
+            true, true, true, true, true);
     private static final PlatformWindowingDriver WINDOWING =
             new NubiaWindowingDriver();
     private static final PlatformPointerDriver POINTER =

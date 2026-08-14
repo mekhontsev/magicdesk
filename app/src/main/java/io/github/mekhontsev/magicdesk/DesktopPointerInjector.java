@@ -434,9 +434,11 @@ final class DesktopPointerInjector {
     }
 
     private static int pointerDeviceId(final int displayId) {
-        // Display 0 uses Android's normal synthetic input path. External
-        // displays need MagicDesk's uinput mouse for Nubia cursor semantics.
-        if (displayId != Display.DEFAULT_DISPLAY) {
+        // Nubia's external cursor path needs MagicDesk's uinput mouse. The
+        // standard platform can inject a display-targeted synthetic mouse.
+        if (displayId != Display.DEFAULT_DISPLAY
+                && PlatformDrivers.current().features()
+                        .externalInputBridge) {
             return magicDeskMouseDeviceId();
         }
         return inputDeviceId(InputDevice.SOURCE_MOUSE);

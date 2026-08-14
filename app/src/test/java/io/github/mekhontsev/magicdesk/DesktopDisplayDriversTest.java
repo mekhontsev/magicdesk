@@ -111,6 +111,10 @@ public final class DesktopDisplayDriversTest {
                 8,
                 driver(DesktopDisplayTarget.wireless(8)).captureDisplayId(
                         DesktopDisplayTarget.wireless(8)));
+        final DesktopDisplayTarget directWired =
+                DesktopDisplayTarget.wired(9)
+                        .withProfile(9, "display:wired:local:22");
+        assertEquals(9, driver(directWired).captureDisplayId(directWired));
     }
 
     private static DesktopDisplayFeatures features(

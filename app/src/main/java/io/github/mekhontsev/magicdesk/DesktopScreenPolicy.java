@@ -40,8 +40,10 @@ final class DesktopScreenPolicy {
     static boolean canControlPhoneScreen(
             final boolean externalDesktopSession,
             final DesktopDisplayTarget target,
-            final boolean shellReady) {
+            final boolean shellReady,
+            final boolean platformControlAvailable) {
         return shellReady
+                && platformControlAvailable
                 && externalDesktopSession
                 && target != null
                 && DesktopDisplayDrivers.forTarget(target)

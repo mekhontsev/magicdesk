@@ -44,16 +44,18 @@ public final class DesktopScreenPolicyTest {
         assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, 8, false));
 
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
-                false, DesktopDisplayTarget.wireless(7), true));
+                false, DesktopDisplayTarget.wireless(7), true, true));
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
-                true, DesktopDisplayTarget.wireless(7), false));
+                true, DesktopDisplayTarget.wireless(7), false, true));
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
-                true, DesktopDisplayTarget.simulated(7), true));
+                true, DesktopDisplayTarget.wireless(7), true, false));
+        assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
+                true, DesktopDisplayTarget.simulated(7), true, true));
         assertTrue(DesktopScreenPolicy.canControlPhoneScreen(
-                true, DesktopDisplayTarget.wireless(7), true));
+                true, DesktopDisplayTarget.wireless(7), true, true));
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
-                true, DesktopDisplayTarget.phone(), true));
+                true, DesktopDisplayTarget.phone(), true, true));
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
-                true, null, true));
+                true, null, true, true));
     }
 }

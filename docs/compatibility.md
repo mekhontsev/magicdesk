@@ -1,10 +1,9 @@
 # Compatibility and issue reports
 
-MagicDesk primarily targets ZTE-family firmware on Android 15 and newer. A
-platform-driver boundary now separates standard Android desktop behavior from
-ZTE/nubia integration. The conservative Generic Android driver permits only
-phone and simulated desktops; wired and wireless desktop backends remain
-disabled until they are verified on another platform.
+MagicDesk targets capable Android 15+ firmware through one APK and one common
+desktop runtime. The standard Android driver supports phone, simulated, and
+already connected secondary-display sessions. A platform-driver boundary
+separates that baseline from optional ZTE/nubia integration.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, phone UI recovery, absolute-pointer access, optional
@@ -13,9 +12,11 @@ therefore appear as unavailable capabilities in Diagnostics instead of sending
 the common runtime through an unrelated Nubia code path.
 
 The platform baseline is not a guarantee that every hook exists on every
-model. Console Mode activation, absolute touchpad positioning,
-external-display input routing, WMShell desktop commands, and several task
-transitions can depend on undocumented firmware behavior.
+model. The firmware must expose working freeform task support and, for an
+external session, a secondary display that accepts application tasks. Managed
+projection, absolute touchpad positioning, external-display input routing,
+WMShell desktop commands, and several task transitions can still depend on
+firmware behavior.
 
 ## Support levels
 
@@ -28,8 +29,9 @@ transitions can depend on undocumented firmware behavior.
   matrix.
 - **Compatible baseline, unverified** means an Android 15+ platform driver can
   provide the selected session type. MagicDesk allows startup, probes
-  capabilities, and reports unavailable features individually. On Generic
-  Android this currently covers only phone and simulated sessions.
+  capabilities, and reports unavailable features individually. On the
+  standard Android profile, external sessions use a secondary display that is
+  already connected and reported by Android.
 - **Unsupported platform** means the Android-version baseline or selected
   session requirements are not met. Device Setup does not apply unsupported
   platform-specific properties.
@@ -99,14 +101,11 @@ The report includes:
   desktop-windowing values;
 - for active Shizuku shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
-  raw-input read/write access, `/dev/uinput` open access, task APIs, and
-  RedMagic hardware-node access;
-- non-destructive presence checks for the RedMagic mirror-panel and mirrored
-  text-input signatures, plus the last runtime text-input result when tested;
-- read-only checks for the vendor HDMI-mode node and the current static system
-  wallpaper image;
-- overlay, notification-listener, WMShell desktopmode, ZTE launcher, and Nubia
-  input-package probes;
+  raw-input read/write access, `/dev/uinput` open access, and task APIs;
+- on a selected vendor platform, additional non-destructive checks for its
+  projection, input, hardware, launcher, and output-mode integrations;
+- a read-only check for the current static system wallpaper image;
+- overlay, notification-listener, and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
 - bounded structured MagicDesk error events;
 - recent logcat entries from MagicDesk tags only.
@@ -147,12 +146,13 @@ recovery is reported as `[NOTIFICATIONS-005]`.
 
 Use one issue per reproducible failure. Do not combine an input-routing problem
 with an unrelated window-decoration or XR-resolution problem. Include whether
-the same operation works in the stock ZTE/Nubia desktop or projection UI; that
+the same operation works in the device's stock desktop or projection UI; that
 distinguishes a MagicDesk integration failure from a firmware limitation.
 
 For a display issue, include the monitor/glasses model, selected **Output
-mode**, **Fill display** state, and whether the same timing works in Nubia's
-projection settings. For an input issue, include the keyboard or
+mode**, **Fill display** state when those controls are available, and whether
+the same timing works in system projection settings. For an input issue,
+include the keyboard or
 pointing-device model. For a window issue, include the affected Android package
 and whether the task was windowed, maximized, snapped, or true fullscreen.
 

@@ -16,8 +16,14 @@ public final class PlatformDriversTest {
         assertEquals("nubia", driver.id());
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
+        assertTrue(driver.features().externalInputBridge);
+        assertTrue(driver.features().internalAudioCapture);
         assertTrue(driver.pointer().isAvailable());
-        assertTrue(driver.projection().isAvailable());
+        assertTrue(driver.projection().supportsOutputConfiguration());
+        assertTrue(driver.projection().ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRED));
+        assertTrue(driver.projection().ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRELESS));
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.windowing()
                 .requiresMirrorInputFocusSynchronization());
@@ -33,7 +39,7 @@ public final class PlatformDriversTest {
     }
 
     @Test
-    public void genericDriverKeepsUnverifiedExternalBackendsDisabled() {
+    public void genericDriverUsesDirectAndroidExternalDisplays() {
         final PlatformDriver driver = PlatformDrivers.resolve(device(
                 "Google", "google", "Pixel", "pixel", "pixel"));
 
@@ -42,12 +48,22 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.PHONE));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.SIMULATED));
-        assertFalse(driver.features().supportsDisplay(
+        assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRED));
-        assertFalse(driver.features().supportsDisplay(
+        assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
+        assertFalse(driver.features().externalInputBridge);
+        assertFalse(driver.features().internalAudioCapture);
         assertFalse(driver.pointer().isAvailable());
-        assertFalse(driver.projection().isAvailable());
+        assertFalse(driver.projection().supportsOutputConfiguration());
+        assertFalse(driver.projection().ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRED));
+        assertFalse(driver.projection().ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRELESS));
+        assertTrue(driver.projection().setCaptionTransport(
+                PlatformProjectionDriver.Transport.WIRED));
+        assertTrue(driver.projection().setCaptionTransport(
+                PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
         assertFalse(driver.windowing()
                 .requiresMirrorInputFocusSynchronization());
@@ -56,6 +72,17 @@ public final class PlatformDriversTest {
         assertTrue(driver.additionalLaunchTargets().isEmpty());
         assertNull(driver.windowing().restrictionsPropertyKey());
         assertNull(driver.windowing().roundedCornersPropertyKey());
+    }
+
+    @Test
+    public void debugOverrideSelectsStandardAndroidOnNubiaDevice() {
+        final PlatformDevice device = device(
+                "nubia", "nubia", "NX809J", "NX809J", "NX809J");
+
+        assertEquals("nubia", PlatformDrivers.resolve(device).id());
+        assertEquals(
+                "android",
+                PlatformDrivers.resolve(device, "android").id());
     }
 
     @Test

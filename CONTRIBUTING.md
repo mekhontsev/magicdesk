@@ -51,6 +51,16 @@ Run the complete local verification before submitting a change:
 
 Debug and pull-request builds do not require release-signing credentials.
 
+To test the Standard Android platform driver on ZTE/nubia hardware, build:
+
+```sh
+./gradlew :app:assembleDebug -PMAGICDESK_PLATFORM_OVERRIDE=android
+```
+
+This debug-only override changes platform-driver selection without introducing
+a product flavor or a separate device build. Compatibility Diagnostics records
+the active override. Release builds always use automatic platform selection.
+
 ## Repository Hygiene
 
 Do not commit IDE metadata, `local.properties`, generated build output,

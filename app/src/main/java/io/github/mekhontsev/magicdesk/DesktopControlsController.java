@@ -31,6 +31,7 @@ final class DesktopControlsController {
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final DesktopAudioPanelController mAudio;
+    private final boolean mVendorHardware;
     private final RedmagicHardwarePanelController mHardware;
     private final PointerSpeedPanelController mPointerSpeed;
     private final DisplayCapturePanelController mCapture;
@@ -55,18 +56,22 @@ final class DesktopControlsController {
         mActivity = activity;
         mUi = ui;
         mAudio = new DesktopAudioPanelController(activity, ui);
-        mHardware = new RedmagicHardwarePanelController(activity, ui);
+        mVendorHardware = PlatformDrivers.current().features().vendorHardware;
+        mHardware = mVendorHardware
+                ? new RedmagicHardwarePanelController(activity, ui) : null;
         mPointerSpeed = new PointerSpeedPanelController(activity, ui);
         mCapture = new DisplayCapturePanelController(activity, ui);
-        mChargeSeparation = new ChargeSeparationController(
-                activity, this::updateChargeSeparation);
+        mChargeSeparation = mVendorHardware
+                ? new ChargeSeparationController(
+                        activity, this::updateChargeSeparation)
+                : null;
     }
 
     void start() {
         registerBatteryReceiver();
         registerSettingsObserver();
         mAudio.start();
-        if (PlatformDrivers.current().features().vendorHardware) {
+        if (mVendorHardware) {
             mChargeSeparation.start();
             mHardware.start();
         }
@@ -94,7 +99,7 @@ final class DesktopControlsController {
             mBatteryReceiver = null;
         }
         mAudio.stop();
-        if (PlatformDrivers.current().features().vendorHardware) {
+        if (mVendorHardware) {
             mChargeSeparation.stop();
             mHardware.stop();
         }
@@ -110,7 +115,7 @@ final class DesktopControlsController {
     }
 
     void setHardwarePanelVisible(final boolean visible) {
-        if (PlatformDrivers.current().features().vendorHardware) {
+        if (mVendorHardware) {
             mHardware.setMonitoringActive(visible);
         }
     }
@@ -227,7 +232,7 @@ final class DesktopControlsController {
                         LinearLayout.LayoutParams.WRAP_CONTENT));
         addDpiControls(parent);
 
-        if (PlatformDrivers.current().features().vendorHardware) {
+        if (mVendorHardware) {
             final TextView powerTitle = mUi.sectionTitle(
                     R.string.hardware_power_section);
             final LinearLayout.LayoutParams powerTitleParams =
@@ -272,7 +277,7 @@ final class DesktopControlsController {
 
         mPointerSpeed.populate(parent, spacing);
         mAudio.populate(parent, spacing);
-        if (PlatformDrivers.current().features().vendorHardware) {
+        if (mVendorHardware) {
             mHardware.populate(parent, spacing);
         }
     }
@@ -306,7 +311,8 @@ final class DesktopControlsController {
                 DesktopScreenPolicy.canControlPhoneScreen(
                         externalDesktopSession,
                         target,
-                        ShellAccess.isReady());
+                        ShellAccess.isReady(),
+                        PlatformDrivers.current().phoneUi().isAvailable());
         final int actionResId = phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off;
@@ -360,7 +366,8 @@ final class DesktopControlsController {
         if (!DesktopScreenPolicy.canControlPhoneScreen(
                 externalDesktopSession,
                 DesktopRuntimeBridge.getDesktopTarget(displayId),
-                ShellAccess.isReady())) {
+                ShellAccess.isReady(),
+                PlatformDrivers.current().phoneUi().isAvailable())) {
             return;
         }
         final boolean screenOff = !isPhoneScreenOff();

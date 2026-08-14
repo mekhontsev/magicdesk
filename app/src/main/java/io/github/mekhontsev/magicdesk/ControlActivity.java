@@ -490,7 +490,9 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady()
                         && DesktopDisplayDrivers.isExternalDesktopSupported(),
                 mPhoneUi.isPhoneScreenOff(this),
-                ShellAccess.isReady(),
+                ShellAccess.isReady() && mPhoneUi.isAvailable(),
+                PlatformDrivers.current().pointer().isAvailable(),
+                mProjection.supportsOutputConfiguration(),
                 mExternalDisplayProfile == null
                         || mExternalDisplayProfile.fillDisplay,
                 mExternalModeSelection,

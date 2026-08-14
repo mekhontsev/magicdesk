@@ -106,10 +106,9 @@ final class ConsoleModeSwitcher {
 
     static void showDesktop(final DesktopDisplayTarget target) {
         if (target == null
-                || target.displayId <= android.view.Display.DEFAULT_DISPLAY
-                || target.kind == DesktopDisplayTarget.Kind.WIRED) {
+                || target.displayId <= android.view.Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
-                    "a prepared non-wired display target is required");
+                    "a prepared external display target is required");
         }
         if (!DesktopDisplayDrivers.isSupported(target.kind)) {
             throw new IllegalStateException(
@@ -368,13 +367,17 @@ final class ConsoleModeSwitcher {
         });
     }
 
-    static void returnConsoleTasksToPhone(final ResultCallback callback) {
+    static void returnConsoleTasksToPhone(
+            final DesktopDisplayTarget target,
+            final ResultCallback callback) {
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
                 boolean success = false;
                 try {
-                    final int displayId = getActiveConsoleDisplayId();
+                    final int displayId = target != null
+                            && target.displayId > 0
+                            ? target.displayId : getActiveConsoleDisplayId();
                     if (displayId <= 0) {
                         success = true;
                         return;

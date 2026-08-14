@@ -71,6 +71,11 @@ stable, avoiding application configuration changes. A source is grabbed only
 after it reaches a neutral key/button state, so a wake sequence cannot be
 divided between Android and the virtual device.
 
+The standard Android platform does not start these routing helpers or grab
+physical input devices. It leaves already-correct system input routing intact;
+the full routing bridge is a platform capability, not a requirement of the
+common desktop.
+
 Layout selection follows Android's enabled IME subtype order. MagicDesk never
 selects an IME or hardcodes a language. An IME that keeps languages internally
 but exposes only one Android subtype cannot support system-wide physical
@@ -100,31 +105,39 @@ ownership. This is a fail-open guard, not a persistent screen policy.
 - **Primary** selects Android display 0. It supports tablets and development
   without an external monitor.
 - **Current** keeps the desktop on the display where setup was opened.
-- **External** selects the active RedMagic desktop display and falls back to
+- **External** selects the active external desktop display and falls back to
   Current when none exists.
-- **Auto** prefers an active RedMagic desktop display, otherwise Current. In
-  Mirror Mode it ignores the physical presentation display because RedMagic
-  continues routing the pointer to the phone.
+- **Auto** prefers an active external desktop display, otherwise Current. A
+  platform driver may exclude a physical mirror-only display when the firmware
+  still routes its pointer to the phone.
 
 Display IDs are resolved at each transition and are never persisted as device
-constants. Primary/Current operation does not activate RedMagic external
-desktop mode, launch Touch Panel, or apply an external monitor profile.
+constants. Primary/Current operation does not activate a managed external
+desktop transport, launch a vendor input panel, or apply an external monitor
+profile.
 
 ## Device Setup
 
-Device Setup audits and configures four desktop-windowing values:
+Device Setup always audits and configures the two standard Android
+desktop-windowing values:
 
 ```sh
 settings put global enable_freeform_support 1
 settings put global force_resizable_activities 1
+```
+
+The Nubia platform extension additionally manages two firmware properties:
+
+```sh
 setprop persist.wm.debug.desktop_mode_enforce_device_restrictions false
 setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
 
-The connected Shizuku UserService writes the two global settings. The ordinary
-MagicDesk process uses a verified RedMagic property service for the two
-persistent properties. Its production wrapper accepts only those two keys and
-boolean/absent values, and verifies each write with `getprop`.
+The connected Shizuku UserService writes the global settings. On supported
+firmware, the ordinary MagicDesk process uses a verified RedMagic property
+service for the two persistent properties. Its production wrapper accepts only
+those two keys and boolean/absent values, and verifies each write with
+`getprop`.
 
 WMShell and ActivityTaskManager cache these values. Device Setup records the
 current boot ID and requires a real reboot after a change. **Restore defaults**

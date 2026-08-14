@@ -4,7 +4,7 @@ import android.app.Activity;
 
 import java.io.IOException;
 
-/** Hosts MagicDesk through RedMagic's wired Console Mode transport. */
+/** Hosts MagicDesk on a wired display, with optional platform mode switching. */
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(false, true, true, true);
@@ -27,8 +27,8 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     @Override
     public int captureDisplayId(final DesktopDisplayTarget target) {
         requireTarget(target);
-        if (!target.hasProfile()) {
-            throw new IllegalStateException("wired capture output is unavailable");
+        if (!isBackedBySeparateOutput(target)) {
+            return target.displayId;
         }
         // Nubia hosts tasks on a virtual display backed by this physical output.
         return target.profileDisplayId;
@@ -37,6 +37,10 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     @Override
     public DisplayCaptureSource captureSource(
             final DesktopDisplayTarget target) {
+        if (!isBackedBySeparateOutput(target)) {
+            requireTarget(target);
+            return DisplayCaptureSource.logical(target.displayId);
+        }
         final int logicalDisplayId = captureDisplayId(target);
         try {
             return DisplayCaptureSource.physical(
@@ -51,7 +55,21 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        ConsoleSessionController.show(displayId);
+        if (ownsTransportLifecycle()) {
+            ConsoleSessionController.show(displayId);
+            return;
+        }
+        final int connectedDisplayId = displayId > 0
+                ? displayId : ConsoleDisplayController.findExternalDisplayId();
+        if (connectedDisplayId <= 0) {
+            CompatibilityDiagnostics.record(
+                    "DISPLAY-EXTERNAL-001",
+                    "Could not open MagicDesk on the wired display",
+                    "no connected wired display was reported");
+            return;
+        }
+        DesktopDisplayDriverSupport.showConnectedExternal(
+                this, connectedDisplayId);
     }
 
     @Override
@@ -60,7 +78,10 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final boolean restorePhonePanel,
             final CompletionCallback callback) {
         requireTarget(target);
-        if (restorePhonePanel) {
+        if (!ownsTransportLifecycle()) {
+            DesktopDisplayDriverSupport.closeDirectExternal(
+                    target, restorePhonePanel, callback);
+        } else if (restorePhonePanel) {
             ConsoleModeSwitcher.switchToMirrorWithControlPanel(
                     success -> DesktopDisplayDriverSupport.complete(
                             callback, success));
@@ -69,6 +90,19 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     success -> DesktopDisplayDriverSupport.complete(
                             callback, success));
         }
+    }
+
+    private static boolean ownsTransportLifecycle() {
+        return PlatformDrivers.current().projection()
+                .ownsTransportLifecycle(
+                        PlatformProjectionDriver.Transport.WIRED);
+    }
+
+    private static boolean isBackedBySeparateOutput(
+            final DesktopDisplayTarget target) {
+        return target != null
+                && target.hasProfile()
+                && target.profileDisplayId != target.displayId;
     }
 
     @Override

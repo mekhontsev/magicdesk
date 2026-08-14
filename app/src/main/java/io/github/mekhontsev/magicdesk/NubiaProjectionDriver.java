@@ -145,7 +145,12 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
-    public boolean isAvailable() {
+    public boolean supportsOutputConfiguration() {
         return true;
+    }
+
+    @Override
+    public boolean ownsTransportLifecycle(final Transport transport) {
+        return transport == Transport.WIRED || transport == Transport.WIRELESS;
     }
 }

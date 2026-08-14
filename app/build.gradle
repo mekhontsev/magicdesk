@@ -8,6 +8,14 @@ def baseVersionCode = providers.gradleProperty(
         'magicDeskVersionCode').get().toInteger()
 def versionSuffix = providers.gradleProperty(
         'MAGICDESK_VERSION_SUFFIX').orNull
+def requestedPlatformOverride = providers.gradleProperty(
+        'MAGICDESK_PLATFORM_OVERRIDE').orNull
+def debugPlatformOverride = requestedPlatformOverride == null
+        ? '' : requestedPlatformOverride.trim().toLowerCase(Locale.ROOT)
+if (!(debugPlatformOverride in ['', 'android'])) {
+    throw new GradleException(
+            'MAGICDESK_PLATFORM_OVERRIDE must be empty or android')
+}
 
 android {
     namespace = 'io.github.mekhontsev.magicdesk'
@@ -22,6 +30,14 @@ android {
         versionName = versionSuffix == null || versionSuffix.isBlank()
                 ? baseVersionName
                 : baseVersionName + '-' + versionSuffix
+        buildConfigField 'String', 'PLATFORM_OVERRIDE', '""'
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField 'String', 'PLATFORM_OVERRIDE',
+                    '"' + debugPlatformOverride + '"'
+        }
     }
 
     compileOptions {

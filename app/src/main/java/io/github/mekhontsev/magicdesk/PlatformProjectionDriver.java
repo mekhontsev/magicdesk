@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Firmware-specific projection lifecycle and external output controls. */
+/** Platform projection lifecycle and optional external output controls. */
 interface PlatformProjectionDriver {
     enum Transport {
         NONE,
@@ -80,7 +80,11 @@ interface PlatformProjectionDriver {
         void close();
     }
 
-    boolean isAvailable();
+    /** Whether MagicDesk can configure this platform's external output. */
+    boolean supportsOutputConfiguration();
+
+    /** Whether closing this desktop should also change the platform transport. */
+    boolean ownsTransportLifecycle(Transport transport);
 
     boolean isWirelessDisplayAvailable(Context context);
 
