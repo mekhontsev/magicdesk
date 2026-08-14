@@ -12,6 +12,7 @@ final class AltTabController {
     private boolean mCommitPending;
     private int mPendingOffset;
     private int mSelectedIndex = -1;
+    private int mStartingTaskId = -1;
     private List<TaskRepository.TaskEntry> mTasks =
             Collections.emptyList();
 
@@ -45,6 +46,10 @@ final class AltTabController {
         mPendingOffset = offset;
         mSelectedIndex = -1;
         mTasks = Collections.emptyList();
+        // Preserve app focus at key-down. A concurrent desktop-host refresh
+        // can make the asynchronous snapshot contain no active app task.
+        mStartingTaskId = findActiveTaskId(
+                mActivity.getTaskSnapshot());
         mActivity.captureInteractionStackForPanel();
         mActivity.hideAllPanels();
 
@@ -73,7 +78,7 @@ final class AltTabController {
                             new ArrayList<>();
                     for (final TaskRepository.TaskEntry task :
                             snapshot.tasks) {
-                        if (mActivity.isTaskbarTask(task)) {
+                        if (mActivity.isAltTabTask(task)) {
                             tasks.add(task);
                         }
                     }
@@ -88,6 +93,10 @@ final class AltTabController {
                             activeIndex = index;
                             break;
                         }
+                    }
+                    if (activeIndex < 0 && mStartingTaskId >= 0) {
+                        activeIndex = findTaskIndex(
+                                tasks, mStartingTaskId);
                     }
                     if (activeIndex < 0) {
                         activeIndex = mPendingOffset < 0 ? 0 : -1;
@@ -141,7 +150,32 @@ final class AltTabController {
         mCommitPending = false;
         mPendingOffset = 0;
         mSelectedIndex = -1;
+        mStartingTaskId = -1;
         mTasks = Collections.emptyList();
+    }
+
+    private int findActiveTaskId(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return -1;
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (task.active && mActivity.isAltTabTask(task)) {
+                return task.taskId;
+            }
+        }
+        return -1;
+    }
+
+    private static int findTaskIndex(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int taskId) {
+        for (int index = 0; index < tasks.size(); index++) {
+            if (tasks.get(index).taskId == taskId) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private void selectOffset(final int offset) {

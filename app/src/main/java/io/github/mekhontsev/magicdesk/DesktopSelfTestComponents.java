@@ -11,4 +11,12 @@ final class DesktopSelfTestComponents {
 
     private DesktopSelfTestComponents() {
     }
+
+    static boolean isFixtureTask(final TaskRepository.TaskEntry task) {
+        return task != null
+                && (DesktopSelfTestTasks.hasClass(
+                        task.componentName, FIXTURE_CLASS)
+                    || DesktopSelfTestTasks.hasClass(
+                            task.topActivityName, FIXTURE_CLASS));
+    }
 }

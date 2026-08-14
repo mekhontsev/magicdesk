@@ -655,7 +655,10 @@ final class DesktopTaskController {
 
     private static boolean isFocusableTask(final TaskRepository.TaskEntry task) {
         return task != null && task.taskId >= 0 && !task.home
-                && !MAGICDESK_PACKAGE.equals(task.packageName);
+                && (!MAGICDESK_PACKAGE.equals(task.packageName)
+                        || (DesktopSelfTestController.isRunning()
+                                && DesktopSelfTestComponents
+                                        .isFixtureTask(task)));
     }
 
     private static void completeFocusCallback(final TaskRepository.ActionCallback callback,

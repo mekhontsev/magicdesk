@@ -1099,6 +1099,12 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskSnapshots.isTaskbarTask(task);
     }
 
+    boolean isAltTabTask(final TaskRepository.TaskEntry task) {
+        return isTaskbarTask(task)
+                || (DesktopSelfTestController.isRunning()
+                        && DesktopSelfTestComponents.isFixtureTask(task));
+    }
+
     AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
         return mLauncherApps.findOrLoad(
                 apps, packageName, isUniversalFreeformEnabled());

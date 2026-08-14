@@ -366,6 +366,24 @@ final class DesktopSelfTestInputSuite {
                 secondTaskId,
                 secondToken,
                 geometry);
+        check(result,
+                "FOCUS-008",
+                "Switch text focus through Alt+Tab",
+                () -> focusFieldThroughAltTab(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        firstToken,
+                        "8"));
+        check(result,
+                "FOCUS-009",
+                "Switch text focus back through Alt+Tab",
+                () -> focusFieldThroughAltTab(
+                        context,
+                        displayId,
+                        secondTaskId,
+                        secondToken,
+                        "9"));
     }
 
     private static void runNativeCaptionPlacementFocusTests(
@@ -613,6 +631,30 @@ final class DesktopSelfTestInputSuite {
         waitForFrontTask(displayId, taskId);
         typeAndVerifyText(context, displayId, taskId, token, digit);
         return "task=" + taskId + ", token=" + token;
+    }
+
+    private static String focusFieldThroughAltTab(
+            final Context context,
+            final int displayId,
+            final int taskId,
+            final String token,
+            final String digit) throws IOException {
+        DesktopSelfTestFixtureState.clearText(context);
+        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+            throw new IOException("desktop Alt+Tab is unavailable");
+        }
+        if (!DesktopRuntimeBridge.finishAltTab()) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw new IOException("desktop Alt+Tab completion is unavailable");
+        }
+        try {
+            waitForFrontTask(displayId, taskId);
+            typeAndVerifyText(context, displayId, taskId, token, digit);
+            return "task=" + taskId + ", token=" + token;
+        } catch (IOException error) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw error;
+        }
     }
 
     private static void typeAndVerifyText(
