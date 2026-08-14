@@ -22,8 +22,9 @@ creating separate device builds or forks.
 > Android hardware. Its Shizuku integration and optional undocumented vendor
 > interfaces make independent source review especially important.
 
-> **Project status:** MagicDesk is under active development. The current
-> firmware verification is limited to the RedMagic 11 Pro profile listed below.
+> **Project status:** MagicDesk is under active development. Complete
+> maintainer hardware verification is currently limited to the RedMagic 11 Pro
+> profile listed below.
 
 ![MagicDesk running terminal and graphical applications in native desktop windows with the calendar panel open](docs/images/magicdesk-desktop.png)
 
@@ -81,7 +82,7 @@ Galaxy device and One UI version.
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
 | Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
 | Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
-| Setup and support | Open source; requires Shizuku, Device Setup, and one reboot; currently experimental and firmware-specific | Proprietary, built into supported Galaxy firmware, and product-supported by Samsung |
+| Setup and support | Open source; requires Shizuku, Device Setup, and one reboot; currently experimental, with capabilities selected by the active platform driver | Proprietary, built into supported Galaxy firmware, and product-supported by Samsung |
 
 Samsung documents its current [wired, wireless, and standalone DeX
 modes](https://www.samsung.com/us/support/answer/ANS10010217/), [keyboard and
@@ -178,6 +179,11 @@ MagicDesk requires:
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
+No ZTE, nubia, or RedMagic branding is required. Devices without a focused
+vendor integration use the Standard Android platform driver; the available
+session types still depend on the desktop and display capabilities exposed by
+their firmware.
+
 An external desktop requires either:
 
 - a wired display output exposed to Android as a secondary display; or
@@ -189,10 +195,10 @@ display, physical input routing, and native window behavior depend on the
 device firmware. **Open desktop here** runs the same desktop implementation on
 the device display without an external display.
 
-On the standard Android profile, MagicDesk opens an already connected
+On the Standard Android profile, MagicDesk opens an already connected
 secondary display directly and leaves connection, disconnection, mirror mode,
 and output timing to the system. Compatible RedMagic firmware additionally
-provides a **Connect wireless display** action backed by SmartCast, managed
+provides a **Wireless** action backed by SmartCast, managed
 Console transitions, output controls, phone-screen control, absolute pointer
 positioning, and hardware controls. Unsupported optional integrations remain
 disabled instead of blocking the desktop.
@@ -292,7 +298,7 @@ display size, density, and scaling to platform defaults.
    exposes output controls, optionally select an **Output mode** and enable
    **Fill display**, then select **Start external desktop** or press `Win+D`.
 4. For a wireless session, connect a Miracast receiver through the system UI
-   or, on a supported platform, select **Connect wireless display**. After the
+   or, on a supported platform, select **Wireless**. After the
    display appears in Phone Control Panel, select **Start external desktop**.
 5. Select **Close desktop** to close the MagicDesk session. A platform-managed
    transport also returns to mirroring or disconnects; a direct Android
@@ -311,8 +317,7 @@ from System, Tools, Phone Control Panel, or with `Win+I`.
 MagicDesk keeps a persistent notification while it is running. It is useful
 when no physical keyboard or mouse is connected:
 
-- Tap the notification itself to perform the same context-sensitive action as
-  `Win+D`: start the external desktop, show it, or restore the previous layout.
+- Tap the notification itself to open Phone Control Panel on the phone.
 - Tap **Open touchpad** to launch or reopen the MagicDesk phone-side touchpad
   for the active wired or wireless desktop.
 
