@@ -614,6 +614,17 @@ operation: it is offered only for a selected APK, requires a confirmation that
 shows the absolute path, and executes as the already-authorized UserService
 identity.
 
+Files windows are separate Android tasks with independent navigation and
+selection state. Their copy/cut buffer is shared only inside the MagicDesk
+process and is never persisted or published to Android's text clipboard. A
+completed move clears only the buffer generation from which it started, so a
+new selection copied in another window cannot be discarded by an older
+operation.
+
+The current-folder name filter operates only on the already loaded page set.
+It performs no recursive traversal, UserService request, polling, or idle work;
+`Ctrl+F` changes only the local Files presentation.
+
 Files opened or dragged into another application are exposed through the
 non-exported `ShellFileProvider` and a process-lifetime capability URI. A grant
 records the selected path and file identity; each open is performed again by
@@ -629,6 +640,15 @@ publishing an Android global drag session; private in-window drag gestures are
 not visible to MagicDesk. The built-in Console can be prefilled with the
 current directory. Optional Termux integration uses Termux's documented
 `RUN_COMMAND` intent and permission; it is not required by Files.
+Shell scripts can be handed to Console as a safely quoted initial command.
+Console still requires its normal explicit Run action and first-run warning;
+opening a script from Files never executes it automatically.
+
+Normal application launch continues to reuse an existing task. The explicit
+**New window** action instead requests `NEW_DOCUMENT | MULTIPLE_TASK` and then
+tracks the exact returned task ID. Files supports this contract directly;
+third-party activity launch modes remain authoritative and may reject the
+request.
 
 ## External Desktop Activation
 
@@ -1003,8 +1023,11 @@ Debug builds also expose this production path through
 `am instrument`; it is intentionally not run by host-only CI.
 
 Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk
-reads the current static system wallpaper. A user-selected image is validated
-and atomically copied to `/storage/emulated/0/Desktop/.magicdesk/wallpaper`;
+reads the current static system wallpaper. MagicDesk Files offers **Set as
+desktop wallpaper** only for local image files. The selected file is reopened
+through its verified device/inode identity, decoded far enough to validate the
+image, and atomically copied to
+`/storage/emulated/0/Desktop/.magicdesk/wallpaper`;
 selecting **Use system wallpaper** removes that override. An unavailable or
 undecodable image falls back to the last valid custom image, the system image,
 the last valid cached system image, or MagicDesk's built-in background and

@@ -118,12 +118,7 @@ final class DesktopTaskSnapshotController {
     }
 
     boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
-        return task != null
-                && !task.home
-                && task.packageName != null
-                && (!mActivity.getPackageName().equals(task.packageName)
-                        || FileManagerActivity.launchTarget(mActivity)
-                                .matchesTask(task));
+        return DesktopManagedTaskPolicy.isManagedApplicationTask(task);
     }
 
     void release() {

@@ -23,6 +23,7 @@
     <string name="action_pin">Pin to taskbar</string>
     <string name="action_unpin">Unpin from taskbar</string>
     <string name="action_close_window">Close window</string>
+    <string name="action_new_window">New window</string>
     <string name="action_force_stop">Force stop app</string>
     <string name="action_show_desktop">Show desktop</string>
     <string name="action_open_tasks">Open tasks</string>
@@ -54,6 +55,12 @@
     <string name="file_manager_sort_size">Size</string>
     <string name="file_manager_sort_ascending">Sort ascending</string>
     <string name="file_manager_sort_descending">Sort descending</string>
+    <string name="file_manager_filter">Filter this folder</string>
+    <string name="file_manager_filter_hint">Filter by name</string>
+    <string name="file_manager_filter_clear">Clear filter</string>
+    <string name="file_manager_new_window">New Files window</string>
+    <string name="file_manager_opening_new_window">Opening new Files window&#8230;</string>
+    <string name="file_manager_new_window_failed">Cannot open another Files window: %1$s</string>
     <string name="file_manager_view_list">List</string>
     <string name="file_manager_view_details">Details</string>
     <string name="file_manager_copy">Copy</string>
@@ -69,12 +76,16 @@
     <string name="file_manager_installing">Installing APK&#8230;</string>
     <string name="file_manager_install_complete">Installed %1$s</string>
     <string name="file_manager_install_failed">APK installation failed: %1$s</string>
+    <string name="file_manager_run_script">Run in Console</string>
+    <string name="file_manager_set_wallpaper">Set as desktop wallpaper</string>
+    <string name="file_manager_setting_wallpaper">Setting desktop wallpaper&#8230;</string>
     <string name="file_manager_terminal">Terminal here</string>
     <string name="file_manager_console">Console here</string>
     <string name="file_manager_empty">This folder is empty</string>
     <string name="file_manager_loading">Loading&#8230;</string>
     <string name="file_manager_selected">%1$d selected</string>
     <string name="file_manager_items">%1$d items</string>
+    <string name="file_manager_filtered">%1$d of %2$d items</string>
     <string name="file_manager_access_unavailable">Shizuku filesystem is unavailable: %1$s</string>
     <string name="file_manager_load_failed">Cannot open folder: %1$s</string>
     <string name="file_manager_open_failed">Cannot open file: %1$s</string>
@@ -105,7 +116,7 @@
     <string name="file_manager_termux_failed">Termux could not open this folder. Enable allow-external-apps in Termux settings.</string>
     <string name="file_manager_drag_label">MagicDesk files</string>
     <string name="action_add_widget">Add widget</string>
-    <string name="action_choose_wallpaper">Choose wallpaper&#8230;</string>
+    <string name="action_choose_wallpaper">Choose wallpaper in Files&#8230;</string>
     <string name="action_use_system_wallpaper">Use system wallpaper</string>
     <string name="status_no_widgets">No compatible widgets found</string>
     <string name="widget_recommended_size">Recommended size: %1$d × %2$d</string>

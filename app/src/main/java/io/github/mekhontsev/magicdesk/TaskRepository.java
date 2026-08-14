@@ -182,8 +182,9 @@ public final class TaskRepository {
     }
 
     static void closeTask(final TaskEntry task, final ActionCallback callback) {
-        if (!isUsableTask(task) || task.home
-                || "io.github.mekhontsev.magicdesk".equals(task.packageName)) {
+        if (!isUsableTask(task)
+                || !DesktopManagedTaskPolicy
+                        .isManagedApplicationTask(task)) {
             complete(callback, false, "invalid task");
             return;
         }
@@ -413,8 +414,9 @@ public final class TaskRepository {
     }
 
     private static boolean isRestorableTask(final TaskEntry task) {
-        return isUsableTask(task) && !task.home
-                && !"io.github.mekhontsev.magicdesk".equals(task.packageName);
+        return isUsableTask(task)
+                && DesktopManagedTaskPolicy
+                        .isManagedApplicationTask(task);
     }
 
     private static TaskEntry findMatchingTask(final List<TaskEntry> currentTasks,

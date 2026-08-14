@@ -322,8 +322,9 @@ final class DesktopTaskController {
             if (isDesktopHostTask(task)) {
                 break;
             }
-            if (task.visible && task.isFreeform() && !task.home
-                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+            if (task.visible && task.isFreeform()
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)) {
                 visibleTasks.add(task);
             }
         }
@@ -600,8 +601,8 @@ final class DesktopTaskController {
                     && task.taskId != minimizedTaskId
                     && task.visible
                     && task.isFreeform()
-                    && !task.home
-                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)) {
                 return task;
             }
         }
@@ -614,8 +615,9 @@ final class DesktopTaskController {
             return null;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.visible && task.active && !task.home
-                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+            if (task != null && task.visible && task.active
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)) {
                 return task;
             }
         }
@@ -629,7 +631,8 @@ final class DesktopTaskController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null && task.visible && task.active && task.isFreeform()
-                    && !task.home && !MAGICDESK_PACKAGE.equals(task.packageName)
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)
                     && !task.bounds.isEmpty()) {
                 return task;
             }
@@ -654,8 +657,8 @@ final class DesktopTaskController {
     }
 
     private static boolean isFocusableTask(final TaskRepository.TaskEntry task) {
-        return task != null && task.taskId >= 0 && !task.home
-                && (!MAGICDESK_PACKAGE.equals(task.packageName)
+        return task != null && task.taskId >= 0
+                && (DesktopManagedTaskPolicy.isManagedApplicationTask(task)
                         || (DesktopSelfTestController.isRunning()
                                 && DesktopSelfTestComponents
                                         .isFixtureTask(task)));
@@ -760,7 +763,8 @@ final class DesktopTaskController {
             }
             if (aboveDesktopHost
                     && task != null && task.displayId == mDisplayId && task.visible
-                    && !task.home && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)) {
                 hasVisibleAppTask = true;
                 visibleAppTaskIds.add(Integer.valueOf(task.taskId));
             }
@@ -835,8 +839,7 @@ final class DesktopTaskController {
                 && task.displayId == mDisplayId
                 && task.visible
                 && task.isFreeform()
-                && !task.home
-                && !MAGICDESK_PACKAGE.equals(task.packageName)
+                && DesktopManagedTaskPolicy.isManagedApplicationTask(task)
                 && !task.bounds.isEmpty();
     }
 

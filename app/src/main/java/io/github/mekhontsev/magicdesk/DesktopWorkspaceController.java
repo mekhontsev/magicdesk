@@ -343,23 +343,26 @@ final class DesktopWorkspaceController {
     }
 
     private void openDirectory(final String relativePath) {
-        mActivity.hideAllPanels();
         final String path = relativePath == null || relativePath.length() == 0
                 ? ShellDesktopDirectory.ABSOLUTE_PATH
                 : ShellDesktopDirectory.ABSOLUTE_PATH + "/" + relativePath;
-        final Intent intent = FileManagerActivity.createIntent(
-                mActivity, path).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        openFiles(FileManagerActivity.createIntent(mActivity, path), path);
+    }
+
+    private void openFiles(final Intent intent, final String detail) {
+        mActivity.hideAllPanels();
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
         try {
             mActivity.startActivity(intent, options.toBundle());
         } catch (RuntimeException error) {
-            Log.w(TAG, "Cannot open desktop directory " + path, error);
+            Log.w(TAG, "Cannot open Files at " + detail, error);
             mActivity.setErrorStatus(
                     "FILES-003",
                     mActivity.getString(
                             R.string.status_desktop_folder_open_failed),
-                    "path=" + path,
+                    "path=" + detail,
                     error);
         }
     }

@@ -76,13 +76,13 @@ final class FileManagerOperationController implements AutoCloseable {
         return mOwnerToken;
     }
 
-    void startRemote(
+    boolean startRemote(
             final int operation,
             final List<String> paths,
             final String destination,
             final boolean movesClipboard) {
         if (mClosed || isBusy() || paths == null || paths.isEmpty()) {
-            return;
+            return false;
         }
         mActiveOperationId = PENDING_REMOTE_OPERATION;
         mMovesClipboard = movesClipboard;
@@ -117,6 +117,7 @@ final class FileManagerOperationController implements AutoCloseable {
                 });
             }
         });
+        return true;
     }
 
     boolean beginImport(final int totalItems) {

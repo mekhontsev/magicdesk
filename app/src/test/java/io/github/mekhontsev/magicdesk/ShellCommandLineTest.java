@@ -38,6 +38,20 @@ public final class ShellCommandLineTest {
                 "notes.txt", "text/plain", false)));
     }
 
+    @Test
+    public void shellScriptIsPreparedForConsoleWithoutAutoExecution() {
+        final ShellFileInfo script = file(
+                "Dmitry's script.sh", "application/octet-stream", false);
+
+        assertTrue(ShellScriptLauncher.supports(script));
+        assertEquals(
+                "cd -- '/tmp'\n/system/bin/sh -- "
+                        + "'/tmp/Dmitry'\"'\"'s script.sh'",
+                ShellScriptLauncher.command(script));
+        assertFalse(ShellScriptLauncher.supports(file(
+                "script.txt", "text/plain", false)));
+    }
+
     private static ShellFileInfo file(
             final String name,
             final String mimeType,

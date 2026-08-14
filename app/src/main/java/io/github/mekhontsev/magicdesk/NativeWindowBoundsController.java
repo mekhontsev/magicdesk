@@ -23,8 +23,6 @@ final class NativeWindowBoundsController {
     }
 
     private static final String TAG = "MagicDeskTasks";
-    private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
     private static final int TASKBAR_RESERVE_DP = 64;
 
     private final Context mApplicationContext;
@@ -163,8 +161,9 @@ final class NativeWindowBoundsController {
         final Rect fullscreenBounds = getFullscreenBounds();
         final Rect maximizedBounds = getTaskbarMaximizedBounds();
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task == null || task.displayId != displayId || task.home
-                    || MAGICDESK_PACKAGE.equals(task.packageName)
+            if (task == null || task.displayId != displayId
+                    || !DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)
                     || !task.isFreeform() || task.bounds.isEmpty()) {
                 continue;
             }

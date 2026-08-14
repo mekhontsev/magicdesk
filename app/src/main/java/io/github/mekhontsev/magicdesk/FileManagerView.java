@@ -6,6 +6,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.drawable.ColorDrawable;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.View;
@@ -39,6 +41,7 @@ final class FileManagerView {
         boolean onContextMenu(View anchor, ShellFileInfo file);
         void onStartDrag(View source, ShellFileInfo file);
         boolean onDrop(DragEvent event);
+        void onNewWindow();
         void onNewFile();
         void onNewFolder();
         void onCopy();
@@ -54,6 +57,7 @@ final class FileManagerView {
         void onSortChanged(int sortMode);
         void onSortDirectionChanged(boolean ascending);
         void onViewModeChanged(boolean details);
+        void onFilterChanged(String query);
     }
 
     private static final int COLOR_BACKGROUND = Color.rgb(9, 13, 20);
@@ -65,15 +69,17 @@ final class FileManagerView {
     private final Listener mListener;
     private final LinearLayout mRoot;
     private final EditText mPath;
-    private final LinearLayout mBreadcrumbs;
     private final ListView mList;
     private final ShellFileListAdapter mAdapter;
     private final TextView mEmpty;
     private final TextView mStatus;
+    private final LinearLayout mFilterPanel;
+    private final EditText mFilter;
     private final ImageButton mBack;
     private final ImageButton mForward;
     private final ImageButton mUp;
     private final ImageButton mRefresh;
+    private final ImageButton mNewWindow;
     private final ImageButton mCopy;
     private final ImageButton mCut;
     private final ImageButton mPaste;
@@ -155,14 +161,147 @@ final class FileManagerView {
         navigation.addView(mRefresh, compactButton());
         mRoot.addView(navigation, matchWrap());
 
-        final HorizontalScrollView breadcrumbScroll =
+        mFilterPanel = horizontal();
+        mFilterPanel.setVisibility(View.GONE);
+        mFilter = new EditText(context);
+        mFilter.setSingleLine(true);
+        mFilter.setHint(R.string.file_manager_filter_hint);
+        mFilter.setTextColor(COLOR_TEXT);
+        mFilter.setHintTextColor(COLOR_MUTED);
+        mFilter.setBackgroundColor(COLOR_SURFACE);
+        mFilter.setPadding(dp(10), 0, dp(10), 0);
+        mFilter.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(
+                    final CharSequence text,
+                    final int start,
+                    final int count,
+                    final int after) {
+            }
+
+            @Override
+            public void onTextChanged(
+                    final CharSequence text,
+                    final int start,
+                    final int before,
+                    final int count) {
+                listener.onFilterChanged(text.toString());
+            }
+
+            @Override
+            public void afterTextChanged(final Editable editable) {
+            }
+        });
+        mFilterPanel.addView(mFilter, new LinearLayout.LayoutParams(
+                0, dp(42), 1f));
+        mFilterPanel.addView(iconCommand(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                R.string.file_manager_filter_clear,
+                view -> clearFilter()), compactButton());
+        mRoot.addView(mFilterPanel, matchWrap());
+
+        final LinearLayout commands = horizontal();
+        mNewWindow = iconCommand(
+                R.drawable.ic_file_new_window,
+                R.string.file_manager_new_window,
+                view -> listener.onNewWindow());
+        commands.addView(mNewWindow, compactButton());
+        commands.addView(iconCommand(
+                R.drawable.ic_desktop_file_document,
+                R.string.action_new_file,
+                view -> listener.onNewFile()), compactButton());
+        commands.addView(iconCommand(
+                R.drawable.ic_desktop_folder,
+                R.string.action_new_folder,
+                view -> listener.onNewFolder()), compactButton());
+        mCopy = iconCommand(
+                R.drawable.ic_file_copy,
+                R.string.file_manager_copy,
+                view -> listener.onCopy());
+        mCut = iconCommand(
+                R.drawable.ic_file_cut,
+                R.string.file_manager_cut,
+                view -> listener.onCut());
+        mPaste = iconCommand(
+                R.drawable.ic_file_paste,
+                R.string.file_manager_paste,
+                view -> listener.onPaste());
+        mRename = iconCommand(
+                R.drawable.ic_file_rename,
+                R.string.action_rename,
+                view -> listener.onRename());
+        mDelete = iconCommand(
+                R.drawable.ic_file_delete,
+                R.string.action_delete,
+                view -> listener.onDelete());
+        mProperties = iconCommand(
+                R.drawable.ic_file_properties,
+                R.string.file_manager_properties,
+                view -> listener.onProperties());
+        mOpenWith = iconCommand(
+                R.drawable.ic_file_open_with,
+                R.string.file_manager_open_with,
+                view -> listener.onOpenWith());
+        final ImageButton console = iconCommand(
+                R.drawable.ic_file_console,
+                R.string.file_manager_console,
+                view -> listener.onOpenConsole());
+        mTerminal = iconCommand(
+                R.drawable.ic_file_console,
+                R.string.file_manager_terminal,
+                view -> listener.onOpenTerminal());
+        commands.addView(mCopy, compactButton());
+        commands.addView(mCut, compactButton());
+        commands.addView(mPaste, compactButton());
+        commands.addView(mRename, compactButton());
+        commands.addView(new View(context),
+                new LinearLayout.LayoutParams(dp(10), 1));
+        commands.addView(mDelete, compactButton());
+        commands.addView(mProperties, compactButton());
+        commands.addView(mOpenWith, compactButton());
+        commands.addView(console, compactButton());
+        commands.addView(mTerminal, compactButton());
+
+        mHidden = new CheckBox(context);
+        mHidden.setText(R.string.file_manager_show_hidden);
+        mHidden.setTextColor(COLOR_TEXT);
+        mHidden.setOnCheckedChangeListener((button, checked) ->
+                listener.onShowHiddenChanged(checked));
+        commands.addView(mHidden, wrapWrap());
+        mSort = spinner(new String[]{
+                context.getString(R.string.file_manager_sort_name),
+                context.getString(R.string.file_manager_sort_modified),
+                context.getString(R.string.file_manager_sort_size)
+        });
+        mSort.setOnItemSelectedListener(new SimpleItemSelectedListener(
+                position -> listener.onSortChanged(position)));
+        commands.addView(mSort,
+                new LinearLayout.LayoutParams(dp(138), dp(40)));
+        mSortDirection = iconCommand(
+                R.drawable.ic_file_sort,
+                R.string.file_manager_sort_ascending,
+                view -> listener.onSortDirectionChanged(
+                        !mSortAscending));
+        commands.addView(mSortDirection, compactButton());
+        mViewMode = spinner(new String[]{
+                context.getString(R.string.file_manager_view_list),
+                context.getString(R.string.file_manager_view_details)
+        });
+        mViewMode.setSelection(1);
+        mViewMode.setOnItemSelectedListener(new SimpleItemSelectedListener(
+                position -> listener.onViewModeChanged(position == 1)));
+        commands.addView(mViewMode,
+                new LinearLayout.LayoutParams(dp(126), dp(40)));
+        commands.addView(iconCommand(
+                android.R.drawable.ic_menu_search,
+                R.string.file_manager_filter,
+                view -> focusFilter()), compactButton());
+        final HorizontalScrollView commandsScroll =
                 new HorizontalScrollView(context);
-        breadcrumbScroll.setHorizontalScrollBarEnabled(false);
-        mBreadcrumbs = horizontal();
-        mBreadcrumbs.setGravity(Gravity.CENTER_VERTICAL);
-        breadcrumbScroll.addView(mBreadcrumbs, wrapWrap());
-        mRoot.addView(breadcrumbScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(38)));
+        commandsScroll.setHorizontalScrollBarEnabled(false);
+        commandsScroll.addView(commands, wrapWrap());
+        mRoot.addView(commandsScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
 
         final boolean wide = context.getResources().getConfiguration()
                 .screenWidthDp >= 720;
@@ -182,42 +321,6 @@ final class FileManagerView {
 
         final LinearLayout browser = new LinearLayout(context);
         browser.setOrientation(LinearLayout.VERTICAL);
-        final LinearLayout options = horizontal();
-        mHidden = new CheckBox(context);
-        mHidden.setText(R.string.file_manager_show_hidden);
-        mHidden.setTextColor(COLOR_TEXT);
-        mHidden.setOnCheckedChangeListener((button, checked) ->
-                listener.onShowHiddenChanged(checked));
-        options.addView(mHidden, wrapWrap());
-        mSort = spinner(new String[]{
-                context.getString(R.string.file_manager_sort_name),
-                context.getString(R.string.file_manager_sort_modified),
-                context.getString(R.string.file_manager_sort_size)
-        });
-        mSort.setOnItemSelectedListener(new SimpleItemSelectedListener(
-                position -> listener.onSortChanged(position)));
-        options.addView(mSort, new LinearLayout.LayoutParams(dp(138), dp(40)));
-        mSortDirection = iconCommand(
-                R.drawable.ic_file_sort,
-                R.string.file_manager_sort_ascending,
-                view -> listener.onSortDirectionChanged(
-                        !mSortAscending));
-        options.addView(mSortDirection, compactButton());
-        mViewMode = spinner(new String[]{
-                context.getString(R.string.file_manager_view_list),
-                context.getString(R.string.file_manager_view_details)
-        });
-        mViewMode.setSelection(1);
-        mViewMode.setOnItemSelectedListener(new SimpleItemSelectedListener(
-                position -> listener.onViewModeChanged(position == 1)));
-        options.addView(mViewMode,
-                new LinearLayout.LayoutParams(dp(126), dp(40)));
-        final HorizontalScrollView optionsScroll =
-                new HorizontalScrollView(context);
-        optionsScroll.setHorizontalScrollBarEnabled(false);
-        optionsScroll.addView(options, wrapWrap());
-        browser.addView(optionsScroll, matchWrap());
-
         final FrameLayout listFrame = new FrameLayout(context);
         mList = new ListView(context);
         mList.setDivider(new ColorDrawable(Color.rgb(38, 48, 61)));
@@ -258,67 +361,6 @@ final class FileManagerView {
         mRoot.addView(content, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        final HorizontalScrollView actionsScroll =
-                new HorizontalScrollView(context);
-        actionsScroll.setHorizontalScrollBarEnabled(false);
-        final LinearLayout actions = horizontal();
-        actions.addView(iconCommand(
-                R.drawable.ic_desktop_file_document,
-                R.string.action_new_file,
-                view -> listener.onNewFile()), actionIconButton());
-        actions.addView(iconCommand(
-                R.drawable.ic_desktop_folder,
-                R.string.action_new_folder,
-                view -> listener.onNewFolder()), actionIconButton());
-        mCopy = iconCommand(
-                R.drawable.ic_file_copy,
-                R.string.file_manager_copy,
-                view -> listener.onCopy());
-        mCut = iconCommand(
-                R.drawable.ic_file_cut,
-                R.string.file_manager_cut,
-                view -> listener.onCut());
-        mPaste = iconCommand(
-                R.drawable.ic_file_paste,
-                R.string.file_manager_paste,
-                view -> listener.onPaste());
-        mRename = iconCommand(
-                R.drawable.ic_file_rename,
-                R.string.action_rename,
-                view -> listener.onRename());
-        mDelete = iconCommand(
-                R.drawable.ic_file_delete,
-                R.string.action_delete,
-                view -> listener.onDelete());
-        mProperties = iconCommand(
-                R.drawable.ic_file_properties,
-                R.string.file_manager_properties,
-                view -> listener.onProperties());
-        mOpenWith = iconCommand(
-                R.drawable.ic_file_open_with,
-                R.string.file_manager_open_with,
-                view -> listener.onOpenWith());
-        final ImageButton console = iconCommand(
-                R.drawable.ic_file_console,
-                R.string.file_manager_console,
-                view -> listener.onOpenConsole());
-        mTerminal = iconCommand(
-                R.drawable.ic_file_console,
-                R.string.file_manager_terminal,
-                view -> listener.onOpenTerminal());
-        actions.addView(mCopy, actionIconButton());
-        actions.addView(mCut, actionIconButton());
-        actions.addView(mPaste, actionIconButton());
-        actions.addView(mRename, actionIconButton());
-        actions.addView(mDelete, actionIconButton());
-        actions.addView(mProperties, actionIconButton());
-        actions.addView(mOpenWith, actionIconButton());
-        actions.addView(console, actionIconButton());
-        actions.addView(mTerminal, actionIconButton());
-        actionsScroll.addView(actions, wrapWrap());
-        mRoot.addView(actionsScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
-
         mStatus = new TextView(context);
         mStatus.setTextColor(COLOR_MUTED);
         mStatus.setTextSize(12f);
@@ -338,7 +380,6 @@ final class FileManagerView {
             mPath.setText(path);
             mPath.setSelection(mPath.length());
         }
-        renderBreadcrumbs(path);
     }
 
     void setFiles(
@@ -396,12 +437,24 @@ final class FileManagerView {
     void setShellReady(final boolean ready) {
         mPath.setEnabled(ready);
         mRefresh.setEnabled(ready);
+        mNewWindow.setEnabled(ready);
         mList.setEnabled(ready);
     }
 
     void focusPath() {
         mPath.requestFocus();
         mPath.selectAll();
+    }
+
+    void focusFilter() {
+        mFilterPanel.setVisibility(View.VISIBLE);
+        mFilter.requestFocus();
+        mFilter.selectAll();
+    }
+
+    void clearFilter() {
+        mFilter.setText("");
+        mFilterPanel.setVisibility(View.GONE);
     }
 
     void setShowHidden(final boolean showHidden) {
@@ -446,38 +499,6 @@ final class FileManagerView {
                 ? new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(42))
                 : actionButton());
-    }
-
-    private void renderBreadcrumbs(final String path) {
-        mBreadcrumbs.removeAllViews();
-        addCrumb("/", "/");
-        if (path == null || "/".equals(path)) {
-            return;
-        }
-        final String[] segments = path.split("/");
-        final StringBuilder current = new StringBuilder();
-        for (final String segment : segments) {
-            if (segment.length() == 0) {
-                continue;
-            }
-            current.append('/').append(segment);
-            final TextView separator = new TextView(mContext);
-            separator.setText("/");
-            separator.setTextColor(COLOR_MUTED);
-            separator.setGravity(Gravity.CENTER);
-            mBreadcrumbs.addView(separator,
-                    new LinearLayout.LayoutParams(dp(14), dp(36)));
-            addCrumb(segment, current.toString());
-        }
-    }
-
-    private void addCrumb(final String label, final String path) {
-        final Button button = command(label, path,
-                view -> mListener.onNavigate(path));
-        button.setAllCaps(false);
-        button.setTextSize(13f);
-        mBreadcrumbs.addView(button, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
     }
 
     private void navigateFromAddress() {
@@ -562,13 +583,6 @@ final class FileManagerView {
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, dp(42));
-        params.setMarginEnd(dp(4));
-        return params;
-    }
-
-    private LinearLayout.LayoutParams actionIconButton() {
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(dp(46), dp(42));
         params.setMarginEnd(dp(4));
         return params;
     }

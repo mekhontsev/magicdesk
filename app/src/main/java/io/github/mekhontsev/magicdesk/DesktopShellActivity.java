@@ -539,11 +539,6 @@ public abstract class DesktopShellActivity extends Activity
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (mDesktopWallpaperController != null
-                && mDesktopWallpaperController.handleActivityResult(
-                        requestCode, resultCode, data)) {
-            return;
-        }
         mDesktopWorkspaceController.handleActivityResult(
                 requestCode, resultCode, data);
     }
@@ -837,7 +832,15 @@ public abstract class DesktopShellActivity extends Activity
 
     void chooseDesktopWallpaper() {
         hideAllPanels();
-        mDesktopWallpaperController.chooseWallpaper();
+        final AppItem files = findOrLoadApp(
+                mLastApps, FileManagerActivity.launchTarget(this));
+        if (files == null) {
+            setErrorStatus(
+                    "FILES-003",
+                    getString(R.string.status_desktop_folder_open_failed));
+            return;
+        }
+        launchDefault(files);
     }
 
     void useSystemDesktopWallpaper() {
@@ -1393,6 +1396,10 @@ public abstract class DesktopShellActivity extends Activity
 
     void launchWindowed(final AppItem app) {
         mAppTasks.launchWindowed(app);
+    }
+
+    void launchNewWindow(final AppItem app) {
+        mAppTasks.launchNewWindow(app);
     }
 
     void launchFullscreen(final AppItem app) {

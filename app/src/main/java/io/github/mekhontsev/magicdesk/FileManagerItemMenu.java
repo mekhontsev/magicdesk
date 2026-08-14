@@ -16,6 +16,8 @@ final class FileManagerItemMenu {
         void onItemOpenWith(ShellFileInfo file);
         void onItemCopyPath(ShellFileInfo file);
         void onItemInstall(ShellFileInfo file);
+        void onItemRunScript(ShellFileInfo file);
+        void onItemSetWallpaper(ShellFileInfo file);
     }
 
     private static final int OPEN = 1;
@@ -27,6 +29,8 @@ final class FileManagerItemMenu {
     private static final int PROPERTIES = 7;
     private static final int COPY_PATH = 8;
     private static final int INSTALL = 9;
+    private static final int RUN_SCRIPT = 10;
+    private static final int SET_WALLPAPER = 11;
 
     private FileManagerItemMenu() {
     }
@@ -47,13 +51,21 @@ final class FileManagerItemMenu {
             menu.add(Menu.NONE, INSTALL, 2,
                     R.string.file_manager_install_apk);
         }
-        menu.add(Menu.NONE, COPY, 3, R.string.file_manager_copy);
-        menu.add(Menu.NONE, CUT, 4, R.string.file_manager_cut);
-        menu.add(Menu.NONE, RENAME, 5, R.string.action_rename);
-        menu.add(Menu.NONE, DELETE, 6, R.string.action_delete);
-        menu.add(Menu.NONE, COPY_PATH, 7,
+        if (ShellScriptLauncher.supports(file)) {
+            menu.add(Menu.NONE, RUN_SCRIPT, 3,
+                    R.string.file_manager_run_script);
+        }
+        if (DesktopWallpaperFileAction.supports(file)) {
+            menu.add(Menu.NONE, SET_WALLPAPER, 4,
+                    R.string.file_manager_set_wallpaper);
+        }
+        menu.add(Menu.NONE, COPY, 5, R.string.file_manager_copy);
+        menu.add(Menu.NONE, CUT, 6, R.string.file_manager_cut);
+        menu.add(Menu.NONE, RENAME, 7, R.string.action_rename);
+        menu.add(Menu.NONE, DELETE, 8, R.string.action_delete);
+        menu.add(Menu.NONE, COPY_PATH, 9,
                 R.string.file_manager_copy_path);
-        menu.add(Menu.NONE, PROPERTIES, 8,
+        menu.add(Menu.NONE, PROPERTIES, 10,
                 R.string.file_manager_properties);
         popup.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
@@ -83,6 +95,12 @@ final class FileManagerItemMenu {
                     return true;
                 case INSTALL:
                     listener.onItemInstall(file);
+                    return true;
+                case RUN_SCRIPT:
+                    listener.onItemRunScript(file);
+                    return true;
+                case SET_WALLPAPER:
+                    listener.onItemSetWallpaper(file);
                     return true;
                 default:
                     return false;

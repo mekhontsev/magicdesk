@@ -40,7 +40,11 @@ final class AppTaskController {
         if (saved != null
                 && saved.mode == AppWindowState.Mode.WINDOWED
                 && canControlWindowing()) {
-            launchFloating(app, true, saved.windowBounds);
+            launchFloating(
+                    app,
+                    true,
+                    saved.windowBounds,
+                    WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING);
         } else if (saved != null
                 && saved.mode == AppWindowState.Mode.FULLSCREEN) {
             launchFullscreen(app, false);
@@ -62,6 +66,14 @@ final class AppTaskController {
         launchFloating(app, true);
     }
 
+    void launchNewWindow(final AppItem app) {
+        launchFloating(
+                app,
+                true,
+                null,
+                WindowedAppLauncher.TaskReusePolicy.CREATE_NEW);
+    }
+
     private void launchFloating(
             final AppItem app,
             final boolean explicitWindowed) {
@@ -70,20 +82,23 @@ final class AppTaskController {
         launchFloating(
                 app,
                 explicitWindowed,
-                saved == null ? null : saved.windowBounds);
+                saved == null ? null : saved.windowBounds,
+                WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING);
     }
 
     private void launchFloating(
             final AppItem app,
             final boolean explicitWindowed,
-            final RelativeWindowBounds preferredBounds) {
+            final RelativeWindowBounds preferredBounds,
+            final WindowedAppLauncher.TaskReusePolicy reusePolicy) {
         if (!canControlWindowing()) {
             launchFullscreen(app, false);
             return;
         }
         final TaskRepository.TaskEntry existingTask =
                 mActivity.findFirstTask(app.launchTarget);
-        if (existingTask != null
+        if (reusePolicy == WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING
+                && existingTask != null
                 && existingTask.displayId == mActivity.getCurrentDisplayId()
                 && existingTask.isFreeform()) {
             if (explicitWindowed) {
@@ -125,6 +140,7 @@ final class AppTaskController {
                         getTaskIds(visibleTasks),
                         explicitWindowed,
                         preferredBounds,
+                        reusePolicy,
                         () -> publishConfirmedLaunchSnapshot(displayId));
                 if (explicitWindowed) {
                     AppWindowStateStore.rememberMode(

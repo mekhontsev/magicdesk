@@ -29,9 +29,6 @@ final class DesktopWindowTransitionController {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private static final String TAG = "MagicDeskTasks";
-    private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
-
     private final Handler mHandler;
     private final Context mContext;
     private final NativeWindowBoundsController mNativeWindowBounds;
@@ -570,8 +567,9 @@ final class DesktopWindowTransitionController {
     private static TaskRepository.TaskEntry findTopFullscreenTask(
             final List<TaskRepository.TaskEntry> tasks) {
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task.active && !task.home && !task.isFreeform()
-                    && !MAGICDESK_PACKAGE.equals(task.packageName)) {
+            if (task.active && !task.isFreeform()
+                    && DesktopManagedTaskPolicy
+                            .isManagedApplicationTask(task)) {
                 return task;
             }
         }

@@ -418,6 +418,14 @@ final class DesktopContextMenuController {
                         mActivity.hideAllPanels();
                         mActivity.launchWindowed(app);
                     });
+            addAction(
+                    R.string.action_new_window,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.launchNewWindow(app);
+                    });
         }
         addAction(
                 R.string.action_open_fullscreen,

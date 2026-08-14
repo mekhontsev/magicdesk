@@ -10,6 +10,11 @@ import java.io.IOException;
 final class WindowedAppLauncher {
     private static final String LAUNCH_RESULT = "task-display-area-launch=";
 
+    enum TaskReusePolicy {
+        REUSE_EXISTING,
+        CREATE_NEW
+    }
+
     interface TaskReadyCallback {
         void onTaskReady();
     }
@@ -24,20 +29,27 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
+            final TaskReusePolicy reusePolicy,
             final TaskReadyCallback taskReadyCallback) throws IOException {
         final Rect bounds = FloatingWindowController.getWindowBounds(
                 displayId, preferredBounds);
         final boolean nativeDesktop = NativeDesktopController.shouldUse();
-        final ExistingTaskController.ReuseResult existing = reuse(
-                nativeDesktop,
-                launchTarget,
-                displayId,
-                preservedTaskIds,
-                false,
-                explicitWindowed,
-                bounds);
-        if (existing.found) {
-            return;
+        final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
+        if (!createNew) {
+            final ExistingTaskController.ReuseResult existing = reuse(
+                    nativeDesktop,
+                    launchTarget,
+                    displayId,
+                    preservedTaskIds,
+                    false,
+                    explicitWindowed,
+                    bounds);
+            if (existing.found) {
+                return;
+            }
+        } else {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
         }
 
         final ComponentName component = launchIntent.getComponent();
@@ -73,16 +85,21 @@ final class WindowedAppLauncher {
             if (explicitWindowed) {
                 DesktopTaskController.beginExplicitWindowedLaunch(taskId);
             }
-            final ExistingTaskController.ReuseResult launched = reuse(
-                    nativeDesktop,
-                    launchTarget,
-                    displayId,
-                    preservedTaskIds,
-                    true,
-                    false,
-                    bounds);
-            if (!launched.found) {
-                throw new IOException("launched task not found");
+            if (createNew) {
+                ExistingTaskController.confirmLaunchedWindow(
+                        taskId, displayId, preservedTaskIds);
+            } else {
+                final ExistingTaskController.ReuseResult launched = reuse(
+                        nativeDesktop,
+                        launchTarget,
+                        displayId,
+                        preservedTaskIds,
+                        true,
+                        false,
+                        bounds);
+                if (!launched.found) {
+                    throw new IOException("launched task not found");
+                }
             }
         } finally {
             if (explicitWindowed && taskId >= 0) {

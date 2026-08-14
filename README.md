@@ -112,16 +112,23 @@ and selected-display recording.
   drag files between the desktop and application windows that support
   Android's global drag-and-drop protocol.
 - Open the built-in **Files** window for the complete filesystem visible to
-  the connected Shizuku UserService. It supports path and breadcrumb
-  navigation, hidden files, sorting, selection, create, rename, permanent
-  delete, copy, cut, paste, properties, external editors, and global file
+  the connected Shizuku UserService. It supports path navigation, hidden
+  files, sorting, selection, create, rename, permanent
+  delete, copy, cut, paste, current-folder name filtering, properties,
+  external editors, and global file
   drag-and-drop. Conflicting copies receive a numeric suffix instead of
   silently replacing data. Desktop context menus and standard file shortcuts
   cover keyboard and mouse workflows; Properties reports the actual owner and
-  mode. An APK can be installed or updated only after an explicit confirmation.
+  mode. Multiple Files windows can use the same process-local copy/cut buffer.
+  An APK can be installed or updated only after an explicit confirmation.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
   has been enabled.
+- Prepare a selected `.sh` file in Console from its context menu. The command
+  is quoted and shown for review; it is never executed automatically.
+- Request another task for a compatible application through **New window**.
+  MagicDesk Files supports this directly; Android applications may reject the
+  request through their own activity launch mode.
 - Add native Android widgets, move them on the desktop, and resize supported
   providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
@@ -131,8 +138,9 @@ and selected-display recording.
   display, and DPI remain per-monitor settings.
 - Remember an application's explicit Windowed or Fullscreen choice and its last
   freeform position for subsequent Auto launches.
-- Use the phone's current static wallpaper or choose a custom desktop wallpaper,
-  center-cropped for the active display.
+- Use the phone's current static wallpaper or set a local image as the custom
+  desktop wallpaper directly from MagicDesk Files, center-cropped for the
+  active display.
 
 Desktop configuration is stored as an atomic, human-readable file at
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`; an optional custom

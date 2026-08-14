@@ -69,13 +69,17 @@ public final class FileManagerActivity extends Activity
     private int mSortMode = ShellFileSystem.SORT_NAME;
     private boolean mSortAscending = true;
     private boolean mDetails = true;
-    private List<String> mClipboardPaths = new ArrayList<>();
-    private boolean mClipboardMove;
+    private String mFilterQuery = "";
+    private long mPendingClipboardGeneration = -1L;
     private volatile boolean mDestroyed;
 
     static Intent createIntent(final Context context, final String path) {
-        return new Intent(context, FileManagerActivity.class)
-                .putExtra(EXTRA_PATH, path == null ? DEFAULT_PATH : path);
+        return createIntent(context).putExtra(
+                EXTRA_PATH, path == null ? DEFAULT_PATH : path);
+    }
+
+    static Intent createIntent(final Context context) {
+        return new Intent(context, FileManagerActivity.class);
     }
 
     static AppLaunchTarget launchTarget(final Context context) {
@@ -104,6 +108,7 @@ public final class FileManagerActivity extends Activity
                     @Override
                     public void onOperationStartFailed(
                             final Throwable error) {
+                        mPendingClipboardGeneration = -1L;
                         mView.setStatus(getString(
                                 R.string.file_manager_operation_failed,
                                 ShellAccess.usefulMessage(error)));
@@ -166,6 +171,14 @@ public final class FileManagerActivity extends Activity
         }
         mWorker.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    public void onWindowFocusChanged(final boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && mView != null) {
+            updateActionState();
+        }
     }
 
     @Override
@@ -323,6 +336,40 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
+    public void onNewWindow() {
+        final int displayId = getDisplay() == null
+                ? 0 : getDisplay().getDisplayId();
+        final String path = mCurrentPath;
+        mView.setStatus(getString(R.string.file_manager_opening_new_window));
+        mWorker.execute(() -> {
+            try {
+                WindowedAppLauncher.launch(
+                        createIntent(this, path),
+                        launchTarget(this),
+                        displayId,
+                        null,
+                        true,
+                        null,
+                        WindowedAppLauncher.TaskReusePolicy.CREATE_NEW,
+                        null);
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        renderFiles();
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        mView.setStatus(getString(
+                                R.string.file_manager_new_window_failed,
+                                ShellAccess.usefulMessage(error)));
+                    }
+                });
+            }
+        });
+    }
+
+    @Override
     public void onNewFile() {
         showNameDialog(R.string.file_manager_new_file_title, "", name ->
                 createEntry(name, false));
@@ -346,15 +393,18 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onPaste() {
-        if (mClipboardPaths.isEmpty()) {
+        final FileManagerClipboard.Snapshot clipboard =
+                FileManagerClipboard.snapshot();
+        if (clipboard.isEmpty()) {
             return;
         }
         startOperation(
-                mClipboardMove
+                clipboard.move
                         ? ShellFileSystem.OPERATION_MOVE
                         : ShellFileSystem.OPERATION_COPY,
-                mClipboardPaths,
-                mCurrentPath);
+                clipboard.paths,
+                mCurrentPath,
+                clipboard.move ? clipboard.generation : -1L);
     }
 
     @Override
@@ -468,6 +518,18 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
+    public void onFilterChanged(final String query) {
+        final String normalized = query == null
+                ? "" : query.trim().toLowerCase(Locale.ROOT);
+        if (normalized.equals(mFilterQuery)) {
+            return;
+        }
+        mFilterQuery = normalized;
+        mSelected.clear();
+        renderFiles();
+    }
+
+    @Override
     public void onRequestPermissionsResult(
             final int requestCode,
             final String[] permissions,
@@ -483,6 +545,16 @@ public final class FileManagerActivity extends Activity
     @Override
     public boolean onKeyShortcut(
             final int keyCode, final KeyEvent event) {
+        if (event.isCtrlPressed() && keyCode == KeyEvent.KEYCODE_F) {
+            mView.focusFilter();
+            return true;
+        }
+        if (event.isCtrlPressed()
+                && !event.isShiftPressed()
+                && keyCode == KeyEvent.KEYCODE_N) {
+            onNewWindow();
+            return true;
+        }
         if (getCurrentFocus() instanceof EditText) {
             return super.onKeyShortcut(keyCode, event);
         }
@@ -623,6 +695,48 @@ public final class FileManagerActivity extends Activity
                 .show();
     }
 
+    @Override
+    public void onItemRunScript(final ShellFileInfo file) {
+        if (!ShellScriptLauncher.supports(file)) {
+            return;
+        }
+        try {
+            startOnCurrentDisplay(CommandConsoleActivity.createIntent(
+                    this, ShellScriptLauncher.command(file)));
+        } catch (RuntimeException error) {
+            mView.setStatus(getString(
+                    R.string.file_manager_open_failed,
+                    ShellAccess.usefulMessage(error)));
+        }
+    }
+
+    @Override
+    public void onItemSetWallpaper(final ShellFileInfo file) {
+        if (!DesktopWallpaperFileAction.supports(file)) {
+            return;
+        }
+        mView.setStatus(getString(R.string.file_manager_setting_wallpaper));
+        mWorker.execute(() -> {
+            try {
+                DesktopWallpaperFileAction.apply(file);
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        mView.setStatus(getString(
+                                R.string.status_desktop_wallpaper_changed));
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        mView.setStatus(getString(
+                                R.string.status_desktop_wallpaper_failed,
+                                ShellAccess.usefulMessage(error)));
+                    }
+                });
+            }
+        });
+    }
+
     private void loadDirectory(
             final String requestedPath,
             final boolean addHistory,
@@ -635,6 +749,10 @@ public final class FileManagerActivity extends Activity
             return;
         }
         final String path = normalizeInputPath(requestedPath);
+        if (!path.equals(mCurrentPath) && !mFilterQuery.isEmpty()) {
+            mFilterQuery = "";
+            mView.clearFilter();
+        }
         final int generation = mLoadGeneration.incrementAndGet();
         mView.setLoading();
         mWorker.execute(() -> {
@@ -703,19 +821,25 @@ public final class FileManagerActivity extends Activity
     }
 
     private void renderFiles() {
+        final List<ShellFileInfo> visible = visibleFiles();
         mView.setPath(mCurrentPath);
-        mView.setFiles(mFiles, mSelected.keySet(), mDetails);
+        mView.setFiles(visible, mSelected.keySet(), mDetails);
         mView.setNavigationEnabled(
                 mHistoryIndex > 0,
                 mHistoryIndex + 1 < mHistory.size(),
                 !"/".equals(mCurrentPath));
-        mView.updateSelection(
-                mSelected.size(), !mClipboardPaths.isEmpty());
-        mView.setStatus(getString(
-                mSelected.isEmpty()
-                        ? R.string.file_manager_items
-                        : R.string.file_manager_selected,
-                mSelected.isEmpty() ? mFiles.size() : mSelected.size()));
+        updateActionState();
+        if (!mSelected.isEmpty()) {
+            mView.setStatus(getString(
+                    R.string.file_manager_selected, mSelected.size()));
+        } else if (!mFilterQuery.isEmpty()) {
+            mView.setStatus(getString(
+                    R.string.file_manager_filtered,
+                    visible.size(), mFiles.size()));
+        } else {
+            mView.setStatus(getString(
+                    R.string.file_manager_items, mFiles.size()));
+        }
     }
 
     private void clearSelection() {
@@ -731,10 +855,23 @@ public final class FileManagerActivity extends Activity
 
     private void selectAll() {
         mSelected.clear();
-        for (final ShellFileInfo file : mFiles) {
+        for (final ShellFileInfo file : visibleFiles()) {
             mSelected.put(file.absolutePath, file);
         }
         renderFiles();
+    }
+
+    private List<ShellFileInfo> visibleFiles() {
+        if (mFilterQuery.isEmpty()) {
+            return mFiles;
+        }
+        final List<ShellFileInfo> visible = new ArrayList<>();
+        for (final ShellFileInfo file : mFiles) {
+            if (file.name.toLowerCase(Locale.ROOT).contains(mFilterQuery)) {
+                visible.add(file);
+            }
+        }
+        return visible;
     }
 
     private ShellFileInfo singleSelection() {
@@ -746,9 +883,15 @@ public final class FileManagerActivity extends Activity
         if (mSelected.isEmpty()) {
             return;
         }
-        mClipboardPaths = new ArrayList<>(mSelected.keySet());
-        mClipboardMove = move;
+        FileManagerClipboard.set(
+                new ArrayList<>(mSelected.keySet()), move);
         clearSelection();
+    }
+
+    private void updateActionState() {
+        mView.updateSelection(
+                mSelected.size(),
+                !FileManagerClipboard.snapshot().isEmpty());
     }
 
     private void createEntry(final String name, final boolean directory) {
@@ -770,13 +913,22 @@ public final class FileManagerActivity extends Activity
             final int operation,
             final List<String> paths,
             final String destination) {
-        mOperations.startRemote(
+        startOperation(operation, paths, destination, -1L);
+    }
+
+    private void startOperation(
+            final int operation,
+            final List<String> paths,
+            final String destination,
+            final long clipboardGeneration) {
+        mPendingClipboardGeneration = clipboardGeneration;
+        if (!mOperations.startRemote(
                 operation,
                 paths,
                 destination,
-                operation == ShellFileSystem.OPERATION_MOVE
-                        && mClipboardMove
-                        && paths == mClipboardPaths);
+                clipboardGeneration >= 0L)) {
+            mPendingClipboardGeneration = -1L;
+        }
     }
 
     private void finishOperation(
@@ -785,12 +937,14 @@ public final class FileManagerActivity extends Activity
             final boolean movedClipboard) {
         if (successful) {
             if (movedClipboard) {
-                mClipboardPaths = new ArrayList<>();
-                mClipboardMove = false;
+                FileManagerClipboard.clearIfGeneration(
+                        mPendingClipboardGeneration);
             }
+            mPendingClipboardGeneration = -1L;
             mSelected.clear();
             onRefresh();
         } else {
+            mPendingClipboardGeneration = -1L;
             mView.setStatus(getString(
                     R.string.file_manager_operation_failed, message));
         }

@@ -91,6 +91,20 @@ final class ExistingTaskController {
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
     }
 
+    static void confirmLaunchedWindow(
+            final int taskId,
+            final int displayId,
+            final int[] preservedTopFirstTaskIds) throws IOException {
+        waitForTaskState(taskId, displayId, MODE_FREEFORM);
+        final TaskInfo task = findTask(taskId);
+        if (task == null) {
+            throw new IOException("launched task " + taskId
+                    + " is unavailable");
+        }
+        setCaptionInsetExcluded(taskId, displayId, false);
+        bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
+    }
+
     private static ReuseResult reuseIfExists(final AppLaunchTarget target,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,

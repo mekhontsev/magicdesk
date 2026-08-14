@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.Activity;
 import android.app.WallpaperManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -31,7 +30,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 final class DesktopWallpaperController {
     private static final String TAG = "MagicDeskWallpaper";
     private static final int BUFFER_SIZE = 32 * 1024;
-    private static final int REQUEST_WALLPAPER = 1401;
 
     private final DesktopShellActivity mActivity;
     private final Context mContext;
@@ -89,56 +87,6 @@ final class DesktopWallpaperController {
             // The process may already have detached the receiver.
         }
         mExecutor.shutdownNow();
-    }
-
-    void chooseWallpaper() {
-        final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("image/*");
-        mActivity.startActivityForResult(intent, REQUEST_WALLPAPER);
-    }
-
-    boolean handleActivityResult(
-            final int requestCode,
-            final int resultCode,
-            final Intent data) {
-        if (requestCode != REQUEST_WALLPAPER) {
-            return false;
-        }
-        if (resultCode != Activity.RESULT_OK
-                || data == null
-                || data.getData() == null) {
-            return true;
-        }
-        final android.net.Uri uri = data.getData();
-        mExecutor.execute(() -> {
-            try {
-                validateSelectedWallpaper(uri);
-                try (ParcelFileDescriptor source = mContext
-                        .getContentResolver()
-                        .openFileDescriptor(uri, "r")) {
-                    if (source == null) {
-                        throw new IOException("selected image is unavailable");
-                    }
-                    ShellAccess.writeDesktopWallpaper(source);
-                }
-                mMainHandler.post(() -> {
-                    mActivity.setStatus(mActivity.getString(
-                            R.string.status_desktop_wallpaper_changed));
-                    reload();
-                });
-            } catch (IOException | RuntimeException error) {
-                Log.w(TAG, "Cannot set custom desktop wallpaper", error);
-                mMainHandler.post(() -> mActivity.setErrorStatus(
-                        "WALLPAPER-003",
-                        mActivity.getString(
-                                R.string.status_desktop_wallpaper_failed,
-                                usefulMessage(error)),
-                        ShellDesktopDirectory.WALLPAPER_RELATIVE_PATH,
-                        error));
-            }
-        });
-        return true;
     }
 
     void useSystemWallpaper() {
@@ -396,23 +344,6 @@ final class DesktopWallpaperController {
             throw new IOException("custom desktop wallpaper is empty");
         }
         return true;
-    }
-
-    private void validateSelectedWallpaper(final android.net.Uri uri)
-            throws IOException {
-        try (ParcelFileDescriptor source = mContext.getContentResolver()
-                .openFileDescriptor(uri, "r")) {
-            if (source == null) {
-                throw new IOException("selected image is unavailable");
-            }
-            final BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeFileDescriptor(
-                    source.getFileDescriptor(), null, bounds);
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                throw new IOException("selected file is not a decodable image");
-            }
-        }
     }
 
     private static void replaceCachedWallpaper(
