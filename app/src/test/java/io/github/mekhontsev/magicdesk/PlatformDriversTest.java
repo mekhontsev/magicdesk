@@ -69,6 +69,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().setCaptionTransport(
                 PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
+        assertFalse(driver.phoneUi().requiresPhoneFreeformCleanup());
+        assertFalse(driver.phoneUi().requiresPhoneUiReconciliation());
         assertFalse(driver.windowing()
                 .requiresMirrorInputFocusSynchronization());
         assertFalse(driver.windowing()
