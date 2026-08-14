@@ -377,7 +377,7 @@ public final class ControlActivity extends Activity
                             : R.string.status_mirror_failed);
                     if (!success) {
                         CompatibilityDiagnostics.record(
-                                "NUBIA-CONSOLE-001",
+                                "DISPLAY-SESSION-001",
                                 mStatus,
                                 "Control panel mirror transition");
                     }
@@ -415,7 +415,7 @@ public final class ControlActivity extends Activity
                     mStatus = getString(result);
                     if (!success) {
                         CompatibilityDiagnostics.record(
-                                "NUBIA-SCREEN-001",
+                                "PHONE-SCREEN-001",
                                 mStatus,
                                 "Control panel phone screen command");
                     }

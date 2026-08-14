@@ -69,7 +69,7 @@ public final class ConsoleModeSwitcher {
                             + screenOff + " success=" + success);
                     if (!success) {
                         CompatibilityDiagnostics.record(
-                                "NUBIA-SCREEN-002",
+                                "PHONE-SCREEN-002",
                                 "Could not change the phone screen state",
                                 "shizuku=" + ShellAccess.statusLabel()
                                         + " screenOff=" + screenOff);

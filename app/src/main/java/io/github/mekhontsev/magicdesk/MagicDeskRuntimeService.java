@@ -1097,7 +1097,7 @@ public final class MagicDeskRuntimeService extends Service {
                     if (!success) {
                         Log.w(TAG, "phone desktop recovery failed: " + message);
                         CompatibilityDiagnostics.record(
-                                "NUBIA-HOME-003",
+                                "PHONE-HOME-003",
                                 "Could not clean local desktop tasks before"
                                         + " returning to the phone launcher",
                                 message);
@@ -1128,7 +1128,7 @@ public final class MagicDeskRuntimeService extends Service {
                 (generation, success, message) -> {
             if (!success) {
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-005",
+                        "PHONE-HOME-005",
                         "Could not maintain the local desktop navigation guard",
                         message);
             }

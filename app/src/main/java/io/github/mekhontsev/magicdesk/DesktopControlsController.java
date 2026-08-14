@@ -337,7 +337,7 @@ final class DesktopControlsController {
                         mActivity.setStatus(resultResId);
                     } else {
                         mActivity.setErrorStatus(
-                                "NUBIA-SCREEN-001",
+                                "PHONE-SCREEN-001",
                                 mActivity.getString(resultResId));
                     }
                 }));

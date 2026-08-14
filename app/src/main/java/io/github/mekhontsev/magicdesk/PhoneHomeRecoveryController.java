@@ -45,7 +45,7 @@ final class PhoneHomeRecoveryController {
         } catch (RuntimeException error) {
             Log.w(TAG, "public phone Home restore failed", error);
             CompatibilityDiagnostics.record(
-                    "NUBIA-HOME-002",
+                    "PHONE-HOME-002",
                     "Could not restore the phone launcher after Console Mode",
                     error.getMessage());
         }
@@ -85,7 +85,7 @@ final class PhoneHomeRecoveryController {
                 Log.w(TAG, "phone desktop cleanup failed before Home: "
                         + result.message);
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-004",
+                        "PHONE-HOME-004",
                         "Could not clean phone desktop tasks before"
                                 + " restoring the launcher",
                         result.message);
@@ -278,7 +278,7 @@ final class PhoneHomeRecoveryController {
                 Log.w(TAG, "failed to remove secondary phone Home task="
                         + task.taskId, error);
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-005",
+                        "PHONE-HOME-005",
                         "Could not remove a secondary launcher task"
                                 + " from the phone screen",
                         error.getMessage());
@@ -309,7 +309,7 @@ final class PhoneHomeRecoveryController {
                 Log.w(TAG, "failed to remove stranded desktop task="
                         + task.taskId, error);
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-006",
+                        "PHONE-HOME-006",
                         "Could not remove a desktop task stranded"
                                 + " on the phone screen",
                         error.getMessage());
@@ -341,7 +341,7 @@ final class PhoneHomeRecoveryController {
                 Log.w(TAG, "failed to remove stranded SystemUI desktop"
                         + " wallpaper task=" + task.taskId, error);
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-007",
+                        "PHONE-HOME-007",
                         "Could not remove a SystemUI desktop wallpaper task"
                                 + " stranded on the phone screen",
                         error.getMessage());
@@ -368,7 +368,7 @@ final class PhoneHomeRecoveryController {
         } catch (IOException error) {
             Log.w(TAG, "failed to restore primary phone Home", error);
             CompatibilityDiagnostics.record(
-                    "NUBIA-HOME-001",
+                    "PHONE-HOME-001",
                     "Could not restore the phone launcher after Console Mode",
                     error.getMessage());
             complete(callback, false);

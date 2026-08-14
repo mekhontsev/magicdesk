@@ -55,7 +55,7 @@ final class ConsoleSessionController {
                 } catch (IOException | RuntimeException error) {
                     Log.w(TAG, "Cannot prepare external display mode", error);
                     CompatibilityDiagnostics.record(
-                            "NUBIA-DISPLAY-001",
+                            "DISPLAY-MODE-001",
                             "Could not apply the external display launch settings",
                             error.getMessage(),
                             error);
@@ -84,7 +84,7 @@ final class ConsoleSessionController {
                 } catch (IOException | RuntimeException error) {
                     Log.w(TAG, "Cannot restore the exact native output mode", error);
                     CompatibilityDiagnostics.record(
-                            "NUBIA-DISPLAY-001",
+                            "DISPLAY-MODE-001",
                             "Could not apply the external display launch settings",
                             error.getMessage(),
                             error);
@@ -161,7 +161,7 @@ final class ConsoleSessionController {
             return true;
         }
         CompatibilityDiagnostics.record(
-                "NUBIA-CONSOLE-004",
+                "DISPLAY-SESSION-004",
                 "The external desktop needs a foreground application",
                 output);
         return false;

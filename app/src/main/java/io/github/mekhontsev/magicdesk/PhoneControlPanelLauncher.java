@@ -64,7 +64,7 @@ final class PhoneControlPanelLauncher {
         } catch (IOException | RuntimeException error) {
             Log.w(TAG, "phone panel launch after Mirror failed", error);
             CompatibilityDiagnostics.record(
-                    "NUBIA-DISPLAY-003",
+                    "DISPLAY-MODE-003",
                     "Could not open the MagicDesk phone control panel",
                     "shell=" + ShellAccess.statusLabel(),
                     error);

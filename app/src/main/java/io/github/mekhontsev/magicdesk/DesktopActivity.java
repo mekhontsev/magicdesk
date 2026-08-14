@@ -43,7 +43,7 @@ public final class DesktopActivity extends DesktopShellActivity {
             }
             if (!success) {
                 CompatibilityDiagnostics.record(
-                        "NUBIA-HOME-005",
+                        "PHONE-HOME-005",
                         "Could not protect the phone launcher before"
                                 + " starting a local desktop",
                         message);

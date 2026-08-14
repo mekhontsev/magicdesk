@@ -146,7 +146,7 @@ final class MagicDeskSessionController {
                 && PlatformDrivers.current().projection()
                         .ownsTransportLifecycle(
                                 PlatformProjectionDriver.Transport.WIRED)) {
-            return "NUBIA-CONSOLE-001";
+            return "DISPLAY-SESSION-001";
         }
         return "DISPLAY-CLOSE-001";
     }
