@@ -29,7 +29,11 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
 
     @Override
     public int activeDesktopDisplayId(final Context context) {
-        return NubiaConsoleModeController.activeDisplayId(context);
+        // Nubia publishes the target display ID before `cmd display` exposes
+        // the logical display. Input routing starts in that interval and must
+        // still recognize the native Console target; waitForDesktopDisplay()
+        // performs the stricter existence check for lifecycle callers.
+        return ConsoleModeState.activeDisplayId(context);
     }
 
     @Override
