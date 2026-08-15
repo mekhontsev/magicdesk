@@ -72,6 +72,22 @@ final class DesktopSystemActionsController {
         }
     }
 
+    void openConsole() {
+        mActivity.hideAllPanels();
+        try {
+            mActivity.launchInternalWindow(
+                    CommandConsoleActivity.createIntent(mActivity),
+                    CommandConsoleActivity.launchTarget(),
+                    mActivity.getString(R.string.console_title));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "CONSOLE-001",
+                    "Cannot open Console",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     void openSettings() {
         mActivity.hideAllPanels();
         try {

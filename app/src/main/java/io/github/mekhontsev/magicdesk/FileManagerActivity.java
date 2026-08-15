@@ -99,6 +99,10 @@ public final class FileManagerActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DesktopTaskDescription.apply(
+                this,
+                R.string.file_manager_title,
+                R.drawable.ic_desktop_folder);
         mView = new FileManagerView(this, this);
         mItemActivation = new ItemActivationPolicy(
                 MagicDeskSettings.load().openFilesWithSingleClick,
@@ -664,11 +668,10 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onOpenConsole() {
-        final String command = "cd -- "
-                + ShellCommandLine.quote(mCurrentPath) + "\npwd\n";
         try {
-            startOnCurrentDisplay(CommandConsoleActivity.createIntent(
-                    this, command));
+            startConsoleWindow(
+                    CommandConsoleActivity.createIntentAtDirectory(
+                            this, mCurrentPath));
         } catch (RuntimeException error) {
             mView.setStatus(getString(
                     R.string.file_manager_open_failed,
@@ -922,8 +925,8 @@ public final class FileManagerActivity extends Activity
             return;
         }
         try {
-            startOnCurrentDisplay(CommandConsoleActivity.createIntent(
-                    this, ShellScriptLauncher.command(file)));
+            startConsoleWindow(CommandConsoleActivity.createScriptIntent(
+                    this, file.absolutePath));
         } catch (RuntimeException error) {
             mView.setStatus(getString(
                     R.string.file_manager_open_failed,
@@ -1352,6 +1355,64 @@ public final class FileManagerActivity extends Activity
             options.setLaunchDisplayId(getDisplay().getDisplayId());
         }
         startActivity(intent, options.toBundle());
+    }
+
+    private void startConsoleWindow(final Intent intent) {
+        final int displayId = getDisplay() == null
+                ? 0 : getDisplay().getDisplayId();
+        mView.setStatus(getString(
+                R.string.status_launching_window,
+                getString(R.string.console_title)));
+        if (!ShellAccess.isReady()) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            startOnCurrentDisplay(intent);
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                List<TaskRepository.TaskEntry> visibleTasks =
+                        DesktopTaskController.getVisibleFreeformTasks(displayId);
+                if (visibleTasks == null || visibleTasks.isEmpty()) {
+                    visibleTasks = DesktopTaskController
+                            .selectVisibleFreeformTasks(
+                                    TaskRepository.loadNow(displayId));
+                }
+                WindowedAppLauncher.launchBuiltInWindow(
+                        intent,
+                        CommandConsoleActivity.launchTarget(),
+                        displayId,
+                        taskIds(visibleTasks),
+                        () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
+                                displayId,
+                                TaskRepository.loadNow(displayId)));
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        mView.setStatus(getString(
+                                R.string.status_switch_done,
+                                getString(R.string.console_title)));
+                    }
+                });
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (!mDestroyed) {
+                        mView.setStatus(getString(
+                                R.string.file_manager_open_failed,
+                                ShellAccess.usefulMessage(error)));
+                    }
+                });
+            }
+        });
+    }
+
+    private static int[] taskIds(
+            final List<TaskRepository.TaskEntry> tasks) {
+        final int[] ids = new int[tasks == null ? 0 : tasks.size()];
+        for (int index = 0; index < ids.length; index++) {
+            ids[index] = tasks.get(index).taskId;
+        }
+        return ids;
     }
 
     private void runAsync(

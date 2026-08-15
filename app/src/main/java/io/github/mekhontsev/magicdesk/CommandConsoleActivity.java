@@ -1,9 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -13,16 +14,21 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.Spannable;
+import android.text.SpannableStringBuilder;
+import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
-import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,8 +37,11 @@ import java.util.Locale;
 
 public final class CommandConsoleActivity extends Activity
         implements ShellAccess.StateListener {
-    private static final String EXTRA_INITIAL_COMMAND =
-            "io.github.mekhontsev.magicdesk.extra.CONSOLE_COMMAND";
+    private static final String EXTRA_INITIAL_DIRECTORY =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_DIRECTORY";
+    private static final String EXTRA_AUTO_RUN_COMMAND =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_AUTO_RUN";
+    private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_PANEL_ALT = 0xFF172033;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -40,46 +49,93 @@ public final class CommandConsoleActivity extends Activity
     private static final int COLOR_CYAN = 0xFF22D3EE;
     private static final int COLOR_AMBER = 0xFFF59E0B;
 
-    private EditText mScript;
+    private final ConsoleCommandHistory mHistory =
+            new ConsoleCommandHistory();
+    private final SpannableStringBuilder mTranscript =
+            new SpannableStringBuilder();
+
+    private EditText mCommand;
+    private TextView mWorkingDirectory;
     private TextView mShellStatus;
-    private TextView mExecutionStatus;
-    private TextView mOutput;
-    private Button mRun;
-    private Button mClear;
-    private Button mCopy;
+    private EditText mOutput;
+    private ImageButton mRun;
+    private ImageButton mClear;
+    private ImageButton mCopy;
+    private LinearLayout mCommandArea;
+    private LinearLayout mCommandLine;
+    private LinearLayout.LayoutParams mCommandAreaParams;
+    private ConsoleShellSession mSession;
     private ShellAccess.Snapshot mSnapshot;
-    private String mCopyText = "";
+    private String mPendingAutoRunCommand;
+    private String mExecutionStatus = "";
+    private int mExecutionStatusColor = COLOR_CYAN;
     private boolean mRunning;
-    private boolean mWarningAccepted;
 
     static Intent createIntent(final Context context) {
-        return new Intent(context, CommandConsoleActivity.class);
+        return new Intent(context, CommandConsoleActivity.class).putExtra(
+                EXTRA_INITIAL_DIRECTORY,
+                ShellDesktopDirectory.ABSOLUTE_PATH);
     }
 
-    static Intent createIntent(
-            final Context context, final String initialCommand) {
-        return createIntent(context).putExtra(
-                EXTRA_INITIAL_COMMAND,
-                initialCommand == null ? "" : initialCommand);
+    static AppLaunchTarget launchTarget() {
+        return BuiltInDesktopAppCatalog.consoleTarget();
+    }
+
+    static Intent createIntentAtDirectory(
+            final Context context, final String initialDirectory) {
+        return new Intent(context, CommandConsoleActivity.class).putExtra(
+                EXTRA_INITIAL_DIRECTORY,
+                initialDirectory);
+    }
+
+    static Intent createScriptIntent(
+            final Context context, final String absolutePath) {
+        return new Intent(context, CommandConsoleActivity.class)
+                .putExtra(
+                        EXTRA_INITIAL_DIRECTORY,
+                        ShellScriptLauncher.workingDirectory(absolutePath))
+                .putExtra(
+                        EXTRA_AUTO_RUN_COMMAND,
+                        ShellScriptLauncher.command(absolutePath));
     }
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        final String restoredDirectory = savedInstanceState == null
+                ? null : savedInstanceState.getString(STATE_WORKING_DIRECTORY);
+        mSession = new ConsoleShellSession(restoredDirectory == null
+                ? initialDirectory(getIntent()) : restoredDirectory);
+        DesktopTaskDescription.apply(
+                this,
+                R.string.console_title,
+                R.drawable.ic_file_console);
         getWindow().setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         mSnapshot = ShellAccess.currentSnapshot();
         setContentView(createContentView());
-        applyInitialCommand(getIntent());
+        applyLaunchRequest(getIntent(), savedInstanceState == null);
+        updateWorkingDirectory();
         updateShellStatus();
         updateActions();
+        maybeRunPendingCommand();
     }
 
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        applyInitialCommand(intent);
+        applyLaunchRequest(intent, true);
+        updateWorkingDirectory();
+        maybeRunPendingCommand();
+    }
+
+    @Override
+    protected void onSaveInstanceState(final Bundle state) {
+        state.putString(
+                STATE_WORKING_DIRECTORY,
+                mSession.workingDirectory());
+        super.onSaveInstanceState(state);
     }
 
     @Override
@@ -95,6 +151,14 @@ public final class CommandConsoleActivity extends Activity
     }
 
     @Override
+    public void onMultiWindowModeChanged(
+            final boolean inMultiWindowMode,
+            final Configuration newConfig) {
+        super.onMultiWindowModeChanged(inMultiWindowMode, newConfig);
+        updateTaskbarInset(inMultiWindowMode);
+    }
+
+    @Override
     public void onShellStateChanged(final ShellAccess.Snapshot snapshot) {
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) {
@@ -103,6 +167,7 @@ public final class CommandConsoleActivity extends Activity
             mSnapshot = snapshot;
             updateShellStatus();
             updateActions();
+            maybeRunPendingCommand();
         });
     }
 
@@ -112,77 +177,103 @@ public final class CommandConsoleActivity extends Activity
         final Display display = getDisplay();
         final int displayId = display == null
                 ? Display.DEFAULT_DISPLAY : display.getDisplayId();
-        final int bottomPadding = dp(16)
-                + (displayId == Display.DEFAULT_DISPLAY
-                        ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
-        page.setPadding(dp(18), dp(16), dp(18), bottomPadding);
+        page.setPadding(dp(10), dp(8), dp(10), dp(8));
         SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
         final LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        final TextView title = new TextView(this);
-        title.setText(R.string.console_title);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        final Button close = createButton(R.string.action_close, COLOR_MUTED);
-        close.setOnClickListener(view -> finish());
-        header.addView(close, new LinearLayout.LayoutParams(dp(92), dp(46)));
-        page.addView(header);
-
-        final TextView description = new TextView(this);
-        description.setText(R.string.console_description);
-        description.setTextColor(COLOR_MUTED);
-        description.setTextSize(13);
-        final LinearLayout.LayoutParams descriptionParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        descriptionParams.setMargins(0, dp(6), 0, dp(6));
-        page.addView(description, descriptionParams);
 
         mShellStatus = new TextView(this);
         mShellStatus.setTextColor(COLOR_CYAN);
-        mShellStatus.setTextSize(13);
+        mShellStatus.setTextSize(12);
         mShellStatus.setTypeface(Typeface.DEFAULT_BOLD);
-        page.addView(mShellStatus);
+        header.addView(mShellStatus, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        final TextView warning = new TextView(this);
-        warning.setText(R.string.console_warning);
-        warning.setTextColor(COLOR_AMBER);
-        warning.setTextSize(12);
-        final LinearLayout.LayoutParams warningParams =
+        mClear = createIconButton(
+                android.R.drawable.ic_menu_delete,
+                R.string.console_clear,
+                view -> clear());
+        header.addView(mClear, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        mCopy = createIconButton(
+                R.drawable.ic_file_copy,
+                R.string.console_copy_output,
+                view -> copyOutput());
+        header.addView(mCopy, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        final LinearLayout.LayoutParams headerParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        warningParams.setMargins(0, dp(3), 0, dp(10));
-        page.addView(warning, warningParams);
+        headerParams.setMargins(0, 0, 0, dp(6));
+        page.addView(header, headerParams);
 
-        final TextView commandLabel = sectionLabel(R.string.console_command);
-        page.addView(commandLabel);
+        mOutput = new EditText(this);
+        mOutput.setTextColor(COLOR_TEXT);
+        mOutput.setTextSize(12);
+        mOutput.setTypeface(Typeface.MONOSPACE);
+        mOutput.setInputType(
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        mOutput.setKeyListener(null);
+        mOutput.setTextIsSelectable(true);
+        mOutput.setCursorVisible(false);
+        mOutput.setShowSoftInputOnFocus(false);
+        mOutput.setVerticalScrollBarEnabled(true);
+        mOutput.setGravity(Gravity.TOP | Gravity.START);
+        mOutput.setPadding(dp(8), dp(6), dp(8), dp(6));
+        mOutput.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_PANEL_ALT));
+        final LinearLayout.LayoutParams outputParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
+        page.addView(mOutput, outputParams);
 
-        mScript = new EditText(this);
-        mScript.setTextColor(COLOR_TEXT);
-        mScript.setHintTextColor(COLOR_MUTED);
-        mScript.setHint(R.string.console_command_hint);
-        mScript.setTextSize(13);
-        mScript.setTypeface(Typeface.MONOSPACE);
-        mScript.setGravity(Gravity.TOP | Gravity.START);
-        mScript.setSingleLine(false);
-        mScript.setMinLines(4);
-        mScript.setMaxLines(8);
-        mScript.setInputType(
+        mCommandArea = new LinearLayout(this);
+        mCommandArea.setOrientation(LinearLayout.VERTICAL);
+
+        mWorkingDirectory = new TextView(this);
+        mWorkingDirectory.setTextColor(COLOR_CYAN);
+        mWorkingDirectory.setTextSize(11);
+        mWorkingDirectory.setTypeface(Typeface.MONOSPACE);
+        mWorkingDirectory.setSingleLine(true);
+        mWorkingDirectory.setEllipsize(TextUtils.TruncateAt.START);
+        mWorkingDirectory.setPadding(dp(4), dp(3), dp(4), dp(2));
+        mCommandArea.addView(
+                mWorkingDirectory,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        mCommandLine = new LinearLayout(this);
+        mCommandLine.setGravity(Gravity.BOTTOM);
+        final TextView prompt = new TextView(this);
+        prompt.setText(R.string.console_prompt);
+        prompt.setTextColor(COLOR_CYAN);
+        prompt.setTextSize(16);
+        prompt.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        prompt.setGravity(Gravity.CENTER);
+        mCommandLine.addView(prompt, new LinearLayout.LayoutParams(
+                dp(26), dp(44)));
+
+        mCommand = new EditText(this);
+        mCommand.setTextColor(COLOR_TEXT);
+        mCommand.setHintTextColor(COLOR_MUTED);
+        mCommand.setHint(R.string.console_command_hint);
+        mCommand.setTextSize(13);
+        mCommand.setTypeface(Typeface.MONOSPACE);
+        mCommand.setGravity(Gravity.TOP | Gravity.START);
+        mCommand.setSingleLine(false);
+        mCommand.setMinLines(1);
+        mCommand.setMaxLines(5);
+        mCommand.setInputType(
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                         | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        mScript.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI);
-        mScript.setPadding(dp(12), dp(10), dp(12), dp(10));
-        mScript.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_MUTED));
-        mScript.addTextChangedListener(new TextWatcher() {
+        mCommand.setImeOptions(
+                EditorInfo.IME_ACTION_GO | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+        mCommand.setPadding(dp(9), dp(7), dp(9), dp(7));
+        mCommand.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_MUTED));
+        mCommand.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(
                     final CharSequence text,
@@ -204,102 +295,114 @@ public final class CommandConsoleActivity extends Activity
             public void afterTextChanged(final Editable editable) {
             }
         });
-        final LinearLayout.LayoutParams scriptParams =
+        mCommand.setOnKeyListener(this::handleCommandKey);
+        mCommand.setOnEditorActionListener((view, actionId, event) -> {
+            if (event != null) {
+                return false;
+            }
+            if (actionId == EditorInfo.IME_ACTION_GO
+                    || actionId == EditorInfo.IME_ACTION_DONE
+                    || actionId == EditorInfo.IME_ACTION_SEND) {
+                requestRun();
+                return true;
+            }
+            return false;
+        });
+        final LinearLayout.LayoutParams commandParams =
+                new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        mCommandLine.addView(mCommand, commandParams);
+
+        mRun = createIconButton(
+                android.R.drawable.ic_media_play,
+                R.string.console_run,
+                view -> requestRun());
+        mCommandLine.addView(
+                mRun, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        mCommandArea.addView(
+                mCommandLine,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+        mCommandAreaParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        scriptParams.setMargins(0, dp(6), 0, dp(10));
-        page.addView(mScript, scriptParams);
-
-        final LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        mRun = createButton(R.string.console_run, COLOR_CYAN);
-        mRun.setOnClickListener(view -> requestRun());
-        actions.addView(mRun, weightedButtonParams(0));
-        mClear = createButton(R.string.console_clear, COLOR_CYAN);
-        mClear.setOnClickListener(view -> clear());
-        actions.addView(mClear, weightedButtonParams(dp(8)));
-        mCopy = createButton(R.string.console_copy_output, COLOR_CYAN);
-        mCopy.setOnClickListener(view -> copyOutput());
-        actions.addView(mCopy, weightedButtonParams(dp(8)));
-        page.addView(actions, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
-
-        mExecutionStatus = new TextView(this);
-        mExecutionStatus.setText(R.string.console_idle);
-        mExecutionStatus.setTextColor(COLOR_CYAN);
-        mExecutionStatus.setTextSize(13);
-        mExecutionStatus.setTypeface(Typeface.DEFAULT_BOLD);
-        final LinearLayout.LayoutParams executionParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        executionParams.setMargins(0, dp(10), 0, dp(6));
-        page.addView(mExecutionStatus, executionParams);
-
-        final ScrollView outputScroll = new ScrollView(this);
-        outputScroll.setFillViewport(true);
-        mOutput = new TextView(this);
-        mOutput.setText(R.string.console_no_output);
-        mOutput.setTextColor(COLOR_TEXT);
-        mOutput.setTextSize(11);
-        mOutput.setTypeface(Typeface.MONOSPACE);
-        mOutput.setTextIsSelectable(true);
-        mOutput.setPadding(dp(12), dp(10), dp(12), dp(10));
-        mOutput.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_PANEL_ALT));
-        outputScroll.addView(mOutput, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        final LinearLayout.LayoutParams outputParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        page.addView(outputScroll, outputParams);
+        mCommandAreaParams.setMargins(
+                0,
+                dp(6),
+                0,
+                displayId != Display.DEFAULT_DISPLAY
+                                && !isInMultiWindowMode()
+                        ? dp(DesktopShellActivity.TASKBAR_HEIGHT_DP) : 0);
+        page.addView(mCommandArea, mCommandAreaParams);
         return page;
     }
 
     private void requestRun() {
-        final String command = mScript.getText().toString();
+        final String command = mCommand.getText().toString();
         if (command.trim().isEmpty() || mRunning
                 || mSnapshot == null || !mSnapshot.isReady()) {
             return;
         }
-        if (mWarningAccepted) {
-            execute(command);
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.console_warning_title)
-                .setMessage(R.string.console_warning_dialog)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.console_run, (dialog, which) -> {
-                    mWarningAccepted = true;
-                    execute(command);
-                })
-                .show();
+        execute(command);
     }
 
-    private void applyInitialCommand(final Intent intent) {
-        if (mScript == null || intent == null) {
+    private static String initialDirectory(final Intent intent) {
+        if (intent == null) {
+            return ShellDesktopDirectory.ABSOLUTE_PATH;
+        }
+        final String directory = intent.getStringExtra(EXTRA_INITIAL_DIRECTORY);
+        return directory == null || directory.isEmpty()
+                ? ShellDesktopDirectory.ABSOLUTE_PATH : directory;
+    }
+
+    private void applyLaunchRequest(
+            final Intent intent, final boolean applyDirectory) {
+        if (intent == null) {
             return;
         }
-        final String command = intent.getStringExtra(EXTRA_INITIAL_COMMAND);
-        if (command != null && command.length() > 0) {
-            mScript.setText(command);
-            mScript.setSelection(mScript.length());
+        if (applyDirectory && intent.hasExtra(EXTRA_INITIAL_DIRECTORY)) {
+            final String directory = intent.getStringExtra(
+                    EXTRA_INITIAL_DIRECTORY);
+            if (directory != null && !directory.isEmpty()) {
+                mSession.setWorkingDirectory(directory);
+            }
         }
+        final String autoRun = intent.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
+        intent.removeExtra(EXTRA_AUTO_RUN_COMMAND);
+        if (autoRun != null && !autoRun.trim().isEmpty()) {
+            mPendingAutoRunCommand = autoRun;
+        }
+    }
+
+    private void maybeRunPendingCommand() {
+        if (mPendingAutoRunCommand == null
+                || mPendingAutoRunCommand.isEmpty()
+                || mRunning
+                || mSnapshot == null
+                || !mSnapshot.isReady()) {
+            return;
+        }
+        final String command = mPendingAutoRunCommand;
+        mPendingAutoRunCommand = null;
+        execute(command);
     }
 
     private void execute(final String command) {
         mRunning = true;
-        mCopyText = "";
-        mExecutionStatus.setText(R.string.console_running);
-        mOutput.setText(R.string.console_running_output);
+        mHistory.record(command);
+        appendCommand(command);
+        mCommand.setText("");
+        mExecutionStatus = getString(R.string.console_running);
+        mExecutionStatusColor = COLOR_CYAN;
+        updateShellStatus();
         updateActions();
         final long started = SystemClock.elapsedRealtime();
         new Thread(() -> {
             try {
-                final ShellAccess.CommandResult result =
-                        ShellAccess.executeForConsole(command);
+                final ConsoleShellSession.ExecutionResult result =
+                        mSession.execute(command);
                 final long duration = SystemClock.elapsedRealtime() - started;
                 runOnUiThread(() -> showResult(result, duration));
             } catch (IOException | RuntimeException error) {
@@ -310,7 +413,7 @@ public final class CommandConsoleActivity extends Activity
     }
 
     private void showResult(
-            final ShellAccess.CommandResult result,
+            final ConsoleShellSession.ExecutionResult result,
             final long durationMillis) {
         if (isFinishing() || isDestroyed()) {
             return;
@@ -320,15 +423,16 @@ public final class CommandConsoleActivity extends Activity
                 Integer.valueOf(result.exitCode),
                 formatDuration(durationMillis));
         final String output = result.output.isEmpty()
-                ? getString(R.string.console_no_output)
-                : result.output;
-        mExecutionStatus.setText(status);
-        mExecutionStatus.setTextColor(
-                result.exitCode == 0 ? COLOR_CYAN : COLOR_AMBER);
-        mOutput.setText(output);
-        mCopyText = status + "\n" + output;
+                ? "" : result.output;
+        appendResult(output, result.exitCode == 0 ? COLOR_TEXT : COLOR_AMBER);
+        mExecutionStatus = status;
+        mExecutionStatusColor = result.exitCode == 0 ? COLOR_CYAN : COLOR_AMBER;
         mRunning = false;
+        updateWorkingDirectory();
+        updateShellStatus();
         updateActions();
+        mCommand.requestFocus();
+        maybeRunPendingCommand();
     }
 
     private void showFailure(final Throwable error, final long durationMillis) {
@@ -339,25 +443,26 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_failed,
                 formatDuration(durationMillis));
         final String output = ShellAccess.usefulMessage(error);
-        mExecutionStatus.setText(status);
-        mExecutionStatus.setTextColor(COLOR_AMBER);
-        mOutput.setText(output);
-        mCopyText = status + "\n" + output;
+        appendResult(output, COLOR_AMBER);
+        mExecutionStatus = status;
+        mExecutionStatusColor = COLOR_AMBER;
         mRunning = false;
+        updateShellStatus();
         updateActions();
+        mCommand.requestFocus();
     }
 
     private void clear() {
-        mScript.setText("");
-        mOutput.setText(R.string.console_no_output);
-        mExecutionStatus.setText(R.string.console_idle);
-        mExecutionStatus.setTextColor(COLOR_CYAN);
-        mCopyText = "";
+        mTranscript.clear();
+        mOutput.setText(mTranscript);
+        mExecutionStatus = getString(R.string.console_idle);
+        mExecutionStatusColor = COLOR_CYAN;
+        updateShellStatus();
         updateActions();
     }
 
     private void copyOutput() {
-        if (mCopyText.isEmpty()) {
+        if (mTranscript.length() == 0) {
             return;
         }
         final ClipboardManager clipboard = getSystemService(ClipboardManager.class);
@@ -367,7 +472,8 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         clipboard.setPrimaryClip(
-                ClipData.newPlainText("MagicDesk console output", mCopyText));
+                ClipData.newPlainText(
+                        "MagicDesk console output", mTranscript.toString()));
         Toast.makeText(this, R.string.console_copied, Toast.LENGTH_SHORT).show();
     }
 
@@ -376,12 +482,14 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         if (mSnapshot.isReady()) {
-            mShellStatus.setText(getString(
+            final String shell = getString(
                     mSnapshot.uid == ShellAccess.ROOT_UID
                             ? R.string.console_shell_root
                             : R.string.console_shell_adb,
-                    Integer.valueOf(mSnapshot.uid)));
-            mShellStatus.setTextColor(COLOR_CYAN);
+                    Integer.valueOf(mSnapshot.uid));
+            mShellStatus.setText(mExecutionStatus.isEmpty()
+                    ? shell : shell + "  |  " + mExecutionStatus);
+            mShellStatus.setTextColor(mExecutionStatusColor);
             return;
         }
         mShellStatus.setText(getString(
@@ -392,45 +500,146 @@ public final class CommandConsoleActivity extends Activity
         mShellStatus.setTextColor(COLOR_AMBER);
     }
 
+    private void updateWorkingDirectory() {
+        if (mWorkingDirectory != null && mSession != null) {
+            mWorkingDirectory.setText(mSession.workingDirectory());
+        }
+    }
+
     private void updateActions() {
-        if (mRun == null || mScript == null) {
+        if (mRun == null || mCommand == null) {
             return;
         }
         final boolean ready = mSnapshot != null && mSnapshot.isReady();
         mRun.setEnabled(!mRunning
                 && ready
-                && !mScript.getText().toString().trim().isEmpty());
+                && !mCommand.getText().toString().trim().isEmpty());
         mClear.setEnabled(!mRunning);
-        mCopy.setEnabled(!mRunning && !mCopyText.isEmpty());
-        mScript.setEnabled(!mRunning);
+        mCopy.setEnabled(!mRunning && mTranscript.length() > 0);
+        mCommand.setEnabled(ready);
     }
 
-    private TextView sectionLabel(final int textResId) {
-        final TextView label = new TextView(this);
-        label.setText(textResId);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(13);
-        label.setTypeface(Typeface.DEFAULT_BOLD);
-        return label;
+    private boolean handleCommandKey(
+            final View view, final int keyCode, final KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_ENTER) {
+            if (event.isShiftPressed()) {
+                return false;
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN
+                    && event.getRepeatCount() == 0) {
+                requestRun();
+            }
+            return true;
+        }
+        if (event.getAction() != KeyEvent.ACTION_DOWN
+                || !event.hasNoModifiers()) {
+            return false;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                && shouldNavigatePrevious()) {
+            return showHistoryEntry(mHistory.previous(
+                    mCommand.getText().toString()));
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                && shouldNavigateNext()) {
+            return showHistoryEntry(mHistory.next());
+        }
+        return false;
     }
 
-    private LinearLayout.LayoutParams weightedButtonParams(final int leftMargin) {
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
-        params.setMargins(leftMargin, 0, 0, 0);
-        return params;
+    private boolean shouldNavigatePrevious() {
+        return mCommand.getText().toString().indexOf('\n') < 0
+                || (mCommand.getSelectionStart() == 0
+                        && mCommand.getSelectionEnd() == 0);
     }
 
-    private Button createButton(final int textResId, final int accentColor) {
-        final Button button = new Button(this);
-        button.setText(textResId);
-        button.setAllCaps(false);
-        button.setSingleLine(true);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(12);
-        button.setPadding(dp(6), dp(4), dp(6), dp(4));
-        button.setBackground(rounded(COLOR_PANEL_ALT, dp(6), accentColor));
+    private boolean shouldNavigateNext() {
+        return mCommand.getText().toString().indexOf('\n') < 0
+                || (mCommand.getSelectionStart() == mCommand.length()
+                        && mCommand.getSelectionEnd() == mCommand.length());
+    }
+
+    private boolean showHistoryEntry(final String command) {
+        if (command == null) {
+            return false;
+        }
+        mCommand.setText(command);
+        mCommand.setSelection(mCommand.length());
+        return true;
+    }
+
+    private void appendCommand(final String command) {
+        if (mTranscript.length() > 0) {
+            mTranscript.append('\n');
+        }
+        final int start = mTranscript.length();
+        mTranscript.append(mSession.workingDirectory());
+        mTranscript.append(' ');
+        mTranscript.append(getString(R.string.console_prompt));
+        mTranscript.append(' ');
+        mTranscript.append(command.replace("\n", "\n> "));
+        mTranscript.append('\n');
+        mTranscript.setSpan(
+                new ForegroundColorSpan(COLOR_CYAN),
+                start,
+                mTranscript.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        showTranscript();
+    }
+
+    private void appendResult(final String output, final int color) {
+        if (!output.isEmpty()) {
+            final int start = mTranscript.length();
+            mTranscript.append(output);
+            if (mTranscript.charAt(mTranscript.length() - 1) != '\n') {
+                mTranscript.append('\n');
+            }
+            mTranscript.setSpan(
+                    new ForegroundColorSpan(color),
+                    start,
+                    mTranscript.length(),
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        showTranscript();
+    }
+
+    private void showTranscript() {
+        mOutput.setText(mTranscript);
+        mOutput.post(() -> mOutput.setSelection(mOutput.length()));
+    }
+
+    private void updateTaskbarInset(final boolean inMultiWindowMode) {
+        if (mCommandAreaParams == null) {
+            return;
+        }
+        final Display display = getDisplay();
+        mCommandAreaParams.bottomMargin = display != null
+                        && display.getDisplayId() != Display.DEFAULT_DISPLAY
+                        && !inMultiWindowMode
+                ? dp(DesktopShellActivity.TASKBAR_HEIGHT_DP) : 0;
+        if (mCommandArea != null) {
+            mCommandArea.setLayoutParams(mCommandAreaParams);
+        }
+    }
+
+    private ImageButton createIconButton(
+            final int drawableResId,
+            final int descriptionResId,
+            final View.OnClickListener listener) {
+        final ImageButton button = new ImageButton(this);
+        button.setImageResource(drawableResId);
+        button.setImageTintList(new ColorStateList(
+                new int[][]{
+                    new int[]{-android.R.attr.state_enabled},
+                    new int[0]
+                },
+                new int[]{COLOR_MUTED, COLOR_TEXT}));
+        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        button.setPadding(dp(10), dp(10), dp(10), dp(10));
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setContentDescription(getString(descriptionResId));
+        button.setTooltipText(getString(descriptionResId));
+        button.setOnClickListener(listener);
         return button;
     }
 

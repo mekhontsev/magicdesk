@@ -40,7 +40,6 @@ public final class DiagnosticsActivity extends Activity {
     private Button mRefresh;
     private Button mCopy;
     private Button mShare;
-    private Button mConsole;
     private Button mSelfTest;
     private String mReport = "";
     private boolean mLoading;
@@ -161,15 +160,6 @@ public final class DiagnosticsActivity extends Activity {
         actions.addView(mShare, weightedButtonParams(dp(8)));
         page.addView(actions, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
-
-        mConsole = createButton(R.string.console_title, COLOR_CYAN);
-        mConsole.setOnClickListener(view ->
-                startActivity(CommandConsoleActivity.createIntent(this)));
-        final LinearLayout.LayoutParams consoleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
-        consoleParams.setMargins(0, dp(8), 0, 0);
-        page.addView(mConsole, consoleParams);
 
         mSelfTest = createButton(
                 R.string.diagnostics_self_test, COLOR_AMBER);
@@ -604,7 +594,6 @@ public final class DiagnosticsActivity extends Activity {
         mRefresh.setEnabled(enabled);
         mCopy.setEnabled(enabled);
         mShare.setEnabled(enabled);
-        mConsole.setEnabled(enabled);
         mSelfTest.setEnabled(enabled && ShellAccess.isReady());
     }
 

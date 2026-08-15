@@ -22,6 +22,10 @@ public final class SettingsActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DesktopTaskDescription.apply(
+                this,
+                R.string.settings_title,
+                R.mipmap.ic_launcher);
         mView = new SettingsView(this, this);
         setContentView(mView.create());
         render();

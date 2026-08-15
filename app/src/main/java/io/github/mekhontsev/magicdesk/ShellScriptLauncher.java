@@ -35,11 +35,11 @@ final class ShellScriptLauncher {
     }
 
     static String command(final String absolutePath) {
+        return "/system/bin/sh -- " + ShellCommandLine.quote(absolutePath);
+    }
+
+    static String workingDirectory(final String absolutePath) {
         final int separator = absolutePath.lastIndexOf('/');
-        final String parent = separator <= 0
-                ? "/" : absolutePath.substring(0, separator);
-        return "cd -- " + ShellCommandLine.quote(parent)
-                + "\n/system/bin/sh -- "
-                + ShellCommandLine.quote(absolutePath);
+        return separator <= 0 ? "/" : absolutePath.substring(0, separator);
     }
 }

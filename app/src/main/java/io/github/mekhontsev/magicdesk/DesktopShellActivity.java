@@ -1349,6 +1349,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openSettings();
     }
 
+    void openConsole() {
+        mSystemActions.openConsole();
+    }
+
     void launchInternalWindow(
             final android.content.Intent intent,
             final AppLaunchTarget target,

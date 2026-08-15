@@ -432,9 +432,9 @@ final class DesktopWorkspaceController {
     }
 
     void runScript(final DesktopFile file) {
-        final Intent intent = CommandConsoleActivity.createIntent(
+        final Intent intent = CommandConsoleActivity.createScriptIntent(
                 mActivity,
-                ShellScriptLauncher.command(desktopAbsolutePath(file)));
+                desktopAbsolutePath(file));
         openFiles(intent, desktopAbsolutePath(file));
     }
 

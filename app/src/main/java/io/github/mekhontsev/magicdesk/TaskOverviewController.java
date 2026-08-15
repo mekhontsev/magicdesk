@@ -141,7 +141,7 @@ final class TaskOverviewController {
         grid.setColumnCount(columns);
         for (final TaskRepository.TaskEntry task : tasks) {
             final AppItem app = mActivity.findOrLoadApp(
-                    mActivity.getLauncherApps(), task.packageName);
+                    mActivity.getLauncherApps(), task);
             if (app == null) {
                 continue;
             }

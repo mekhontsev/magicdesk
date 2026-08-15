@@ -85,12 +85,19 @@ final class AppTaskController {
             final AppLaunchTarget launchTarget,
             final String label) {
         final int displayId = mActivity.getCurrentDisplayId();
+        final boolean multipleWindows =
+                BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget);
         if (!canControlWindowing()) {
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (multipleWindows) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            } else {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            }
             mActivity.startActivity(launchIntent, options.toBundle());
             return;
         }
@@ -102,15 +109,11 @@ final class AppTaskController {
                 takeInteractionVisibleTasks();
         TaskCommandQueue.execute(() -> {
             try {
-                WindowedAppLauncher.launch(
+                WindowedAppLauncher.launchBuiltInWindow(
                         launchIntent,
                         launchTarget,
                         displayId,
                         getTaskIds(visibleTasks),
-                        true,
-                        BuiltInDesktopAppCatalog.defaultWindowBounds(
-                                launchTarget),
-                        WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
                         () -> publishConfirmedLaunchSnapshot(displayId));
                 mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {

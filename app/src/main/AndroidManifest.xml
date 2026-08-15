@@ -157,10 +157,12 @@
 
         <activity
             android:name=".CommandConsoleActivity"
-            android:exported="false"
+            android:exported="true"
+            android:icon="@drawable/ic_file_console"
             android:label="@string/console_title"
-            android:launchMode="singleTop"
-            android:resizeableActivity="true" />
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.console" />
 
         <activity
             android:name=".MagicDeskTouchpadActivity"

@@ -22,6 +22,25 @@ final class WindowedAppLauncher {
     private WindowedAppLauncher() {
     }
 
+    static void launchBuiltInWindow(
+            final Intent launchIntent,
+            final AppLaunchTarget launchTarget,
+            final int displayId,
+            final int[] preservedTaskIds,
+            final TaskReadyCallback taskReadyCallback) throws IOException {
+        launch(
+                launchIntent,
+                launchTarget,
+                displayId,
+                preservedTaskIds,
+                true,
+                BuiltInDesktopAppCatalog.defaultWindowBounds(launchTarget),
+                BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget)
+                        ? TaskReusePolicy.CREATE_NEW
+                        : TaskReusePolicy.REUSE_EXISTING,
+                taskReadyCallback);
+    }
+
     static void launch(
             final Intent launchIntent,
             final AppLaunchTarget launchTarget,

@@ -131,7 +131,7 @@ final class AltTabController {
         final TaskRepository.TaskEntry target =
                 mTasks.get(mSelectedIndex);
         final AppItem app = mActivity.findOrLoadApp(
-                mActivity.getLauncherApps(), target.packageName);
+                mActivity.getLauncherApps(), target);
         reset();
         mActivity.hideAllPanels();
         if (app == null) {

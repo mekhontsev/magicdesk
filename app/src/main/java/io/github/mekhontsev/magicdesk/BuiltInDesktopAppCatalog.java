@@ -59,8 +59,19 @@ final class BuiltInDesktopAppCatalog {
             false,
             false,
             new RelativeWindowBounds(5000, 5000, 4500, 8000));
+    private static final Entry CONSOLE = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    CommandConsoleActivity.class.getName(),
+                    ""),
+            R.string.console_title,
+            false,
+            true,
+            false,
+            false,
+            new RelativeWindowBounds(5000, 5000, 4800, 7600));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
-            Arrays.asList(FILES, SETTINGS));
+            Arrays.asList(FILES, SETTINGS, CONSOLE));
 
     private BuiltInDesktopAppCatalog() {
     }
@@ -71,6 +82,10 @@ final class BuiltInDesktopAppCatalog {
 
     static AppLaunchTarget settingsTarget() {
         return SETTINGS.launchTarget;
+    }
+
+    static AppLaunchTarget consoleTarget() {
+        return CONSOLE.launchTarget;
     }
 
     static List<Entry> launcherEntries() {

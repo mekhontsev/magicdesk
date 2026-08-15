@@ -177,6 +177,13 @@ final class DesktopControlsController {
                 mActivity.openDiagnostics());
         addActionButton(actionGrid, diagnostics);
 
+        final Button console = mUi.actionButton(
+                R.string.console_title,
+                DesktopUiFactory.COLOR_CYAN);
+        console.setOnClickListener(view ->
+                mActivity.openConsole());
+        addActionButton(actionGrid, console);
+
         final Button settings = mUi.actionButton(
                 R.string.action_settings,
                 DesktopUiFactory.COLOR_CYAN);

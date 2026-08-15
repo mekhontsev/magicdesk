@@ -39,15 +39,17 @@ public final class ShellCommandLineTest {
     }
 
     @Test
-    public void shellScriptIsPreparedForConsoleWithoutAutoExecution() {
+    public void shellScriptSeparatesWorkingDirectoryFromCommand() {
         final ShellFileInfo script = file(
                 "Dmitry's script.sh", "application/octet-stream", false);
 
         assertTrue(ShellScriptLauncher.supports(script));
         assertEquals(
-                "cd -- '/tmp'\n/system/bin/sh -- "
-                        + "'/tmp/Dmitry'\"'\"'s script.sh'",
+                "/system/bin/sh -- '/tmp/Dmitry'\"'\"'s script.sh'",
                 ShellScriptLauncher.command(script));
+        assertEquals(
+                "/tmp",
+                ShellScriptLauncher.workingDirectory(script.absolutePath));
         assertFalse(ShellScriptLauncher.supports(file(
                 "script.txt", "text/plain", false)));
     }
