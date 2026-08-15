@@ -229,6 +229,18 @@ final class DesktopFolderController {
     void importFiles(
             final List<Uri> uris,
             final DragAndDropPermissions permissions) {
+        importFiles(
+                uris,
+                permissions,
+                ShellDesktopDirectory.ABSOLUTE_PATH,
+                null);
+    }
+
+    void importFiles(
+            final List<Uri> uris,
+            final DragAndDropPermissions permissions,
+            final String destination,
+            final String destinationLabel) {
         if (mReleased || uris == null || uris.isEmpty()) {
             releasePermissions(permissions);
             return;
@@ -236,7 +248,7 @@ final class DesktopFolderController {
         mExecutor.execute(() -> {
             DesktopFileRepository.ImportResult result;
             try {
-                result = mFilesRepository.importFiles(uris);
+                result = mFilesRepository.importFiles(uris, destination);
             } catch (IOException | RuntimeException error) {
                 result = new DesktopFileRepository.ImportResult(
                         0, uris.size(), error);
@@ -244,7 +256,8 @@ final class DesktopFolderController {
                 releasePermissions(permissions);
             }
             final DesktopFileRepository.ImportResult completed = result;
-            mHandler.post(() -> onImportCompleted(uris.size(), completed));
+            mHandler.post(() -> onImportCompleted(
+                    uris.size(), completed, destinationLabel));
         });
     }
 
@@ -257,6 +270,28 @@ final class DesktopFolderController {
             final List<String> paths,
             final boolean copy,
             final long clipboardGeneration) {
+        transferPaths(
+                paths,
+                copy,
+                clipboardGeneration,
+                ShellDesktopDirectory.ABSOLUTE_PATH,
+                null);
+    }
+
+    void transferPaths(
+            final List<String> paths,
+            final boolean copy,
+            final String destination,
+            final String destinationLabel) {
+        transferPaths(paths, copy, -1L, destination, destinationLabel);
+    }
+
+    private void transferPaths(
+            final List<String> paths,
+            final boolean copy,
+            final long clipboardGeneration,
+            final String destination,
+            final String destinationLabel) {
         if (mReleased || paths == null || paths.isEmpty()) {
             return;
         }
@@ -281,6 +316,7 @@ final class DesktopFolderController {
                                 paths.size(),
                                 copy,
                                 clipboardGeneration,
+                                destinationLabel,
                                 successful,
                                 message));
                     }
@@ -292,7 +328,7 @@ final class DesktopFolderController {
                                 ? ShellFileSystem.OPERATION_COPY
                                 : ShellFileSystem.OPERATION_MOVE,
                         paths.toArray(new String[0]),
-                        ShellDesktopDirectory.ABSOLUTE_PATH,
+                        destination,
                         callback,
                         mFileOperationOwner);
             } catch (IOException | RuntimeException error) {
@@ -451,15 +487,22 @@ final class DesktopFolderController {
 
     private void onImportCompleted(
             final int requested,
-            final DesktopFileRepository.ImportResult result) {
+            final DesktopFileRepository.ImportResult result,
+            final String destinationLabel) {
         if (mReleased) {
             return;
         }
         if (result.failed == 0) {
-            mActivity.setStatus(mActivity.getResources().getQuantityString(
-                    R.plurals.status_desktop_files_copied,
-                    result.copied,
-                    Integer.valueOf(result.copied)));
+            mActivity.setStatus(destinationLabel == null
+                    ? mActivity.getResources().getQuantityString(
+                            R.plurals.status_desktop_files_copied,
+                            result.copied,
+                            Integer.valueOf(result.copied))
+                    : mActivity.getResources().getQuantityString(
+                            R.plurals.status_shortcut_files_copied,
+                            result.copied,
+                            Integer.valueOf(result.copied),
+                            destinationLabel));
         } else {
             final Throwable error = result.firstFailure == null
                     ? new IOException("dropped file could not be copied")
@@ -488,6 +531,7 @@ final class DesktopFolderController {
             final int count,
             final boolean copy,
             final long clipboardGeneration,
+            final String destinationLabel,
             final boolean successful,
             final String message) {
         if (mReleased) {
@@ -500,12 +544,22 @@ final class DesktopFolderController {
         if (!copy && clipboardGeneration >= 0L) {
             FileManagerClipboard.clearIfGeneration(clipboardGeneration);
         }
-        mActivity.setStatus(mActivity.getResources().getQuantityString(
-                copy
-                        ? R.plurals.status_desktop_items_copied
-                        : R.plurals.status_desktop_items_moved,
-                count,
-                Integer.valueOf(count)));
+        if (destinationLabel == null) {
+            mActivity.setStatus(mActivity.getResources().getQuantityString(
+                    copy
+                            ? R.plurals.status_desktop_items_copied
+                            : R.plurals.status_desktop_items_moved,
+                    count,
+                    Integer.valueOf(count)));
+        } else {
+            mActivity.setStatus(mActivity.getResources().getQuantityString(
+                    copy
+                            ? R.plurals.status_shortcut_items_copied
+                            : R.plurals.status_shortcut_items_moved,
+                    count,
+                    Integer.valueOf(count),
+                    destinationLabel));
+        }
         refresh(true, mThumbnailLimit);
     }
 

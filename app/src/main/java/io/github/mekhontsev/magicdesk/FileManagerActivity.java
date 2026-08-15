@@ -57,6 +57,8 @@ public final class FileManagerActivity extends Activity
     private final Map<String, ShellFileInfo> mSelected =
             new LinkedHashMap<>();
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
+    private final Map<String, DesktopFolderShortcut> mFolderShortcuts =
+            new LinkedHashMap<>();
     private final Set<Integer> mHeldModifierKeys = new HashSet<>();
 
     private FileManagerView mView;
@@ -368,8 +370,23 @@ public final class FileManagerActivity extends Activity
     private void onOpen(final ShellFileInfo file) {
         if (file.directory) {
             loadDirectory(file.absolutePath, true, -1);
+        } else if (file.name.toLowerCase(Locale.ROOT).endsWith(".desktop")) {
+            openDesktopEntry(file);
         } else {
             openFile(file, false);
+        }
+    }
+
+    private void openDesktopEntry(final ShellFileInfo file) {
+        final DesktopFolderShortcut shortcut =
+                mFolderShortcuts.get(file.absolutePath);
+        if (shortcut == null) {
+            openFile(file, false);
+        } else if (!shortcut.available) {
+            mView.setStatus(getString(
+                    R.string.desktop_shortcut_unavailable));
+        } else {
+            loadDirectory(shortcut.targetPath, true, -1);
         }
     }
 
@@ -432,6 +449,11 @@ public final class FileManagerActivity extends Activity
             @Override
             public void setWallpaper() {
                 onItemSetWallpaper(file);
+            }
+
+            @Override
+            public void createDesktopShortcut() {
+                onItemCreateDesktopShortcut(file);
             }
 
             @Override
@@ -514,9 +536,9 @@ public final class FileManagerActivity extends Activity
     @Override
     public boolean onDrop(
             final DragEvent event,
-            final ShellFileInfo destination) {
-        final String destinationPath = destination == null
-                ? mCurrentPath : destination.absolutePath;
+            final String requestedDestinationPath) {
+        final String destinationPath = requestedDestinationPath == null
+                ? mCurrentPath : requestedDestinationPath;
         final FileDragPayload payload = FileDragPayload.from(event);
         if (payload != null) {
             final List<String> paths =
@@ -974,6 +996,18 @@ public final class FileManagerActivity extends Activity
         });
     }
 
+    public void onItemCreateDesktopShortcut(final ShellFileInfo file) {
+        if (file == null || !file.directory) {
+            return;
+        }
+        runAsync(
+                () -> DesktopFolderShortcutFile.create(file),
+                R.string.file_manager_desktop_shortcut_failed,
+                () -> mView.setStatus(getString(
+                        R.string.file_manager_desktop_shortcut_created,
+                        file.name)));
+    }
+
     private void loadDirectory(
             final String requestedPath,
             final boolean addHistory,
@@ -996,6 +1030,8 @@ public final class FileManagerActivity extends Activity
         mWorker.execute(() -> {
             try {
                 final List<ShellFileInfo> loaded = new ArrayList<>();
+                final Map<String, DesktopFolderShortcut> shortcuts =
+                        new LinkedHashMap<>();
                 int offset = 0;
                 ShellFilePage page;
                 do {
@@ -1008,6 +1044,11 @@ public final class FileManagerActivity extends Activity
                             mSortAscending);
                     for (final ShellFileInfo entry : page.entries) {
                         loaded.add(entry);
+                        final DesktopFolderShortcut shortcut =
+                                DesktopFolderShortcutFile.read(entry);
+                        if (shortcut != null) {
+                            shortcuts.put(entry.absolutePath, shortcut);
+                        }
                     }
                     offset = page.nextOffset;
                 } while (!page.complete && generation == mLoadGeneration.get());
@@ -1020,6 +1061,8 @@ public final class FileManagerActivity extends Activity
                     mCurrentPath = canonicalPath;
                     mFiles.clear();
                     mFiles.addAll(loaded);
+                    mFolderShortcuts.clear();
+                    mFolderShortcuts.putAll(shortcuts);
                     mSelected.clear();
                     mSelectionAnchorPath = null;
                     if (addHistory) {
@@ -1048,7 +1091,8 @@ public final class FileManagerActivity extends Activity
                             && generation == mLoadGeneration.get()) {
                         mView.setFiles(
                                 new ArrayList<>(),
-                                new HashSet<>());
+                                new HashSet<>(),
+                                new LinkedHashMap<>());
                         mView.setStatus(getString(
                                 R.string.file_manager_load_failed,
                                 ShellAccess.usefulMessage(error)));
@@ -1061,7 +1105,8 @@ public final class FileManagerActivity extends Activity
     private void renderFiles() {
         final List<ShellFileInfo> visible = visibleFiles();
         mView.setPath(mCurrentPath);
-        mView.setFiles(visible, mSelected.keySet());
+        mView.setFiles(
+                visible, mSelected.keySet(), mFolderShortcuts);
         mView.setNavigationEnabled(
                 mHistoryIndex > 0,
                 mHistoryIndex + 1 < mHistory.size(),

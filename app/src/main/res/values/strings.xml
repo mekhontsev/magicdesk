@@ -83,6 +83,11 @@
     <string name="file_manager_install_failed">APK installation failed: %1$s</string>
     <string name="file_manager_run_script">Run in Console</string>
     <string name="file_manager_set_wallpaper">Set as desktop wallpaper</string>
+    <string name="file_manager_create_desktop_shortcut">Create desktop shortcut</string>
+    <string name="file_manager_desktop_shortcut_created">Desktop shortcut created for %1$s</string>
+    <string name="file_manager_desktop_shortcut_failed">Cannot create desktop shortcut: %1$s</string>
+    <string name="desktop_shortcut_unavailable">Shortcut target is unavailable</string>
+    <string name="desktop_shortcut_target">Shortcut target: %1$s</string>
     <string name="file_manager_setting_wallpaper">Setting desktop wallpaper&#8230;</string>
     <string name="file_manager_terminal">Terminal here</string>
     <string name="file_manager_console">Console here</string>
@@ -279,6 +284,18 @@
         <item quantity="one">%1$d item moved to Desktop</item>
         <item quantity="other">%1$d items moved to Desktop</item>
     </plurals>
+    <plurals name="status_shortcut_files_copied">
+        <item quantity="one">%1$d file copied to %2$s</item>
+        <item quantity="other">%1$d files copied to %2$s</item>
+    </plurals>
+    <plurals name="status_shortcut_items_copied">
+        <item quantity="one">%1$d item copied to %2$s</item>
+        <item quantity="other">%1$d items copied to %2$s</item>
+    </plurals>
+    <plurals name="status_shortcut_items_moved">
+        <item quantity="one">%1$d item moved to %2$s</item>
+        <item quantity="other">%1$d items moved to %2$s</item>
+    </plurals>
     <string name="status_desktop_entry_created">%1$s created</string>
     <string name="status_desktop_entry_renamed">Renamed to %1$s</string>
     <string name="status_desktop_entry_deleted">%1$s deleted</string>
@@ -292,6 +309,7 @@
     <string name="delete_desktop_entry_title">Delete from Desktop?</string>
     <string name="delete_desktop_file_message">Delete %1$s permanently?</string>
     <string name="delete_desktop_folder_message">Delete %1$s and everything inside it permanently?</string>
+    <string name="delete_desktop_shortcut_message">Delete the %1$s shortcut? The target folder and its contents will not be changed.</string>
     <string name="status_widgets_unavailable">Android widgets are unavailable</string>
     <string name="status_desktop_wallpaper_changed">Desktop wallpaper changed</string>
     <string name="status_system_wallpaper_restored">Using system wallpaper</string>

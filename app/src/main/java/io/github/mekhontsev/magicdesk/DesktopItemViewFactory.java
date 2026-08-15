@@ -45,7 +45,13 @@ final class DesktopItemViewFactory {
         icon.setScaleType(file.thumbnail == null
                 ? ImageView.ScaleType.CENTER_INSIDE
                 : ImageView.ScaleType.CENTER_CROP);
-        if (file.thumbnail != null) {
+        if (file.folderShortcut != null) {
+            icon.setImageResource(R.drawable.ic_desktop_folder_link);
+            if (!file.folderShortcut.available) {
+                icon.setAlpha(0.55f);
+                item.setAlpha(0.72f);
+            }
+        } else if (file.thumbnail != null) {
             icon.setImageBitmap(file.thumbnail);
             icon.setBackground(mUi.rounded(
                     0x66111827,
@@ -57,9 +63,9 @@ final class DesktopItemViewFactory {
             icon.setImageResource(FileIconResolver.forFile(
                     file.directory, file.mimeType));
         }
-        icon.setContentDescription(file.name);
+        icon.setContentDescription(file.displayName());
         item.addView(icon, iconParams());
-        addLabel(item, file.name);
+        addLabel(item, file.displayName());
         return item;
     }
 

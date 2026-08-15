@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
@@ -332,6 +331,10 @@ final class DesktopWorkspaceController {
     }
 
     void openFile(final DesktopFile file) {
+        if (file.folderShortcut != null) {
+            openFolderShortcut(file.folderShortcut);
+            return;
+        }
         if (file.directory) {
             openDirectory(file.relativePath);
             return;
@@ -418,12 +421,22 @@ final class DesktopWorkspaceController {
             return;
         }
         clipboard.setPrimaryClip(ClipData.newPlainText(
-                file.name, desktopAbsolutePath(file)));
+                file.displayName(),
+                file.folderShortcut == null
+                        ? desktopAbsolutePath(file)
+                        : file.folderShortcut.targetPath));
         mActivity.setStatus(R.string.file_manager_path_copied);
     }
 
     void showFileProperties(final DesktopFile file) {
-        mFolder.inspect(file, mActivity::showDesktopFileProperties);
+        mFolder.inspect(file, info -> {
+            if (file.folderShortcut == null) {
+                mActivity.showDesktopFileProperties(info);
+            } else {
+                mActivity.showDesktopFolderShortcutProperties(
+                        info, file.folderShortcut);
+            }
+        });
     }
 
     void installApk(final DesktopFile file) {
@@ -448,6 +461,17 @@ final class DesktopWorkspaceController {
                 ? ShellDesktopDirectory.ABSOLUTE_PATH
                 : ShellDesktopDirectory.ABSOLUTE_PATH + "/" + relativePath;
         openFiles(FileManagerActivity.createIntent(mActivity, path), path);
+    }
+
+    private void openFolderShortcut(
+            final DesktopFolderShortcut shortcut) {
+        if (!shortcut.available) {
+            mActivity.setStatus(R.string.desktop_shortcut_unavailable);
+        }
+        openFiles(
+                FileManagerActivity.createIntent(
+                        mActivity, shortcut.targetPath),
+                shortcut.targetPath);
     }
 
     private void openFiles(final Intent intent, final String detail) {
@@ -634,6 +658,46 @@ final class DesktopWorkspaceController {
             view = frame;
         }
         mGrid.addItem(view, entry.itemId, placement);
+        if (entry.file != null && entry.file.folderShortcut != null) {
+            enableFolderShortcutDrop(
+                    view, entry.itemId, entry.file.folderShortcut);
+        }
+    }
+
+    private void enableFolderShortcutDrop(
+            final View view,
+            final String itemId,
+            final DesktopFolderShortcut shortcut) {
+        final float restingAlpha = view.getAlpha();
+        view.setOnDragListener((target, event) -> {
+            final FileDragPayload payload = FileDragPayload.from(event);
+            switch (event.getAction()) {
+                case DragEvent.ACTION_DRAG_STARTED:
+                    if (!shortcut.available
+                            || event.getLocalState()
+                                    instanceof DesktopGridLayout.DragToken
+                            || (payload != null
+                                    && itemId.equals(payload.desktopItemId))) {
+                        return false;
+                    }
+                    return payload != null || event.getClipDescription() != null;
+                case DragEvent.ACTION_DRAG_ENTERED:
+                    target.setAlpha(1f);
+                    return true;
+                case DragEvent.ACTION_DRAG_EXITED:
+                case DragEvent.ACTION_DRAG_ENDED:
+                    target.setAlpha(restingAlpha);
+                    return true;
+                case DragEvent.ACTION_DROP:
+                    target.setAlpha(restingAlpha);
+                    return importDroppedFiles(
+                            event,
+                            shortcut.targetPath,
+                            shortcut.name);
+                default:
+                    return true;
+            }
+        });
     }
 
     private void activateFile(
@@ -663,95 +727,42 @@ final class DesktopWorkspaceController {
             final String itemId,
             final DesktopFile file,
             final boolean deferContextMenu) {
-        final DragGestureListener listener = new DragGestureListener(
-                itemId, file, deferContextMenu);
-        view.setOnTouchListener(listener);
-        if (deferContextMenu) {
-            view.setOnLongClickListener(listener);
-        }
-    }
-
-    private final class DragGestureListener
-            implements View.OnTouchListener, View.OnLongClickListener {
-        private final String mItemId;
-        private final DesktopFile mFile;
-        private final boolean mDeferContextMenu;
-        private final int mTouchSlop;
-        private float mDownX;
-        private float mDownY;
-        private boolean mDragging;
-        private boolean mContextMenuPending;
-
-        DragGestureListener(
-                final String itemId,
-                final DesktopFile file,
-                final boolean deferContextMenu) {
-            mItemId = itemId;
-            mFile = file;
-            mDeferContextMenu = deferContextMenu;
-            mTouchSlop = ViewConfiguration.get(mActivity)
-                    .getScaledTouchSlop();
-        }
-
-        @Override
-        public boolean onLongClick(final View view) {
-            mContextMenuPending = true;
-            return true;
-        }
-
-        @Override
-        @SuppressLint("ClickableViewAccessibility")
-        public boolean onTouch(final View target, final MotionEvent event) {
-            final int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN) {
-                mDownX = event.getX();
-                mDownY = event.getY();
-                mDragging = false;
-                mContextMenuPending = false;
-            } else if (action == MotionEvent.ACTION_MOVE
-                    && !mDragging
-                    && (Math.abs(event.getX() - mDownX) > mTouchSlop
-                            || Math.abs(event.getY() - mDownY) > mTouchSlop)) {
-                target.cancelLongPress();
+        new DeferredContextDragGesture(
+                view,
+                false,
+                deferContextMenu,
+                new DeferredContextDragGesture.Listener() {
+                    @Override
+                    public boolean onStartDrag(
+                            final View target, final MotionEvent event) {
                 mItemActivation.reset();
-                mContextMenuPending = false;
-                final FileDragPayload filePayload = mFile == null
+                final FileDragPayload filePayload = file == null
                         ? null : new FileDragPayload(
-                                List.of(desktopAbsolutePath(mFile)),
-                                mItemId,
+                                List.of(desktopAbsolutePath(file)),
+                                itemId,
                                 (event.getMetaState()
                                         & KeyEvent.META_CTRL_ON) != 0);
                 final ClipData data = dragData(
-                        mItemId, mFile, filePayload);
-                final int flags = mFile == null
+                        itemId, file, filePayload);
+                final int flags = file == null
                         ? 0 : View.DRAG_FLAG_GLOBAL
-                                | (mFile.directory
+                                | (file.directory
                                         ? 0
                                         : View.DRAG_FLAG_GLOBAL_URI_READ);
-                mDragging = target.startDragAndDrop(
+                return target.startDragAndDrop(
                         data,
                         new View.DragShadowBuilder(target),
                         filePayload == null
-                                ? new DesktopGridLayout.DragToken(mItemId)
+                                ? new DesktopGridLayout.DragToken(itemId)
                                 : filePayload,
                         flags);
-                return mDragging;
-            } else if (action == MotionEvent.ACTION_UP) {
-                if (!mDragging && mContextMenuPending
-                        && mDeferContextMenu) {
-                    mActivity.showRegisteredContextMenu(target);
-                }
-                reset();
-            } else if (action == MotionEvent.ACTION_CANCEL) {
-                reset();
-            }
-            return false;
-        }
+                    }
 
-        private void reset() {
-            mDragging = false;
-            mContextMenuPending = false;
-        }
+                    @Override
+                    public void onShowContextMenu(final View target) {
+                        mActivity.showRegisteredContextMenu(target);
+                    }
+                });
     }
 
     private ClipData dragData(
@@ -774,12 +785,24 @@ final class DesktopWorkspaceController {
     }
 
     private boolean importDroppedFiles(final DragEvent event) {
+        return importDroppedFiles(
+                event, ShellDesktopDirectory.ABSOLUTE_PATH, null);
+    }
+
+    private boolean importDroppedFiles(
+            final DragEvent event,
+            final String destination,
+            final String destinationLabel) {
         final FileDragPayload payload = FileDragPayload.from(event);
         if (payload != null) {
             final List<String> paths = payload.pathsForDestination(
-                    ShellDesktopDirectory.ABSOLUTE_PATH);
+                    destination);
             if (!paths.isEmpty()) {
-                mFolder.transferPaths(paths, payload.copy);
+                mFolder.transferPaths(
+                        paths,
+                        payload.copy,
+                        destination,
+                        destinationLabel);
             }
             return true;
         }
@@ -803,7 +826,11 @@ final class DesktopWorkspaceController {
         } catch (RuntimeException error) {
             Log.d(TAG, "Drag URI permission was not granted", error);
         }
-        mFolder.importFiles(new ArrayList<>(uniqueUris), permissions);
+        mFolder.importFiles(
+                new ArrayList<>(uniqueUris),
+                permissions,
+                destination,
+                destinationLabel);
         return true;
     }
 

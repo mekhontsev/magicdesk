@@ -20,7 +20,9 @@ import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 final class ShellFileAdapter extends BaseAdapter {
@@ -42,7 +44,7 @@ final class ShellFileAdapter extends BaseAdapter {
     }
 
     interface DropListener {
-        boolean onDrop(DragEvent event, ShellFileInfo destination);
+        boolean onDrop(DragEvent event, String destinationPath);
     }
 
     private static final int COLOR_BACKGROUND = Color.rgb(9, 13, 20);
@@ -57,6 +59,8 @@ final class ShellFileAdapter extends BaseAdapter {
     private final DropListener mDropListener;
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
     private final Set<String> mSelected = new HashSet<>();
+    private final Map<String, DesktopFolderShortcut> mFolderShortcuts =
+            new LinkedHashMap<>();
     private FileManagerLayoutMode mLayoutMode =
             FileManagerLayoutMode.LIST;
 
@@ -77,11 +81,14 @@ final class ShellFileAdapter extends BaseAdapter {
 
     void set(
             final List<ShellFileInfo> files,
-            final Set<String> selected) {
+            final Set<String> selected,
+            final Map<String, DesktopFolderShortcut> folderShortcuts) {
         mFiles.clear();
         mFiles.addAll(files);
         mSelected.clear();
         mSelected.addAll(selected);
+        mFolderShortcuts.clear();
+        mFolderShortcuts.putAll(folderShortcuts);
         notifyDataSetChanged();
     }
 
@@ -134,6 +141,8 @@ final class ShellFileAdapter extends BaseAdapter {
                 ? (ItemView) recycled.getTag()
                 : createItemView();
         final ShellFileInfo file = getItem(position);
+        final DesktopFolderShortcut shortcut =
+                mFolderShortcuts.get(file.absolutePath);
         if (item.checkbox != null) {
             item.checkbox.setOnCheckedChangeListener(null);
             item.checkbox.setChecked(
@@ -142,41 +151,64 @@ final class ShellFileAdapter extends BaseAdapter {
                     mListener.onSelectionChanged(file, checked));
         }
         item.icon.clearColorFilter();
-        item.icon.setImageResource(FileIconResolver.forFile(
-                file.directory, file.mimeType));
-        item.icon.setContentDescription(file.name);
-        item.name.setText(file.name);
-        item.name.setTypeface(null, file.directory
+        item.icon.setImageResource(shortcut == null
+                ? FileIconResolver.forFile(file.directory, file.mimeType)
+                : R.drawable.ic_desktop_folder_link);
+        item.icon.setAlpha(shortcut == null || shortcut.available ? 1f : 0.45f);
+        final String displayName = shortcut == null ? file.name : shortcut.name;
+        item.icon.setContentDescription(displayName);
+        item.name.setText(displayName);
+        item.name.setTypeface(null, file.directory || shortcut != null
                 ? Typeface.BOLD : Typeface.NORMAL);
         if (item.details != null) {
-            item.details.setText(details(file));
+            item.details.setText(shortcut == null
+                    ? details(file) : shortcut.targetPath);
         }
         item.root.setBackgroundColor(
                 mSelected.contains(file.absolutePath)
                         ? COLOR_ACTIVE : COLOR_BACKGROUND);
         item.metaState = 0;
         item.eventTime = 0L;
-        item.root.setOnTouchListener((view, event) -> {
-            final int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN
-                    || action == MotionEvent.ACTION_BUTTON_PRESS
-                    || action == MotionEvent.ACTION_UP) {
-                item.metaState = event.getMetaState();
-                item.eventTime = event.getEventTime();
-            }
-            return false;
-        });
+        new DeferredContextDragGesture(
+                item.root,
+                true,
+                true,
+                new DeferredContextDragGesture.Listener() {
+                    @Override
+                    public boolean onStartDrag(
+                            final View target, final MotionEvent event) {
+                        return mLongClickListener.onLongClick(
+                                target, file, event.getMetaState());
+                    }
+
+                    @Override
+                    public void onShowContextMenu(final View target) {
+                        mContextListener.onContextClick(target, file);
+                    }
+
+                    @Override
+                    public void onPointerEvent(final MotionEvent event) {
+                        final int action = event.getActionMasked();
+                        if (action == MotionEvent.ACTION_DOWN
+                                || action == MotionEvent.ACTION_BUTTON_PRESS
+                                || action == MotionEvent.ACTION_UP) {
+                            item.metaState = event.getMetaState();
+                            item.eventTime = event.getEventTime();
+                        }
+                    }
+                });
         item.root.setOnClickListener(view ->
                 mClickListener.onClick(
                         file, item.metaState, item.eventTime));
-        item.root.setOnLongClickListener(view ->
-                mLongClickListener.onLongClick(
-                        view, file, item.metaState));
         item.root.setOnContextClickListener(view ->
                 mContextListener.onContextClick(view, file));
-        item.root.setOnDragListener(file.directory
+        item.root.setOnDragListener(file.directory || shortcut != null
                 ? (view, event) -> handleFolderDrag(
-                        item, file, event)
+                        item,
+                        file,
+                        shortcut == null
+                                ? file.absolutePath : shortcut.targetPath,
+                        event)
                 : null);
         return item.root;
     }
@@ -184,6 +216,7 @@ final class ShellFileAdapter extends BaseAdapter {
     private boolean handleFolderDrag(
             final ItemView item,
             final ShellFileInfo folder,
+            final String destinationPath,
             final DragEvent event) {
         switch (event.getAction()) {
             case DragEvent.ACTION_DRAG_STARTED:
@@ -201,7 +234,7 @@ final class ShellFileAdapter extends BaseAdapter {
                 item.root.setBackgroundColor(
                         mSelected.contains(folder.absolutePath)
                                 ? COLOR_ACTIVE : COLOR_BACKGROUND);
-                return mDropListener.onDrop(event, folder);
+                return mDropListener.onDrop(event, destinationPath);
             default:
                 return true;
         }

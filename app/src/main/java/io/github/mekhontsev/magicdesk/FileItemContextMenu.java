@@ -20,6 +20,7 @@ final class FileItemContextMenu {
         void install();
         void runScript();
         void setWallpaper();
+        void createDesktopShortcut();
         void copy();
         void cut();
         void rename();
@@ -32,22 +33,34 @@ final class FileItemContextMenu {
         final String name;
         final String mimeType;
         final boolean directory;
+        final boolean canCreateDesktopShortcut;
 
         Target(
                 final String name,
                 final String mimeType,
-                final boolean directory) {
+                final boolean directory,
+                final boolean canCreateDesktopShortcut) {
             this.name = name;
             this.mimeType = mimeType;
             this.directory = directory;
+            this.canCreateDesktopShortcut = canCreateDesktopShortcut;
         }
 
         static Target from(final ShellFileInfo file) {
-            return new Target(file.name, file.mimeType, file.directory);
+            return new Target(
+                    file.name,
+                    file.mimeType,
+                    file.directory,
+                    file.directory && !ShellDesktopDirectory.ABSOLUTE_PATH
+                            .equals(file.absolutePath));
         }
 
         static Target from(final DesktopFile file) {
-            return new Target(file.name, file.mimeType, file.directory);
+            return new Target(
+                    file.displayName(),
+                    file.mimeType,
+                    file.opensDirectory(),
+                    false);
         }
     }
 
@@ -157,6 +170,11 @@ final class FileItemContextMenu {
                 DesktopWallpaperFileAction.supports(
                         target.mimeType, target.directory),
                 dismiss, actions::setWallpaper);
+        if (target.canCreateDesktopShortcut) {
+            addAction(panel, ui, R.string.file_manager_create_desktop_shortcut,
+                    DesktopUiFactory.COLOR_PANEL_ALT, true,
+                    dismiss, actions::createDesktopShortcut);
+        }
         addAction(panel, ui, R.string.file_manager_copy,
                 DesktopUiFactory.COLOR_PANEL_ALT, true,
                 dismiss, actions::copy);

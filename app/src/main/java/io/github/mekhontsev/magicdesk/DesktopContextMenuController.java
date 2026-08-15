@@ -299,6 +299,11 @@ final class DesktopContextMenuController {
                     }
 
                     @Override
+                    public void createDesktopShortcut() {
+                        // Desktop entries cannot create links to themselves.
+                    }
+
+                    @Override
                     public void copy() {
                         mActivity.copyDesktopFile(file, false);
                     }

@@ -47,8 +47,11 @@ final class DesktopFileRepository {
         final List<DesktopFile> files = new ArrayList<>(records.length);
         int previewsRemaining = Math.max(0, thumbnailLimit);
         for (final DesktopFileInfo record : records) {
+            final DesktopFolderShortcut folderShortcut =
+                    DesktopFolderShortcutFile.read(record);
             Bitmap thumbnail = null;
-            if (!record.directory
+            if (folderShortcut == null
+                    && !record.directory
                     && previewsRemaining > 0
                     && record.mimeType.startsWith("image/")) {
                 thumbnail = loadImageThumbnail(record.relativePath);
@@ -62,14 +65,29 @@ final class DesktopFileRepository {
                     record.modified,
                     record.size,
                     record.directory,
-                    thumbnail));
+                    thumbnail,
+                    folderShortcut));
         }
         return files;
     }
 
     ImportResult importFiles(final List<Uri> uris) throws IOException {
+        return importFiles(uris, ShellDesktopDirectory.ABSOLUTE_PATH);
+    }
+
+    ImportResult importFiles(
+            final List<Uri> uris,
+            final String destinationPath) throws IOException {
+        ShellFilePathPolicy.absolute(destinationPath);
         final Set<String> occupiedNames = new LinkedHashSet<>();
-        for (final DesktopFileInfo file : ShellAccess.listDesktopFiles()) {
+        final ShellFilePage page = ShellAccess.listShellDirectory(
+                destinationPath,
+                0,
+                Integer.MAX_VALUE,
+                true,
+                ShellFileSystem.SORT_NAME,
+                true);
+        for (final ShellFileInfo file : page.entries) {
             occupiedNames.add(file.name);
         }
         int copied = 0;
@@ -79,10 +97,11 @@ final class DesktopFileRepository {
             try {
                 final String name = uniqueImportName(
                         displayName(uri), occupiedNames);
-                final DesktopFileInfo created =
-                        ShellAccess.createDesktopEntry(name, false);
-                createdPath = created.relativePath;
-                copy(uri, created.relativePath);
+                final ShellFileInfo created =
+                        ShellAccess.createAvailableShellEntry(
+                                destinationPath, name, false);
+                createdPath = created.absolutePath;
+                copy(uri, created);
                 occupiedNames.add(created.name);
                 copied++;
             } catch (IOException | RuntimeException error) {
@@ -90,11 +109,7 @@ final class DesktopFileRepository {
                     firstFailure = error;
                 }
                 if (createdPath != null) {
-                    try {
-                        ShellAccess.deleteDesktopEntry(createdPath);
-                    } catch (IOException | RuntimeException cleanupError) {
-                        error.addSuppressed(cleanupError);
-                    }
+                    cleanupFailedImport(createdPath, error);
                 }
             }
         }
@@ -149,7 +164,7 @@ final class DesktopFileRepository {
         return FALLBACK_IMPORT_NAME;
     }
 
-    private void copy(final Uri source, final String targetPath)
+    private void copy(final Uri source, final ShellFileInfo target)
             throws IOException {
         try (InputStream input = mContext.getContentResolver()
                      .openInputStream(source)) {
@@ -158,8 +173,8 @@ final class DesktopFileRepository {
             }
             try (OutputStream output =
                          new ParcelFileDescriptor.AutoCloseOutputStream(
-                                 ShellAccess.openDesktopFile(
-                                         targetPath, "w"))) {
+                                 ShellAccess.openVerifiedShellFile(
+                                         target, "w"))) {
                 final byte[] buffer = new byte[COPY_BUFFER_SIZE];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
@@ -168,6 +183,36 @@ final class DesktopFileRepository {
             }
         } catch (RuntimeException error) {
             throw new IOException("cannot read dropped file", error);
+        }
+    }
+
+    private static void cleanupFailedImport(
+            final String path, final Throwable original) {
+        try {
+            ShellAccess.startShellFileOperation(
+                    ShellFileSystem.OPERATION_DELETE,
+                    new String[]{path},
+                    "",
+                    new IFileOperationCallback.Stub() {
+                        @Override
+                        public void onProgress(
+                                final long id,
+                                final int completed,
+                                final int total,
+                                final String current,
+                                final long bytes) {
+                        }
+
+                        @Override
+                        public void onFinished(
+                                final long id,
+                                final boolean successful,
+                                final String message) {
+                        }
+                    },
+                    new android.os.Binder());
+        } catch (IOException | RuntimeException cleanupError) {
+            original.addSuppressed(cleanupError);
         }
     }
 

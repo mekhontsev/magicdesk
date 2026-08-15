@@ -28,6 +28,7 @@ import android.widget.ArrayAdapter;
 import android.widget.TextView;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 final class FileManagerView {
@@ -43,7 +44,7 @@ final class FileManagerView {
         boolean onContextMenu(View anchor, ShellFileInfo file);
         void onStartDrag(
                 View source, ShellFileInfo file, int metaState);
-        boolean onDrop(DragEvent event, ShellFileInfo destination);
+        boolean onDrop(DragEvent event, String destinationPath);
         void onNewWindow();
         void onNewFile();
         void onNewFolder();
@@ -412,8 +413,9 @@ final class FileManagerView {
 
     void setFiles(
             final List<ShellFileInfo> files,
-            final Set<String> selectedPaths) {
-        mAdapter.set(files, selectedPaths);
+            final Set<String> selectedPaths,
+            final Map<String, DesktopFolderShortcut> folderShortcuts) {
+        mAdapter.set(files, selectedPaths, folderShortcuts);
         mItemsAvailable = !files.isEmpty();
         mEmpty.setText(R.string.file_manager_empty);
         mEmpty.setVisibility(files.isEmpty() ? View.VISIBLE : View.GONE);

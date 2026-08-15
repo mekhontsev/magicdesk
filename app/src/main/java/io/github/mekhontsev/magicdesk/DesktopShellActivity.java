@@ -937,6 +937,42 @@ public abstract class DesktopShellActivity extends Activity
         dialog.show();
     }
 
+    void showDesktopFolderShortcutProperties(
+            final ShellFileInfo file,
+            final DesktopFolderShortcut shortcut) {
+        hideAllPanels();
+        final StringBuilder message = new StringBuilder(
+                FilePropertiesFormatter.format(this, file));
+        message.append('\n').append(getString(
+                R.string.desktop_shortcut_target,
+                shortcut.targetPath));
+        if (!shortcut.available) {
+            message.append('\n').append(getString(
+                    R.string.desktop_shortcut_unavailable));
+        }
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(shortcut.name)
+                .setMessage(message)
+                .setNeutralButton(
+                        R.string.file_manager_copy_path,
+                        (ignored, which) -> {
+                            final android.content.ClipboardManager clipboard =
+                                    getSystemService(
+                                            android.content.ClipboardManager
+                                                    .class);
+                            if (clipboard != null) {
+                                clipboard.setPrimaryClip(
+                                        android.content.ClipData.newPlainText(
+                                                shortcut.name,
+                                                shortcut.targetPath));
+                            }
+                        })
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        configureOverlayDialog(dialog);
+        dialog.show();
+    }
+
     void installDesktopApk(final DesktopFile file) {
         hideAllPanels();
         final AlertDialog dialog = new AlertDialog.Builder(this)
@@ -990,10 +1026,12 @@ public abstract class DesktopShellActivity extends Activity
         final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.delete_desktop_entry_title)
                 .setMessage(getString(
-                        file.directory
-                                ? R.string.delete_desktop_folder_message
-                                : R.string.delete_desktop_file_message,
-                        file.name))
+                        file.folderShortcut != null
+                                ? R.string.delete_desktop_shortcut_message
+                                : file.directory
+                                        ? R.string.delete_desktop_folder_message
+                                        : R.string.delete_desktop_file_message,
+                        file.displayName()))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(
                         R.string.action_delete,
