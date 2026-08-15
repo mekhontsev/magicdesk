@@ -39,6 +39,11 @@ final class ConsoleModeState {
     }
 
     private static int readActiveDisplayIdAsShell() {
+        final int uid = android.os.Process.myUid();
+        if (uid != android.os.Process.SHELL_UID
+                && uid != android.os.Process.ROOT_UID) {
+            return -1;
+        }
         try {
             final Process process = new ProcessBuilder(
                     "/system/bin/settings", "get", "global",
