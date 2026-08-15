@@ -6,6 +6,7 @@ import android.app.TaskStackListener;
 import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Rect;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.Display;
@@ -25,6 +26,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Object mService;
     private final ITaskObserverCallback mCallback;
     private final Runnable mCallbackFailure;
+    private final IBinder mOwnerToken;
+    private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
@@ -37,6 +40,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mRegistered;
     private boolean mPreservePhoneTouchpad;
     private boolean mRestoringPhoneTouchpad;
+    private boolean mExternalNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
     private int mConfiguredDisplayId = Display.INVALID_DISPLAY;
 
@@ -44,6 +48,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Context context,
             final ITaskObserverCallback callback,
             final Runnable callbackFailure,
+            final IBinder ownerToken,
+            final PlatformPhoneUiDriver.NavigationGuard navigationGuard,
             final PlatformPhoneUiDriver.InputOwner inputOwner)
             throws ReflectiveOperationException {
         if (callback == null) {
@@ -52,6 +58,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
+        mOwnerToken = ownerToken;
+        mNavigationGuard = navigationGuard;
         mFocusController = new ShellDesktopFocusController(
                 mService,
                 PlatformDrivers.current().windowing()
@@ -155,6 +163,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalStateException("task observer is closed");
         }
         if (displayId < 0) {
+            updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             mFocusController.configure(-1);
             mMigrationGuard.configure(-1, false);
@@ -164,6 +173,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mStateMonitor.clearConfiguration();
             return;
         }
+        updateExternalNavigationGuard(displayId != Display.DEFAULT_DISPLAY);
         mConfiguredDisplayId = displayId;
         mFocusController.configure(displayId);
         mMigrationGuard.configure(displayId, false);
@@ -316,6 +326,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             return;
         }
+        updateExternalNavigationGuard(false);
         mClosed = true;
         synchronized (this) {
             mPreservePhoneTouchpad = false;
@@ -334,6 +345,37 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             HiddenTaskApi.unregisterTaskStackListener(mService, this);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "failed to unregister task observer", error);
+        }
+    }
+
+    private void updateExternalNavigationGuard(final boolean enabled) {
+        if (enabled == mExternalNavigationGuardActive) {
+            return;
+        }
+        try {
+            if (enabled) {
+                // Nubia Quickstep crashes while binding live external
+                // freeform tasks. Keep Home available but block Overview.
+                mNavigationGuard.acquire(
+                        mOwnerToken,
+                        PlatformPhoneUiDriver.NavigationGuard.Scope
+                                .EXTERNAL_DESKTOP);
+                mExternalNavigationGuardActive = true;
+                Log.i(TAG, "guarded phone Recents for external desktop");
+            } else {
+                mNavigationGuard.release(mOwnerToken);
+                mExternalNavigationGuardActive = false;
+                Log.i(TAG, "restored phone Recents after external desktop");
+            }
+        } catch (RuntimeException error) {
+            if (!enabled) {
+                mExternalNavigationGuardActive = false;
+            }
+            final String message = usefulMessage(error);
+            Log.w(TAG, "could not update external navigation guard: "
+                    + message, error);
+            callCallback(() -> mCallback.onObserverError(
+                    "external navigation guard unavailable: " + message));
         }
     }
 

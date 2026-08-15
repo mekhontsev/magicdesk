@@ -13,14 +13,17 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
+    private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final PlatformPhoneUiDriver.InputOwner mInputOwner;
 
     private Session mSession;
 
     ShellTaskObserverManager(
             final Context context,
+            final PlatformPhoneUiDriver.NavigationGuard navigationGuard,
             final PlatformPhoneUiDriver.InputOwner inputOwner) {
         mContext = context;
+        mNavigationGuard = navigationGuard;
         mInputOwner = inputOwner;
     }
 
@@ -182,6 +185,8 @@ final class ShellTaskObserverManager implements Closeable {
                     mContext,
                     callback,
                     this::ownerDisconnected,
+                    ownerToken,
+                    mNavigationGuard,
                     mInputOwner);
         }
 

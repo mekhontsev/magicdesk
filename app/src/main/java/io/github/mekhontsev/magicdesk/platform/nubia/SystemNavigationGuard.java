@@ -10,56 +10,66 @@ import android.util.Log;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 
-/** Prevents Nubia Quickstep from opening while phone-display desktop tasks exist. */
+/** Prevents Nubia Quickstep from opening for unsafe desktop task layouts. */
 final class SystemNavigationGuard
         implements PlatformPhoneUiDriver.NavigationGuard {
     private static final String TAG = "MagicDeskSystemNavigation";
     private static final int DISABLE_HOME = 0x00200000;
     private static final int DISABLE_RECENT = 0x01000000;
-    private static final int DISABLE_NAVIGATION = DISABLE_HOME | DISABLE_RECENT;
     private static final String STATUS_BAR_SERVICE = "statusbar";
 
     private final Object mLock = new Object();
     private final IBinder mSystemToken = new Binder();
-    private IBinder mOwnerToken;
-    private IBinder.DeathRecipient mOwnerDeath;
-    private boolean mActive;
+    private final Map<IBinder, OwnerRecord> mOwners = new HashMap<>();
+    private int mAppliedFlags;
 
     @Override
-    public void acquire(final IBinder ownerToken) {
+    public void acquire(final IBinder ownerToken, final Scope scope) {
         if (ownerToken == null) {
             throw new IllegalArgumentException("missing navigation guard owner token");
         }
+        if (scope == null) {
+            throw new IllegalArgumentException("missing navigation guard scope");
+        }
         synchronized (mLock) {
-            if (mActive && ownerToken.equals(mOwnerToken)) {
+            final OwnerRecord previous = mOwners.get(ownerToken);
+            if (previous != null && previous.scope == scope) {
                 try {
-                    setDisabled(DISABLE_NAVIGATION);
+                    applyFlagsLocked(computeFlagsLocked(), true);
                     return;
                 } catch (ReflectiveOperationException | RuntimeException error) {
-                    throw new IllegalStateException(
-                            "cannot refresh system navigation guard: "
-                                    + usefulMessage(error),
-                            error);
+                    throw failure("cannot refresh system navigation guard", error);
                 }
             }
-            releaseLocked(null);
-            final IBinder.DeathRecipient ownerDeath =
-                    () -> releaseForOwner(ownerToken);
+
+            final OwnerRecord replacement;
+            if (previous == null) {
+                final IBinder.DeathRecipient ownerDeath =
+                        () -> releaseForOwner(ownerToken);
+                try {
+                    ownerToken.linkToDeath(ownerDeath, 0);
+                } catch (RemoteException | RuntimeException error) {
+                    throw failure("cannot track navigation guard owner", error);
+                }
+                replacement = new OwnerRecord(scope, ownerDeath);
+            } else {
+                replacement = new OwnerRecord(scope, previous.ownerDeath);
+            }
+
+            mOwners.put(ownerToken, replacement);
             try {
-                ownerToken.linkToDeath(ownerDeath, 0);
-                mOwnerToken = ownerToken;
-                mOwnerDeath = ownerDeath;
-                setDisabled(DISABLE_NAVIGATION);
-                mActive = true;
-            } catch (ReflectiveOperationException
-                    | RemoteException
-                    | RuntimeException error) {
-                clearOwnerLocked();
-                throw new IllegalStateException(
-                        "cannot disable system Home and Recents: "
-                                + usefulMessage(error),
-                        error);
+                applyFlagsLocked(computeFlagsLocked(), false);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                if (previous == null) {
+                    mOwners.remove(ownerToken);
+                    ownerToken.unlinkToDeath(replacement.ownerDeath, 0);
+                } else {
+                    mOwners.put(ownerToken, previous);
+                }
+                throw failure("cannot disable system navigation", error);
             }
         }
     }
@@ -74,7 +84,21 @@ final class SystemNavigationGuard
     @Override
     public void close() {
         synchronized (mLock) {
-            releaseLocked(null);
+            RuntimeException failure = null;
+            try {
+                applyFlagsLocked(0, false);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                failure = failure("cannot restore system navigation", error);
+            }
+            for (final Map.Entry<IBinder, OwnerRecord> entry
+                    : mOwners.entrySet()) {
+                entry.getKey().unlinkToDeath(entry.getValue().ownerDeath, 0);
+            }
+            mOwners.clear();
+            mAppliedFlags = 0;
+            if (failure != null) {
+                throw failure;
+            }
         }
     }
 
@@ -88,38 +112,48 @@ final class SystemNavigationGuard
         }
     }
 
-    private void releaseLocked(final IBinder expectedOwner) {
-        if (expectedOwner != null
-                && (mOwnerToken == null
-                        || !mOwnerToken.equals(expectedOwner))) {
+    private void releaseLocked(final IBinder ownerToken) {
+        if (ownerToken == null) {
+            return;
+        }
+        final OwnerRecord removed = mOwners.remove(ownerToken);
+        if (removed == null) {
             return;
         }
         RuntimeException failure = null;
-        if (mActive) {
-            try {
-                setDisabled(0);
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                failure = new IllegalStateException(
-                        "cannot restore system Home and Recents: "
-                                + usefulMessage(error),
-                        error);
-            }
+        try {
+            applyFlagsLocked(computeFlagsLocked(), false);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            failure = failure("cannot restore system navigation", error);
         }
-        mActive = false;
-        clearOwnerLocked();
+        ownerToken.unlinkToDeath(removed.ownerDeath, 0);
         if (failure != null) {
             throw failure;
         }
     }
 
-    private void clearOwnerLocked() {
-        final IBinder ownerToken = mOwnerToken;
-        final IBinder.DeathRecipient ownerDeath = mOwnerDeath;
-        mOwnerToken = null;
-        mOwnerDeath = null;
-        if (ownerToken != null && ownerDeath != null) {
-            ownerToken.unlinkToDeath(ownerDeath, 0);
+    private int computeFlagsLocked() {
+        int flags = 0;
+        for (final OwnerRecord owner : mOwners.values()) {
+            flags |= flagsForScope(owner.scope);
         }
+        return flags;
+    }
+
+    private static int flagsForScope(final Scope scope) {
+        if (scope == Scope.LOCAL_DESKTOP) {
+            return DISABLE_HOME | DISABLE_RECENT;
+        }
+        return DISABLE_RECENT;
+    }
+
+    private void applyFlagsLocked(final int flags, final boolean force)
+            throws ReflectiveOperationException {
+        if (!force && flags == mAppliedFlags) {
+            return;
+        }
+        setDisabled(flags);
+        mAppliedFlags = flags;
     }
 
     private void setDisabled(final int flags)
@@ -161,6 +195,12 @@ final class SystemNavigationGuard
         }
     }
 
+    private static IllegalStateException failure(
+            final String action, final Throwable error) {
+        return new IllegalStateException(
+                action + ": " + usefulMessage(error), error);
+    }
+
     private static String usefulMessage(final Throwable error) {
         Throwable cause = error;
         while (cause.getCause() != null && cause.getCause() != cause) {
@@ -169,5 +209,15 @@ final class SystemNavigationGuard
         final String message = cause.getMessage();
         return message == null || message.isEmpty()
                 ? cause.getClass().getSimpleName() : message;
+    }
+
+    private static final class OwnerRecord {
+        final Scope scope;
+        final IBinder.DeathRecipient ownerDeath;
+
+        OwnerRecord(final Scope scope, final IBinder.DeathRecipient ownerDeath) {
+            this.scope = scope;
+            this.ownerDeath = ownerDeath;
+        }
     }
 }
