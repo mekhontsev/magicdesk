@@ -136,7 +136,7 @@ final class WorkspaceAppController {
     }
 
     private void rememberBounds(final TaskRepository.TaskEntry task) {
-        if (task == null || !task.isFreeform() || task.bounds.isEmpty()) {
+        if (task == null || !task.isBoundedFreeform()) {
             return;
         }
         try {

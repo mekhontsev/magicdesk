@@ -430,7 +430,7 @@ final class AppTaskController {
 
     private void rememberWindowBounds(
             final TaskRepository.TaskEntry task) {
-        if (task == null || !task.isFreeform() || task.bounds.isEmpty()) {
+        if (task == null || !task.isBoundedFreeform()) {
             return;
         }
         try {

@@ -164,7 +164,7 @@ final class NativeWindowBoundsController {
             if (task == null || task.displayId != displayId
                     || !DesktopManagedTaskPolicy
                             .isManagedApplicationTask(task)
-                    || !task.isFreeform() || task.bounds.isEmpty()) {
+                    || !task.isBoundedFreeform()) {
                 continue;
             }
             final Integer taskId = Integer.valueOf(task.taskId);

@@ -629,9 +629,11 @@ final class DesktopTaskController {
             return null;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.visible && task.active && task.isFreeform()
-                    && isFocusableTask(task)
-                    && !task.bounds.isEmpty()) {
+            if (task != null
+                    && task.visible
+                    && task.active
+                    && task.isBoundedFreeform()
+                    && isFocusableTask(task)) {
                 return task;
             }
         }
@@ -836,9 +838,8 @@ final class DesktopTaskController {
         return task != null
                 && task.displayId == mDisplayId
                 && task.visible
-                && task.isFreeform()
-                && DesktopManagedTaskPolicy.isManagedApplicationTask(task)
-                && !task.bounds.isEmpty();
+                && task.isBoundedFreeform()
+                && DesktopManagedTaskPolicy.isManagedApplicationTask(task);
     }
 
     static boolean isDesktopHostTask(final TaskRepository.TaskEntry task) {

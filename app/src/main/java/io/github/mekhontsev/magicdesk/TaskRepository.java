@@ -149,7 +149,7 @@ public final class TaskRepository {
                 for (final TaskEntry savedTask : savedTasks) {
                     final TaskEntry currentTask = findMatchingTask(currentTasks, savedTask);
                     if (currentTask == null || !currentTask.isFreeform()
-                            || savedTask.bounds.isEmpty()) {
+                            || !savedTask.hasBounds()) {
                         continue;
                     }
                     restoredTopFirst.add(new RestoredTask(
@@ -239,7 +239,7 @@ public final class TaskRepository {
 
     static void setFreeform(final TaskEntry task, final Rect bounds,
             final ActionCallback callback) {
-        if (!isUsableTask(task) || bounds == null || bounds.isEmpty()) {
+        if (!isUsableTask(task) || !hasExplicitBounds(bounds)) {
             complete(callback, false, "invalid task bounds");
             return;
         }
@@ -249,7 +249,7 @@ public final class TaskRepository {
 
     static void resizeTaskBounds(final TaskEntry task, final Rect bounds,
             final ActionCallback callback) {
-        if (!isUsableTask(task) || bounds == null || bounds.isEmpty()) {
+        if (!isUsableTask(task) || !hasExplicitBounds(bounds)) {
             complete(callback, false, "invalid task bounds");
             return;
         }
@@ -360,10 +360,7 @@ public final class TaskRepository {
             final int displayId,
             final int taskId,
             final Rect bounds) {
-        if (displayId < 0 || taskId < 0
-                || bounds == null
-                || bounds.right <= bounds.left
-                || bounds.bottom <= bounds.top) {
+        if (displayId < 0 || taskId < 0 || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid task bounds");
         }
         return createTaskWindowingCommand(
@@ -411,6 +408,12 @@ public final class TaskRepository {
 
     private static boolean isUsableTask(final TaskEntry task) {
         return task != null && task.taskId >= 0 && task.rootTaskId >= 0;
+    }
+
+    private static boolean hasExplicitBounds(final Rect bounds) {
+        return bounds != null
+                && bounds.right > bounds.left
+                && bounds.bottom > bounds.top;
     }
 
     private static boolean isRestorableTask(final TaskEntry task) {
@@ -548,6 +551,15 @@ public final class TaskRepository {
 
         boolean isFullscreen() {
             return "fullscreen".equals(windowingMode);
+        }
+
+        boolean hasBounds() {
+            return bounds.right > bounds.left
+                    && bounds.bottom > bounds.top;
+        }
+
+        boolean isBoundedFreeform() {
+            return isFreeform() && hasBounds();
         }
 
         boolean hasCrossPackageTopActivity() {

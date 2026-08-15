@@ -59,7 +59,7 @@ public final class TaskDisplayAreaLaunchCommand {
         final ComponentName component = intent == null
                 ? null : intent.getComponent();
         if (component == null || displayId < 0
-                || bounds == null || bounds.isEmpty()) {
+                || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid app launch");
         }
         return AppProcessCommand.run(
@@ -76,7 +76,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final String token,
             final Rect bounds) {
         if (displayId < 0 || token == null
-                || bounds == null || bounds.isEmpty()) {
+                || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid self-test launch");
         }
         final Intent intent = new Intent()
@@ -131,7 +131,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final Rect bounds,
             final DesktopTransitionSurfaceProbe.Reference reference) {
         if (taskId < 0 || sourceDisplayId < 0 || targetDisplayId < 0
-                || bounds == null || bounds.isEmpty()) {
+                || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid task move");
         }
         return AppProcessCommand.run(
@@ -167,7 +167,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final Rect bounds,
             final DesktopTransitionSurfaceProbe.Reference reference) {
         if (taskId < 0 || rootTaskId < 0 || sourceDisplayId < 0
-                || targetDisplayId < 0 || bounds == null || bounds.isEmpty()) {
+                || targetDisplayId < 0 || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid physical task move");
         }
         return AppProcessCommand.run(
@@ -927,10 +927,17 @@ public final class TaskDisplayAreaLaunchCommand {
                 Integer.parseInt(args[offset + 1]),
                 Integer.parseInt(args[offset + 2]),
                 Integer.parseInt(args[offset + 3]));
-        if (bounds.left < 0 || bounds.top < 0 || bounds.isEmpty()) {
+        if (bounds.left < 0 || bounds.top < 0
+                || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid bounds");
         }
         return bounds;
+    }
+
+    private static boolean hasExplicitBounds(final Rect bounds) {
+        return bounds != null
+                && bounds.right > bounds.left
+                && bounds.bottom > bounds.top;
     }
 
     private static int parseNonNegative(
