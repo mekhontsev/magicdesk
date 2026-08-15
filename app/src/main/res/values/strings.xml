@@ -145,7 +145,6 @@
     <string name="action_settings">Settings</string>
     <string name="action_phone_screen_off">Turn phone screen off</string>
     <string name="action_phone_screen_on">Wake phone screen</string>
-    <string name="action_switch_to_mirror">Switch to screen mirroring</string>
     <string name="action_close_desktop">Close desktop</string>
     <string name="action_start_external_desktop">Start external desktop</string>
     <string name="action_connect_wireless_display">Wireless</string>
@@ -353,9 +352,6 @@
     <string name="touchpad_gesture_scroll_action">Slide two fingers</string>
     <string name="touchpad_gesture_keyboard">Keyboard</string>
     <string name="touchpad_gesture_keyboard_action">Use the keyboard button</string>
-    <string name="status_mirror_switching">Switching to screen mirroring&#8230;</string>
-    <string name="status_mirror_active">Screen mirroring active</string>
-    <string name="status_mirror_failed">Could not switch to screen mirroring</string>
     <string name="status_dpi_applying">Applying DPI %1$d on display %2$d&#8230;</string>
     <string name="status_dpi_applied" tools:ignore="PluralsCandidate">DPI %1$d applied on display %2$d</string>
     <string name="status_dpi_desktop_applying">Applying desktop DPI %1$d on display %2$d; current DPI is %3$d&#8230;</string>

@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.concurrent.TimeUnit;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -23,28 +25,49 @@ public final class ConsoleTaskReturnCommand {
     }
 
     public static void main(final String[] args) {
-        if (args.length != 1) {
-            System.err.println("usage: ConsoleTaskReturnCommand <console-display-id>");
+        final boolean selected = args.length >= 3
+                && "selected".equals(args[0]);
+        if (args.length != 1 && !selected) {
+            System.err.println("usage: ConsoleTaskReturnCommand "
+                    + "<console-display-id> | selected "
+                    + "<console-display-id> <task-id>...");
             System.exit(64);
             return;
         }
 
         try {
-            final int sourceDisplayId = parseDisplayId(args[0]);
+            final int sourceDisplayId = parseDisplayId(
+                    args[selected ? 1 : 0]);
             final Object service = HiddenTaskApi.getService();
-            final List<Integer> taskIds = findApplicationTasks(service, sourceDisplayId);
+            final List<Integer> taskIds = selected
+                    ? findSelectedTasks(
+                            service,
+                            sourceDisplayId,
+                            parseTaskIds(args, 2))
+                    : findApplicationTasks(service, sourceDisplayId);
             Collections.reverse(taskIds);
             int moved = 0;
+            int failed = 0;
             for (final int taskId : taskIds) {
-                moveRootTask(taskId, PHONE_DISPLAY_ID);
-                final Object task = awaitTask(service, PHONE_DISPLAY_ID, taskId);
-                normalizePhoneTask(service, task);
-                moved++;
+                try {
+                    moveRootTask(taskId, PHONE_DISPLAY_ID);
+                    final Object task = awaitTask(
+                            service, PHONE_DISPLAY_ID, taskId);
+                    normalizePhoneTask(service, task);
+                    System.out.println("task-returned=" + taskId);
+                    moved++;
+                } catch (IOException | ReflectiveOperationException
+                        | RuntimeException error) {
+                    System.out.println("task-return-failed=" + taskId
+                            + " error=" + usefulMessage(error));
+                    failed++;
+                }
             }
             System.out.println("tasks-returned=" + moved
+                    + " failed=" + failed
                     + " from=" + sourceDisplayId
                     + " to=" + PHONE_DISPLAY_ID);
-        } catch (IOException | ReflectiveOperationException | RuntimeException e) {
+        } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
             while (cause.getCause() != null && cause.getCause() != cause) {
                 cause = cause.getCause();
@@ -52,6 +75,22 @@ public final class ConsoleTaskReturnCommand {
             System.err.println("task return failed: " + cause);
             System.exit(1);
         }
+    }
+
+    private static List<Integer> findSelectedTasks(
+            final Object service,
+            final int displayId,
+            final Set<Integer> requestedTaskIds)
+            throws ReflectiveOperationException {
+        final List<Integer> taskIds = new ArrayList<>();
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            if (getActivityType(task) == ACTIVITY_TYPE_STANDARD
+                    && requestedTaskIds.contains(Integer.valueOf(taskId))) {
+                taskIds.add(Integer.valueOf(taskId));
+            }
+        }
+        return taskIds;
     }
 
     private static List<Integer> findApplicationTasks(final Object service,
@@ -164,5 +203,29 @@ public final class ConsoleTaskReturnCommand {
             throw new IllegalArgumentException("invalid Console display id");
         }
         return displayId;
+    }
+
+    private static Set<Integer> parseTaskIds(
+            final String[] args, final int start) {
+        final Set<Integer> taskIds = new LinkedHashSet<>();
+        for (int index = start; index < args.length; index++) {
+            final int taskId = Integer.parseInt(args[index]);
+            if (taskId < 0) {
+                throw new IllegalArgumentException("invalid task id");
+            }
+            taskIds.add(Integer.valueOf(taskId));
+        }
+        return taskIds;
+    }
+
+    private static String usefulMessage(final Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        final String message = cause.getMessage();
+        return (message == null || message.isEmpty()
+                ? cause.getClass().getSimpleName() : message)
+                .replace('\n', ' ');
     }
 }

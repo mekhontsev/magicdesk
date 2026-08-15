@@ -28,11 +28,6 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
-    public boolean disconnectWirelessDisplay() throws IOException {
-        return WirelessDisplayController.disconnect();
-    }
-
-    @Override
     public int activeDesktopDisplayId(final Context context) {
         return NubiaConsoleModeController.activeDisplayId(context);
     }

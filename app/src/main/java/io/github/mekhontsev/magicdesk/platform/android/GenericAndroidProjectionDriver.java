@@ -24,11 +24,6 @@ final class GenericAndroidProjectionDriver
     }
 
     @Override
-    public boolean disconnectWirelessDisplay() {
-        return false;
-    }
-
-    @Override
     public int activeDesktopDisplayId(final Context context) {
         return -1;
     }

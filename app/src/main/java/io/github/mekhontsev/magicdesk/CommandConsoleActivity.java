@@ -110,6 +110,7 @@ public final class CommandConsoleActivity extends Activity
                 this,
                 R.string.console_title,
                 R.drawable.ic_file_console);
+        BuiltInWindowRegistry.register(this);
         getWindow().setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         mSnapshot = ShellAccess.currentSnapshot();
@@ -152,6 +153,7 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        BuiltInWindowRegistry.unregister(this);
         if (mSession != null) {
             mSession.close();
         }
@@ -164,6 +166,12 @@ public final class CommandConsoleActivity extends Activity
             final Configuration newConfig) {
         super.onMultiWindowModeChanged(inMultiWindowMode, newConfig);
         updateTaskbarInset(inMultiWindowMode);
+    }
+
+    @Override
+    public void onConfigurationChanged(final Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        updateTaskbarInset(isInMultiWindowMode());
     }
 
     @Override
@@ -196,7 +204,7 @@ public final class CommandConsoleActivity extends Activity
         mShellStatus = new TextView(this);
         mShellStatus.setTextColor(COLOR_CYAN);
         mShellStatus.setTextSize(12);
-        mShellStatus.setTypeface(Typeface.DEFAULT_BOLD);
+        mShellStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         header.addView(mShellStatus, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 

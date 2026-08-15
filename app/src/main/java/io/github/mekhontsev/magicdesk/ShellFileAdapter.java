@@ -187,6 +187,14 @@ final class ShellFileAdapter extends BaseAdapter {
                     }
 
                     @Override
+                    public boolean onTap(
+                            final View target, final MotionEvent event) {
+                        mClickListener.onClick(
+                                file, event.getMetaState(), event.getEventTime());
+                        return true;
+                    }
+
+                    @Override
                     public void onPointerEvent(final MotionEvent event) {
                         final int action = event.getActionMasked();
                         if (action == MotionEvent.ACTION_DOWN
@@ -199,7 +207,9 @@ final class ShellFileAdapter extends BaseAdapter {
                 });
         item.root.setOnClickListener(view ->
                 mClickListener.onClick(
-                        file, item.metaState, item.eventTime));
+                        file,
+                        item.metaState,
+                        android.os.SystemClock.uptimeMillis()));
         item.root.setOnContextClickListener(view ->
                 mContextListener.onContextClick(view, file));
         item.root.setOnDragListener(file.directory || shortcut != null

@@ -44,7 +44,7 @@ final class PhoneControlPanelController {
 
         void setExternalOutputTiming(String outputTiming);
 
-        void switchToMirror();
+        void closeDesktop();
 
         void openTouchpad();
 
@@ -133,7 +133,7 @@ final class PhoneControlPanelController {
     private LinearLayout mExternalDisplayOptions;
     private Button mConnectWirelessDisplay;
     private Button mExternalDesktop;
-    private Button mMirror;
+    private Button mCloseDesktop;
     private Button mTouchpad;
     private Button mPhoneScreen;
     private GridLayout mSessionActions;
@@ -250,15 +250,16 @@ final class PhoneControlPanelController {
         mOutputMode.setEnabled(canConfigureOutput
                 && mOutputModesConfigurable
                 && !mOutputModes.isEmpty());
-        final boolean canMirror = state.consoleModeActive
+        final boolean canCloseDesktop = state.externalDesktopActive
                 && state.consoleControlAvailable;
         final boolean canOpenTouchpad = state.externalDesktopActive
                 && state.consoleControlAvailable
                 && state.phoneTouchpadAvailable;
         final boolean canControlPhoneScreen = state.consoleModeActive
                 && state.phoneScreenControlAvailable;
-        mMirror.setVisibility(canMirror ? View.VISIBLE : View.GONE);
-        mMirror.setEnabled(canMirror);
+        mCloseDesktop.setVisibility(
+                canCloseDesktop ? View.VISIBLE : View.GONE);
+        mCloseDesktop.setEnabled(canCloseDesktop);
         mTouchpad.setVisibility(
                 canOpenTouchpad ? View.VISIBLE : View.GONE);
         mTouchpad.setEnabled(canOpenTouchpad);
@@ -269,7 +270,9 @@ final class PhoneControlPanelController {
                 canControlPhoneScreen ? View.VISIBLE : View.GONE);
         mPhoneScreen.setEnabled(canControlPhoneScreen);
         mSessionActions.setVisibility(
-                canMirror || canOpenTouchpad || canControlPhoneScreen
+                canCloseDesktop
+                        || canOpenTouchpad
+                        || canControlPhoneScreen
                         ? View.VISIBLE : View.GONE);
         mRendering = false;
     }
@@ -365,11 +368,11 @@ final class PhoneControlPanelController {
         addExternalDisplayOptions(parent);
 
         mSessionActions = actionGrid();
-        mMirror = actionButton(
-                R.string.action_switch_to_mirror, COLOR_CYAN);
-        mMirror.setOnClickListener(
-                view -> mActions.switchToMirror());
-        addGridAction(mSessionActions, mMirror);
+        mCloseDesktop = actionButton(
+                R.string.action_close_desktop, COLOR_CYAN);
+        mCloseDesktop.setOnClickListener(
+                view -> mActions.closeDesktop());
+        addGridAction(mSessionActions, mCloseDesktop);
 
         mTouchpad = actionButton(
                 R.string.action_open_touchpad, COLOR_CYAN);

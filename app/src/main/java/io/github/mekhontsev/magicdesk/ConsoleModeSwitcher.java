@@ -20,6 +20,7 @@ public final class ConsoleModeSwitcher {
     private static final String SCREENSHOT_DIRECTORY =
             "/storage/emulated/0/Pictures/Screenshots";
     private static final AtomicBoolean DESKTOP_START_IN_PROGRESS = new AtomicBoolean();
+    private static final AtomicBoolean DESKTOP_CLOSE_IN_PROGRESS = new AtomicBoolean();
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
             new ThreadFactory() {
@@ -88,6 +89,10 @@ public final class ConsoleModeSwitcher {
     }
 
     static void showMagicDesk(final int knownConsoleDisplayId) {
+        if (DESKTOP_CLOSE_IN_PROGRESS.get()) {
+            Log.i(TAG, "Desktop close is already in progress");
+            return;
+        }
         if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
             Log.i(TAG, "MagicDesk activation is already in progress");
             return;
@@ -114,7 +119,8 @@ public final class ConsoleModeSwitcher {
             throw new IllegalStateException(
                     "display target is unsupported by the current platform");
         }
-        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
+        if (DESKTOP_CLOSE_IN_PROGRESS.get()
+                || !DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
             Log.i(TAG, "MagicDesk activation is already in progress");
             return;
         }
@@ -136,17 +142,45 @@ public final class ConsoleModeSwitcher {
             complete(callback, false);
             return;
         }
+        if (!DESKTOP_CLOSE_IN_PROGRESS.compareAndSet(false, true)) {
+            Log.i(TAG, "Desktop close is already in progress");
+            complete(callback, false);
+            return;
+        }
         DesktopTaskController.disableExternalTaskMigrationProtection();
-        DesktopDisplayDrivers.forTarget(target).close(
-                target,
-                restorePhonePanel,
-                success -> {
-                    if (!success) {
-                        DesktopTaskController
-                                .restoreExternalTaskMigrationProtection();
-                    }
-                    complete(callback, success);
-                });
+        final Runnable close = () -> {
+            try {
+                DesktopDisplayDrivers.forTarget(target).close(
+                        target,
+                        restorePhonePanel,
+                        success -> finishDesktopClose(
+                                callback, success));
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Desktop close failed", error);
+                finishDesktopClose(callback, false);
+            }
+        };
+        if (restorePhonePanel
+                && target.displayId > android.view.Display.DEFAULT_DISPLAY) {
+            DesktopTaskParkingController.park(target, parked -> {
+                if (!parked) {
+                    Log.w(TAG, "Desktop close continues after partial task parking");
+                }
+                close.run();
+            });
+        } else {
+            close.run();
+        }
+    }
+
+    private static void finishDesktopClose(
+            final ResultCallback callback,
+            final boolean success) {
+        DESKTOP_CLOSE_IN_PROGRESS.set(false);
+        if (!success) {
+            DesktopTaskController.restoreExternalTaskMigrationProtection();
+        }
+        complete(callback, success);
     }
 
     private static void complete(
@@ -285,38 +319,35 @@ public final class ConsoleModeSwitcher {
             }
             return;
         }
-        EXECUTOR.execute(new Runnable() {
-            @Override
-            public void run() {
-                boolean success = false;
-                try {
-                    if (getActiveConsoleDisplayId() <= 0) {
-                        success = true;
-                    } else {
-                        if (PlatformDrivers.current().projection()
+        EXECUTOR.execute(() -> {
+                    boolean success = false;
+                    try {
+                        if (getActiveConsoleDisplayId() <= 0) {
+                            success = true;
+                        } else if (PlatformDrivers.current().projection()
                                 .requestMirrorMode()) {
                             success = PlatformDrivers.current().projection()
                                     .waitForDesktopStop(
                                             MagicDeskApplication
                                                     .applicationContext());
                             if (!success) {
-                                Log.w(TAG, "Console display remained active after Mirror request");
+                                Log.w(TAG,
+                                        "Console display remained active after Mirror request");
                             }
                         }
+                        if (success && ShellAccess.isReady()) {
+                            PlatformDrivers.current().projection()
+                                    .setCaptionTransport(
+                                            PlatformProjectionDriver
+                                                    .Transport.NONE);
+                        }
+                    } finally {
+                        DESKTOP_START_IN_PROGRESS.set(false);
+                        if (callback != null) {
+                            callback.onComplete(success);
+                        }
                     }
-                    if (success && ShellAccess.isReady()) {
-                        PlatformDrivers.current().projection()
-                                .setCaptionTransport(
-                                        PlatformProjectionDriver.Transport.NONE);
-                    }
-                } finally {
-                    DESKTOP_START_IN_PROGRESS.set(false);
-                    if (callback != null) {
-                        callback.onComplete(success);
-                    }
-                }
-            }
-        });
+                });
     }
 
     static void switchToMirrorWithControlPanel(
@@ -326,46 +357,6 @@ public final class ConsoleModeSwitcher {
             PhoneControlPanelLauncher.openOnPhoneWithShell();
             if (callback != null) {
                 callback.onComplete(success);
-            }
-        });
-    }
-
-    static void disconnectWirelessDisplay(
-            final ResultCallback callback) {
-        ControlActivity.finishActiveForMirrorTransition();
-        disconnectWirelessDisplayTransport(callback);
-    }
-
-    private static void disconnectWirelessDisplayTransport(
-            final ResultCallback callback) {
-        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
-            Log.i(TAG, "Desktop transition is already in progress");
-            if (callback != null) {
-                callback.onComplete(false);
-            }
-            return;
-        }
-        EXECUTOR.execute(() -> {
-            boolean success = false;
-            try {
-                success = PlatformDrivers.current().projection()
-                                .disconnectWirelessDisplay()
-                        && ConsoleDisplayController
-                                .waitForWirelessDisplayStop();
-                if (!success) {
-                    Log.w(TAG, "Wireless display remained connected");
-                } else if (ShellAccess.isReady()) {
-                    PlatformDrivers.current().projection()
-                            .setCaptionTransport(
-                                    PlatformProjectionDriver.Transport.NONE);
-                }
-            } catch (IOException error) {
-                Log.w(TAG, "Wireless display disconnect failed", error);
-            } finally {
-                DESKTOP_START_IN_PROGRESS.set(false);
-                if (callback != null) {
-                    callback.onComplete(success);
-                }
             }
         });
     }

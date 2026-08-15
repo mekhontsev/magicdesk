@@ -44,6 +44,9 @@ public final class FileManagerActivity extends Activity
     private static final String PREFERENCES = "file_manager";
     private static final String PREF_LAST_PATH = "last_path";
     private static final String PREF_LAYOUT_MODE = "layout_mode";
+    private static final String STATE_CURRENT_PATH = "current_path";
+    private static final String STATE_HISTORY = "history";
+    private static final String STATE_HISTORY_INDEX = "history_index";
     private static final int PAGE_SIZE = 500;
     private final ExecutorService mWorker =
             Executors.newSingleThreadExecutor(runnable -> {
@@ -108,6 +111,7 @@ public final class FileManagerActivity extends Activity
                 this,
                 R.string.file_manager_title,
                 R.drawable.ic_desktop_folder);
+        BuiltInWindowRegistry.register(this);
         final SharedPreferences preferences = getSharedPreferences(
                 PREFERENCES, MODE_PRIVATE);
         mLayoutMode = FileManagerLayoutMode.fromPreference(
@@ -159,10 +163,24 @@ public final class FileManagerActivity extends Activity
                 });
         setContentView(mView.root());
         mView.setTerminalVisible(TermuxIntegration.isInstalled(this));
-        final String requested = getIntent().getStringExtra(EXTRA_PATH);
-        final String stored = preferences.getString(
-                PREF_LAST_PATH, DEFAULT_PATH);
-        mCurrentPath = requested == null ? stored : requested;
+        if (savedInstanceState != null
+                && savedInstanceState.containsKey(STATE_CURRENT_PATH)) {
+            mCurrentPath = savedInstanceState.getString(
+                    STATE_CURRENT_PATH, DEFAULT_PATH);
+            final ArrayList<String> restoredHistory =
+                    savedInstanceState.getStringArrayList(STATE_HISTORY);
+            if (restoredHistory != null) {
+                mHistory.addAll(restoredHistory);
+            }
+            mHistoryIndex = Math.max(-1, Math.min(
+                    savedInstanceState.getInt(STATE_HISTORY_INDEX, -1),
+                    mHistory.size() - 1));
+        } else {
+            final String requested = getIntent().getStringExtra(EXTRA_PATH);
+            final String stored = preferences.getString(
+                    PREF_LAST_PATH, DEFAULT_PATH);
+            mCurrentPath = requested == null ? stored : requested;
+        }
         mBackCallback = this::onBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -182,6 +200,7 @@ public final class FileManagerActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        BuiltInWindowRegistry.unregister(this);
         mDestroyed = true;
         ShellAccess.removeStateListener(this);
         mLoadGeneration.incrementAndGet();
@@ -202,6 +221,14 @@ public final class FileManagerActivity extends Activity
         }
         mWorker.shutdownNow();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(final Bundle state) {
+        state.putString(STATE_CURRENT_PATH, mCurrentPath);
+        state.putStringArrayList(STATE_HISTORY, new ArrayList<>(mHistory));
+        state.putInt(STATE_HISTORY_INDEX, mHistoryIndex);
+        super.onSaveInstanceState(state);
     }
 
     @Override
@@ -417,6 +444,55 @@ public final class FileManagerActivity extends Activity
         mItemMenu = itemMenu;
         itemMenu.setOnDismissListener(() -> {
             if (mItemMenu == itemMenu) {
+                mItemMenu = null;
+            }
+        });
+        return true;
+    }
+
+    @Override
+    public boolean onBackgroundContextMenu(
+            final View anchor, final float rawX, final float rawY) {
+        if (mItemMenu != null) {
+            mItemMenu.dismiss();
+        }
+        clearSelection();
+        final PopupWindow menu = FileManagerBackgroundContextMenu.show(
+                this,
+                anchor,
+                rawX,
+                rawY,
+                mCurrentPath,
+                !FileManagerClipboard.snapshot().isEmpty(),
+                new FileManagerBackgroundContextMenu.Actions() {
+                    @Override
+                    public void newFile() {
+                        onNewFile();
+                    }
+
+                    @Override
+                    public void newFolder() {
+                        onNewFolder();
+                    }
+
+                    @Override
+                    public void paste() {
+                        onPaste();
+                    }
+
+                    @Override
+                    public void refresh() {
+                        onRefresh();
+                    }
+
+                    @Override
+                    public void openConsole() {
+                        onOpenConsole();
+                    }
+                });
+        mItemMenu = menu;
+        menu.setOnDismissListener(() -> {
+            if (mItemMenu == menu) {
                 mItemMenu = null;
             }
         });

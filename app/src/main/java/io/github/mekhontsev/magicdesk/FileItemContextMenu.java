@@ -195,7 +195,7 @@ final class FileItemContextMenu {
                 dismiss, actions::properties);
     }
 
-    private static void addAction(
+    static void addAction(
             final LinearLayout panel,
             final DesktopUiFactory ui,
             final int textResId,

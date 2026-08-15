@@ -762,6 +762,12 @@ final class DesktopWorkspaceController {
                     public void onShowContextMenu(final View target) {
                         mActivity.showRegisteredContextMenu(target);
                     }
+
+                    @Override
+                    public boolean onTap(
+                            final View target, final MotionEvent event) {
+                        return target.performClick();
+                    }
                 });
     }
 

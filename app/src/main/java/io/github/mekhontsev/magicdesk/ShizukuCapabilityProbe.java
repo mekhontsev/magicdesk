@@ -34,6 +34,7 @@ public final class ShizukuCapabilityProbe {
             "android.permission.MANAGE_KEY_GESTURES",
             "android.permission.LISTEN_FOR_KEY_ACTIVITY",
             "android.permission.MANAGE_ACTIVITY_TASKS",
+            "android.permission.SET_ACTIVITY_WATCHER",
             "android.permission.INTERNAL_SYSTEM_WINDOW",
             "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.DEVICE_POWER",

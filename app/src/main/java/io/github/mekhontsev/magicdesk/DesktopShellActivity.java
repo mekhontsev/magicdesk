@@ -592,6 +592,12 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     @Override
+    public void onDesktopHostReady() {
+        DesktopTaskParkingController.onDesktopHostReady(
+                getCurrentDisplayId());
+    }
+
+    @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {

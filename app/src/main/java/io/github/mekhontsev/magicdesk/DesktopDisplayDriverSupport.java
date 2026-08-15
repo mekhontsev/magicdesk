@@ -70,26 +70,10 @@ final class DesktopDisplayDriverSupport {
             final DesktopDisplayTarget target,
             final boolean restorePhonePanel,
             final DesktopDisplayDriver.CompletionCallback callback) {
-        final ConsoleModeSwitcher.ResultCallback finish = success -> {
-            if (!success) {
-                CompatibilityDiagnostics.record(
-                        "DISPLAY-TASKS-001",
-                        "Some desktop tasks could not be returned to the phone",
-                        "display=" + target.displayId
-                                + " kind=" + target.kind);
-            }
-            DesktopRuntimeBridge.closeDesktopSession(target.displayId);
-            if (restorePhonePanel) {
-                PhoneControlPanelLauncher.openOnPhoneWithShell();
-            }
-            // Transport-independent close must finish even if task recovery
-            // was only partially supported by the current firmware.
-            complete(callback, true);
-        };
+        DesktopRuntimeBridge.closeDesktopSession(target.displayId);
         if (restorePhonePanel) {
-            ConsoleModeSwitcher.returnConsoleTasksToPhone(target, finish);
-        } else {
-            finish.onComplete(true);
+            PhoneControlPanelLauncher.openOnPhoneWithShell();
         }
+        complete(callback, true);
     }
 }

@@ -68,6 +68,7 @@ final class DesktopHostWindowController {
                             && hostBounds.equals(task.bounds)) {
                         mReady = true;
                         resetAttempts();
+                        mHost.onDesktopHostReady();
                         return;
                     }
                     TaskRepository.configureDesktopHost(task, result ->
@@ -172,5 +173,7 @@ final class DesktopHostWindowController {
         void runOnUiThread(Runnable action);
 
         void refreshTaskSnapshot();
+
+        void onDesktopHostReady();
     }
 }

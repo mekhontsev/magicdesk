@@ -11,7 +11,7 @@ final class MagicDeskSessionController {
 
     private final MagicDeskSessionHost mHost;
     private final Activity mActivity;
-    private boolean mOperationInProgress;
+    private volatile boolean mOperationInProgress;
 
     MagicDeskSessionController(final MagicDeskSessionHost host) {
         mHost = host;
@@ -26,6 +26,11 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
+        DesktopTaskParkingController.clear();
+        BuiltInWindowRegistry.finishAll(this::startExit);
+    }
+
+    private void startExit() {
         final DesktopDisplayTarget desktopTarget =
                 resolveExternalDesktopTarget();
         new MagicDeskExitCoordinator(
@@ -83,13 +88,6 @@ final class MagicDeskSessionController {
     }
 
     void closeDesktop() {
-        if (mOperationInProgress) {
-            return;
-        }
-        mOperationInProgress = true;
-        Log.i(TAG, "desktop close requested");
-        mHost.showSessionStatus(
-                mActivity.getString(R.string.status_desktop_closing));
         final Display display = mActivity.getDisplay();
         if (display == null) {
             mActivity.runOnUiThread(mActivity::finishAndRemoveTask);
@@ -99,13 +97,35 @@ final class MagicDeskSessionController {
         final DesktopDisplayTarget target = displayId == Display.DEFAULT_DISPLAY
                 ? DesktopDisplayTarget.phone()
                 : DesktopRuntimeBridge.getDesktopTarget(displayId);
+        closeDesktop(target);
+    }
+
+    void closeDesktop(final DesktopDisplayTarget target) {
+        if (mOperationInProgress) {
+            return;
+        }
+        mOperationInProgress = true;
+        Log.i(TAG, "desktop close requested");
+        mHost.showSessionStatus(
+                mActivity.getString(R.string.status_desktop_closing));
+        if (target == null) {
+            mOperationInProgress = false;
+            finishCloseDesktop(
+                    false,
+                    "DISPLAY-CLOSE-001",
+                    R.string.status_close_desktop_failed);
+            return;
+        }
         ConsoleModeSwitcher.closeDesktop(
                 target,
                 true,
-                success -> finishCloseDesktop(
-                        success,
-                        closeFailureCode(target),
-                        closeFailureMessage(target)));
+                success -> {
+                    mOperationInProgress = false;
+                    finishCloseDesktop(
+                            success,
+                            closeFailureCode(target),
+                            R.string.status_close_desktop_failed);
+                });
     }
 
     private void closeDesktopBeforeExit(
@@ -149,17 +169,6 @@ final class MagicDeskSessionController {
             return "DISPLAY-SESSION-001";
         }
         return "DISPLAY-CLOSE-001";
-    }
-
-    private static int closeFailureMessage(
-            final DesktopDisplayTarget target) {
-        return target != null
-                && target.kind == DesktopDisplayTarget.Kind.WIRED
-                && PlatformDrivers.current().projection()
-                        .ownsTransportLifecycle(
-                                PlatformProjectionDriver.Transport.WIRED)
-                ? R.string.status_mirror_failed
-                : R.string.status_close_desktop_failed;
     }
 
     private void finishCloseDesktop(

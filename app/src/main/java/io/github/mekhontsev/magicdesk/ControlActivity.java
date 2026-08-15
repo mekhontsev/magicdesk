@@ -362,27 +362,27 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void switchToMirror() {
-        if (!ShellAccess.isReady()
-                || mProjection.activeDesktopDisplayId(this)
-                        <= Display.DEFAULT_DISPLAY) {
+    public void closeDesktop() {
+        if (!ShellAccess.isReady()) {
             return;
         }
-        mStatus = getString(R.string.status_mirror_switching);
-        refresh();
-        ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                success -> runOnUiThread(() -> {
-                    mStatus = getString(success
-                            ? R.string.status_mirror_active
-                            : R.string.status_mirror_failed);
-                    if (!success) {
-                        CompatibilityDiagnostics.record(
-                                "DISPLAY-SESSION-001",
-                                mStatus,
-                                "Control panel mirror transition");
-                    }
-                    refresh();
-                }));
+        DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (target == null) {
+            final int displayId = mProjection.activeDesktopDisplayId(this);
+            if (displayId > Display.DEFAULT_DISPLAY) {
+                // A platform-owned wired session may be active before its
+                // desktop activity has registered the complete target.
+                target = DesktopDisplayTarget.wired(displayId);
+            }
+        }
+        if (target == null
+                || target.displayId <= Display.DEFAULT_DISPLAY) {
+            mStatus = getString(R.string.status_external_display_unavailable);
+            refresh();
+            return;
+        }
+        mSessionController.closeDesktop(target);
     }
 
     @Override

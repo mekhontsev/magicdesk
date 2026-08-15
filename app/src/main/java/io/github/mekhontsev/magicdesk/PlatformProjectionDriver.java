@@ -91,8 +91,6 @@ public interface PlatformProjectionDriver {
 
     boolean openWirelessConnectionUi(Activity activity);
 
-    boolean disconnectWirelessDisplay() throws IOException;
-
     int activeDesktopDisplayId(Context context);
 
     int waitForDesktopDisplay(Context context);

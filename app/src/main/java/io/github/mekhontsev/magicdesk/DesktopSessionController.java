@@ -69,6 +69,7 @@ final class DesktopSessionController {
                 if (restoreWindows) {
                     DesktopRuntimeBridge.restoreLastVisibleWindows();
                 }
+                DesktopTaskParkingController.restoreWhenReady(preparedTarget);
                 return new ShowResult(true, false);
             }
 
@@ -112,6 +113,9 @@ final class DesktopSessionController {
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
                         preparedTarget.displayId);
+            }
+            if (ready) {
+                DesktopTaskParkingController.restoreWhenReady(preparedTarget);
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {

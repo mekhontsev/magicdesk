@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
@@ -10,6 +11,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.DragEvent;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -42,6 +44,8 @@ final class FileManagerView {
                 ShellFileInfo file, int metaState, long eventTime);
         void onSelectionChanged(ShellFileInfo file, boolean selected);
         boolean onContextMenu(View anchor, ShellFileInfo file);
+        boolean onBackgroundContextMenu(
+                View anchor, float rawX, float rawY);
         void onStartDrag(
                 View source, ShellFileInfo file, int metaState);
         boolean onDrop(DragEvent event, String destinationPath);
@@ -364,6 +368,8 @@ final class FileManagerView {
         mGrid.setClipToPadding(false);
         mGrid.setBackgroundColor(COLOR_BACKGROUND);
         mGrid.setAdapter(mAdapter);
+        installBackgroundContextTarget(mList, listener);
+        installBackgroundContextTarget(mGrid, listener);
         listFrame.setOnDragListener((view, event) -> {
             if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
                 return event.getClipDescription() != null;
@@ -380,6 +386,7 @@ final class FileManagerView {
         mEmpty.setTextSize(16f);
         mEmpty.setGravity(Gravity.CENTER);
         mEmpty.setVisibility(View.GONE);
+        installBackgroundContextTarget(mEmpty, listener);
         listFrame.addView(mEmpty, matchMatch());
         updateItemVisibility();
         browser.addView(listFrame,
@@ -398,6 +405,34 @@ final class FileManagerView {
         mRoot.addView(mStatus, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(28)));
         updateSelection(0, false);
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private static void installBackgroundContextTarget(
+            final View view, final Listener listener) {
+        final float[] lastPosition = new float[2];
+        view.setOnTouchListener((target, event) -> {
+            lastPosition[0] = event.getRawX();
+            lastPosition[1] = event.getRawY();
+            return false;
+        });
+        view.setOnGenericMotionListener((target, event) -> {
+            lastPosition[0] = event.getRawX();
+            lastPosition[1] = event.getRawY();
+            if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS
+                    && event.getActionButton()
+                            == MotionEvent.BUTTON_SECONDARY) {
+                return listener.onBackgroundContextMenu(
+                        target, event.getRawX(), event.getRawY());
+            }
+            return false;
+        });
+        view.setOnContextClickListener(target ->
+                listener.onBackgroundContextMenu(
+                        target, lastPosition[0], lastPosition[1]));
+        view.setOnLongClickListener(target ->
+                listener.onBackgroundContextMenu(
+                        target, lastPosition[0], lastPosition[1]));
     }
 
     View root() {

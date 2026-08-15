@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -12,6 +13,10 @@ final class DeferredContextDragGesture
         boolean onStartDrag(View target, MotionEvent event);
 
         void onShowContextMenu(View target);
+
+        default boolean onTap(final View target, final MotionEvent event) {
+            return false;
+        }
 
         default void onPointerEvent(final MotionEvent event) {
         }
@@ -26,6 +31,7 @@ final class DeferredContextDragGesture
     private boolean mLongPressRecognized;
     private boolean mDragging;
     private boolean mContextMenuPending;
+    private boolean mPrimaryGesture;
 
     DeferredContextDragGesture(
             final View target,
@@ -58,6 +64,9 @@ final class DeferredContextDragGesture
             mDownX = event.getX();
             mDownY = event.getY();
             reset();
+            mPrimaryGesture = !event.isFromSource(InputDevice.SOURCE_MOUSE)
+                    || (event.getButtonState()
+                            & MotionEvent.BUTTON_PRIMARY) != 0;
         } else if (action == MotionEvent.ACTION_MOVE
                 && !mDragging
                 && movedPastSlop(event)
@@ -76,6 +85,10 @@ final class DeferredContextDragGesture
                 reset();
                 return true;
             }
+            if (mPrimaryGesture) {
+                reset();
+                return mListener.onTap(target, event);
+            }
             reset();
         } else if (action == MotionEvent.ACTION_CANCEL) {
             reset();
@@ -92,5 +105,6 @@ final class DeferredContextDragGesture
         mLongPressRecognized = false;
         mDragging = false;
         mContextMenuPending = false;
+        mPrimaryGesture = false;
     }
 }

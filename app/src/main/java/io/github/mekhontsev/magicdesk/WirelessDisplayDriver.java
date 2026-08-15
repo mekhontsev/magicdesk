@@ -40,14 +40,15 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
                     target, restorePhonePanel, callback);
             return;
         }
-        ConsoleModeSwitcher.disconnectWirelessDisplay(success -> {
-            if (success && restorePhonePanel) {
-                MagicDeskRuntimeService
-                        .restorePhonePanelAfterExternalDesktopRemovalIfRunning(
-                                target.displayId);
-            }
-            DesktopDisplayDriverSupport.complete(callback, success);
-        });
+        if (restorePhonePanel) {
+            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
+                    success -> DesktopDisplayDriverSupport.complete(
+                            callback, success));
+        } else {
+            ConsoleModeSwitcher.switchToMirror(
+                    success -> DesktopDisplayDriverSupport.complete(
+                            callback, success));
+        }
     }
 
     @Override

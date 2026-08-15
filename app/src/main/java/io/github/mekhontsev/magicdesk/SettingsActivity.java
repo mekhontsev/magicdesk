@@ -26,6 +26,7 @@ public final class SettingsActivity extends Activity
                 this,
                 R.string.settings_title,
                 R.mipmap.ic_launcher);
+        BuiltInWindowRegistry.register(this);
         mView = new SettingsView(this, this);
         setContentView(mView.create());
         render();
@@ -35,6 +36,12 @@ public final class SettingsActivity extends Activity
     protected void onResume() {
         super.onResume();
         render();
+    }
+
+    @Override
+    protected void onDestroy() {
+        BuiltInWindowRegistry.unregister(this);
+        super.onDestroy();
     }
 
     @Override
