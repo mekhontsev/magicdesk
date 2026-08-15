@@ -256,8 +256,6 @@ final class FileManagerView {
         commands.addView(mCut, compactButton());
         commands.addView(mPaste, compactButton());
         commands.addView(mRename, compactButton());
-        commands.addView(new View(context),
-                new LinearLayout.LayoutParams(dp(10), 1));
         commands.addView(mDelete, compactButton());
         commands.addView(mProperties, compactButton());
         commands.addView(mOpenWith, compactButton());
@@ -575,10 +573,7 @@ final class FileManagerView {
     }
 
     private LinearLayout.LayoutParams compactButton() {
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(dp(46), dp(42));
-        params.setMarginEnd(dp(4));
-        return params;
+        return new LinearLayout.LayoutParams(dp(46), dp(42));
     }
 
     private LinearLayout.LayoutParams actionButton() {
