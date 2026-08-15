@@ -93,12 +93,30 @@ final class NubiaHdmiModeController {
             final Context context,
             final int displayId,
             final Selection selection) throws IOException {
+        if (selection != null && selection.isSystemDefaultRequested()) {
+            return applySystemDefault(context, displayId);
+        }
         if (selection == null || selection.target == null
                 || !selection.configurable
                 || selection.target.sameTiming(selection.current)) {
             return displayId;
         }
         return applyMode(context, displayId, selection);
+    }
+
+    private static int applySystemDefault(
+            final Context context,
+            final int displayId) throws IOException {
+        ShellAccess.run("/system/bin/cmd display "
+                + "clear-user-preferred-display-mode " + displayId);
+        final int settledDisplayId = waitForAvailableDisplay(context);
+        if (settledDisplayId <= Display.DEFAULT_DISPLAY) {
+            throw new IOException(
+                    "display did not settle after restoring the system mode");
+        }
+        Log.i(TAG, "restored Android system display mode display="
+                + displayId + "->" + settledDisplayId);
+        return settledDisplayId;
     }
 
     static int applyMode(
@@ -326,6 +344,7 @@ final class NubiaHdmiModeController {
             final String preferredTiming) {
         final List<Mode> availableModes = normalizeModes(modes);
         Mode target = findMode(availableModes, preferredTiming);
+        final boolean systemDefaultRequested = target == null;
         if (target == null) {
             target = current;
         }
@@ -335,7 +354,8 @@ final class NubiaHdmiModeController {
                 availableModes,
                 true,
                 "Android DisplayManager",
-                ControlPath.SYSTEM);
+                ControlPath.SYSTEM,
+                systemDefaultRequested);
     }
 
     private static Mode fromDisplayMode(final Display.Mode mode) {
@@ -355,6 +375,42 @@ final class NubiaHdmiModeController {
         } catch (IOException | RuntimeException cleanupError) {
             originalError.addSuppressed(cleanupError);
         }
+    }
+
+    private static int waitForAvailableDisplay(final Context context) {
+        final DisplayManager manager =
+                context.getSystemService(DisplayManager.class);
+        final long deadline = SystemClock.uptimeMillis() + MODE_TIMEOUT_MS;
+        int stableDisplayId = -1;
+        String stableMode = null;
+        int stableSamples = 0;
+        while (SystemClock.uptimeMillis() < deadline) {
+            final int displayId = ConsoleDisplayController.findExternalDisplayId();
+            final Display display = displayId <= Display.DEFAULT_DISPLAY
+                    || manager == null ? null : manager.getDisplay(displayId);
+            final Display.Mode mode = display == null ? null : display.getMode();
+            if (mode == null) {
+                stableDisplayId = -1;
+                stableMode = null;
+                stableSamples = 0;
+            } else {
+                final String modeKey = mode.getPhysicalWidth() + "x"
+                        + mode.getPhysicalHeight() + "@"
+                        + Math.round(mode.getRefreshRate());
+                if (displayId == stableDisplayId && modeKey.equals(stableMode)) {
+                    stableSamples++;
+                } else {
+                    stableDisplayId = displayId;
+                    stableMode = modeKey;
+                    stableSamples = 1;
+                }
+                if (stableSamples >= 3) {
+                    return displayId;
+                }
+            }
+            SystemClock.sleep(MODE_POLL_MS);
+        }
+        return -1;
     }
 
     static Selection systemSelection(
@@ -500,6 +556,7 @@ final class NubiaHdmiModeController {
         final boolean configurable;
         final String detail;
         final ControlPath controlPath;
+        final boolean systemDefaultRequested;
 
         Selection(
                 final Mode current,
@@ -511,7 +568,8 @@ final class NubiaHdmiModeController {
                     availableModes,
                     true,
                     "",
-                    ControlPath.VENDOR);
+                    ControlPath.VENDOR,
+                    false);
         }
 
         Selection(
@@ -526,7 +584,8 @@ final class NubiaHdmiModeController {
                     availableModes,
                     configurable,
                     detail,
-                    ControlPath.NONE);
+                    ControlPath.NONE,
+                    false);
         }
 
         Selection(
@@ -535,13 +594,15 @@ final class NubiaHdmiModeController {
                 final List<Mode> availableModes,
                 final boolean configurable,
                 final String detail,
-                final ControlPath controlPath) {
+                final ControlPath controlPath,
+                final boolean systemDefaultRequested) {
             this.current = current;
             this.target = target;
             this.availableModes = availableModes;
             this.configurable = configurable;
             this.detail = detail == null ? "" : detail;
             this.controlPath = controlPath;
+            this.systemDefaultRequested = systemDefaultRequested;
         }
 
         int vendorSizeType() {
@@ -556,11 +617,21 @@ final class NubiaHdmiModeController {
                     && vendorSizeType() == VENDOR_SIZE_UNCHANGED;
         }
 
+        boolean supportsSystemDefault() {
+            return configurable && controlPath == ControlPath.SYSTEM;
+        }
+
+        boolean isSystemDefaultRequested() {
+            return supportsSystemDefault() && systemDefaultRequested;
+        }
+
         Selection withPreferredTiming(final String preferredTiming) {
             if (!configurable) {
                 return this;
             }
             Mode preferred = findMode(availableModes, preferredTiming);
+            final boolean useSystemDefault = controlPath == ControlPath.SYSTEM
+                    && preferred == null;
             if (preferred == null) {
                 preferred = controlPath == ControlPath.SYSTEM
                         ? current : bestNativeResolution(availableModes);
@@ -571,7 +642,8 @@ final class NubiaHdmiModeController {
                     availableModes,
                     true,
                     detail,
-                    controlPath);
+                    controlPath,
+                    useSystemDefault);
         }
     }
 

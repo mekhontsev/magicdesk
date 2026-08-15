@@ -32,6 +32,8 @@ public interface PlatformProjectionDriver {
         public final Mode defaultTarget;
         public final List<Mode> availableModes;
         public final boolean configurable;
+        public final boolean systemDefaultAvailable;
+        public final boolean systemDefaultSelected;
 
         public ModeSelection(
                 final Mode current,
@@ -39,6 +41,24 @@ public interface PlatformProjectionDriver {
                 final Mode defaultTarget,
                 final List<Mode> availableModes,
                 final boolean configurable) {
+            this(
+                    current,
+                    target,
+                    defaultTarget,
+                    availableModes,
+                    configurable,
+                    false,
+                    false);
+        }
+
+        public ModeSelection(
+                final Mode current,
+                final Mode target,
+                final Mode defaultTarget,
+                final List<Mode> availableModes,
+                final boolean configurable,
+                final boolean systemDefaultAvailable,
+                final boolean systemDefaultSelected) {
             this.current = current;
             this.target = target;
             this.defaultTarget = defaultTarget;
@@ -47,6 +67,9 @@ public interface PlatformProjectionDriver {
                     : Collections.unmodifiableList(
                             new ArrayList<>(availableModes));
             this.configurable = configurable;
+            this.systemDefaultAvailable = systemDefaultAvailable;
+            this.systemDefaultSelected = systemDefaultAvailable
+                    && systemDefaultSelected;
         }
 
         public ModeSelection withPreferredTiming(final String timingKey) {
@@ -54,7 +77,9 @@ public interface PlatformProjectionDriver {
                 return this;
             }
             Mode preferred = defaultTarget;
-            if (timingKey != null) {
+            final boolean selectSystemDefault = systemDefaultAvailable
+                    && (timingKey == null || timingKey.isEmpty());
+            if (!selectSystemDefault && timingKey != null) {
                 for (final Mode mode : availableModes) {
                     if (timingKey.equals(mode.timingKey)) {
                         preferred = mode;
@@ -67,7 +92,9 @@ public interface PlatformProjectionDriver {
                     preferred,
                     defaultTarget,
                     availableModes,
-                    true);
+                    true,
+                    systemDefaultAvailable,
+                    selectSystemDefault);
         }
     }
 

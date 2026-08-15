@@ -144,6 +144,7 @@ final class PhoneControlPanelController {
             Collections.emptyList();
     private boolean mOutputModesConfigurable;
     private boolean mRendering = true;
+    private int mRenderGeneration;
 
     PhoneControlPanelController(
             final Activity activity,
@@ -190,6 +191,7 @@ final class PhoneControlPanelController {
     }
 
     void render(final State state) {
+        final int renderGeneration = ++mRenderGeneration;
         mRendering = true;
         mStatus.setText(state.status);
         mRuntime.setText(mActivity.getString(
@@ -274,7 +276,14 @@ final class PhoneControlPanelController {
                         || canOpenTouchpad
                         || canControlPhoneScreen
                         ? View.VISIBLE : View.GONE);
-        mRendering = false;
+        // Spinner selection callbacks can be posted after setSelection(). Keep
+        // rendering guarded through the current UI turn so merely displaying a
+        // mode never persists it as a user choice.
+        mStatus.post(() -> {
+            if (mRenderGeneration == renderGeneration) {
+                mRendering = false;
+            }
+        });
     }
 
     private View createHeader() {
@@ -447,8 +456,15 @@ final class PhoneControlPanelController {
 
     private void renderOutputModes(
             final PlatformProjectionDriver.ModeSelection selection) {
-        final List<PlatformProjectionDriver.Mode> modes = selection == null
-                ? Collections.emptyList() : selection.availableModes;
+        final List<PlatformProjectionDriver.Mode> modes = new ArrayList<>();
+        if (selection != null && selection.systemDefaultAvailable) {
+            modes.add(new PlatformProjectionDriver.Mode(
+                    "", mActivity.getString(
+                            R.string.external_display_system_native)));
+        }
+        if (selection != null) {
+            modes.addAll(selection.availableModes);
+        }
         final boolean configurable = selection != null
                 && selection.configurable;
         if (mOutputModeAdapter.getCount() == 0
@@ -475,7 +491,8 @@ final class PhoneControlPanelController {
             mOutputMode.setSelection(0, false);
             return;
         }
-        final String selectedTiming = selection.target.timingKey;
+        final String selectedTiming = selection.systemDefaultSelected
+                ? "" : selection.target.timingKey;
         for (int index = 0; index < mOutputModes.size(); index++) {
             if (selectedTiming.equals(mOutputModes.get(index).timingKey)) {
                 mOutputMode.setSelection(index, false);

@@ -48,7 +48,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void publicModesUseSavedTimingAndDefaultToCurrent() {
+    public void publicModesUseSavedTimingAndExposeSystemDefault() {
         final NubiaHdmiModeController.Mode current =
                 new NubiaHdmiModeController.Mode(1920, 1080, 60, 0);
         final NubiaHdmiModeController.Mode faster =
@@ -68,6 +68,16 @@ public final class NubiaHdmiModeControllerTest {
         assertTrue(selected.configurable);
         assertSame(faster, selected.target);
         assertSame(current, invalid.target);
+        assertFalse(selected.isSystemDefaultRequested());
+        assertTrue(invalid.isSystemDefaultRequested());
+
+        final NubiaHdmiModeController.Selection system =
+                NubiaHdmiModeController.systemModeSelection(
+                        current,
+                        Arrays.asList(current, faster),
+                        null);
+        assertTrue(system.supportsSystemDefault());
+        assertTrue(system.isSystemDefaultRequested());
     }
 
     @Test

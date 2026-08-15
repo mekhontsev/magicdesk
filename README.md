@@ -331,6 +331,8 @@ display size, density, and scaling to platform defaults.
 3. For a wired session, connect a USB-C display. When the selected platform
    exposes output controls, optionally select an **Output mode** and enable
    **Fill display**, then select **Start external desktop** or press `Win+D`.
+   **System / native** removes a previously forced Android mode and lets the
+   connected display select its native timing again.
 4. For a wireless session, connect a Miracast receiver through the system UI
    or, on a supported platform, select **Wireless**. After the
    display appears in Phone Control Panel, select **Start external desktop**.

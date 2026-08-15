@@ -152,6 +152,7 @@
     <string name="external_display_fill">Fill display</string>
     <string name="external_display_resolution">Output mode</string>
     <string name="external_display_no_modes">No modes available</string>
+    <string name="external_display_system_native">System / native</string>
     <string name="external_display_system_mode">%1$s (system)</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="status_local_desktop_guard_failed">Local desktop could not start safely: %1$s</string>

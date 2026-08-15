@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -44,6 +46,26 @@ public final class PlatformProjectionDriverTest {
                         false);
 
         assertSame(selection, selection.withPreferredTiming(null));
+    }
+
+    @Test
+    public void nullTimingSelectsAvailableSystemDefault() {
+        final PlatformProjectionDriver.Mode current = mode("1920x1080@75");
+        final PlatformProjectionDriver.ModeSelection selection =
+                new PlatformProjectionDriver.ModeSelection(
+                        current,
+                        current,
+                        current,
+                        Arrays.asList(current),
+                        true,
+                        true,
+                        false);
+
+        final PlatformProjectionDriver.ModeSelection system =
+                selection.withPreferredTiming(null);
+        assertTrue(system.systemDefaultAvailable);
+        assertTrue(system.systemDefaultSelected);
+        assertFalse(selection.systemDefaultSelected);
     }
 
     private static PlatformProjectionDriver.ModeSelection selection(

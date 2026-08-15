@@ -139,7 +139,9 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
                 convert(selection.target),
                 convert(defaults.target),
                 modes,
-                selection.configurable);
+                selection.configurable,
+                selection.supportsSystemDefault(),
+                selection.isSystemDefaultRequested());
     }
 
     private static Mode convert(final NubiaHdmiModeController.Mode mode) {
