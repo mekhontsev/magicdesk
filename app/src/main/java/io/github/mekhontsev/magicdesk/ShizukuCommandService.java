@@ -250,6 +250,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void setExternalTaskMigrationProtection(
+            final ITaskObserverCallback callback,
+            final boolean enabled) {
+        mTaskObserverManager.setExternalTaskMigrationProtection(
+                callback, enabled);
+    }
+
+    @Override
     public void refreshTaskCaption(
             final ITaskObserverCallback callback,
             final int displayId,

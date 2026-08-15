@@ -78,6 +78,12 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, enabled));
     }
 
+    void setExternalTaskMigrationProtection(final boolean enabled)
+            throws IOException {
+        callService(() -> mService.setExternalTaskMigrationProtection(
+                mCallback, enabled));
+    }
+
     void refreshTaskCaption(
             final int displayId,
             final int taskId,

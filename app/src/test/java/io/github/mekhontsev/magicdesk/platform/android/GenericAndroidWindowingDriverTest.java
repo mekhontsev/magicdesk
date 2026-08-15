@@ -12,6 +12,7 @@ public final class GenericAndroidWindowingDriverTest {
     public void configurationUsesOnlyStandardAndroidSettings() {
         final PlatformWindowingDriver windowing =
                 new GenericAndroidWindowingDriver();
+        assertFalse(windowing.protectsExternalSessionFromPhoneTaskMigration());
         assertTrue(windowing.isReady(true, true, false, false));
         assertFalse(windowing.isReady(true, false, true, true));
     }

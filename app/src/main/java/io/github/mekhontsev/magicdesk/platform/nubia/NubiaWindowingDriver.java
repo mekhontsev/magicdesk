@@ -13,6 +13,15 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean protectsExternalSessionFromPhoneTaskMigration() {
+        // Starting an already running desktop task from Nubia's phone launcher
+        // can remove the entire NubiaAppMirrorDisplay instead of moving only
+        // that task. The shell observer rejects that migration while the
+        // external session is active.
+        return true;
+    }
+
+    @Override
     public boolean requiresNativeFullscreenCaptionRefresh() {
         // Nubia removes the server-side caption source without relaying the
         // removal to every application client, leaving a caption-height strip.

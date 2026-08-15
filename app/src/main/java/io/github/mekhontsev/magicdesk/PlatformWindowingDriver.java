@@ -6,6 +6,9 @@ import java.io.IOException;
 public interface PlatformWindowingDriver {
     boolean requiresMirrorInputFocusSynchronization();
 
+    /** Whether moving one desktop task to the phone can destroy the display host. */
+    boolean protectsExternalSessionFromPhoneTaskMigration();
+
     /** Whether native freeform-to-fullscreen transitions leave a stale client caption inset. */
     boolean requiresNativeFullscreenCaptionRefresh();
 

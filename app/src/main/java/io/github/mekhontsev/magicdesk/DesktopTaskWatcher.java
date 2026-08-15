@@ -159,6 +159,22 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean setExternalTaskMigrationProtection(
+            final boolean enabled) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            mHandle.setExternalTaskMigrationProtection(enabled);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "failed to "
+                    + (enabled ? "enable" : "disable")
+                    + " external task migration protection", error);
+            return false;
+        }
+    }
+
     synchronized boolean refreshTaskCaption(
             final int displayId,
             final int taskId,

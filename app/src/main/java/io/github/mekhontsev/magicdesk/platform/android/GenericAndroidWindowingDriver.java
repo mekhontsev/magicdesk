@@ -13,6 +13,11 @@ final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean protectsExternalSessionFromPhoneTaskMigration() {
+        return false;
+    }
+
+    @Override
     public boolean requiresNativeFullscreenCaptionRefresh() {
         return false;
     }

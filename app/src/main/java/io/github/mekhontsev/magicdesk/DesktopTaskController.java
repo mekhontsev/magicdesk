@@ -497,6 +497,24 @@ final class DesktopTaskController {
         }
     }
 
+    static void disableExternalTaskMigrationProtection() {
+        final DesktopTaskController controller = getActiveController();
+        if (controller == null || !controller.mRunning) {
+            return;
+        }
+        controller.mTaskWatcher
+                .setExternalTaskMigrationProtection(false);
+    }
+
+    static void restoreExternalTaskMigrationProtection() {
+        final DesktopTaskController controller = getActiveController();
+        if (controller == null || !controller.mRunning) {
+            return;
+        }
+        controller.mTaskWatcher.setExternalTaskMigrationProtection(
+                controller.shouldProtectExternalSession());
+    }
+
     static boolean dismissTransientActivity() {
         final DesktopTaskController controller = getActiveController();
         if (controller == null || !controller.mRunning) {
@@ -719,6 +737,20 @@ final class DesktopTaskController {
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
         mTaskWatcher.configure(
                 mDisplayId, displayBounds, workAreaBounds);
+        mTaskWatcher.setExternalTaskMigrationProtection(
+                shouldProtectExternalSession());
+    }
+
+    private boolean shouldProtectExternalSession() {
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getDesktopTarget(mDisplayId);
+        return target != null
+                && (target.kind == DesktopDisplayTarget.Kind.WIRED
+                        || target.kind == DesktopDisplayTarget.Kind.WIRELESS)
+                && DesktopDisplayDrivers.forTarget(target)
+                        .features().rootTaskTransfer
+                && PlatformDrivers.current().windowing()
+                        .protectsExternalSessionFromPhoneTaskMigration();
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {

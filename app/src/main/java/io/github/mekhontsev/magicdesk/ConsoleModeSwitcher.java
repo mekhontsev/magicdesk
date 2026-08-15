@@ -136,10 +136,17 @@ public final class ConsoleModeSwitcher {
             complete(callback, false);
             return;
         }
+        DesktopTaskController.disableExternalTaskMigrationProtection();
         DesktopDisplayDrivers.forTarget(target).close(
                 target,
                 restorePhonePanel,
-                success -> complete(callback, success));
+                success -> {
+                    if (!success) {
+                        DesktopTaskController
+                                .restoreExternalTaskMigrationProtection();
+                    }
+                    complete(callback, success);
+                });
     }
 
     private static void complete(
@@ -366,6 +373,7 @@ public final class ConsoleModeSwitcher {
     static void returnConsoleTasksToPhone(
             final DesktopDisplayTarget target,
             final ResultCallback callback) {
+        DesktopTaskController.disableExternalTaskMigrationProtection();
         EXECUTOR.execute(new Runnable() {
             @Override
             public void run() {
@@ -389,6 +397,10 @@ public final class ConsoleModeSwitcher {
                 } catch (IOException error) {
                     Log.w(TAG, "Console task return failed", error);
                 } finally {
+                    if (!success) {
+                        DesktopTaskController
+                                .restoreExternalTaskMigrationProtection();
+                    }
                     if (callback != null) {
                         callback.onComplete(success);
                     }

@@ -61,7 +61,9 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds) {
         requireSession(callback).observer.configure(
-                displayId, displayBounds, workAreaBounds);
+                displayId,
+                displayBounds,
+                workAreaBounds);
     }
 
     void focusStack(
@@ -78,6 +80,13 @@ final class ShellTaskObserverManager implements Closeable {
             final boolean enabled) {
         requireSession(callback).observer
                 .setPhoneTouchpadPreservation(enabled);
+    }
+
+    void setExternalTaskMigrationProtection(
+            final ITaskObserverCallback callback,
+            final boolean enabled) {
+        requireSession(callback).observer
+                .setExternalTaskMigrationProtection(enabled);
     }
 
     void refreshTaskCaption(

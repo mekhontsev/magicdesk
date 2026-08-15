@@ -28,6 +28,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
+    private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
@@ -37,6 +38,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mPreservePhoneTouchpad;
     private boolean mRestoringPhoneTouchpad;
     private int mPhoneTouchpadTaskId = -1;
+    private int mConfiguredDisplayId = Display.INVALID_DISPLAY;
 
     ShellTaskObserver(
             final Context context,
@@ -58,6 +60,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         mCallback::onInputFocusRefreshRequired));
         mInputPanelGuard = PlatformDrivers.current().phoneUi()
                 .createInputPanelGuard(mService, inputOwner);
+        mMigrationGuard = new ShellExternalTaskMigrationGuard(
+                mService,
+                error -> callCallback(() ->
+                        mCallback.onObserverError(error)));
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // Nubia's launcher crashes while binding a DesktopTaskView when a
         // finished freeform task remains in Recents and DesktopRepository.
@@ -149,14 +155,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalStateException("task observer is closed");
         }
         if (displayId < 0) {
+            mConfiguredDisplayId = Display.INVALID_DISPLAY;
             mFocusController.configure(-1);
+            mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
             mInputPanelGuard.configure(-1);
             mTransientBounds.clearConfiguration();
             mStateMonitor.clearConfiguration();
             return;
         }
+        mConfiguredDisplayId = displayId;
         mFocusController.configure(displayId);
+        mMigrationGuard.configure(displayId, false);
         // Nubia's stale DesktopTaskView crash is a phone Quickstep defect.
         // External tasks must remain outside that recovery path.
         mFreeformCleanup.configure(
@@ -167,6 +177,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
+    }
+
+    void setExternalTaskMigrationProtection(final boolean enabled) {
+        mMigrationGuard.configure(mConfiguredDisplayId, enabled);
     }
 
     void focusStack(
@@ -249,6 +263,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 }
             }
             mInputPanelGuard.onTaskRemoved(taskId);
+            mMigrationGuard.forget(taskId);
             mTransientBounds.forget(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange();
@@ -259,6 +274,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
+            mMigrationGuard.onTaskMovedToFront(taskInfo);
             if (isPhoneTouchpadTask(taskInfo)) {
                 synchronized (this) {
                     mPhoneTouchpadTaskId = taskInfo.taskId;
@@ -283,6 +299,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskDisplayChanged(
             final int taskId,
             final int newDisplayId) {
+        mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange();
     }
 
@@ -305,6 +322,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mFocusController.close();
         mInputPanelGuard.close();
+        mMigrationGuard.close();
         mFreeformCleanup.close();
         mTransientBounds.close();
         mStateMonitor.close();

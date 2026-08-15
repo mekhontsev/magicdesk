@@ -185,4 +185,7 @@ interface IShizukuCommandService {
         String mimeType,
         String dataUri) = 59;
 
+    void setExternalTaskMigrationProtection(
+        ITaskObserverCallback callback, boolean enabled) = 60;
+
 }
