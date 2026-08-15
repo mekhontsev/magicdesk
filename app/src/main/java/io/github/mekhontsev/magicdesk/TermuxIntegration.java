@@ -58,8 +58,8 @@ final class TermuxIntegration {
                     PERMISSION_REQUEST_CODE);
             return false;
         }
-        final String directory = ShellFilePathPolicy.absolute(
-                absolutePath).toString();
+        final String directory =
+                ShellFilePathPolicy.normalizeShellAbsolute(absolutePath);
         final String shellName = shellNameForDirectory(directory);
         final Intent intent = new Intent(ACTION_RUN_COMMAND)
                 .setComponent(new ComponentName(
@@ -93,7 +93,7 @@ final class TermuxIntegration {
 
     static String shellNameForDirectory(final String absolutePath) {
         return SHELL_NAME_PREFIX
-                + ShellFilePathPolicy.absolute(absolutePath);
+                + ShellFilePathPolicy.normalizeShellAbsolute(absolutePath);
     }
 
     static void showOnDisplay(

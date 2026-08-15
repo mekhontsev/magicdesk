@@ -28,6 +28,20 @@ public final class ShellFilePathPolicyTest {
     }
 
     @Test
+    public void normalizesAndroidShellPathIndependentlyOfBuildHost() {
+        assertEquals(
+                "/storage/emulated/0/Documents",
+                ShellFilePathPolicy.normalizeShellAbsolute(
+                        "/storage/emulated/0/Desktop/../Documents"));
+        assertEquals(
+                "/storage/emulated/0",
+                ShellFilePathPolicy.shellParent(
+                        "/storage/emulated/0/Documents"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ShellFilePathPolicy.normalizeShellAbsolute("Desktop"));
+    }
+
+    @Test
     public void rootCannotBeMutableEntry() {
         assertThrows(IllegalArgumentException.class,
                 () -> ShellFilePathPolicy.mutableEntry("/"));

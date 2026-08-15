@@ -130,7 +130,7 @@ final class DesktopFolderShortcutFile {
         try {
             return new DesktopFolderShortcut(
                     name.trim(),
-                    ShellFilePathPolicy.absolute(path).toString(),
+                    ShellFilePathPolicy.normalizeShellAbsolute(path),
                     false);
         } catch (IllegalArgumentException error) {
             return null;
@@ -141,8 +141,8 @@ final class DesktopFolderShortcutFile {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("missing shortcut name");
         }
-        final String normalized = ShellFilePathPolicy.absolute(
-                targetPath).toString();
+        final String normalized =
+                ShellFilePathPolicy.normalizeShellAbsolute(targetPath);
         final String url;
         try {
             url = new URI("file", null, normalized, null).toASCIIString();

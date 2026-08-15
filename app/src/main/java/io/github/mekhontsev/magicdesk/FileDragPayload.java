@@ -5,7 +5,6 @@ import android.content.ClipDescription;
 import android.net.Uri;
 import android.view.DragEvent;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -66,9 +65,12 @@ final class FileDragPayload {
         if (copy) {
             return absolutePaths;
         }
+        final String normalizedDestination =
+                ShellFilePathPolicy.normalizeShellAbsolute(destination);
         final List<String> paths = new ArrayList<>(absolutePaths.size());
         for (final String path : absolutePaths) {
-            if (!destination.equals(new File(path).getParent())) {
+            if (!normalizedDestination.equals(
+                    ShellFilePathPolicy.shellParent(path))) {
                 paths.add(path);
             }
         }
