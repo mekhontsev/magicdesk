@@ -128,7 +128,8 @@ and selected-display recording.
   An APK can be installed or updated only after an explicit confirmation.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
-  has been enabled.
+  has been enabled. Reopening the same directory returns to its existing named
+  Termux session without resetting that session's current state.
 - Prepare a selected `.sh` file in Console from its context menu. The command
   is quoted and shown for review; it is never executed automatically.
 - Request another task for a compatible application through **New window**.

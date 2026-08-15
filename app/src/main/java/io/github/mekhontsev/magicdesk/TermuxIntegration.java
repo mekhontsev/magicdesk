@@ -26,8 +26,15 @@ final class TermuxIntegration {
             "com.termux.RUN_COMMAND_BACKGROUND";
     private static final String EXTRA_SESSION_ACTION =
             "com.termux.RUN_COMMAND_SESSION_ACTION";
+    private static final String EXTRA_SHELL_NAME =
+            "com.termux.RUN_COMMAND_SHELL_NAME";
+    private static final String EXTRA_SHELL_CREATE_MODE =
+            "com.termux.RUN_COMMAND_SHELL_CREATE_MODE";
     private static final String EXTRA_COMMAND_LABEL =
             "com.termux.RUN_COMMAND_COMMAND_LABEL";
+    private static final String SHELL_CREATE_MODE_REUSE_NAMED =
+            "no-shell-with-name";
+    private static final String SHELL_NAME_PREFIX = "MagicDesk: ";
 
     private TermuxIntegration() {
     }
@@ -51,6 +58,9 @@ final class TermuxIntegration {
                     PERMISSION_REQUEST_CODE);
             return false;
         }
+        final String directory = ShellFilePathPolicy.absolute(
+                absolutePath).toString();
+        final String shellName = shellNameForDirectory(directory);
         final Intent intent = new Intent(ACTION_RUN_COMMAND)
                 .setComponent(new ComponentName(
                         PACKAGE_NAME, RUN_COMMAND_SERVICE))
@@ -58,9 +68,15 @@ final class TermuxIntegration {
                 // documented prefix, not MagicDesk private storage.
                 .putExtra(EXTRA_COMMAND_PATH,
                         "/data/data/com.termux/files/usr/bin/bash")
-                .putExtra(EXTRA_WORKDIR, absolutePath)
+                .putExtra(EXTRA_WORKDIR, directory)
                 .putExtra(EXTRA_BACKGROUND, false)
-                // Select the new session without letting Termux open its
+                // Reopen the terminal previously created for this directory;
+                // Termux creates it atomically when it no longer exists.
+                .putExtra(EXTRA_SHELL_NAME, shellName)
+                .putExtra(
+                        EXTRA_SHELL_CREATE_MODE,
+                        SHELL_CREATE_MODE_REUSE_NAMED)
+                // Select the requested session without letting Termux open its
                 // activity on Android's default display. MagicDesk opens the
                 // activity on the Files window's display immediately after.
                 .putExtra(EXTRA_SESSION_ACTION, "2")
@@ -73,6 +89,11 @@ final class TermuxIntegration {
             activity.startService(intent);
         }
         return true;
+    }
+
+    static String shellNameForDirectory(final String absolutePath) {
+        return SHELL_NAME_PREFIX
+                + ShellFilePathPolicy.absolute(absolutePath);
     }
 
     static void showOnDisplay(

@@ -670,7 +670,10 @@ holding `Ctrl` when the drag starts selects copy. Only ordinary files receive
 temporary URIs for drops into other Android applications. The built-in Console
 can be prefilled with the current directory. Optional Termux integration uses
 Termux's documented `RUN_COMMAND` intent and permission; it is not required by
-Files.
+Files. The normalized directory path becomes a stable Termux shell name, and
+the `no-shell-with-name` creation mode atomically selects that session or
+creates it when absent. MagicDesk does not mirror Termux's session registry or
+force an existing shell back to its original working directory.
 Shell scripts can be handed to Console as a safely quoted initial command.
 Console still requires its normal explicit Run action and first-run warning;
 opening a script from Files never executes it automatically.
