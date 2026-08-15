@@ -1,7 +1,10 @@
-# Shizuku And Display Modes
+# Shell Access And Display Modes
 
-MagicDesk has one runtime privilege path: an official Shizuku UserService.
-Display selection is an independent session property.
+MagicDesk has one runtime privilege identity: an authorized Android shell,
+normally the ADB-equivalent UID 2000. The current APK binds it through an
+official Shizuku UserService. Shizuku is the Binder transport and lifecycle
+owner, not the source of the shell capabilities described below. Display
+selection is an independent session property.
 
 ## Runtime Contract
 
@@ -139,7 +142,7 @@ setprop persist.wm.debug.desktop_mode_enforce_device_restrictions false
 setprop persist.wm.debug.desktop_use_rounded_corners false
 ```
 
-The connected Shizuku UserService writes the global settings. On supported
+The connected shell UserService writes the global settings. On supported
 firmware, the ordinary MagicDesk process uses a verified RedMagic property
 service for the two persistent properties. Its production wrapper accepts only
 those two keys and boolean/absent values, and verifies each write with

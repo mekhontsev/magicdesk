@@ -21,8 +21,8 @@ creating separate device builds or forks.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
 > through iterative AI-assisted development and hands-on testing on real
-> Android hardware. Its Shizuku integration and optional undocumented vendor
-> interfaces make independent source review especially important.
+> Android hardware. Its privileged shell integration and optional undocumented
+> vendor interfaces make independent source review especially important.
 
 > **Project status:** MagicDesk is under active development. Complete
 > maintainer hardware verification is currently limited to the RedMagic 11 Pro
@@ -118,7 +118,7 @@ and selected-display recording.
   directly between the desktop and built-in Files; hold `Ctrl` while starting
   the drag to copy instead.
 - Open the built-in **Files** window for the complete filesystem visible to
-  the connected Shizuku UserService. It supports path navigation, hidden
+  the authorized Android shell identity. It supports path navigation, hidden
   files, sorting, selection, create, rename, permanent
   delete, copy, cut, paste, current-folder name filtering, properties,
   external editors, and global file
@@ -235,9 +235,11 @@ Console transitions, output controls, phone-screen control, absolute pointer
 positioning, and hardware controls. Unsupported optional integrations remain
 disabled instead of blocking the desktop.
 
-MagicDesk does not run in a reduced fallback mode when Shizuku is stopped or
-permission is denied. All privileged operations use the same Shizuku
-UserService path, keeping runtime behavior predictable and reviewable.
+MagicDesk requires one live, authorized Android shell service for privileged
+operations. The current APK binds that service through Shizuku; if the
+transport is stopped or permission is denied, MagicDesk does not silently
+change to an app-UID fallback. This keeps the effective identity and runtime
+behavior predictable and reviewable.
 
 **Currently verified:**
 
@@ -383,15 +385,15 @@ supports tablets and allows development without an external monitor.
 The unmodified Win key is deliberately unused. The taskbar language indicator
 cycles the same configured layouts as `Ctrl+Space`.
 
-## Privileges And Trust
+## Shell Access And Trust
 
-MagicDesk uses the official `dev.rikka.shizuku` UserService API for external
-desktop sessions, native task control, display density, screenshots,
-phone-screen dimming, locking, wallpaper access, vendor cooling and bypass
-charging, physical input routing, and the built-in Files window. Files sees
-exactly what that UserService identity can access: normally Android shell UID
-2000, or UID 0 when the user deliberately started Shizuku as root. MagicDesk
-does not independently acquire elevated privileges.
+Privileged MagicDesk operations run under an authorized Android shell identity:
+normally UID 2000, the same identity used by `adb shell`, or UID 0 when the
+user deliberately supplied a root shell service. The current implementation
+uses the official `dev.rikka.shizuku` UserService API as the Binder transport
+and lifecycle owner for that identity. Shizuku does not define the Files or
+Console feature set; the connected shell identity and firmware permissions do.
+MagicDesk does not independently acquire elevated privileges.
 
 The trust boundaries are deliberately narrow:
 
@@ -400,14 +402,15 @@ The trust boundaries are deliberately narrow:
   privilege-escalation path, kernel module, or kernel-module loader.
 - Shizuku is never downloaded, installed, or started by MagicDesk. The user
   controls the official manager and grants MagicDesk separately.
-- The connected UserService identity is included in Diagnostics; every
-  supported Shizuku startup method uses the same commands and feature set.
+- The connected shell identity is included in Diagnostics; every supported
+  startup method uses the same commands and capability checks.
 - The built-in Console executes only commands entered and run by the user.
   Those commands are not restricted to MagicDesk's internal allowlists and
   have the effective privileges displayed by the Console.
-- Built-in Files performs typed filesystem operations inside the same
-  UserService. Applications opened from Files receive only a temporary URI for
-  the selected file; they do not inherit Shizuku or its filesystem identity.
+- Built-in Files performs typed filesystem operations under the same shell
+  identity. Applications opened from Files receive only a temporary URI for
+  the selected file; they do not inherit the shell identity or its filesystem
+  access.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
   settings; supported Nubia/REDMAGIC firmware additionally uses two documented
@@ -424,13 +427,13 @@ The trust boundaries are deliberately narrow:
   `libmagicdesk_keyboard_bridge.so` are rebuilt from their C sources in every
   build; no prebuilt input helper is checked in.
 - Lifecycle-bound streams make input and display guards fail open: losing the
-  APK or Shizuku releases grabbed devices and restores display power.
+  APK or shell service releases grabbed devices and restores display power.
 - Device and firmware mismatches are reported through structured Diagnostics
   codes instead of silently assuming compatibility.
 
 Implementation details are in [Architecture](docs/architecture.md), the
 runtime and display contract is in
-[Shizuku and display modes](docs/privilege-modes.md), and verified firmware
+[Shell access and display modes](docs/privilege-modes.md), and verified firmware
 behavior is recorded in the
 [Nubia vendor interface audit](docs/nubia-vendor-audit.md).
 
@@ -464,10 +467,10 @@ because the automated test injects its own input. Native mouse resize-cursor
 selection is checked when WMShell exposes a transition trace.
 
 The simulated target owns a temporary 1920x1080 display through a
-lifecycle-bound Shizuku stream. Its setting is restored when the test finishes
-or its process disconnects. A one-shot shell task observer records each test
-window's first front-state and reports transient fullscreen launches instead
-of mistaking a later corrected state for the initial one.
+lifecycle-bound shell-service stream. Its setting is restored when the test
+finishes or its process disconnects. A one-shot shell task observer records
+each test window's first front-state and reports transient fullscreen launches
+instead of mistaking a later corrected state for the initial one.
 
 Debug builds expose the same lifecycle check as an instrumentation regression:
 
@@ -487,8 +490,8 @@ adb shell am start -n \
 
 The accepted targets are `phone`, `simulated`, `wired`, and `wireless`.
 
-**Tools > Console** opens a desktop terminal backed by the authorized Shizuku
-service. Each Console window owns one long-lived `/system/bin/sh` session,
+**Tools > Console** opens a desktop terminal backed by the authorized Android
+shell service. Each Console window owns one long-lived `/system/bin/sh` session,
 tracks its current directory, keeps command history for that window, and
 provides selectable output. Closing the window or running `exit` ends only that
 Console session. Files can open Console in the current directory or prepare a
@@ -551,7 +554,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 ## Technical Documentation
 
 - [Architecture](docs/architecture.md)
-- [Shizuku and display modes](docs/privilege-modes.md)
+- [Shell access and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Deferred validation backlog](docs/testing-backlog.md)

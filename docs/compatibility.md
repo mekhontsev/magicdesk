@@ -103,7 +103,7 @@ The report includes:
 - manufacturer, model, API level, security patch, and supported ABIs;
 - Shizuku installation, permission, UserService UID, and required
   desktop-windowing values;
-- for active Shizuku shell access, a non-destructive UserService capability
+- for active shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,
   raw-input read/write access, `/dev/uinput` open access, and task APIs;
 - on a selected vendor platform, additional non-destructive checks for its
@@ -119,10 +119,10 @@ clipboard contents, and the installed-app list. MagicDesk-only logs can still
 contain package names, task ids, display ids, and filenames involved in a
 failed operation. Review the text before publishing it.
 
-The Shizuku probe does not read input events, inject a real event, change a
-keyboard layout, alter display state, or write a hardware node. Permissioned
-write paths are tested with rejected null arguments after Android performs its
-permission check.
+The shell capability probe does not read input events, inject a real event,
+change a keyboard layout, alter display state, or write a hardware node.
+Permissioned write paths are tested with rejected null arguments after Android
+performs its permission check.
 
 `raw_input.write` reports whether an event node can be opened with `O_RDWR`.
 It does not test exclusive capture: the input bridge opens physical devices

@@ -12,7 +12,8 @@ MagicDesk follows these constraints:
 1. Android applications remain real Android tasks.
 2. The firmware's `ShellTaskOrganizer` and native window decorations remain in
    control of move, resize, snap, maximize, minimize, and close.
-3. Runtime system access requires an authorized Shizuku UserService.
+3. Runtime system access requires an authorized Android shell UserService,
+   currently bound through the official Shizuku API.
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
 6. Optional kernel code stays outside the main APK.
@@ -91,7 +92,7 @@ A long press remains undecided until the finger either moves or is released.
 Movement starts a primary-button drag; release without movement becomes a
 secondary click. Two-finger movement scrolls, while a stationary two-finger
 tap also becomes a secondary click. These decisions stay in the phone UI;
-display-targeted event injection stays inside the Shizuku UserService.
+display-targeted event injection stays inside the shell UserService.
 
 The software keyboard is a separate path. An invisible phone-side
 `InputConnection` receives normal IME operations, including composing text,
@@ -123,7 +124,7 @@ interfaces on RedMagic firmware:
 - `IDisplayMirrorWindow` composing, text, deletion, and key dispatch methods;
 - the wired-only `dumpsys display dmctrl inputSource` control.
 
-These signatures are resolved reflectively inside the Shizuku UserService and
+These signatures are resolved reflectively inside the shell UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test
 inspect the absolute-pointer, mirror-panel, and mirror-text signatures without
 invoking them. The report also retains the last mirror-text runtime result from
@@ -346,9 +347,11 @@ Repositories perform package, task, and document queries. View controllers do
 not construct arbitrary shell commands. Platform controllers do not construct
 desktop panels. Keep this split when adding vendor-specific behavior.
 
-## Shizuku Runtime
+## Shell UserService Runtime
 
-`DeviceSetupManager` accepts Shizuku after the bound
+Shizuku is the current Binder transport, while Android shell UID 2000 or root
+UID 0 is the capability identity. `DeviceSetupManager` accepts the connection
+after the bound
 `ShizukuCommandService` reports Android shell UID 2000 or root UID 0. Both use
 the same service, commands, and feature set; there is no separate root, basic,
 automatic, or fallback runtime branch.
@@ -479,7 +482,7 @@ for the current InputDispatcher focus state rather than a fixed transition
 delay. The test also requests the native horizontal resize cursor and verifies
 WMShell's transition trace when that firmware trace is available.
 
-The simulated target owns its display through a Binder-owned Shizuku stream;
+The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
 restores the prior setting. The external target selects the existing wired or
 wireless transport automatically and never treats the physical display or its
@@ -549,7 +552,7 @@ unconditionally asserts that the same title view is non-null. Current AOSP
 Launcher3 intentionally permits that field to be absent; this is a vendor
 integration defect rather than malformed task metadata.
 
-Before the first local freeform task is created, the Shizuku UserService uses
+Before the first local freeform task is created, the shell UserService uses
 `IStatusBarService.disable(DISABLE_HOME | DISABLE_RECENT, token, package)` to
 make the stock Home/Overview gesture unavailable for the lifetime of that
 local desktop. Disabling Recents alone is insufficient on this firmware: its
@@ -619,7 +622,7 @@ the MagicDesk installation. MagicDesk persists their global logical placement
 and cell span. Provider clicks remain native; widget movement is entered
 explicitly from the context menu so drag handling cannot steal controls or
 scroll gestures from the provider. Binding and optional configuration use the
-system widget activities and do not depend on Shizuku.
+system widget activities and do not depend on shell access.
 
 The fixed Desktop surface and the general Files task use separate typed AIDL
 contracts instead of interpolating filenames into shell commands.
@@ -679,7 +682,7 @@ records the selected path and file identity; each open is performed again by
 the UserService and accepted only when device and inode still match. Drag
 grants are read-only, while an explicit open grants write only when the
 UserService reported the file writable. The receiving application never
-receives Shizuku access, a raw privileged path, or the UserService Binder.
+receives shell access, a raw privileged path, or the UserService Binder.
 The in-task **Open with** dialog avoids Android ResolverActivity hiding the
 desktop taskbar. It reads Android's current preferred handler. Its **Always**
 action asks the shell UserService to write the same PackageManager preferred
@@ -987,7 +990,7 @@ bound `ActivityThread.AppBindData`. Android 16's `MediaRecorder(Context)` passes
 entire process. `InternalAudioRecorder` temporarily supplies the matching
 MagicDesk or `com.android.shell` application identity only while constructing
 the recorder, then immediately restores the prior ActivityThread state. This
-keeps the stock vendor audio path usable for both supported Shizuku UIDs.
+keeps the stock vendor audio path usable for both supported service identities.
 
 Audio starts before video, so an unsupported audio source cannot leave an
 orphan screen recorder. The video shell wrapper also watches its UserService
@@ -1019,7 +1022,7 @@ setting names and vendor services can change across firmware.
 ## Device Setup And Recovery
 
 Device Setup requires Android 15+, a selected compatible platform driver, and
-a live, authorized Shizuku UserService. Every platform audits the two standard
+a live, authorized shell UserService. Every platform audits the two standard
 Android settings:
 
 ```text
