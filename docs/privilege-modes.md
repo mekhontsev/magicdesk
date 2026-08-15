@@ -36,6 +36,8 @@ On the verified firmware, shell UID 2000 can:
 - browse and mutate every filesystem path available to shell through the
   built-in Files task, while sharing only individual capability URIs with
   ordinary Android applications;
+- run user-entered commands in independent, lifecycle-bound `/system/bin/sh`
+  sessions through built-in Console windows;
 - install a user-confirmed APK through Android's shell package-manager command;
 - change physical-keyboard layouts;
 - read and grab external input devices and create `/dev/uinput` devices;
@@ -69,11 +71,11 @@ MagicDesk therefore uses two lifecycle-bound native helpers:
 The UserService links each helper stream to an APK Binder owner. If the APK,
 UserService, or stream disappears, EOF or Binder death releases the physical
 devices and destroys the virtual device; idle helpers do not send keepalives.
-During a live Console session, input hot-plug updates the physical source
-descriptors inside the existing helpers. Their virtual device identity remains
-stable, avoiding application configuration changes. A source is grabbed only
-after it reaches a neutral key/button state, so a wake sequence cannot be
-divided between Android and the virtual device.
+During a live RedMagic Console Mode session, input hot-plug updates the
+physical source descriptors inside the existing helpers. Their virtual device
+identity remains stable, avoiding application configuration changes. A source
+is grabbed only after it reaches a neutral key/button state, so a wake sequence
+cannot be divided between Android and the virtual device.
 
 The standard Android platform does not start these routing helpers or grab
 physical input devices. It leaves already-correct system input routing intact;

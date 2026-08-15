@@ -1,8 +1,9 @@
 # MagicDesk Architecture
 
 This document describes the implementation boundaries behind MagicDesk's
-DeX-style desktop on Android with optional RedMagic integration. It is intended
-for contributors, reviewers, and users diagnosing compatibility problems.
+desktop environment on Android with optional RedMagic integration. It is
+intended for contributors, reviewers, and users diagnosing compatibility
+problems.
 
 ## Design Principles
 
@@ -176,6 +177,9 @@ runtime integration and are not distributed through the same release path.
   navigation and selection only; `FileManagerOperationController` owns
   lifecycle-bound remote operations and `FileManagerImportController` owns
   incoming Android URI drops. It has no vendor dependency.
+- `CommandConsoleActivity` is an ordinary multi-instance desktop task. Every
+  window owns one `ConsoleShellSession` and one persistent shell stream; no
+  process-global terminal state is shared between Console windows.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
   panel, which remains a quick control surface for the active session. Settings
@@ -263,6 +267,11 @@ runtime integration and are not distributed through the same release path.
   binding a stale `DesktopTaskView` without persistent recovery state or
   changes to unrelated Recents entries.
 - `DesktopTaskController` orchestrates native task transitions.
+- `DesktopTaskParkingController` snapshots live managed tasks when an external
+  desktop is closed, parks them on display 0 as fullscreen tasks, and restores
+  only the same still-live task IDs when a later desktop host becomes ready.
+  It preserves each task's desktop mode, relative bounds, visibility, and
+  stacking order without relaunching tasks that Android or the user closed.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
@@ -366,6 +375,14 @@ initiates bounded graceful cleanup before process termination. They do not use
 periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
 one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
+
+Every built-in Console window owns another lifecycle-bound stream to a single
+`/system/bin/sh` process. `PersistentConsoleCommandExecutor` writes commands
+and private marker records to that stream; `ConsoleShellSession` parses the
+markers to track the current directory and completion status without opening a
+new shell for each command. Closing the window, running `exit`, Binder death,
+or stream failure ends that shell only. A failed stream is discarded rather
+than silently changing to a different privilege backend.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
 visibility or native freeform bounds on the verified firmware. While a desktop
@@ -686,8 +703,8 @@ the `no-shell-with-name` creation mode atomically selects that session or
 creates it when absent. MagicDesk does not mirror Termux's session registry or
 force an existing shell back to its original working directory.
 Shell scripts can be handed to Console as a safely quoted initial command.
-Console still requires its normal explicit Run action and first-run warning;
-opening a script from Files never executes it automatically.
+Console still requires its normal explicit Run action; opening a script from
+Files never executes it automatically.
 
 Normal application launch continues to reuse an existing task. The explicit
 **New window** action instead requests `NEW_DOCUMENT | MULTIPLE_TASK` and then
@@ -706,6 +723,13 @@ DisplayManager.setCmdToDisplay(1, physicalDisplayId, 0, null)
 
 MagicDesk calls the same Binder method from shell UID 2000. It does not infer
 state by writing `app_mirror_status` or hardcode a virtual display ID.
+
+Nubia publishes `app_mirror_displayid` before the corresponding logical display
+is visible through `cmd display`. Early input routing therefore recognizes the
+configured Console target immediately, while lifecycle callers use
+`waitForDesktopDisplay()` to require the stricter display-exists check. Keeping
+those meanings separate prevents the native pointer route from being
+misclassified during startup.
 
 On **Start external desktop** or `Win+D`, MagicDesk:
 
@@ -785,8 +809,15 @@ not acquire this vendor state.
 
 ### Teardown
 
-Switching to mirroring, physical display removal, and **Exit MagicDesk** share
-one cleanup path:
+**Close desktop** first captures live managed application tasks and moves them
+to display 0 in fullscreen mode. The in-memory parking record is consumed when
+the next external desktop host becomes ready. Restoration matches both task ID
+and package, so it never creates a replacement for a task Android closed. An
+explicit **Exit MagicDesk** clears this record and closes built-in MagicDesk
+windows instead.
+
+Switching to mirroring, physical display removal, and **Exit MagicDesk** then
+share the common cleanup path:
 
 - close display-scoped overlays and stop task observation;
 - stop keyboard, mouse, and phone-display streams;
@@ -1079,10 +1110,14 @@ the last valid cached system image, or MagicDesk's built-in background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
 
-`CommandConsoleActivity` is an unexported, one-shot interface over the existing
-`ShellAccess` connection. It displays the effective Shizuku UID, requires an
-explicit first-run confirmation, combines stdout and stderr with the exit
-status, and persists neither commands nor output.
+`CommandConsoleActivity` is an unexported, multi-instance desktop task over the
+existing `ShellAccess` connection. Each Activity owns one
+`ConsoleShellSession`, a process-local command history, current-directory
+state, and a selectable stdout/stderr transcript. The session uses one
+long-lived `/system/bin/sh`; private marker records delimit commands and update
+the prompt without being shown to the user. Running `exit` or closing the
+Activity closes that shell. Initial commands supplied by Files are displayed
+for review and are never executed automatically.
 
 ## Rejected Experiments Worth Remembering
 

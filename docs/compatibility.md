@@ -56,7 +56,7 @@ and retains its direct transaction fallback.
 | --- | --- | --- | --- | --- |
 | RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and launcher recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
 | RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, launcher recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
-| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, multiple freeform windows, window manipulation, and the v1.6 simulated desktop self-test with 54 checks passed and no failures | Intermittent text-input focus transfer and occasional desktop latency reported; vendor HDMI timing node is unavailable to shell |
+| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, multiple freeform windows, window manipulation, and the v1.6 simulated desktop self-test with 54 checks passed and no failures | Occasional desktop latency was reported on v1.6; the earlier focus-transfer report is covered by the v1.7 self-test but still needs a community hardware retest; vendor HDMI timing node is unavailable to shell |
 
 Exact tested fingerprints:
 

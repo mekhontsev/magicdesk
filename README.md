@@ -1,16 +1,18 @@
 # MagicDesk
 
-MagicDesk is an open-source, DeX-style desktop environment for Android 15 and
+MagicDesk is an open-source desktop environment for Android 15 and
 newer. It turns a phone, tablet, or Android-reported secondary display into a
 practical desktop workspace with native Android windows, a taskbar, Start menu,
-desktop shortcuts, global keyboard controls, notifications, and optional
-phone-based touchpad support.
+desktop files and shortcuts, Android widgets, global keyboard controls,
+notifications, and optional phone-based touchpad support.
 
 MagicDesk started as the RedMagic counterpart to Samsung DeX and retains deep
-integration with compatible RedMagic firmware. It is not a port of DeX and is
-not affiliated with Samsung. The common desktop builds on Android's own task,
-window, and external-display APIs; focused platform drivers add capabilities
-that are not part of standard Android.
+integration with compatible RedMagic firmware. It has since grown into its own
+desktop environment with integrated Files, Console, Settings, widgets, and
+compatibility diagnostics. It is not a port of DeX and is not affiliated with
+Samsung. The common desktop builds on Android's own task, window, and
+external-display APIs; focused platform drivers add capabilities that are not
+part of standard Android.
 
 The compatibility goal is to support as many capable devices and firmware
 versions as practical with one MagicDesk APK and one codebase. Runtime
@@ -51,6 +53,8 @@ The result is a familiar desktop model:
   text-input panel.
 - Fullscreen applications and in-app fullscreen video use the entire external
   display.
+- Built-in Files, Console, and Settings provide a coherent desktop workflow
+  without requiring a separate shell or file manager.
 
 MagicDesk does not emulate Android applications, host them inside custom views,
 or replace Android's task organizer. Applications remain ordinary Android
@@ -138,6 +142,9 @@ and selected-display recording.
 - Add native Android widgets, move them on the desktop, and resize supported
   providers from their context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
+- Keep live application tasks available when the external desktop is closed,
+  then restore their desktop mode and layout when the desktop is started
+  again. Tasks that Android or the user closed are never relaunched.
 - Keep desktop files, widgets, pins, shortcuts, and recent applications global
   across displays. Desktop-item and application-window positions use relative
   coordinates so the layout adapts to each display, while output mode, Fill
@@ -302,7 +309,7 @@ for signed-in GitHub users.
 
 The build number and short commit ID are included in the version shown by
 **About** and in compatibility reports, for example
-`1.6.1-dev.81.d552cc5`.
+`1.7.1-dev.123.abcdef0`.
 
 ### Uninstalling
 
@@ -325,10 +332,13 @@ display size, density, and scaling to platform defaults.
 4. For a wireless session, connect a Miracast receiver through the system UI
    or, on a supported platform, select **Wireless**. After the
    display appears in Phone Control Panel, select **Start external desktop**.
-5. Select **Close desktop** to close the MagicDesk session. A platform-managed
-   transport also returns to mirroring or disconnects; a direct Android
-   secondary display remains connected under system control. Select **Exit
-   MagicDesk** to stop MagicDesk and its background services completely.
+5. Select **Close desktop** to leave the desktop while keeping its live
+   application tasks available on the phone. Starting the desktop again
+   restores the tasks that are still alive, including their previous desktop
+   modes and layouts. A platform-managed transport also returns to mirroring;
+   a direct Android secondary display remains connected under system control.
+   Select **Exit MagicDesk** to close MagicDesk windows, clear the saved live
+   session, and stop MagicDesk and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
@@ -392,9 +402,9 @@ The trust boundaries are deliberately narrow:
   controls the official manager and grants MagicDesk separately.
 - The connected UserService identity is included in Diagnostics; every
   supported Shizuku startup method uses the same commands and feature set.
-- The diagnostic Console executes only commands entered and confirmed by the
-  user. Those commands are not restricted to MagicDesk's internal allowlists
-  and have the effective privileges displayed by the Console.
+- The built-in Console executes only commands entered and run by the user.
+  Those commands are not restricted to MagicDesk's internal allowlists and
+  have the effective privileges displayed by the Console.
 - Built-in Files performs typed filesystem operations inside the same
   UserService. Applications opened from Files receive only a temporary URI for
   the selected file; they do not inherit Shizuku or its filesystem identity.
@@ -477,9 +487,12 @@ adb shell am start -n \
 
 The accepted targets are `phone`, `simulated`, `wired`, and `wireless`.
 
-**Diagnostics > Console** runs one-off shell commands through the authorized
-Shizuku service. It shows the effective UID, requires confirmation before its
-first command, and does not retain command history.
+**Tools > Console** opens a desktop terminal backed by the authorized Shizuku
+service. Each Console window owns one long-lived `/system/bin/sh` session,
+tracks its current directory, keeps command history for that window, and
+provides selectable output. Closing the window or running `exit` ends only that
+Console session. Files can open Console in the current directory or prepare a
+selected shell script for explicit review and execution.
 
 Include the report, exact reproduction steps, and whether the problem survives
 a reboot when filing an issue.
@@ -521,9 +534,9 @@ See [Contributing](CONTRIBUTING.md) for IDE setup and verification commands.
 
 ## Releases And Signing
 
-GitHub Actions lints and builds MagicDesk on every change. A `v*` tag runs the
-signed release workflow, verifies the APK contents and certificate, publishes
-its SHA-256 checksum, and creates a GitHub Release.
+GitHub Actions lints and builds MagicDesk after every non-documentation change.
+A `v*` tag runs the signed release workflow, verifies the APK contents and
+certificate, publishes its SHA-256 checksum, and creates a GitHub Release.
 
 Official release APKs use this certificate SHA-256 fingerprint:
 

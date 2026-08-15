@@ -170,6 +170,12 @@ Values 4-7 and 11-12 are internal state-machine operations, not independent
 public commands. MagicDesk must not call them without reproducing and
 validating their complete surrounding transition.
 
+The firmware writes `Settings.Global.app_mirror_displayid` before the logical
+Console display appears in `cmd display`. The configured ID is therefore a
+valid early input-routing target but not proof that display activation has
+completed. MagicDesk uses the setting for startup classification and keeps a
+separate display-exists wait for lifecycle transitions.
+
 The firmware uses SurfaceFlinger option `1100` for wireless privacy and `1102`
 for wired privacy. Value `1` hides external layers whose names include `Task=`,
 including native WMShell captions; value `0` reveals them. Ordinary app-process

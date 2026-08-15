@@ -31,9 +31,10 @@ retired prototypes are listed separately and are not current product modes.
   cleanup.
 - Known differences: shell cannot read
   `/sys/kernel/lcd_enhance/edid_modes`, so output timing falls back to modes
-  reported by Android; RedMagic fan and pump nodes are absent. Intermittent
-  text-input focus transfer between two windows and occasional desktop latency
-  remain reported but not yet isolated.
+  reported by Android; RedMagic fan and pump nodes are absent. Occasional
+  desktop latency remains reported. The earlier text-input focus report is now
+  covered by the v1.7 focus-transfer self-test but still needs a community
+  hardware retest.
 - Still pending from the complete maintainer matrix: Miracast, phone touchpad,
   physical right click, key repeat, `Ctrl+Space`, recording, and launcher
   recovery under abrupt disconnect.
@@ -97,6 +98,10 @@ retired prototypes are listed separately and are not current product modes.
   freeform bounds.
 - [x] Verify overlapping windows, click-to-front, taskbar focus, Show Desktop,
   task restoration, snap, maximize, minimize, true fullscreen, and exact close.
+- [x] Close an external desktop with live windowed and fullscreen tasks, verify
+  they are parked on display 0 as fullscreen tasks, then restart the desktop
+  and restore only the same still-live task IDs with their previous modes,
+  relative bounds, visibility, and stacking order.
 - [x] Verify native WMShell captions after one-time provisioning. Temporarily
   reveal caption layers through SurfaceFlinger option `1100` for wireless or
   `1102` for wired projection, then restore the corresponding Nubia privacy
@@ -137,6 +142,8 @@ retired prototypes are listed separately and are not current product modes.
   virtual mouse. Right click reaches MagicDesk, Chrome, and Firefox instead of
   becoming Android Back; movement, wheel, left click, and multiple devices
   remain intact.
+- [x] Resize native freeform windows from both side edges and corners with a
+  physical touchpad after a fresh Nubia Console transition.
 - [x] Verify hardware right click uses the live vendor cursor position, and
   verify both hardware and phone touchpads distinguish desktop-item drag from
   a stationary long-click context menu.
