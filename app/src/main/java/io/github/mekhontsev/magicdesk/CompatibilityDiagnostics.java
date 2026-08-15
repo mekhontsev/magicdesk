@@ -584,7 +584,8 @@ public final class CompatibilityDiagnostics {
                 + "MagicDeskNativeDesktop:V MagicDeskNotifications:V MagicDeskPanels:V "
                 + "MagicDeskProfiles:V MagicDeskRightButton:V MagicDeskKeys:V "
                 + "MagicDeskSetup:V MagicDeskTaskReuse:V MagicDeskTasks:V "
-                + "MagicDeskWallpaper:V MagicDeskWatcher:V MagicDeskRecording:V '*:S'";
+                + "MagicDeskWallpaper:V MagicDeskWatcher:V MagicDeskRecording:V "
+                + "MagicDeskPhoneDisplay:V '*:S'";
         final String output = runCommand(command, MAX_LOGCAT_CHARS);
         report.append(output.isEmpty() ? "No MagicDesk log entries available\n" : output);
         if (!output.endsWith("\n")) {

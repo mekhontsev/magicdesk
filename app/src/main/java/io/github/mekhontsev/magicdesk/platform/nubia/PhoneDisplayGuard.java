@@ -33,6 +33,7 @@ final class PhoneDisplayGuard {
     private static Session sSession;
     private static int sGeneration;
     private static volatile String sRestoreOperation;
+    private static volatile String sLastProtectedUidSummary = "none";
 
     private PhoneDisplayGuard() {
     }
@@ -114,7 +115,7 @@ final class PhoneDisplayGuard {
     static String protectedUidSummary() {
         synchronized (LOCK) {
             if (sSession == null) {
-                return "inactive";
+                return "inactive, last=" + sLastProtectedUidSummary;
             }
             return sSession.mProtectedUidSummary;
         }
@@ -368,6 +369,9 @@ final class PhoneDisplayGuard {
                         mProtectedUidSummary = line.substring(
                                 PhoneDisplayGuardCommand.PROTECTED_UIDS.length())
                                 .trim();
+                        sLastProtectedUidSummary = mProtectedUidSummary;
+                        Log.i(TAG, "protected desktop UIDs="
+                                + mProtectedUidSummary);
                     } else if (!line.isEmpty()) {
                         Log.d(TAG, line);
                     }
