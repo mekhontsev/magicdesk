@@ -138,10 +138,12 @@
 
         <activity
             android:name=".SettingsActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/settings_title"
-            android:launchMode="singleTop"
-            android:resizeableActivity="true" />
+            android:launchMode="singleTask"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.settings" />
 
         <activity
             android:name=".DesktopSelfTestActivity"

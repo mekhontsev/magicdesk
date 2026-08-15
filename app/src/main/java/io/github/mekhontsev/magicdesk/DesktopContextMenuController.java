@@ -467,14 +467,17 @@ final class DesktopContextMenuController {
                         mActivity.hideAllPanels();
                         mActivity.launchWindowed(app);
                     });
-            addAction(
-                    R.string.action_new_window,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.launchNewWindow(app);
-                    });
+            if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
+                    app.launchTarget)) {
+                addAction(
+                        R.string.action_new_window,
+                        DesktopUiFactory.COLOR_PANEL_ALT,
+                        true,
+                        view -> {
+                            mActivity.hideAllPanels();
+                            mActivity.launchNewWindow(app);
+                        });
+            }
         }
         addAction(
                 R.string.action_open_fullscreen,
@@ -501,16 +504,18 @@ final class DesktopContextMenuController {
                             app, task));
         }
 
-        final boolean pinned =
-                mActivity.getPinnedPackages().contains(app.packageName);
-        addAction(
-                pinned ? R.string.action_unpin : R.string.action_pin,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.togglePinned(app);
-                });
+        if (BuiltInDesktopAppCatalog.isPinnable(app.launchTarget)) {
+            final boolean pinned =
+                    mActivity.getPinnedPackages().contains(app.packageName);
+            addAction(
+                    pinned ? R.string.action_unpin : R.string.action_pin,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.togglePinned(app);
+                    });
+        }
         if (desktopItem) {
             addAction(
                     R.string.action_delete,

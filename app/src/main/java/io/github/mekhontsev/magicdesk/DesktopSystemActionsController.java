@@ -75,9 +75,10 @@ final class DesktopSystemActionsController {
     void openSettings() {
         mActivity.hideAllPanels();
         try {
-            mActivity.startActivity(
+            mActivity.launchInternalWindow(
                     SettingsActivity.createIntent(mActivity),
-                    optionsForCurrentDisplay().toBundle());
+                    SettingsActivity.launchTarget(mActivity),
+                    mActivity.getString(R.string.settings_title));
         } catch (RuntimeException error) {
             mActivity.setErrorStatus(
                     "SETTINGS-001",

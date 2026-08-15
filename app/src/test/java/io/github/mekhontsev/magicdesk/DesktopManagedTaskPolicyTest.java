@@ -31,6 +31,19 @@ public final class DesktopManagedTaskPolicyTest {
     }
 
     @Test
+    public void managesBuiltInSettingsWithShortOrFullComponentName() {
+        assertTrue(DesktopManagedTaskPolicy.isManagedApplicationTask(task(
+                PACKAGE_NAME,
+                PACKAGE_NAME + "/.SettingsActivity",
+                false)));
+        assertTrue(DesktopManagedTaskPolicy.isManagedApplicationTask(task(
+                PACKAGE_NAME,
+                PACKAGE_NAME + "/" + PACKAGE_NAME
+                        + ".SettingsActivity",
+                false)));
+    }
+
+    @Test
     public void excludesMagicDeskInfrastructureAndHomeTasks() {
         assertFalse(DesktopManagedTaskPolicy.isManagedApplicationTask(task(
                 PACKAGE_NAME,

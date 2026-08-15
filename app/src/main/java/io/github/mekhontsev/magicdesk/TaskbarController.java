@@ -326,7 +326,7 @@ final class TaskbarController {
                 continue;
             }
             final List<TaskRepository.TaskEntry> packageTasks =
-                    findTasks(orderedTasks, packageName);
+                    findTasks(orderedTasks, app.launchTarget);
             if (packageTasks.isEmpty()) {
                 addPin(app, null);
                 continue;
@@ -410,10 +410,10 @@ final class TaskbarController {
 
     private static List<TaskRepository.TaskEntry> findTasks(
             final List<TaskRepository.TaskEntry> tasks,
-            final String packageName) {
+            final AppLaunchTarget target) {
         final List<TaskRepository.TaskEntry> result = new ArrayList<>();
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (packageName.equals(task.packageName)) {
+            if (target.matchesTask(task)) {
                 result.add(task);
             }
         }

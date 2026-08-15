@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.util.Log;
 import android.view.Display;
@@ -31,8 +32,8 @@ final class AppTaskController {
     }
 
     void launchDefault(final AppItem app) {
-        final AppWindowState saved =
-                AppWindowStateStore.load(app.packageName);
+        final AppWindowState saved = remembersWindowState(app)
+                ? AppWindowStateStore.load(app.packageName) : null;
         Log.i(TAG, "launch default package=" + app.packageName
                 + " canFloat=" + app.canFloat
                 + " fullscreenReason=" + app.fullscreenReason
@@ -67,6 +68,11 @@ final class AppTaskController {
     }
 
     void launchNewWindow(final AppItem app) {
+        if (!BuiltInDesktopAppCatalog.supportsMultipleWindows(
+                app.launchTarget)) {
+            launchFloating(app, true);
+            return;
+        }
         launchFloating(
                 app,
                 true,
@@ -74,11 +80,62 @@ final class AppTaskController {
                 WindowedAppLauncher.TaskReusePolicy.CREATE_NEW);
     }
 
+    void launchInternalWindow(
+            final Intent launchIntent,
+            final AppLaunchTarget launchTarget,
+            final String label) {
+        final int displayId = mActivity.getCurrentDisplayId();
+        if (!canControlWindowing()) {
+            final ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(displayId);
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            mActivity.startActivity(launchIntent, options.toBundle());
+            return;
+        }
+
+        mActivity.setTaskbarVisible(true);
+        mActivity.setStatus(mActivity.getString(
+                R.string.status_launching_window, label));
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                takeInteractionVisibleTasks();
+        TaskCommandQueue.execute(() -> {
+            try {
+                WindowedAppLauncher.launch(
+                        launchIntent,
+                        launchTarget,
+                        displayId,
+                        getTaskIds(visibleTasks),
+                        true,
+                        null,
+                        WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                        () -> publishConfirmedLaunchSnapshot(displayId));
+                mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    mActivity.setStatus(mActivity.getString(
+                            R.string.status_switch_done, label));
+                    mActivity.refreshTaskSnapshot();
+                });
+            } catch (IOException | RuntimeException error) {
+                TaskRepository.bringStackToFront(
+                        visibleTasks, null, null);
+                mActivity.runOnUiThread(() -> {
+                    if (!mActivity.isActivityUnavailable()) {
+                        mActivity.showLaunchFailure(error);
+                    }
+                });
+            }
+        });
+    }
+
     private void launchFloating(
             final AppItem app,
             final boolean explicitWindowed) {
-        final AppWindowState saved =
-                AppWindowStateStore.load(app.packageName);
+        final AppWindowState saved = remembersWindowState(app)
+                ? AppWindowStateStore.load(app.packageName) : null;
         launchFloating(
                 app,
                 explicitWindowed,
@@ -101,7 +158,7 @@ final class AppTaskController {
                 && existingTask != null
                 && existingTask.displayId == mActivity.getCurrentDisplayId()
                 && existingTask.isFreeform()) {
-            if (explicitWindowed) {
+            if (explicitWindowed && remembersWindowState(app)) {
                 AppWindowStateStore.rememberMode(
                         app.packageName,
                         AppWindowState.Mode.WINDOWED);
@@ -142,7 +199,7 @@ final class AppTaskController {
                         preferredBounds,
                         reusePolicy,
                         () -> publishConfirmedLaunchSnapshot(displayId));
-                if (explicitWindowed) {
+                if (explicitWindowed && remembersWindowState(app)) {
                     AppWindowStateStore.rememberMode(
                             app.packageName,
                             AppWindowState.Mode.WINDOWED);
@@ -203,7 +260,7 @@ final class AppTaskController {
                                 mActivity.getCurrentDisplayId(),
                                 false);
                 if (reuseResult.found) {
-                    if (rememberMode) {
+                    if (rememberMode && remembersWindowState(app)) {
                         AppWindowStateStore.rememberMode(
                                 app.packageName,
                                 AppWindowState.Mode.FULLSCREEN);
@@ -243,7 +300,7 @@ final class AppTaskController {
             ExistingTaskController.normalizeLaunchedFullscreen(
                     app.launchTarget,
                     mActivity.getCurrentDisplayId());
-            if (rememberMode) {
+            if (rememberMode && remembersWindowState(app)) {
                 AppWindowStateStore.rememberMode(
                         app.packageName,
                         AppWindowState.Mode.FULLSCREEN);
@@ -409,9 +466,11 @@ final class AppTaskController {
                             displayId, result.success);
                     mActivity.runOnUiThread(() -> {
                         if (result.success) {
-                            AppWindowStateStore.rememberMode(
-                                    app.packageName,
-                                    AppWindowState.Mode.FULLSCREEN);
+                            if (remembersWindowState(app)) {
+                                AppWindowStateStore.rememberMode(
+                                        app.packageName,
+                                        AppWindowState.Mode.FULLSCREEN);
+                            }
                             mActivity.setTaskbarVisible(false);
                         }
                         mActivity.setStatus(mActivity.getString(
@@ -430,7 +489,9 @@ final class AppTaskController {
 
     private void rememberWindowBounds(
             final TaskRepository.TaskEntry task) {
-        if (task == null || !task.isBoundedFreeform()) {
+        if (task == null
+                || !task.isBoundedFreeform()
+                || !BuiltInDesktopAppCatalog.remembersWindowState(task)) {
             return;
         }
         try {
@@ -475,7 +536,7 @@ final class AppTaskController {
         TaskRepository.moveTaskToDisplay(
                 task,
                 targetDisplayId,
-                savedWindowBounds(app.packageName),
+                savedWindowBounds(app),
                 result -> mActivity.runOnUiThread(() -> {
                     if (result.success) {
                         mActivity.setStatus(mActivity.getString(
@@ -496,9 +557,19 @@ final class AppTaskController {
     }
 
     private static RelativeWindowBounds savedWindowBounds(
-            final String packageName) {
-        final AppWindowState state = AppWindowStateStore.load(packageName);
+            final AppItem app) {
+        if (!remembersWindowState(app)) {
+            return null;
+        }
+        final AppWindowState state =
+                AppWindowStateStore.load(app.packageName);
         return state == null ? null : state.windowBounds;
+    }
+
+    private static boolean remembersWindowState(final AppItem app) {
+        return app != null
+                && BuiltInDesktopAppCatalog.remembersWindowState(
+                        app.launchTarget);
     }
 
     void closeTask(

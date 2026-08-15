@@ -180,7 +180,17 @@ runtime integration and are not distributed through the same release path.
   user-selected desktop behavior. They are separate from the transient System
   panel, which remains a quick control surface for the active session. Settings
   also provides the stable entry points for device setup, diagnostics, and
-  About, keeping the phone control surface focused on session actions.
+  About, keeping the phone control surface focused on session actions. The
+  activity is exported only behind `MANAGE_ACTIVITY_TASKS`, allowing the shell
+  launch backend to create its desktop task without exposing it to regular
+  applications. `BuiltInDesktopAppCatalog` is the single allowlist that
+  separates user-facing MagicDesk tasks such as Files and Settings from shell
+  infrastructure. It also records whether an internal window can have multiple
+  tasks, appear in the launcher or taskbar pins, and share package-level window
+  state. Settings is a singleton reusable task. A single
+  constrained, scrollable `SettingsView` serves phone and desktop. The phone
+  opens it normally, while the desktop task controller launches the same
+  Activity in a dedicated reusable freeform task.
 - `DesktopActivity` is the concrete desktop Activity.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.

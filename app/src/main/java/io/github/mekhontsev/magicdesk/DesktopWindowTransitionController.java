@@ -308,7 +308,7 @@ final class DesktopWindowTransitionController {
                     mRestoreBounds.put(taskId, restoreBounds);
                     mFullscreenRestoreBounds.remove(taskId);
                     mAppRequestedFullscreenTasks.remove(taskId);
-                    rememberWindowed(task.packageName, targetBounds);
+                    rememberWindowed(task, targetBounds);
                     mRuntimeState.scheduleRefresh();
                 }));
     }
@@ -358,7 +358,7 @@ final class DesktopWindowTransitionController {
         final int displayId = mRuntimeState.displayId();
         mFullscreenRestoreBounds.put(taskId, new Rect(task.bounds));
         if (!appRequested) {
-            rememberWindowed(task.packageName, task.bounds);
+            rememberWindowed(task, task.bounds);
         }
         mNativeWindowBounds.clearForFullscreen(task.taskId);
         if (appRequested) {
@@ -391,9 +391,11 @@ final class DesktopWindowTransitionController {
                     }
                     mFullscreenTransitionTasks.remove(taskId);
                     finishWorkspaceTransition(displayId, true);
-                    AppWindowStateStore.rememberMode(
-                            task.packageName,
-                            AppWindowState.Mode.FULLSCREEN);
+                    if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
+                        AppWindowStateStore.rememberMode(
+                                task.packageName,
+                                AppWindowState.Mode.FULLSCREEN);
+                    }
                 });
         if (appRequested) {
             TaskRepository.setAppRequestedFullscreen(task, callback);
@@ -452,7 +454,7 @@ final class DesktopWindowTransitionController {
         mFullscreenRestoreBounds.remove(taskId);
         mAppRequestedFullscreenTasks.remove(taskId);
         if (userRequested) {
-            rememberWindowed(task.packageName, targetBounds);
+            rememberWindowed(task, targetBounds);
         }
         mRuntimeState.scheduleRefresh();
     }
@@ -555,12 +557,16 @@ final class DesktopWindowTransitionController {
     }
 
     private void rememberWindowed(
-            final String packageName,
+            final TaskRepository.TaskEntry task,
             final Rect bounds) {
+        if (!BuiltInDesktopAppCatalog.remembersWindowState(task)) {
+            return;
+        }
         final RelativeWindowBounds relative = RelativeWindowBounds.from(
                 bounds, mNativeWindowBounds.getTaskbarMaximizedBounds());
         if (relative != null) {
-            AppWindowStateStore.rememberWindowed(packageName, relative);
+            AppWindowStateStore.rememberWindowed(
+                    task.packageName, relative);
         }
     }
 

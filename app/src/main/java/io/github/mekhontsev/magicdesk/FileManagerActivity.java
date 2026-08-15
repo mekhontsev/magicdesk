@@ -93,10 +93,7 @@ public final class FileManagerActivity extends Activity
     }
 
     static AppLaunchTarget launchTarget(final Context context) {
-        return AppLaunchTarget.explicit(
-                context.getPackageName(),
-                FileManagerActivity.class.getName(),
-                Intent.ACTION_MAIN);
+        return BuiltInDesktopAppCatalog.filesTarget();
     }
 
     @Override

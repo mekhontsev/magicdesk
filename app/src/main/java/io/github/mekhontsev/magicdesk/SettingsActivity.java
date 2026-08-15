@@ -15,6 +15,10 @@ public final class SettingsActivity extends Activity
         return new Intent(context, SettingsActivity.class);
     }
 
+    static AppLaunchTarget launchTarget(final Context context) {
+        return BuiltInDesktopAppCatalog.settingsTarget();
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -65,11 +69,6 @@ public final class SettingsActivity extends Activity
     @Override
     public void showAbout() {
         AboutDialog.show(this);
-    }
-
-    @Override
-    public void closeSettings() {
-        finish();
     }
 
     private void saveSetting(final boolean saved) {

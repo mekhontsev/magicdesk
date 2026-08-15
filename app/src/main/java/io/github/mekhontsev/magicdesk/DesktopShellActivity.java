@@ -1192,10 +1192,13 @@ public abstract class DesktopShellActivity extends Activity
     AppItem findOrLoadApp(
             final List<AppItem> apps,
             final TaskRepository.TaskEntry task) {
-        final AppLaunchTarget files = FileManagerActivity.launchTarget(this);
-        return files.matchesTask(task)
+        final BuiltInDesktopAppCatalog.Entry builtIn =
+                BuiltInDesktopAppCatalog.find(task);
+        return builtIn != null
                 ? mLauncherApps.findOrLoad(
-                        apps, files, isUniversalFreeformEnabled())
+                        apps,
+                        builtIn.launchTarget,
+                        isUniversalFreeformEnabled())
                 : findOrLoadApp(apps, task.packageName);
     }
 
@@ -1344,6 +1347,13 @@ public abstract class DesktopShellActivity extends Activity
 
     void openSettings() {
         mSystemActions.openSettings();
+    }
+
+    void launchInternalWindow(
+            final android.content.Intent intent,
+            final AppLaunchTarget target,
+            final String label) {
+        mAppTasks.launchInternalWindow(intent, target, label);
     }
 
     void toggleShortcutHelp() {
