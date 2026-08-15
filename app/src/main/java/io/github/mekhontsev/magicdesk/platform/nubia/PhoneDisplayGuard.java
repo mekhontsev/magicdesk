@@ -43,11 +43,18 @@ final class PhoneDisplayGuard {
             Log.w(TAG, "DisplayManager has no supported display restore command");
             return false;
         }
+        final int desktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        if (desktopDisplayId <= 0) {
+            Log.w(TAG, "No active desktop display to protect");
+            return false;
+        }
         final Session session;
         final boolean startSession;
         synchronized (LOCK) {
             if (sSession == null) {
-                session = new Session(++sGeneration, restoreOperation);
+                session = new Session(
+                        ++sGeneration, restoreOperation, desktopDisplayId);
                 sSession = session;
                 startSession = true;
             } else {
@@ -101,6 +108,15 @@ final class PhoneDisplayGuard {
     static boolean isActive() {
         synchronized (LOCK) {
             return sSession != null && sSession.isReady();
+        }
+    }
+
+    static String protectedUidSummary() {
+        synchronized (LOCK) {
+            if (sSession == null) {
+                return "inactive";
+            }
+            return sSession.mProtectedUidSummary;
         }
     }
 
@@ -241,16 +257,22 @@ final class PhoneDisplayGuard {
     private static final class Session implements Runnable {
         private final int mGeneration;
         private final String mRestoreOperation;
+        private final int mDesktopDisplayId;
         private final CountDownLatch mReady = new CountDownLatch(1);
         private final CountDownLatch mStopped = new CountDownLatch(1);
         private volatile boolean mRestoreRequested;
         private volatile boolean mGuardReady;
         private volatile String mFailure = "guard exited before ready";
+        private volatile String mProtectedUidSummary = "pending";
         private volatile ShellStreamHandle mStream;
 
-        Session(final int generation, final String restoreOperation) {
+        Session(
+                final int generation,
+                final String restoreOperation,
+                final int desktopDisplayId) {
             mGeneration = generation;
             mRestoreOperation = restoreOperation;
+            mDesktopDisplayId = desktopDisplayId;
         }
 
         void start() {
@@ -318,7 +340,8 @@ final class PhoneDisplayGuard {
                         AppProcessCommand.exec(
                                 GUARD_COMMAND,
                                 Integer.toString(android.os.Process.myUid())
-                                        + " " + mRestoreOperation));
+                                        + " " + mRestoreOperation
+                                        + " " + mDesktopDisplayId));
                 mStream = stream;
                 if (mRestoreRequested) {
                     requestRestore();
@@ -340,6 +363,11 @@ final class PhoneDisplayGuard {
                     } else if (line.startsWith(
                             PhoneDisplayGuardCommand.ERROR)) {
                         mFailure = line;
+                    } else if (line.startsWith(
+                            PhoneDisplayGuardCommand.PROTECTED_UIDS + " ")) {
+                        mProtectedUidSummary = line.substring(
+                                PhoneDisplayGuardCommand.PROTECTED_UIDS.length())
+                                .trim();
                     } else if (!line.isEmpty()) {
                         Log.d(TAG, line);
                     }

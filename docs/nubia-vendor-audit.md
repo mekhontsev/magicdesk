@@ -283,9 +283,11 @@ classified the process as TOP with a foreground service; `cmd activity
 unfreeze --sticky` did not override this separate vendor freezer. The service's
 `noteCpuFreezerUidWorking(uid, working, "service")` API is accessible to shell
 UID 2000 and is the firmware's own transient protection for an executing
-service. The display helper refreshes it with the existing heartbeat and clears
-it after `power-reset`. If cleanup cannot run, `cfreezer` expires an unrefreshed
-working state internally. A dynamic `setFrozenWhiteList` entry was also tested
+service. The display helper refreshes it with the existing heartbeat for
+MagicDesk and every application UID that owns a live task on the desktop
+display. It clears entries when tasks leave that display and after `power-reset`.
+If cleanup cannot run, `cfreezer` expires an unrefreshed working state
+internally. A dynamic `setFrozenWhiteList` entry was also tested
 successfully but rejected for production because abrupt helper termination
 could leave that persistent entry behind.
 

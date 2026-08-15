@@ -946,8 +946,10 @@ abnormal teardown.
 
 While display 0 is off, RedMagic's independent `cfreezer` can freeze even a
 foreground-service HOME process. The same heartbeat refreshes the vendor's
-transient `noteCpuFreezerUidWorking` state and clears it during restore. No
-persistent freezer whitelist is installed.
+transient `noteCpuFreezerUidWorking` state for MagicDesk and the application
+UIDs owning live tasks on the desktop display. It removes stale task entries
+and clears the remaining state during restore. No persistent freezer whitelist
+is installed.
 
 `MagicDeskTouchpadActivity` is the common phone-side input panel for wired and
 wireless desktops. It remains an ordinary display-0 Activity and can be opened

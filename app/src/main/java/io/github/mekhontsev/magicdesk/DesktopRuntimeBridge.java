@@ -124,7 +124,7 @@ public final class DesktopRuntimeBridge {
         }
     }
 
-    static int getActiveDesktopDisplayId() {
+    public static int getActiveDesktopDisplayId() {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity == null ? -1 : activity.getCurrentDisplayId();
     }

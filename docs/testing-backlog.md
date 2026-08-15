@@ -161,9 +161,9 @@ retired prototypes are listed separately and are not current product modes.
 - [x] Restore display 0 through physical power/unlock, explicit Wake, mirror
   transition, helper termination, package force-stop, UserService death, and
   physical cable removal.
-- [x] Protect the desktop process through RedMagic `cfreezer`'s transient
-  service-working API while display 0 is off. Verify no persistent whitelist
-  entry remains.
+- [x] Protect MagicDesk and the live desktop-task UIDs through RedMagic
+  `cfreezer`'s transient service-working API while display 0 is off. Verify no
+  persistent whitelist entry remains.
 - [x] Launch and reopen the common MagicDesk touchpad from the phone
   notification for wired and wireless desktops.
 - [x] Hide Nubia's external `HostAssistPanel` without removing the phone-side

@@ -100,10 +100,11 @@ deliberately does not set Nubia's `nubia_screen_off_tp` flag, because that flag
 lets the vendor text-input panel wake the phone whenever an external
 application requests input.
 
-The same heartbeat marks MagicDesk's foreground service as active through
-RedMagic's transient `cfreezer` API. Without that signal the firmware can
-freeze the desktop process while display 0 is off. Normal teardown clears
-the state, and the vendor service expires it after an abnormal stop.
+The same heartbeat marks MagicDesk and the application UIDs owning live tasks
+on the desktop display as active through RedMagic's transient `cfreezer` API.
+Without that signal the firmware can freeze those processes while display 0 is
+off. Normal teardown clears the state, and the vendor service expires it after
+an abnormal stop.
 
 Physical power, MagicDesk's Wake action, switching to mirroring, display cable
 removal, APK shutdown, and Shizuku death all restore normal DisplayManager

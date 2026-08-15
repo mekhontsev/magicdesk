@@ -6,7 +6,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Refreshes RedMagic's transient service-working state for one application UID. */
+/** Refreshes RedMagic's transient service-working state for an application UID. */
 final class NubiaCpuFreezerWorkingState {
     private static final String SERVICE_NAME = "cfreezer";
     private static final String INTERFACE_NAME =

@@ -78,6 +78,11 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                             ? "system" : displayProfile.outputTiming);
         }
         report.append('\n')
+                .append("Phone screen guard: active=")
+                .append(PhoneDisplayGuard.isActive())
+                .append(", protectedUids=")
+                .append(PhoneDisplayGuard.protectedUidSummary())
+                .append('\n')
                 .append("Nubia projection settings: fit=")
                 .append(Settings.Global.getString(
                         context.getContentResolver(),
