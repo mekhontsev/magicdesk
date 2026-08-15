@@ -7,11 +7,15 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
 
+import android.app.KeyguardManager;
 import android.content.Context;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.Display;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -57,6 +61,18 @@ final class DesktopSelfTestController {
                     "another desktop self-test is already running");
             return finish(result, appContext);
         }
+        final String phoneUiIssue = phoneUiUnavailableReason(appContext);
+        if (phoneUiIssue != null) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-PRECONDITION-000",
+                    "Phone is unlocked and awake",
+                    phoneUiIssue);
+            RUNNING.set(false);
+            return finish(result, appContext);
+        }
+        result.add(DesktopSelfTestResult.State.PASS,
+                "SELFTEST-PRECONDITION-000",
+                "Phone is unlocked and awake", "ready");
 
         final DesktopSelfTestTarget target = requestedTarget == null
                 ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
@@ -123,6 +139,23 @@ final class DesktopSelfTestController {
             RUNNING.set(false);
         }
         return finish(result, appContext);
+    }
+
+    static String phoneUiUnavailableReason(final Context context) {
+        if (context == null) {
+            return "application context is unavailable";
+        }
+        final PowerManager powerManager =
+                context.getSystemService(PowerManager.class);
+        if (powerManager != null && !powerManager.isInteractive()) {
+            return "wake and unlock the phone before starting the test";
+        }
+        final KeyguardManager keyguardManager =
+                context.getSystemService(KeyguardManager.class);
+        if (keyguardManager != null && keyguardManager.isKeyguardLocked()) {
+            return "unlock the phone before starting the test";
+        }
+        return null;
     }
 
     private static void requireNoActiveDesktop(
@@ -223,13 +256,32 @@ final class DesktopSelfTestController {
                             ShellAccess.run(
                                     PhoneDesktopTaskRecovery
                                             .repositoryDumpCommand()));
-            tasksByDisplay.entrySet().removeIf(entry ->
-                    entry.getKey().intValue() <= Display.DEFAULT_DISPLAY
-                            || entry.getValue().isEmpty());
-            if (!tasksByDisplay.isEmpty()) {
+            final Set<Integer> liveTaskIds = new LinkedHashSet<>();
+            for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                    ShellAccess.run("/system/bin/cmd activity stack list"))) {
+                liveTaskIds.add(Integer.valueOf(task.taskId));
+            }
+            final Map<Integer, Set<Integer>> liveRepositoryTasks =
+                    selectExternalRepositoryTasks(
+                            tasksByDisplay, liveTaskIds, true);
+            if (!liveRepositoryTasks.isEmpty()) {
                 failAndAbort(result, "SELFTEST-PRECONDITION-003",
                         "No stale external desktop tasks",
-                        tasksByDisplay.toString());
+                        liveRepositoryTasks.toString());
+            }
+            final Map<Integer, Set<Integer>> unavailableRepositoryTasks =
+                    selectExternalRepositoryTasks(
+                            tasksByDisplay, liveTaskIds, false);
+            if (!unavailableRepositoryTasks.isEmpty()) {
+                // Nubia can retain task IDs after both the task and its
+                // simulated display are gone. They cannot affect a new
+                // display, but are useful firmware diagnostics.
+                result.add(DesktopSelfTestResult.State.WARN,
+                        "SELFTEST-PRECONDITION-003",
+                        "No stale external desktop tasks",
+                        "ignored unavailable firmware entries "
+                                + unavailableRepositoryTasks);
+                return;
             }
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-PRECONDITION-003",
@@ -238,6 +290,35 @@ final class DesktopSelfTestController {
             failAndAbort(result, "SELFTEST-PRECONDITION-003",
                     "Inspect external desktop tasks", usefulMessage(error));
         }
+    }
+
+    static Map<Integer, Set<Integer>> selectExternalRepositoryTasks(
+            final Map<Integer, Set<Integer>> tasksByDisplay,
+            final Set<Integer> liveTaskIds,
+            final boolean selectLive) {
+        final Map<Integer, Set<Integer>> selected = new LinkedHashMap<>();
+        if (tasksByDisplay == null || liveTaskIds == null) {
+            return selected;
+        }
+        for (final Map.Entry<Integer, Set<Integer>> entry
+                : tasksByDisplay.entrySet()) {
+            if (entry.getKey() == null
+                    || entry.getKey().intValue() <= Display.DEFAULT_DISPLAY
+                    || entry.getValue() == null) {
+                continue;
+            }
+            final Set<Integer> taskIds = new LinkedHashSet<>();
+            for (final Integer taskId : entry.getValue()) {
+                if (taskId != null
+                        && liveTaskIds.contains(taskId) == selectLive) {
+                    taskIds.add(taskId);
+                }
+            }
+            if (!taskIds.isEmpty()) {
+                selected.put(entry.getKey(), taskIds);
+            }
+        }
+        return selected;
     }
 
     private static int waitForOverlayDisplay() throws IOException {

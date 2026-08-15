@@ -26,6 +26,8 @@ import android.widget.Toast;
 public final class DiagnosticsActivity extends Activity {
     static final String EXTRA_SELF_TEST_TARGET =
             "io.github.mekhontsev.magicdesk.extra.SELF_TEST_TARGET";
+    static final String EXTRA_SELF_TEST_DISPLAY_KIND =
+            "io.github.mekhontsev.magicdesk.extra.SELF_TEST_DISPLAY_KIND";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_PANEL_ALT = 0xFF172033;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -71,13 +73,19 @@ public final class DiagnosticsActivity extends Activity {
         if (target == null) {
             return false;
         }
+        final DesktopDisplayTarget.Kind displayKind =
+                requestedSelfTestDisplayKind(intent);
+        // The debug launcher is a one-shot trigger. Consuming its extras keeps
+        // activity recreation during a display test from starting another run.
+        intent.removeExtra(EXTRA_SELF_TEST_TARGET);
+        intent.removeExtra(EXTRA_SELF_TEST_DISPLAY_KIND);
         if (mLoading || mSelfTestRunning
                 || DesktopSelfTestController.isRunning()) {
             return true;
         }
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        mSelfTest.post(() -> prepareSelfTest(target));
+        mSelfTest.post(() -> prepareSelfTest(target, displayKind));
         return true;
     }
 
@@ -236,11 +244,13 @@ public final class DiagnosticsActivity extends Activity {
         }
     }
 
-    private void prepareSelfTest(final DesktopSelfTestTarget target) {
+    private void prepareSelfTest(
+            final DesktopSelfTestTarget target,
+            final DesktopDisplayTarget.Kind displayKind) {
         if (target == DesktopSelfTestTarget.SIMULATED) {
             prepareSimulatedSelfTest();
         } else if (target == DesktopSelfTestTarget.EXTERNAL) {
-            prepareExternalSelfTest();
+            prepareExternalSelfTest(displayKind);
         } else {
             preparePhoneSelfTest();
         }
@@ -262,6 +272,27 @@ public final class DiagnosticsActivity extends Activity {
         }
     }
 
+    private static DesktopDisplayTarget.Kind requestedSelfTestDisplayKind(
+            final Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+        final String name = intent.getStringExtra(
+                EXTRA_SELF_TEST_DISPLAY_KIND);
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        try {
+            final DesktopDisplayTarget.Kind kind =
+                    DesktopDisplayTarget.Kind.valueOf(name);
+            return kind == DesktopDisplayTarget.Kind.WIRED
+                            || kind == DesktopDisplayTarget.Kind.WIRELESS
+                    ? kind : null;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
     private void preparePhoneSelfTest() {
         if (!beginSelfTestPreparation()) {
             return;
@@ -273,6 +304,11 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void prepareExternalSelfTest() {
+        prepareExternalSelfTest(null);
+    }
+
+    private void prepareExternalSelfTest(
+            final DesktopDisplayTarget.Kind requestedKind) {
         if (!beginSelfTestPreparation()) {
             return;
         }
@@ -284,8 +320,9 @@ public final class DiagnosticsActivity extends Activity {
                     ConsoleDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
                     ConsoleDisplayController.findWirelessDisplayId();
-            if (activeWiredDisplayId > Display.DEFAULT_DISPLAY
-                    || physicalWiredDisplayId > Display.DEFAULT_DISPLAY) {
+            if (requestedKind != DesktopDisplayTarget.Kind.WIRELESS
+                    && (activeWiredDisplayId > Display.DEFAULT_DISPLAY
+                    || physicalWiredDisplayId > Display.DEFAULT_DISPLAY)) {
                 final boolean restoreMirror =
                         activeWiredDisplayId <= Display.DEFAULT_DISPLAY;
                 DesktopDisplayDrivers
@@ -295,8 +332,17 @@ public final class DiagnosticsActivity extends Activity {
                     if (!isFinishing() && !isDestroyed()) {
                         waitForPreparedDesktop(
                                 DesktopSelfTestTarget.EXTERNAL,
-                                restoreMirror);
+                                restoreMirror,
+                                DesktopDisplayTarget.Kind.WIRED);
                     }
+                });
+                return;
+            }
+            if (requestedKind == DesktopDisplayTarget.Kind.WIRED) {
+                runOnUiThread(() -> {
+                    finishSelfTestPreparation();
+                    mStatus.setText(
+                            R.string.status_external_display_unavailable);
                 });
                 return;
             }
@@ -323,7 +369,8 @@ public final class DiagnosticsActivity extends Activity {
                                 wirelessDisplayId));
                 waitForPreparedDesktop(
                         DesktopSelfTestTarget.EXTERNAL,
-                        false);
+                        false,
+                        DesktopDisplayTarget.Kind.WIRELESS);
             });
         }, "MagicDeskSelfTestDisplayProbe").start();
     }
@@ -372,7 +419,10 @@ public final class DiagnosticsActivity extends Activity {
         stopAwaitingWirelessDisplay();
         ConsoleModeSwitcher.showDesktop(
                 DesktopDisplayTarget.wireless(displayId));
-        waitForPreparedDesktop(DesktopSelfTestTarget.EXTERNAL, false);
+        waitForPreparedDesktop(
+                DesktopSelfTestTarget.EXTERNAL,
+                false,
+                DesktopDisplayTarget.Kind.WIRELESS);
     }
 
     private void stopAwaitingWirelessDisplay() {
@@ -385,6 +435,10 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private boolean beginSelfTestPreparation() {
+        if (DesktopSelfTestController.phoneUiUnavailableReason(this) != null) {
+            mStatus.setText(R.string.diagnostics_self_test_unlock_phone);
+            return false;
+        }
         if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
                 != Display.INVALID_DISPLAY) {
             mStatus.setText(R.string.diagnostics_self_test_close_desktop);
@@ -415,6 +469,13 @@ public final class DiagnosticsActivity extends Activity {
     private void waitForPreparedDesktop(
             final DesktopSelfTestTarget target,
             final boolean restoreExternalMirror) {
+        waitForPreparedDesktop(target, restoreExternalMirror, null);
+    }
+
+    private void waitForPreparedDesktop(
+            final DesktopSelfTestTarget target,
+            final boolean restoreExternalMirror,
+            final DesktopDisplayTarget.Kind expectedKind) {
         new Thread(() -> {
             final long deadline = SystemClock.uptimeMillis()
                     + ConsoleDisplayController.START_TIMEOUT_MS * 2L;
@@ -422,11 +483,14 @@ public final class DiagnosticsActivity extends Activity {
             do {
                 final int displayId =
                         DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                final DesktopDisplayTarget displayTarget =
+                        DesktopRuntimeBridge.getDesktopTarget(displayId);
                 // The self-test verifies host window readiness itself.
                 if (target.matchesDisplay(
                                 displayId,
-                                DesktopRuntimeBridge.getDesktopTarget(
-                                        displayId))) {
+                                displayTarget)
+                        && (expectedKind == null
+                                || displayTarget.kind == expectedKind)) {
                     ready = true;
                     break;
                 }

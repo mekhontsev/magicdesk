@@ -1,4 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".DebugSelfTestActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:taskAffinity="io.github.mekhontsev.magicdesk.debug.selftest"
+            android:theme="@style/TransparentActivityTheme" />
+    </application>
+
     <instrumentation
         android:name=".ShizukuProbeInstrumentation"
         android:functionalTest="true"

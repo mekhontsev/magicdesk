@@ -49,6 +49,11 @@ final class DesktopSelfTestInputSuite {
                 "Verify native caption structure",
                 taskId,
                 bounds);
+        verifyCaptionSurface(
+                result,
+                "CAPTION-SURFACE-001",
+                "Verify native caption surface",
+                taskId);
         verifyCaptionRendering(
                 result,
                 "CAPTION-003",
@@ -79,6 +84,14 @@ final class DesktopSelfTestInputSuite {
             final Rect bounds) {
         check(result, code, label, () ->
                 inspectCaptionStructure(taskId, bounds));
+    }
+
+    static void verifyCaptionSurface(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final int taskId) {
+        check(result, code, label, () -> waitForVisibleCaptionSurface(taskId));
     }
 
     static void verifyCaptionRendering(
@@ -237,6 +250,30 @@ final class DesktopSelfTestInputSuite {
                         + bounds.right + " " + bounds.bottom)).trim();
     }
 
+    private static String waitForVisibleCaptionSurface(
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        TaskCaptionSurfaceCommand.State lastState =
+                TaskCaptionSurfaceCommand.State.ABSENT;
+        do {
+            final ShellAccess.CommandResult response =
+                    ShellAccess.executeForConsole(
+                            TaskCaptionSurfaceCommand.createCommand(taskId));
+            if (response.exitCode != 0) {
+                throw new IOException(response.output.trim());
+            }
+            lastState = TaskCaptionSurfaceCommand.parseResult(
+                    response.output, taskId).get(Integer.valueOf(taskId));
+            if (lastState == TaskCaptionSurfaceCommand.State.VISIBLE) {
+                return "task=" + taskId + ", surface=" + lastState.label;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("caption surface is " + lastState.label
+                + " for task " + taskId);
+    }
+
     private static void verifyNativeInputWindows(
             final DesktopSelfTestResult result,
             final int displayId,
@@ -384,6 +421,458 @@ final class DesktopSelfTestInputSuite {
                         secondTaskId,
                         secondToken,
                         "9"));
+        runMaximizedAltTabTests(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                firstToken,
+                secondTaskId,
+                secondToken,
+                geometry);
+        runFullscreenAltTabTests(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                firstToken,
+                secondTaskId,
+                secondToken,
+                geometry);
+    }
+
+    private static void runMaximizedAltTabTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken,
+            final int secondTaskId,
+            final String secondToken,
+            final DesktopSelfTestGeometry geometry) {
+        final String preparationCode = "MAXIMIZED-ALT-TAB-001";
+        DesktopSelfTestHostObserver.stage(preparationCode);
+        final MaximizedTaskPair pair;
+        try {
+            pair = prepareMaximizedPair(
+                    displayId,
+                    firstTaskId,
+                    secondTaskId,
+                    geometry);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    preparationCode,
+                    "Prepare two maximized windows",
+                    pair.describe());
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    preparationCode,
+                    "Prepare two maximized windows",
+                    usefulMessage(error));
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "MAXIMIZED-ALT-TAB-002",
+                    "Switch between two maximized windows",
+                    "maximized pair preparation failed");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "MAXIMIZED-ALT-TAB-003",
+                    "Switch back between two maximized windows",
+                    "maximized pair preparation failed");
+            return;
+        }
+        check(result,
+                "MAXIMIZED-ALT-TAB-002",
+                "Switch between two maximized windows",
+                () -> focusMaximizedPairThroughAltTab(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        firstToken,
+                        secondTaskId,
+                        pair.firstBounds,
+                        pair.secondBounds,
+                        "0"));
+        check(result,
+                "MAXIMIZED-ALT-TAB-003",
+                "Switch back between two maximized windows",
+                () -> focusMaximizedPairThroughAltTab(
+                        context,
+                        displayId,
+                        secondTaskId,
+                        secondToken,
+                        firstTaskId,
+                        pair.secondBounds,
+                        pair.firstBounds,
+                        "1"));
+    }
+
+    private static MaximizedTaskPair prepareMaximizedPair(
+            final int displayId,
+            final int firstTaskId,
+            final int secondTaskId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        // Native side-by-side placement can make the caption responsive and
+        // collapse its trailing controls on narrow displays. Give each task a
+        // full caption-controls baseline before clicking the real maximize
+        // button so this phase does not inherit geometry from the snap test.
+        setWindowedBounds(
+                displayId,
+                firstTaskId,
+                geometry.captionControlsWindow(false));
+        setWindowedBounds(
+                displayId,
+                secondTaskId,
+                geometry.captionControlsWindow(true));
+        maximizeThroughNativeCaption(
+                displayId, firstTaskId, geometry);
+        maximizeThroughNativeCaption(
+                displayId, secondTaskId, geometry);
+        waitForFrontTask(displayId, secondTaskId);
+        waitForTaskInputFocus(displayId, secondTaskId);
+        return waitForMaximizedPair(
+                displayId,
+                firstTaskId,
+                secondTaskId,
+                geometry);
+    }
+
+    private static void maximizeThroughNativeCaption(
+            final int displayId,
+            final int taskId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        focusTaskThroughDesktop(displayId, taskId);
+        final TaskStackParser.Entry task = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && entry.visible
+                        && "freeform".equals(entry.windowingMode));
+        waitForFrontTask(displayId, taskId);
+        final Rect bounds = toRect(task.bounds);
+        waitForCaptionInputFrame(displayId, taskId, bounds);
+        final int x = bounds.right - geometry.scaleFrom160Dpi(
+                MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
+        final int y = bounds.top + geometry.scaleFrom160Dpi(
+                CAPTION_BUTTON_CENTER_Y_PX);
+        ShellAccess.run(pointerCommand(
+                "click " + displayId + " " + x + " " + y));
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && entry.visible
+                        && "freeform".equals(entry.windowingMode)
+                        && !equalsBounds(entry.bounds, bounds)
+                        && isMaximizedBounds(
+                                entry.bounds, geometry));
+    }
+
+    private static MaximizedTaskPair waitForMaximizedPair(
+            final int displayId,
+            final int firstTaskId,
+            final int secondTaskId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        MaximizedTaskPair previous = null;
+        do {
+            final MaximizedTaskPair current = readMaximizedPair(
+                    displayId,
+                    firstTaskId,
+                    secondTaskId,
+                    geometry);
+            if (current != null && current.sameBounds(previous)) {
+                return current;
+            }
+            previous = current;
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "native caption did not leave both tasks maximized");
+    }
+
+    private static String focusMaximizedPairThroughAltTab(
+            final Context context,
+            final int displayId,
+            final int targetTaskId,
+            final String targetToken,
+            final int otherTaskId,
+            final Rect targetBounds,
+            final Rect otherBounds,
+            final String digit) throws IOException {
+        final String focus = focusFieldThroughAltTab(
+                context,
+                displayId,
+                targetTaskId,
+                targetToken,
+                digit);
+        return focus + ", " + inspectMaximizedPair(
+                displayId,
+                targetTaskId,
+                otherTaskId,
+                targetBounds,
+                otherBounds);
+    }
+
+    private static String inspectMaximizedPair(
+            final int displayId,
+            final int targetTaskId,
+            final int otherTaskId,
+            final Rect targetBounds,
+            final Rect otherBounds) throws IOException {
+        TaskStackParser.Entry target = null;
+        TaskStackParser.Entry other = null;
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                ShellAccess.run("/system/bin/cmd activity stack list"))) {
+            if (task.displayId != displayId) {
+                continue;
+            }
+            if (task.taskId == targetTaskId) {
+                target = task;
+            } else if (task.taskId == otherTaskId) {
+                other = task;
+            }
+        }
+        if (target == null || other == null) {
+            throw new IOException("maximized task pair is incomplete");
+        }
+        if (!"freeform".equals(target.windowingMode)
+                || !"freeform".equals(other.windowingMode)) {
+            throw new IOException("maximized modes changed: target="
+                    + target.windowingMode + ", other="
+                    + other.windowingMode);
+        }
+        if (!equalsBounds(target.bounds, targetBounds)
+                || !equalsBounds(other.bounds, otherBounds)) {
+            throw new IOException("maximized bounds changed: target="
+                    + formatBounds(target.bounds) + ", other="
+                    + formatBounds(other.bounds));
+        }
+        if (!target.visible) {
+            throw new IOException("maximized target is not visible");
+        }
+        return "target=" + targetTaskId + "/maximized/visible"
+                + ", other=" + otherTaskId + "/maximized";
+    }
+
+    private static MaximizedTaskPair readMaximizedPair(
+            final int displayId,
+            final int firstTaskId,
+            final int secondTaskId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        TaskStackParser.Entry first = null;
+        TaskStackParser.Entry second = null;
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                ShellAccess.run("/system/bin/cmd activity stack list"))) {
+            if (task.displayId != displayId) {
+                continue;
+            }
+            if (task.taskId == firstTaskId) {
+                first = task;
+            } else if (task.taskId == secondTaskId) {
+                second = task;
+            }
+        }
+        if (first == null || second == null
+                || !"freeform".equals(first.windowingMode)
+                || !"freeform".equals(second.windowingMode)
+                || !isMaximizedBounds(first.bounds, geometry)
+                || !isMaximizedBounds(second.bounds, geometry)) {
+            return null;
+        }
+        return new MaximizedTaskPair(
+                toRect(first.bounds), toRect(second.bounds));
+    }
+
+    private static boolean isMaximizedBounds(
+            final TaskStackParser.Bounds bounds,
+            final DesktopSelfTestGeometry geometry) {
+        if (bounds == null) {
+            return false;
+        }
+        final Rect workArea = geometry.workArea;
+        final int tolerance = geometry.placementAlignmentTolerance();
+        return bounds.left <= workArea.left + tolerance
+                && bounds.top <= workArea.top + tolerance
+                && bounds.right >= workArea.right - tolerance
+                && bounds.bottom >= workArea.bottom - tolerance;
+    }
+
+    private static void runFullscreenAltTabTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken,
+            final int secondTaskId,
+            final String secondToken,
+            final DesktopSelfTestGeometry geometry) {
+        final String preparationCode = "FULLSCREEN-ALT-TAB-001";
+        DesktopSelfTestHostObserver.stage(preparationCode);
+        try {
+            result.add(DesktopSelfTestResult.State.PASS,
+                    preparationCode,
+                    "Prepare two fullscreen windows",
+                    prepareFullscreenPair(
+                            displayId,
+                            firstTaskId,
+                            secondTaskId,
+                            geometry));
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    preparationCode,
+                    "Prepare two fullscreen windows",
+                    usefulMessage(error));
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-ALT-TAB-002",
+                    "Switch between two fullscreen windows",
+                    "fullscreen pair preparation failed");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-ALT-TAB-003",
+                    "Switch back between two fullscreen windows",
+                    "fullscreen pair preparation failed");
+            return;
+        }
+        check(result,
+                "FULLSCREEN-ALT-TAB-002",
+                "Switch between two fullscreen windows",
+                () -> focusFullscreenPairThroughAltTab(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        firstToken,
+                        secondTaskId,
+                        "2"));
+        check(result,
+                "FULLSCREEN-ALT-TAB-003",
+                "Switch back between two fullscreen windows",
+                () -> focusFullscreenPairThroughAltTab(
+                        context,
+                        displayId,
+                        secondTaskId,
+                        secondToken,
+                        firstTaskId,
+                        "3"));
+    }
+
+    private static String prepareFullscreenPair(
+            final int displayId,
+            final int firstTaskId,
+            final int secondTaskId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        // Earlier phases intentionally leave both tasks maximized. Establish
+        // a normal freeform baseline before Win+Up exercises true fullscreen.
+        setWindowedBounds(
+                displayId,
+                firstTaskId,
+                geometry.captionControlsWindow(false));
+        setWindowedBounds(
+                displayId,
+                secondTaskId,
+                geometry.captionControlsWindow(true));
+        enterFullscreenThroughShortcut(displayId, firstTaskId);
+        enterFullscreenThroughShortcut(displayId, secondTaskId);
+        waitForFrontTask(displayId, secondTaskId);
+        waitForTaskInputFocus(displayId, secondTaskId);
+        return inspectFullscreenPair(
+                displayId, secondTaskId, firstTaskId);
+    }
+
+    private static void setWindowedBounds(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws IOException {
+        ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
+                displayId, taskId, bounds));
+        try {
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == taskId
+                            && "freeform".equals(task.windowingMode)
+                            && equalsBounds(task.bounds, bounds));
+        } catch (IOException error) {
+            throw new IOException("could not establish windowed bounds for task "
+                    + taskId + ": " + usefulMessage(error));
+        }
+    }
+
+    private static void enterFullscreenThroughShortcut(
+            final int displayId,
+            final int taskId) throws IOException {
+        focusTaskThroughDesktop(displayId, taskId);
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && entry.visible
+                        && "freeform".equals(entry.windowingMode));
+        waitForFrontTask(displayId, taskId);
+        waitForTaskInputFocus(displayId, taskId);
+        if (!DesktopTaskController.handleActiveTaskShortcut(
+                DesktopTaskController.SHORTCUT_FULLSCREEN)) {
+            throw new IOException(
+                    "MagicDesk fullscreen shortcut is unavailable");
+        }
+        try {
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "fullscreen".equals(entry.windowingMode));
+        } catch (IOException error) {
+            throw new IOException("task=" + taskId
+                    + " did not enter fullscreen through MagicDesk Win+Up");
+        }
+    }
+
+    private static String focusFullscreenPairThroughAltTab(
+            final Context context,
+            final int displayId,
+            final int targetTaskId,
+            final String targetToken,
+            final int otherTaskId,
+            final String digit) throws IOException {
+        final String focus = focusFieldThroughAltTab(
+                context,
+                displayId,
+                targetTaskId,
+                targetToken,
+                digit);
+        return focus + ", " + inspectFullscreenPair(
+                displayId, targetTaskId, otherTaskId);
+    }
+
+    private static String inspectFullscreenPair(
+            final int displayId,
+            final int targetTaskId,
+            final int otherTaskId) throws IOException {
+        TaskStackParser.Entry target = null;
+        TaskStackParser.Entry other = null;
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                ShellAccess.run("/system/bin/cmd activity stack list"))) {
+            if (task.displayId != displayId) {
+                continue;
+            }
+            if (task.taskId == targetTaskId) {
+                target = task;
+            } else if (task.taskId == otherTaskId) {
+                other = task;
+            }
+        }
+        if (target == null || other == null) {
+            throw new IOException("fullscreen task pair is incomplete");
+        }
+        if (!"fullscreen".equals(target.windowingMode)
+                || !"fullscreen".equals(other.windowingMode)) {
+            throw new IOException("fullscreen modes changed: target="
+                    + target.windowingMode + ", other="
+                    + other.windowingMode);
+        }
+        if (!target.visible || other.visible) {
+            throw new IOException("fullscreen visibility is invalid: target="
+                    + target.visible + ", other=" + other.visible);
+        }
+        return "target=" + targetTaskId + "/fullscreen/visible"
+                + ", other=" + otherTaskId + "/fullscreen/hidden";
     }
 
     private static void runNativeCaptionPlacementFocusTests(
@@ -912,6 +1401,28 @@ final class DesktopSelfTestInputSuite {
     private static String formatBounds(final TaskStackParser.Bounds bounds) {
         return "[" + bounds.left + "," + bounds.top + "]["
                 + bounds.right + "," + bounds.bottom + "]";
+    }
+
+    private static final class MaximizedTaskPair {
+        final Rect firstBounds;
+        final Rect secondBounds;
+
+        MaximizedTaskPair(
+                final Rect firstBounds,
+                final Rect secondBounds) {
+            this.firstBounds = new Rect(firstBounds);
+            this.secondBounds = new Rect(secondBounds);
+        }
+
+        boolean sameBounds(final MaximizedTaskPair other) {
+            return other != null
+                    && firstBounds.equals(other.firstBounds)
+                    && secondBounds.equals(other.secondBounds);
+        }
+
+        String describe() {
+            return "first=" + firstBounds + ", second=" + secondBounds;
+        }
     }
 
 }

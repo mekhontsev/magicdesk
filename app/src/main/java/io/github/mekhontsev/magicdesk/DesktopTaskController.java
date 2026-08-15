@@ -616,8 +616,7 @@ final class DesktopTaskController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null && task.visible && task.active
-                    && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)) {
+                    && isFocusableTask(task)) {
                 return task;
             }
         }
@@ -631,8 +630,7 @@ final class DesktopTaskController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null && task.visible && task.active && task.isFreeform()
-                    && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)
+                    && isFocusableTask(task)
                     && !task.bounds.isEmpty()) {
                 return task;
             }

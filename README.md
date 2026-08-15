@@ -432,11 +432,12 @@ MagicDesk-only logcat entries. It excludes user files, accounts, notification
 contents, and the installed-application list.
 
 **Run desktop self-test** is a manual black-box check for contributors and
-compatibility reports. With all MagicDesk desktop sessions closed, choose a
-simulated, connected external, or phone display. The same bounded test adapts
-its window positions to the selected viewport and accepts the minimum window
-size enforced by that display's WMShell implementation. It exercises the production
-desktop, freeform, fullscreen, minimize/restore, taskbar geometry, native
+compatibility reports. The phone must be awake and unlocked, with all
+MagicDesk desktop sessions closed. Choose a simulated, connected external, or
+phone display. The same bounded test adapts its window positions to the
+selected viewport and accepts the minimum window size enforced by that
+display's WMShell implementation. It exercises the production desktop,
+freeform, fullscreen, minimize/restore, taskbar geometry, native
 caption and resize input, native left/right placement, and keyboard focus
 switching between two windows. It also recreates the desktop Activity and
 checks hidden Android and RedMagic APIs that can be inspected safely.
@@ -463,6 +464,17 @@ Debug builds expose the same lifecycle check as an instrumentation regression:
 am instrument -w --user 0 \
   io.github.mekhontsev.magicdesk/.DesktopLifecycleInstrumentation
 ```
+
+They also allow the regular interactive self-test to be started directly over
+ADB, without changing its preparation, checks, report, or cleanup path:
+
+```sh
+adb shell am start -n \
+  io.github.mekhontsev.magicdesk/.DebugSelfTestActivity \
+  --es target simulated
+```
+
+The accepted targets are `phone`, `simulated`, `wired`, and `wireless`.
 
 **Diagnostics > Console** runs one-off shell commands through the authorized
 Shizuku service. It shows the effective UID, requires confirmation before its

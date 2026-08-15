@@ -259,6 +259,11 @@ final class DesktopSelfTestWindowSuite {
                 "Verify restored caption structure",
                 targetFixtureTaskId,
                 windowBounds);
+        DesktopSelfTestInputSuite.verifyCaptionSurface(
+                result,
+                "CAPTION-SURFACE-002",
+                "Verify restored caption surface",
+                targetFixtureTaskId);
         DesktopSelfTestInputSuite.verifyCaptionRendering(
                 result,
                 "CAPTION-004",
