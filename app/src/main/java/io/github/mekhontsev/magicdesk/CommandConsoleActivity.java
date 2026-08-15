@@ -151,6 +151,14 @@ public final class CommandConsoleActivity extends Activity
     }
 
     @Override
+    protected void onDestroy() {
+        if (mSession != null) {
+            mSession.close();
+        }
+        super.onDestroy();
+    }
+
+    @Override
     public void onMultiWindowModeChanged(
             final boolean inMultiWindowMode,
             final Configuration newConfig) {
@@ -390,6 +398,10 @@ public final class CommandConsoleActivity extends Activity
     }
 
     private void execute(final String command) {
+        if (ConsoleShellSession.isExitCommand(command)) {
+            finish();
+            return;
+        }
         mRunning = true;
         mHistory.record(command);
         appendCommand(command);
