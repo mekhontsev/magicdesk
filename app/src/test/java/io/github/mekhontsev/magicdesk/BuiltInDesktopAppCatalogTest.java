@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -26,5 +28,13 @@ public final class BuiltInDesktopAppCatalogTest {
                 BuiltInDesktopAppCatalog.filesTarget()));
         assertFalse(BuiltInDesktopAppCatalog.isPinnable(
                 BuiltInDesktopAppCatalog.settingsTarget()));
+    }
+
+    @Test
+    public void settingsHasCompactDefaultBoundsWhileFilesUsesAppState() {
+        assertNotNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
+                BuiltInDesktopAppCatalog.settingsTarget()));
+        assertNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
+                BuiltInDesktopAppCatalog.filesTarget()));
     }
 }

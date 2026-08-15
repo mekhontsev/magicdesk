@@ -16,6 +16,7 @@ final class BuiltInDesktopAppCatalog {
         final boolean multipleWindows;
         final boolean pinnable;
         final boolean remembersWindowState;
+        final RelativeWindowBounds defaultWindowBounds;
 
         private Entry(
                 final AppLaunchTarget launchTarget,
@@ -23,13 +24,15 @@ final class BuiltInDesktopAppCatalog {
                 final boolean listedInLauncher,
                 final boolean multipleWindows,
                 final boolean pinnable,
-                final boolean remembersWindowState) {
+                final boolean remembersWindowState,
+                final RelativeWindowBounds defaultWindowBounds) {
             this.launchTarget = launchTarget;
             this.fallbackLabelResId = fallbackLabelResId;
             this.listedInLauncher = listedInLauncher;
             this.multipleWindows = multipleWindows;
             this.pinnable = pinnable;
             this.remembersWindowState = remembersWindowState;
+            this.defaultWindowBounds = defaultWindowBounds;
         }
     }
 
@@ -43,7 +46,8 @@ final class BuiltInDesktopAppCatalog {
             true,
             true,
             true,
-            true);
+            true,
+            null);
     private static final Entry SETTINGS = new Entry(
             AppLaunchTarget.explicit(
                     PACKAGE_NAME,
@@ -53,7 +57,8 @@ final class BuiltInDesktopAppCatalog {
             false,
             false,
             false,
-            false);
+            false,
+            new RelativeWindowBounds(5000, 5000, 4500, 8000));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(FILES, SETTINGS));
 
@@ -125,5 +130,11 @@ final class BuiltInDesktopAppCatalog {
             final TaskRepository.TaskEntry task) {
         final Entry entry = find(task);
         return entry == null || entry.remembersWindowState;
+    }
+
+    static RelativeWindowBounds defaultWindowBounds(
+            final AppLaunchTarget target) {
+        final Entry entry = find(target);
+        return entry == null ? null : entry.defaultWindowBounds;
     }
 }

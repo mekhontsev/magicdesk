@@ -108,7 +108,8 @@ final class AppTaskController {
                         displayId,
                         getTaskIds(visibleTasks),
                         true,
-                        null,
+                        BuiltInDesktopAppCatalog.defaultWindowBounds(
+                                launchTarget),
                         WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
                         () -> publishConfirmedLaunchSnapshot(displayId));
                 mActivity.runOnUiThread(() -> {

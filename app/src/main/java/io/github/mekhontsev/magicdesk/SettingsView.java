@@ -30,7 +30,7 @@ final class SettingsView {
         void showAbout();
     }
 
-    private static final int CONTENT_MAX_WIDTH_DP = 680;
+    private static final int CONTENT_MAX_WIDTH_DP = 540;
 
     private final Activity mActivity;
     private final DesktopUiFactory mUi;
@@ -50,8 +50,8 @@ final class SettingsView {
     View create() {
         final LinearLayout page = new LinearLayout(mActivity);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
-        page.setPadding(dp(16), dp(12), dp(16), dp(18));
+        page.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
+        page.setPadding(dp(14), dp(10), dp(14), dp(14));
         SystemBarInsets.addToPadding(page);
 
         final LinearLayout content = new LinearLayout(mActivity);
@@ -59,8 +59,12 @@ final class SettingsView {
         content.addView(createHeader(), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
+        final View headerDivider = new View(mActivity);
+        headerDivider.setBackgroundColor(DesktopUiFactory.COLOR_CYAN);
+        content.addView(headerDivider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
 
-        addSection(content, R.string.settings_section_desktop, 18);
+        addSection(content, R.string.settings_section_desktop, 14);
         mTaskbarAutoHide = addSwitch(
                 content, R.string.settings_taskbar_auto_hide);
         mTaskbarAutoHide.setOnCheckedChangeListener((button, checked) -> {
@@ -77,7 +81,7 @@ final class SettingsView {
                     }
                 });
 
-        addSection(content, R.string.settings_section_session, 18);
+        addSection(content, R.string.settings_section_session, 14);
         mOpenTouchpadAutomatically = addSwitch(
                 content, R.string.settings_open_touchpad_automatically);
         mOpenTouchpadAutomatically.setOnCheckedChangeListener(
@@ -94,7 +98,7 @@ final class SettingsView {
             }
         });
 
-        addSection(content, R.string.settings_section_support, 18);
+        addSection(content, R.string.settings_section_support, 14);
         addAction(content,
                 android.R.drawable.ic_menu_manage,
                 R.string.action_device_setup,
@@ -149,14 +153,29 @@ final class SettingsView {
     }
 
     private View createHeader() {
+        final LinearLayout header = new LinearLayout(mActivity);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setMinimumHeight(dp(46));
+
+        final ImageView icon = new ImageView(mActivity);
+        icon.setImageResource(android.R.drawable.ic_menu_preferences);
+        icon.setColorFilter(DesktopUiFactory.COLOR_CYAN);
+        icon.setContentDescription(null);
+        header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
         final TextView title = new TextView(mActivity);
         title.setText(R.string.settings_title);
         title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(24);
+        title.setTextSize(18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        title.setMinHeight(dp(48));
-        return title;
+        final LinearLayout.LayoutParams titleParams =
+                new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        titleParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(title, titleParams);
+        return header;
     }
 
     private void addSection(
@@ -164,13 +183,12 @@ final class SettingsView {
             final int titleResId,
             final int topMargin) {
         final TextView title = mUi.sectionTitle(titleResId);
-        title.setTextSize(15);
-        title.setTextColor(DesktopUiFactory.COLOR_CYAN);
+        title.setTextSize(16);
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(dp(4), dp(topMargin), dp(4), dp(6));
+        params.setMargins(dp(8), dp(topMargin), dp(8), dp(5));
         parent.addView(title, params);
     }
 
@@ -180,13 +198,14 @@ final class SettingsView {
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(4), 0, dp(4), 0);
-        row.setMinimumHeight(dp(58));
+        row.setPadding(dp(8), 0, dp(8), 0);
+        row.setMinimumHeight(dp(52));
+        applyPressedBackground(row);
 
         final TextView label = new TextView(mActivity);
         label.setText(labelResId);
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        label.setTextSize(15);
+        label.setTextSize(14);
         label.setMaxLines(2);
         row.addView(label, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
@@ -216,32 +235,23 @@ final class SettingsView {
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(4), 0, dp(4), 0);
-        row.setMinimumHeight(dp(56));
+        row.setPadding(dp(8), 0, dp(8), 0);
+        row.setMinimumHeight(dp(50));
         row.setClickable(true);
         row.setFocusable(true);
-        row.setBackgroundColor(Color.TRANSPARENT);
-        row.setBackgroundTintList(new ColorStateList(
-                new int[][] {
-                    new int[] {android.R.attr.state_pressed},
-                    new int[0]
-                },
-                new int[] {
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    Color.TRANSPARENT
-                }));
+        applyPressedBackground(row);
         row.setOnClickListener(view -> action.run());
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageResource(iconResId);
-        icon.setColorFilter(DesktopUiFactory.COLOR_MUTED);
+        icon.setColorFilter(DesktopUiFactory.COLOR_CYAN);
         icon.setContentDescription(null);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
 
         final TextView label = new TextView(mActivity);
         label.setText(labelResId);
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        label.setTextSize(15);
+        label.setTextSize(14);
         final LinearLayout.LayoutParams labelParams =
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
@@ -265,6 +275,19 @@ final class SettingsView {
         divider.setBackgroundColor(DesktopUiFactory.COLOR_PANEL_ALT);
         parent.addView(divider, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
+    }
+
+    private void applyPressedBackground(final View view) {
+        view.setBackgroundColor(Color.TRANSPARENT);
+        view.setBackgroundTintList(new ColorStateList(
+                new int[][] {
+                    new int[] {android.R.attr.state_pressed},
+                    new int[0]
+                },
+                new int[] {
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    Color.TRANSPARENT
+                }));
     }
 
     private int dp(final int value) {

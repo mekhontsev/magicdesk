@@ -187,10 +187,11 @@ runtime integration and are not distributed through the same release path.
   separates user-facing MagicDesk tasks such as Files and Settings from shell
   infrastructure. It also records whether an internal window can have multiple
   tasks, appear in the launcher or taskbar pins, and share package-level window
-  state. Settings is a singleton reusable task. A single
-  constrained, scrollable `SettingsView` serves phone and desktop. The phone
-  opens it normally, while the desktop task controller launches the same
-  Activity in a dedicated reusable freeform task.
+  state. Settings is a singleton reusable task with compact centered default
+  bounds. A single constrained, scrollable `SettingsView` uses the same dense
+  visual language on phone and desktop. The phone opens it normally, while the
+  desktop task controller launches the same Activity in a dedicated reusable
+  freeform task.
 - `DesktopActivity` is the concrete desktop Activity.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
