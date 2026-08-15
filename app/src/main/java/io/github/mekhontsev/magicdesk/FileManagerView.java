@@ -17,6 +17,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridView;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -58,7 +59,7 @@ final class FileManagerView {
         void onShowHiddenChanged(boolean showHidden);
         void onSortChanged(int sortMode);
         void onSortDirectionChanged(boolean ascending);
-        void onViewModeChanged(boolean details);
+        void onViewModeChanged(FileManagerLayoutMode layoutMode);
         void onFilterChanged(String query);
     }
 
@@ -72,7 +73,8 @@ final class FileManagerView {
     private final LinearLayout mRoot;
     private final EditText mPath;
     private final ListView mList;
-    private final ShellFileListAdapter mAdapter;
+    private final GridView mGrid;
+    private final ShellFileAdapter mAdapter;
     private final TextView mEmpty;
     private final TextView mStatus;
     private final LinearLayout mFilterPanel;
@@ -93,12 +95,18 @@ final class FileManagerView {
     private final CheckBox mHidden;
     private final Spinner mSort;
     private final ImageButton mSortDirection;
-    private final Spinner mViewMode;
+    private final Spinner mViewModeSelector;
+    private FileManagerLayoutMode mLayoutMode;
     private boolean mSortAscending = true;
+    private boolean mItemsAvailable;
 
-    FileManagerView(final Context context, final Listener listener) {
+    FileManagerView(
+            final Context context,
+            final Listener listener,
+            final FileManagerLayoutMode initialLayoutMode) {
         mContext = context;
         mListener = listener;
+        mLayoutMode = initialLayoutMode;
         mRoot = new LinearLayout(context);
         mRoot.setOrientation(LinearLayout.VERTICAL);
         mRoot.setBackgroundColor(COLOR_BACKGROUND);
@@ -283,14 +291,21 @@ final class FileManagerView {
                 view -> listener.onSortDirectionChanged(
                         !mSortAscending));
         commands.addView(mSortDirection, compactButton());
-        mViewMode = spinner(new String[]{
+        mViewModeSelector = spinner(new String[]{
                 context.getString(R.string.file_manager_view_list),
-                context.getString(R.string.file_manager_view_details)
+                context.getString(R.string.file_manager_view_grid)
         });
-        mViewMode.setSelection(1);
-        mViewMode.setOnItemSelectedListener(new SimpleItemSelectedListener(
-                position -> listener.onViewModeChanged(position == 1)));
-        commands.addView(mViewMode,
+        mViewModeSelector.setSelection(
+                initialLayoutMode == FileManagerLayoutMode.GRID ? 1 : 0);
+        mViewModeSelector.setOnItemSelectedListener(
+                new SimpleItemSelectedListener(position -> {
+                    final FileManagerLayoutMode layoutMode = position == 1
+                            ? FileManagerLayoutMode.GRID
+                            : FileManagerLayoutMode.LIST;
+                    setLayoutMode(layoutMode);
+                    listener.onViewModeChanged(layoutMode);
+                }));
+        commands.addView(mViewModeSelector,
                 new LinearLayout.LayoutParams(dp(126), dp(40)));
         commands.addView(iconCommand(
                 android.R.drawable.ic_menu_search,
@@ -326,7 +341,7 @@ final class FileManagerView {
         mList.setDivider(new ColorDrawable(Color.rgb(38, 48, 61)));
         mList.setDividerHeight(1);
         mList.setBackgroundColor(COLOR_BACKGROUND);
-        mAdapter = new ShellFileListAdapter(
+        mAdapter = new ShellFileAdapter(
                 context,
                 listener::onItemClick,
                 listener::onSelectionChanged,
@@ -336,7 +351,18 @@ final class FileManagerView {
                     return true;
                 },
                 listener::onDrop);
+        mAdapter.setLayoutMode(initialLayoutMode);
         mList.setAdapter(mAdapter);
+        mGrid = new GridView(context);
+        mGrid.setNumColumns(GridView.AUTO_FIT);
+        mGrid.setColumnWidth(dp(112));
+        mGrid.setHorizontalSpacing(dp(6));
+        mGrid.setVerticalSpacing(dp(6));
+        mGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        mGrid.setPadding(dp(4), dp(4), dp(4), dp(4));
+        mGrid.setClipToPadding(false);
+        mGrid.setBackgroundColor(COLOR_BACKGROUND);
+        mGrid.setAdapter(mAdapter);
         listFrame.setOnDragListener((view, event) -> {
             if (event.getAction() == DragEvent.ACTION_DRAG_STARTED) {
                 return event.getClipDescription() != null;
@@ -347,12 +373,14 @@ final class FileManagerView {
             return true;
         });
         listFrame.addView(mList, matchMatch());
+        listFrame.addView(mGrid, matchMatch());
         mEmpty = new TextView(context);
         mEmpty.setTextColor(COLOR_MUTED);
         mEmpty.setTextSize(16f);
         mEmpty.setGravity(Gravity.CENTER);
         mEmpty.setVisibility(View.GONE);
         listFrame.addView(mEmpty, matchMatch());
+        updateItemVisibility();
         browser.addView(listFrame,
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -384,18 +412,19 @@ final class FileManagerView {
 
     void setFiles(
             final List<ShellFileInfo> files,
-            final Set<String> selectedPaths,
-            final boolean details) {
-        mAdapter.set(files, selectedPaths, details);
+            final Set<String> selectedPaths) {
+        mAdapter.set(files, selectedPaths);
+        mItemsAvailable = !files.isEmpty();
         mEmpty.setText(R.string.file_manager_empty);
         mEmpty.setVisibility(files.isEmpty() ? View.VISIBLE : View.GONE);
-        mList.setVisibility(files.isEmpty() ? View.GONE : View.VISIBLE);
+        updateItemVisibility();
     }
 
     void setLoading() {
+        mItemsAvailable = false;
         mEmpty.setText(R.string.file_manager_loading);
         mEmpty.setVisibility(View.VISIBLE);
-        mList.setVisibility(View.GONE);
+        updateItemVisibility();
     }
 
     void setStatus(final String text) {
@@ -439,6 +468,7 @@ final class FileManagerView {
         mRefresh.setEnabled(ready);
         mNewWindow.setEnabled(ready);
         mList.setEnabled(ready);
+        mGrid.setEnabled(ready);
     }
 
     void focusPath() {
@@ -469,6 +499,25 @@ final class FileManagerView {
                         ? R.string.file_manager_sort_ascending
                         : R.string.file_manager_sort_descending));
         mSortDirection.setTooltipText(mSortDirection.getContentDescription());
+    }
+
+    private void setLayoutMode(
+            final FileManagerLayoutMode layoutMode) {
+        if (mLayoutMode == layoutMode) {
+            return;
+        }
+        mLayoutMode = layoutMode;
+        mAdapter.setLayoutMode(layoutMode);
+        updateItemVisibility();
+    }
+
+    private void updateItemVisibility() {
+        mList.setVisibility(mItemsAvailable
+                && mLayoutMode == FileManagerLayoutMode.LIST
+                ? View.VISIBLE : View.GONE);
+        mGrid.setVisibility(mItemsAvailable
+                && mLayoutMode == FileManagerLayoutMode.GRID
+                ? View.VISIBLE : View.GONE);
     }
 
     private LinearLayout createBookmarks(final boolean vertical) {

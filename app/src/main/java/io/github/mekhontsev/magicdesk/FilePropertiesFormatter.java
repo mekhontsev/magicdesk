@@ -19,7 +19,7 @@ final class FilePropertiesFormatter {
                                 : file.directory ? "folder" : file.mimeType))
                 .append('\n')
                 .append(context.getString(R.string.file_manager_size,
-                        formatSize(file.size))).append('\n')
+                        FileSizeFormatter.format(file.size))).append('\n')
                 .append(context.getString(R.string.file_manager_modified,
                         DateFormat.getDateTimeInstance().format(
                                 new Date(file.modified))))
@@ -46,17 +46,4 @@ final class FilePropertiesFormatter {
                 + (file.executable ? "x" : "-");
     }
 
-    private static String formatSize(final long bytes) {
-        if (bytes < 1024L) {
-            return bytes + " B";
-        }
-        final String[] units = {"KB", "MB", "GB", "TB"};
-        double value = bytes;
-        int unit = -1;
-        do {
-            value /= 1024d;
-            unit++;
-        } while (value >= 1024d && unit < units.length - 1);
-        return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
-    }
 }

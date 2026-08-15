@@ -7,6 +7,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -42,6 +43,7 @@ public final class FileManagerActivity extends Activity
 
     private static final String PREFERENCES = "file_manager";
     private static final String PREF_LAST_PATH = "last_path";
+    private static final String PREF_LAYOUT_MODE = "layout_mode";
     private static final int PAGE_SIZE = 500;
     private final ExecutorService mWorker =
             Executors.newSingleThreadExecutor(runnable -> {
@@ -70,7 +72,8 @@ public final class FileManagerActivity extends Activity
     private boolean mShowHidden;
     private int mSortMode = ShellFileSystem.SORT_NAME;
     private boolean mSortAscending = true;
-    private boolean mDetails = true;
+    private FileManagerLayoutMode mLayoutMode =
+            FileManagerLayoutMode.LIST;
     private String mFilterQuery = "";
     private long mPendingClipboardGeneration = -1L;
     private volatile boolean mDestroyed;
@@ -103,7 +106,11 @@ public final class FileManagerActivity extends Activity
                 this,
                 R.string.file_manager_title,
                 R.drawable.ic_desktop_folder);
-        mView = new FileManagerView(this, this);
+        final SharedPreferences preferences = getSharedPreferences(
+                PREFERENCES, MODE_PRIVATE);
+        mLayoutMode = FileManagerLayoutMode.fromPreference(
+                preferences.getString(PREF_LAYOUT_MODE, null));
+        mView = new FileManagerView(this, this, mLayoutMode);
         mItemActivation = new ItemActivationPolicy(
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
@@ -151,8 +158,8 @@ public final class FileManagerActivity extends Activity
         setContentView(mView.root());
         mView.setTerminalVisible(TermuxIntegration.isInstalled(this));
         final String requested = getIntent().getStringExtra(EXTRA_PATH);
-        final String stored = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-                .getString(PREF_LAST_PATH, DEFAULT_PATH);
+        final String stored = preferences.getString(
+                PREF_LAST_PATH, DEFAULT_PATH);
         mCurrentPath = requested == null ? stored : requested;
         mBackCallback = this::onBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -745,9 +752,16 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
-    public void onViewModeChanged(final boolean details) {
-        mDetails = details;
-        renderFiles();
+    public void onViewModeChanged(
+            final FileManagerLayoutMode layoutMode) {
+        if (mLayoutMode == layoutMode) {
+            return;
+        }
+        mLayoutMode = layoutMode;
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+                .edit()
+                .putString(PREF_LAYOUT_MODE, layoutMode.name())
+                .apply();
     }
 
     @Override
@@ -1034,8 +1048,7 @@ public final class FileManagerActivity extends Activity
                             && generation == mLoadGeneration.get()) {
                         mView.setFiles(
                                 new ArrayList<>(),
-                                new HashSet<>(),
-                                mDetails);
+                                new HashSet<>());
                         mView.setStatus(getString(
                                 R.string.file_manager_load_failed,
                                 ShellAccess.usefulMessage(error)));
@@ -1048,7 +1061,7 @@ public final class FileManagerActivity extends Activity
     private void renderFiles() {
         final List<ShellFileInfo> visible = visibleFiles();
         mView.setPath(mCurrentPath);
-        mView.setFiles(visible, mSelected.keySet(), mDetails);
+        mView.setFiles(visible, mSelected.keySet());
         mView.setNavigationEnabled(
                 mHistoryIndex > 0,
                 mHistoryIndex + 1 < mHistory.size(),
@@ -1056,7 +1069,9 @@ public final class FileManagerActivity extends Activity
         updateActionState();
         if (!mSelected.isEmpty()) {
             mView.setStatus(getString(
-                    R.string.file_manager_selected, mSelected.size()));
+                    R.string.file_manager_selected,
+                    mSelected.size(),
+                    FileSizeFormatter.format(selectedFileSize())));
         } else if (!mFilterQuery.isEmpty()) {
             mView.setStatus(getString(
                     R.string.file_manager_filtered,
@@ -1065,6 +1080,20 @@ public final class FileManagerActivity extends Activity
             mView.setStatus(getString(
                     R.string.file_manager_items, mFiles.size()));
         }
+    }
+
+    private long selectedFileSize() {
+        long total = 0L;
+        for (ShellFileInfo file : mSelected.values()) {
+            if (file.directory || file.size <= 0L) {
+                continue;
+            }
+            if (Long.MAX_VALUE - total < file.size) {
+                return Long.MAX_VALUE;
+            }
+            total += file.size;
+        }
+        return total;
     }
 
     private void clearSelection() {

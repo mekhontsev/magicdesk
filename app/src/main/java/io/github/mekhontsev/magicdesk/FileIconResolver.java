@@ -30,4 +30,12 @@ final class FileIconResolver {
         }
         return R.drawable.ic_desktop_file_document;
     }
+
+    static int forFile(
+            final boolean directory,
+            final String mimeType) {
+        return directory
+                ? R.drawable.ic_desktop_folder
+                : forMimeType(mimeType);
+    }
 }

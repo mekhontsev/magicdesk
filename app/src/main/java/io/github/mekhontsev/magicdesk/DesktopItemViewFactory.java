@@ -54,9 +54,8 @@ final class DesktopItemViewFactory {
             icon.setClipToOutline(true);
             icon.setPadding(dp(1), dp(1), dp(1), dp(1));
         } else {
-            icon.setImageResource(file.directory
-                    ? R.drawable.ic_desktop_folder
-                    : FileIconResolver.forMimeType(file.mimeType));
+            icon.setImageResource(FileIconResolver.forFile(
+                    file.directory, file.mimeType));
         }
         icon.setContentDescription(file.name);
         item.addView(icon, iconParams());

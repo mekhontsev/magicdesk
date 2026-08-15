@@ -62,7 +62,7 @@
     <string name="file_manager_opening_new_window">Opening new Files window&#8230;</string>
     <string name="file_manager_new_window_failed">Cannot open another Files window: %1$s</string>
     <string name="file_manager_view_list">List</string>
-    <string name="file_manager_view_details">Details</string>
+    <string name="file_manager_view_grid">Grid</string>
     <string name="file_manager_copy">Copy</string>
     <string name="file_manager_cut">Cut</string>
     <string name="file_manager_paste">Paste</string>
@@ -88,7 +88,7 @@
     <string name="file_manager_console">Console here</string>
     <string name="file_manager_empty">This folder is empty</string>
     <string name="file_manager_loading">Loading&#8230;</string>
-    <string name="file_manager_selected">%1$d selected</string>
+    <string name="file_manager_selected">%1$d selected, %2$s</string>
     <string name="file_manager_items">%1$d items</string>
     <string name="file_manager_filtered">%1$d of %2$d items</string>
     <string name="file_manager_access_unavailable">Shizuku filesystem is unavailable: %1$s</string>
