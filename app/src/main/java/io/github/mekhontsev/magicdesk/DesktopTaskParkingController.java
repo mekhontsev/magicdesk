@@ -221,7 +221,7 @@ final class DesktopTaskParkingController {
                 sRestoreInProgress = false;
             }
             if (!restoredTaskIds.isEmpty()) {
-                MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+                MagicDeskRuntime.refreshDesktopTasks();
             }
             Log.i(TAG, "restored=" + restoredTaskIds.size()
                     + " display=" + target.displayId);

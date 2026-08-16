@@ -208,7 +208,11 @@ runtime integration and are not distributed through the same release path.
   foreground task. It never appears in Recents and is removed after the real
   desktop host task is ready.
 - `MagicDeskRuntimeService` composes the persistent notification and
-  process-level runtime without duplicating subsystem state.
+  process-level runtime without duplicating subsystem state. Other components
+  use the process-local `MagicDeskRuntime` facade instead of depending on the
+  Android Service implementation. The service attaches a package-private
+  backend for its lifetime; absent-runtime calls have explicit safe defaults,
+  and a stale service cannot detach a newer backend instance.
   `RuntimeDesktopSessionCoordinator` owns desktop-display identity, session
   removal, and phone-Home recovery. It consumes one immutable
   `DesktopSessionSnapshot` per decision, so the host display and the prepared

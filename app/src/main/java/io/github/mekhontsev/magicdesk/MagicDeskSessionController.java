@@ -196,7 +196,7 @@ final class MagicDeskSessionController {
         runExitFinalizer(
                 "EXIT-008",
                 "Could not stop the MagicDesk runtime",
-                () -> MagicDeskRuntimeService.stop(mActivity));
+                () -> MagicDeskRuntime.stop(mActivity));
         runExitFinalizer(
                 "EXIT-009",
                 "Could not disconnect the Shizuku service",

@@ -318,8 +318,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
         mMirrorInput = new MirrorInputEditText(
                 this,
                 (action, text, arg1, arg2, arg3) ->
-                        MagicDeskRuntimeService
-                                .updateDesktopTextInputIfRunning(
+                        MagicDeskRuntime
+                                .updateDesktopTextInput(
                                         mTargetDisplayId,
                                         action,
                                         text,
@@ -392,15 +392,15 @@ public final class MagicDeskTouchpadActivity extends Activity {
         if (mMirrorInput == null) {
             return;
         }
-        MagicDeskRuntimeService.endDesktopTextInputIfRunning(
+        MagicDeskRuntime.endDesktopTextInput(
                 mTargetDisplayId);
-        final boolean inputCaptured = MagicDeskRuntimeService
-                .beginDesktopTextInputIfRunning(mTargetDisplayId);
+        final boolean inputCaptured = MagicDeskRuntime
+                .beginDesktopTextInput(mTargetDisplayId);
         Log.i(TAG, "phone keyboard requested display=" + mTargetDisplayId
                 + " inputCaptured=" + inputCaptured
                 + " windowFocus=" + hasWindowFocus());
         if (!inputCaptured) {
-            MagicDeskRuntimeService.clickDesktopPointerIfRunning(
+            MagicDeskRuntime.clickDesktopPointer(
                     mTargetDisplayId,
                     MotionEvent.BUTTON_PRIMARY);
             return;
@@ -468,7 +468,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             mMirrorInput.setKeyboardRequested(false);
         }
         if (hadTextInputProxy) {
-            MagicDeskRuntimeService.endDesktopTextInputIfRunning(
+            MagicDeskRuntime.endDesktopTextInput(
                     mTargetDisplayId);
         }
     }
@@ -489,7 +489,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         mPointerDragActive = false;
-        MagicDeskRuntimeService.updateDesktopPointerPositionIfRunning(
+        MagicDeskRuntime.updateDesktopPointerPosition(
                 mTargetDisplayId,
                 mPointerX,
                 mPointerY,
@@ -684,8 +684,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     final float scrollStep = Math.max(1.0f, mTouchSlop * 2.0f);
                     reportInputResult(
                             "scroll",
-                            MagicDeskRuntimeService
-                                    .scrollDesktopPointerIfRunning(
+                            MagicDeskRuntime
+                                    .scrollDesktopPointer(
                                             mTargetDisplayId,
                                             mPendingScroll / scrollStep));
                     mPendingScroll = 0.0f;
@@ -712,8 +712,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     return;
                 }
                 mPointerDragDownTime = SystemClock.uptimeMillis();
-                mPointerDragActive = MagicDeskRuntimeService
-                        .updateDesktopPointerPositionIfRunning(
+                mPointerDragActive = MagicDeskRuntime
+                        .updateDesktopPointerPosition(
                                 mTargetDisplayId,
                                 mPointerX,
                                 mPointerY,
@@ -746,8 +746,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
             }
             mPointerX = mPointerMotion.outputX();
             mPointerY = mPointerMotion.outputY();
-            final boolean accepted = MagicDeskRuntimeService
-                    .updateDesktopPointerPositionIfRunning(
+            final boolean accepted = MagicDeskRuntime
+                    .updateDesktopPointerPosition(
                             mTargetDisplayId,
                             mPointerX,
                             mPointerY,
@@ -766,8 +766,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
         private boolean startPointerMotion(
                 final MotionEvent event,
                 final boolean dragging) {
-            final Point pointer = MagicDeskRuntimeService
-                    .getDesktopPointerPositionIfRunning(mTargetDisplayId);
+            final Point pointer = MagicDeskRuntime
+                    .getDesktopPointerPosition(mTargetDisplayId);
             final Display display = mDisplayManager == null
                     ? null : mDisplayManager.getDisplay(mTargetDisplayId);
             if (pointer == null || display == null) {
@@ -802,7 +802,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             }
             // The vendor absolute-position API moves the cursor but does not
             // refresh Android's pointer icon. A neutral relative pulse does.
-            MagicDeskRuntimeService.activateDesktopPointerIfRunning(
+            MagicDeskRuntime.activateDesktopPointer(
                     mTargetDisplayId);
         }
 
@@ -817,7 +817,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             reportInputResult(
                     "click",
-                    MagicDeskRuntimeService.clickDesktopPointerIfRunning(
+                    MagicDeskRuntime.clickDesktopPointer(
                             mTargetDisplayId, button));
         }
 

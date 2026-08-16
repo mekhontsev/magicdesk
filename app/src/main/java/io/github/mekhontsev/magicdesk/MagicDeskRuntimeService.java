@@ -20,9 +20,8 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 
-import java.lang.ref.WeakReference;
-
-public final class MagicDeskRuntimeService extends Service {
+public final class MagicDeskRuntimeService extends Service
+        implements MagicDeskRuntimeBackend {
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
     private static final String ACTION_OPEN_CONTROL_PANEL =
@@ -32,9 +31,6 @@ public final class MagicDeskRuntimeService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
-    private static WeakReference<MagicDeskRuntimeService> sInstance =
-            new WeakReference<>(null);
-
     private final PlatformDriver mPlatform = PlatformDrivers.current();
     private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
     private final PlatformProjectionDriver mProjection =
@@ -49,7 +45,7 @@ public final class MagicDeskRuntimeService extends Service {
     private DesktopSessionWakeLock mSessionWakeLock;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
-    private boolean mDestroyed;
+    private volatile boolean mDestroyed;
     private boolean mInitialized;
     private String mOperationStatus;
     private boolean mKeepDesktopAwake;
@@ -62,213 +58,179 @@ public final class MagicDeskRuntimeService extends Service {
                 }
             };
 
-    public static void start(final Context context) {
-        final Intent intent = new Intent(context, MagicDeskRuntimeService.class);
-        context.startForegroundService(intent);
+    @Override
+    public boolean isAvailable() {
+        return !mDestroyed;
     }
 
-    public static void stop(final Context context) {
-        context.stopService(new Intent(context, MagicDeskRuntimeService.class));
-    }
-
-    public static void refreshNotificationIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed) {
+    @Override
+    public void refreshNotification() {
+        if (mDestroyed) {
             return;
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            service.updateNotification();
-        } else if (service.mHandler != null) {
-            service.mHandler.post(service::updateNotification);
+            updateNotification();
+        } else if (mHandler != null) {
+            mHandler.post(this::updateNotification);
         }
     }
 
-    static void setOperationStatusIfRunning(final String status) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null) {
+    @Override
+    public void setOperationStatus(final String status) {
+        if (mDestroyed || mHandler == null) {
             return;
         }
-        service.mHandler.post(() -> {
-            service.mOperationStatus = status;
-            service.updateNotification();
+        mHandler.post(() -> {
+            mOperationStatus = status;
+            updateNotification();
         });
     }
 
-    static void refreshDesktopTasksIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null
-                || service.mDesktopSession == null) {
+    @Override
+    public void refreshDesktopTasks() {
+        if (mDestroyed || mHandler == null || mDesktopSession == null) {
             return;
         }
-        service.mHandler.post(() -> {
-            service.mDesktopSession.refreshOwnership();
-            service.updateDesktopTasks();
+        mHandler.post(() -> {
+            mDesktopSession.refreshOwnership();
+            updateDesktopTasks();
         });
     }
 
-    static void refreshSettingsIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null) {
+    @Override
+    public void refreshSettings() {
+        if (mDestroyed || mHandler == null) {
             return;
         }
-        service.mHandler.post(service::refreshRuntimeSettings);
+        mHandler.post(this::refreshRuntimeSettings);
     }
 
-    static boolean isSessionWakeLockHeldIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mSessionWakeLock != null
-                && service.mSessionWakeLock.isHeld();
+    @Override
+    public boolean isSessionWakeLockHeld() {
+        return !mDestroyed
+                && mSessionWakeLock != null
+                && mSessionWakeLock.isHeld();
     }
 
-    static void reconcileFailedDesktopLaunchIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null
-                || service.mDesktopSession == null
+    @Override
+    public void reconcileFailedDesktopLaunch(final int displayId) {
+        if (mDestroyed || mHandler == null || mDesktopSession == null
                 || displayId <= android.view.Display.DEFAULT_DISPLAY) {
             return;
         }
-        service.mHandler.post(() -> service.mDesktopSession
+        mHandler.post(() -> mDesktopSession
                 .reconcileFailedDesktopLaunch(displayId));
     }
 
-    static void restorePhonePanelAfterExternalDesktopRemovalIfRunning(
-            final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null
-                || service.mDesktopSession == null
-                || displayId <= android.view.Display.DEFAULT_DISPLAY) {
+    @Override
+    public void scheduleLocalDesktopCleanup() {
+        if (mDestroyed || mHandler == null || mDesktopSession == null) {
             return;
         }
-        service.runOnHandler(() -> service.mDesktopSession
-                .restorePhonePanelAfterExternalDesktopRemoval(displayId));
+        mDesktopSession.scheduleLocalDesktopCleanup();
     }
 
-    static void scheduleLocalDesktopCleanupIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null
-                || service.mDesktopSession == null) {
+    @Override
+    public boolean isDesktopMouseBridgeReady() {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.isMouseBridgeReady();
+    }
+
+    @Override
+    public boolean capturePointerPosition() {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.capturePointerPosition();
+    }
+
+    @Override
+    public void restorePointerPositionOnNextMotion() {
+        if (mDestroyed || mDesktopInput == null) {
             return;
         }
-        service.mDesktopSession.scheduleLocalDesktopCleanup();
+        mDesktopInput.restorePointerPositionOnNextMotion();
     }
 
-    static boolean isDesktopMouseBridgeReadyIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.isMouseBridgeReady();
+    @Override
+    public Point getDesktopPointerPosition(final int displayId) {
+        return !mDestroyed && mDesktopInput != null
+                ? mDesktopInput.getPointerPosition(displayId) : null;
     }
 
-    static boolean capturePointerPositionIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.capturePointerPosition();
-    }
-
-    static void restorePointerPositionOnNextMotionIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed
-                || service.mDesktopInput == null) {
-            return;
-        }
-        service.mDesktopInput.restorePointerPositionOnNextMotion();
-    }
-
-    static Point getDesktopPointerPositionIfRunning(
-            final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                ? service.mDesktopInput.getPointerPosition(displayId) : null;
-    }
-
-    static boolean updateDesktopPointerPositionIfRunning(
+    @Override
+    public boolean updateDesktopPointerPosition(
             final int displayId,
             final int x,
             final int y,
             final int action,
             final long downTime) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.updatePointerPosition(
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.updatePointerPosition(
                         displayId, x, y, action, downTime);
     }
 
-    static boolean activateDesktopPointerIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.activatePointer(displayId);
+    @Override
+    public boolean activateDesktopPointer(final int displayId) {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.activatePointer(displayId);
     }
 
-    static boolean clickDesktopPointerIfRunning(
+    @Override
+    public boolean clickDesktopPointer(
             final int displayId,
             final int button) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.clickPointer(displayId, button);
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.clickPointer(displayId, button);
     }
 
-    static boolean scrollDesktopPointerIfRunning(
+    @Override
+    public boolean scrollDesktopPointer(
             final int displayId,
             final float amount) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.scrollPointer(displayId, amount);
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.scrollPointer(displayId, amount);
     }
 
-    static boolean updateDesktopTextInputIfRunning(
+    @Override
+    public boolean updateDesktopTextInput(
             final int displayId,
             final int action,
             final String text,
             final int arg1,
             final int arg2,
             final int arg3) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.updateTextInput(
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.updateTextInput(
                         displayId, action, text, arg1, arg2, arg3);
     }
 
-    static boolean beginDesktopTextInputIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        return service != null
-                && !service.mDestroyed
-                && service.mDesktopInput != null
-                && service.mDesktopInput.beginTextInput(displayId);
+    @Override
+    public boolean beginDesktopTextInput(final int displayId) {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.beginTextInput(displayId);
     }
 
-    static void endDesktopTextInputIfRunning(final int displayId) {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null
-                || service.mDestroyed
-                || service.mDesktopInput == null) {
+    @Override
+    public void endDesktopTextInput(final int displayId) {
+        if (mDestroyed || mDesktopInput == null) {
             return;
         }
-        service.mDesktopInput.endTextInput(displayId);
+        mDesktopInput.endTextInput(displayId);
     }
 
-    static boolean showStartIfRunning() {
-        final MagicDeskRuntimeService service = sInstance.get();
-        if (service == null || service.mDestroyed || service.mHandler == null) {
+    @Override
+    public boolean showStart() {
+        if (mDestroyed || mHandler == null) {
             return false;
         }
-        service.mHandler.post(service::showStart);
+        mHandler.post(this::showStartOnDesktop);
         return true;
     }
 
@@ -276,9 +238,9 @@ public final class MagicDeskRuntimeService extends Service {
     public void onCreate() {
         super.onCreate();
         mDestroyed = false;
-        sInstance = new WeakReference<>(this);
         mHandler = new Handler(Looper.getMainLooper());
         mSessionWakeLock = new DesktopSessionWakeLock(this);
+        MagicDeskRuntime.attach(this);
         ShellAccess.addStateListener(mShellStateListener);
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
@@ -359,7 +321,7 @@ public final class MagicDeskRuntimeService extends Service {
         return START_NOT_STICKY;
     }
 
-    private void showStart() {
+    private void showStartOnDesktop() {
         if (DesktopRuntimeBridge.showStart()) {
             return;
         }
@@ -377,9 +339,7 @@ public final class MagicDeskRuntimeService extends Service {
     @Override
     public void onDestroy() {
         mDestroyed = true;
-        if (sInstance.get() == this) {
-            sInstance = new WeakReference<>(null);
-        }
+        MagicDeskRuntime.detach(this);
         ShellAccess.removeStateListener(mShellStateListener);
         if (mDisplayCoordinator != null) {
             mDisplayCoordinator.stop();
@@ -461,14 +421,6 @@ public final class MagicDeskRuntimeService extends Service {
                     Settings.Global.getUriFor(setting),
                     false,
                     mConsoleModeObserver);
-        }
-    }
-
-    private void runOnHandler(final Runnable runnable) {
-        if (Looper.myLooper() == mHandler.getLooper()) {
-            runnable.run();
-        } else {
-            mHandler.post(runnable);
         }
     }
 

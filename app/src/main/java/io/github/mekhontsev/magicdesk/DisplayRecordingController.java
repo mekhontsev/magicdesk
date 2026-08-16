@@ -210,7 +210,7 @@ final class DisplayRecordingController {
             final String message) {
         final Snapshot snapshot = new Snapshot(state, message);
         mSnapshot = snapshot;
-        MagicDeskRuntimeService.setOperationStatusIfRunning(
+        MagicDeskRuntime.setOperationStatus(
                 state == State.IDLE ? null : message);
         mMainHandler.post(() -> {
             for (final Listener listener : mListeners) {

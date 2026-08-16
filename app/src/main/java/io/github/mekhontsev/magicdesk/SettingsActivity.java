@@ -92,7 +92,7 @@ public final class SettingsActivity extends Activity
             return;
         }
         DesktopRuntimeBridge.refreshSettings();
-        MagicDeskRuntimeService.refreshSettingsIfRunning();
+        MagicDeskRuntime.refreshSettings();
         render();
     }
 

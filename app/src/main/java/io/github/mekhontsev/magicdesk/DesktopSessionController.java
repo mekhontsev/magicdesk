@@ -111,7 +111,7 @@ final class DesktopSessionController {
             final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
-                MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+                MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.displayId);
             }
             if (ready) {
@@ -120,7 +120,7 @@ final class DesktopSessionController {
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
             DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
-            MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+            MagicDeskRuntime.reconcileFailedDesktopLaunch(
                     preparedTarget.displayId);
             throw error;
         }

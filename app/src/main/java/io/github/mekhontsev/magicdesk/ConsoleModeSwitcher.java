@@ -57,11 +57,11 @@ public final class ConsoleModeSwitcher {
             @Override
             public void run() {
                 boolean success = false;
-                final boolean pointerCaptured = MagicDeskRuntimeService
-                        .capturePointerPositionIfRunning();
+                final boolean pointerCaptured = MagicDeskRuntime
+                        .capturePointerPosition();
                 if (pointerCaptured) {
-                    MagicDeskRuntimeService
-                            .restorePointerPositionOnNextMotionIfRunning();
+                    MagicDeskRuntime
+                            .restorePointerPositionOnNextMotion();
                 }
                 try {
                     success = PlatformDrivers.current().phoneUi()
@@ -403,7 +403,7 @@ public final class ConsoleModeSwitcher {
     static void showMagicDeskStart() {
         Log.i(TAG, "show MagicDesk Start overlay");
         if (!DesktopRuntimeBridge.showStart()
-                && !MagicDeskRuntimeService.showStartIfRunning()) {
+                && !MagicDeskRuntime.showStart()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Start");
         }
     }

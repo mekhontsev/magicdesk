@@ -66,9 +66,9 @@ public final class DesktopRuntimeBridge {
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
-        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+        MagicDeskRuntime.refreshDesktopTasks();
         if (previousWasLocal) {
-            MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+            MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
     }
 
@@ -91,9 +91,9 @@ public final class DesktopRuntimeBridge {
         if (!desktopRemoved || changingConfigurations) {
             return;
         }
-        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+        MagicDeskRuntime.refreshDesktopTasks();
         if (displayId == Display.DEFAULT_DISPLAY) {
-            MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+            MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
     }
 
@@ -119,9 +119,9 @@ public final class DesktopRuntimeBridge {
             if (!activity.isFinishing()) {
                 activity.finishAndRemoveTask();
             }
-            MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+            MagicDeskRuntime.refreshDesktopTasks();
             if (displayId == Display.DEFAULT_DISPLAY) {
-                MagicDeskRuntimeService.scheduleLocalDesktopCleanupIfRunning();
+                MagicDeskRuntime.scheduleLocalDesktopCleanup();
             }
         };
         if (Looper.myLooper() == Looper.getMainLooper()) {

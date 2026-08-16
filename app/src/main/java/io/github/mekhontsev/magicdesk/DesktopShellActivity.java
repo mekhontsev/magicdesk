@@ -201,7 +201,7 @@ public abstract class DesktopShellActivity extends Activity
                         if (mTaskbarRevealController != null) {
                             mTaskbarRevealController.updateViewport();
                         }
-                        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+                        MagicDeskRuntime.refreshDesktopTasks();
                     }
                 });
         mCalendarController = new CalendarPanelController(
@@ -254,7 +254,7 @@ public abstract class DesktopShellActivity extends Activity
         mNotifications.start();
         mDesktopControls.start();
         mDisplayProfiles.start();
-        MagicDeskRuntimeService.start(this);
+        MagicDeskRuntime.start(this);
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
         }
@@ -486,7 +486,7 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
-        MagicDeskRuntimeService.refreshNotificationIfRunning();
+        MagicDeskRuntime.refreshNotification();
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
         setTaskbarVisible(true);
@@ -827,7 +827,7 @@ public abstract class DesktopShellActivity extends Activity
         }
         mDisplayProfiles.reloadStoredProfile();
         refreshSettings();
-        MagicDeskRuntimeService.refreshSettingsIfRunning();
+        MagicDeskRuntime.refreshSettings();
         renderApps();
         updateDesktopControls();
     }

@@ -324,8 +324,8 @@ public final class CompatibilityDiagnostics {
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
         report.append("Desktop wake lock held: ")
-                .append(MagicDeskRuntimeService
-                        .isSessionWakeLockHeldIfRunning())
+                .append(MagicDeskRuntime
+                        .isSessionWakeLockHeld())
                 .append('\n');
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
@@ -334,8 +334,8 @@ public final class CompatibilityDiagnostics {
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
-                MagicDeskRuntimeService
-                        .isDesktopMouseBridgeReadyIfRunning();
+                MagicDeskRuntime
+                        .isDesktopMouseBridgeReady();
         final String mouseBridgeDetail;
         if (!shellRightClick) {
             mouseBridgeDetail =

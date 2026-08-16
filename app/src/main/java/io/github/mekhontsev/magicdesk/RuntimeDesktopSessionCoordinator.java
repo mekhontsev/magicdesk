@@ -104,17 +104,6 @@ final class RuntimeDesktopSessionCoordinator {
         schedulePhoneHomeRecovery();
     }
 
-    void restorePhonePanelAfterExternalDesktopRemoval(
-            final int displayId) {
-        if (mDestroyed || displayId <= Display.DEFAULT_DISPLAY) {
-            return;
-        }
-        mRemovedDesktopDisplayId = displayId;
-        mRestorePhonePanelAfterRecovery = true;
-        scheduleDisplayRemovalWatchdog();
-        schedulePhoneHomeRecovery();
-    }
-
     void handleDisplayStateChanged(
             final int displayId,
             final boolean displayRemoved) {

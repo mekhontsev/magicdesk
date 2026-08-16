@@ -555,8 +555,8 @@ final class AppTaskController {
                                         result.message));
                     }
                     mActivity.refreshTaskSnapshot();
-                    MagicDeskRuntimeService
-                            .refreshDesktopTasksIfRunning();
+                    MagicDeskRuntime
+                            .refreshDesktopTasks();
                 }));
     }
 

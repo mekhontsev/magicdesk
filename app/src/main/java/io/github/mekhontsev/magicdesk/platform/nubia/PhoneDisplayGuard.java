@@ -4,7 +4,7 @@ import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.DesktopRuntimeBridge;
 import io.github.mekhontsev.magicdesk.MagicDeskApplication;
-import io.github.mekhontsev.magicdesk.MagicDeskRuntimeService;
+import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.ShellStreamHandle;
 
@@ -253,7 +253,7 @@ final class PhoneDisplayGuard {
         if (!ConsoleModeState.setPhoneScreenOff(screenOff)) {
             return;
         }
-        MagicDeskRuntimeService.refreshNotificationIfRunning();
+        MagicDeskRuntime.refreshNotification();
         DesktopRuntimeBridge.refreshDesktopControls();
     }
 

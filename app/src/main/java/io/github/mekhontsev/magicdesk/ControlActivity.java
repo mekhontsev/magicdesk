@@ -172,7 +172,7 @@ public final class ControlActivity extends Activity
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             registerDisplayListener();
         }
-        MagicDeskRuntimeService.start(this);
+        MagicDeskRuntime.start(this);
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             scheduleExternalDisplayProbe(false, 0L);
         } else {
@@ -191,7 +191,7 @@ public final class ControlActivity extends Activity
         super.onResume();
         // Returning from a cancelled picker already leaves the panel visible.
         mReturnToPanelAfterWirelessConnection = false;
-        MagicDeskRuntimeService.refreshNotificationIfRunning();
+        MagicDeskRuntime.refreshNotification();
         mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
