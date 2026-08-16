@@ -33,22 +33,11 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
             final boolean restorePhonePanel,
             final CompletionCallback callback) {
         requireTarget(target);
-        if (!PlatformDrivers.current().projection()
-                .ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRELESS)) {
-            DesktopDisplayDriverSupport.closeDirectExternal(
-                    target, restorePhonePanel, callback);
-            return;
-        }
-        if (restorePhonePanel) {
-            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        } else {
-            ConsoleModeSwitcher.switchToMirror(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        }
+        DesktopDisplayDriverSupport.closeExternal(
+                target,
+                PlatformProjectionDriver.Transport.WIRELESS,
+                restorePhonePanel,
+                callback);
     }
 
     @Override

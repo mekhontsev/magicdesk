@@ -55,7 +55,8 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        if (ownsTransportLifecycle()) {
+        if (DesktopDisplayDriverSupport.ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRED)) {
             ConsoleSessionController.show(displayId);
             return;
         }
@@ -78,24 +79,11 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final boolean restorePhonePanel,
             final CompletionCallback callback) {
         requireTarget(target);
-        if (!ownsTransportLifecycle()) {
-            DesktopDisplayDriverSupport.closeDirectExternal(
-                    target, restorePhonePanel, callback);
-        } else if (restorePhonePanel) {
-            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        } else {
-            ConsoleModeSwitcher.switchToMirror(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        }
-    }
-
-    private static boolean ownsTransportLifecycle() {
-        return PlatformDrivers.current().projection()
-                .ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRED);
+        DesktopDisplayDriverSupport.closeExternal(
+                target,
+                PlatformProjectionDriver.Transport.WIRED,
+                restorePhonePanel,
+                callback);
     }
 
     private static boolean isBackedBySeparateOutput(
