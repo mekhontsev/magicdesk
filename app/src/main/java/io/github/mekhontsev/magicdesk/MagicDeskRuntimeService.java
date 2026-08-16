@@ -43,6 +43,12 @@ public final class MagicDeskRuntimeService extends Service {
     private static WeakReference<MagicDeskRuntimeService> sInstance =
             new WeakReference<>(null);
 
+    private final PlatformDriver mPlatform = PlatformDrivers.current();
+    private final PlatformFeatures mPlatformFeatures = mPlatform.features();
+    private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
+    private final PlatformProjectionDriver mProjection =
+            mPlatform.projection();
+
     private Handler mHandler;
     private RuntimeDisplayCoordinator mDisplayCoordinator;
     private RuntimeInputCoordinator mInputCoordinator;
@@ -376,14 +382,13 @@ public final class MagicDeskRuntimeService extends Service {
         refreshDesktopOwnership();
         updateShowImeOverride();
         registerConfigurationReceiver();
-        if (PlatformDrivers.current().projection()
-                .observedSettingKeys().length > 0) {
+        if (mProjection.observedSettingKeys().length > 0) {
             registerConsoleModeObserver();
         }
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
         } else {
-            PlatformDrivers.current().projection().setCaptionTransport(
+            mProjection.setCaptionTransport(
                     PlatformProjectionDriver.Transport.NONE);
         }
         updateKeyboardWatcher();
@@ -393,7 +398,7 @@ public final class MagicDeskRuntimeService extends Service {
             maintainLocalDesktopNavigationGuard();
             scheduleLocalDesktopCleanup();
         }
-        PlatformDrivers.current().startRuntime(this);
+        mPlatform.startRuntime(this);
         logInputState();
         Log.i(TAG, "started, hardwareKeyboard=" + mHasHardwareKeyboard
                 + " externalMouse=" + mHasExternalMouse);
@@ -423,8 +428,7 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        final int displayId = PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(this);
+        final int displayId = mProjection.activeDesktopDisplayId(this);
         if (displayId > 0) {
             options.setLaunchDisplayId(displayId);
         }
@@ -471,8 +475,8 @@ public final class MagicDeskRuntimeService extends Service {
         }
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
-        PlatformDrivers.current().stopRuntime();
-        PlatformDrivers.current().phoneUi().requestPhoneScreenRestore();
+        mPlatform.stopRuntime();
+        mPhoneUi.requestPhoneScreenRestore();
         super.onDestroy();
     }
 
@@ -579,8 +583,7 @@ public final class MagicDeskRuntimeService extends Service {
                         mInputCoordinator.scheduleRefresh();
                     }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
-                        && PlatformDrivers.current().phoneUi()
-                                .isPhoneScreenControlActive()) {
+                        && mPhoneUi.isPhoneScreenControlActive()) {
                     ConsoleModeSwitcher.setPhoneScreenOff(false, null);
                 }
             }
@@ -598,8 +601,7 @@ public final class MagicDeskRuntimeService extends Service {
                 handleConsoleStateMaybeChanged();
             }
         };
-        for (final String setting : PlatformDrivers.current().projection()
-                .observedSettingKeys()) {
+        for (final String setting : mProjection.observedSettingKeys()) {
             getContentResolver().registerContentObserver(
                     Settings.Global.getUriFor(setting),
                     false,
@@ -864,25 +866,23 @@ public final class MagicDeskRuntimeService extends Service {
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
             if (ownsConsoleDesktop()) {
-                PlatformDrivers.current().phoneUi()
-                        .hideExternalAssistPanel();
+                mPhoneUi.hideExternalAssistPanel();
             }
             updatePlatformCaptionTarget();
-            PlatformDrivers.current().startRuntime(this);
+            mPlatform.startRuntime(this);
             maintainLocalDesktopNavigationGuard();
             schedulePhoneHomeRecovery();
         } else {
-            PlatformDrivers.current().projection().setCaptionTransport(
+            mProjection.setCaptionTransport(
                     PlatformProjectionDriver.Transport.NONE);
-            PlatformDrivers.current().stopRuntime();
+            mPlatform.stopRuntime();
         }
         updateNotification();
         DesktopRuntimeBridge.refreshDesktopControls();
     }
 
     private int getConsoleDisplayId() {
-        final int displayId = PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(this);
+        final int displayId = mProjection.activeDesktopDisplayId(this);
         if (mDisplayCoordinator == null
                 || !mDisplayCoordinator.hasDisplay(displayId)) {
             return -1;
@@ -912,7 +912,7 @@ public final class MagicDeskRuntimeService extends Service {
                 + " desktopDisplay=" + desktopDisplayId
                 + " consoleDisplay=" + mConsoleDisplayId);
         if (ownsConsoleDesktop()) {
-            PlatformDrivers.current().phoneUi().hideExternalAssistPanel();
+            mPhoneUi.hideExternalAssistPanel();
         }
         updateKeyboardWatcher();
         updateDesktopMouseBridge();
@@ -955,7 +955,7 @@ public final class MagicDeskRuntimeService extends Service {
 
     private boolean requiresExternalInputBridge() {
         return ownsExternalDesktop()
-                && PlatformDrivers.current().features().externalInputBridge;
+                && mPlatformFeatures.externalInputBridge;
     }
 
     private void updateShowImeOverride() {
@@ -1018,8 +1018,7 @@ public final class MagicDeskRuntimeService extends Service {
 
     private void updateExternalImePolicy() {
         if (!ownsExternalDesktop()
-                || !PlatformDrivers.current().phoneUi()
-                        .usesMirrorInputPanel()) {
+                || !mPhoneUi.usesMirrorInputPanel()) {
             mPhoneImePolicyDisplayId =
                     android.view.Display.INVALID_DISPLAY;
             return;

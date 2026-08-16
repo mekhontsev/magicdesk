@@ -11,11 +11,17 @@ final class MagicDeskSessionController {
 
     private final MagicDeskSessionHost mHost;
     private final Activity mActivity;
+    private final PlatformDriver mPlatform;
+    private final PlatformPhoneUiDriver mPhoneUi;
+    private final PlatformProjectionDriver mProjection;
     private volatile boolean mOperationInProgress;
 
     MagicDeskSessionController(final MagicDeskSessionHost host) {
         mHost = host;
         mActivity = host.sessionActivity();
+        mPlatform = PlatformDrivers.current();
+        mPhoneUi = mPlatform.phoneUi();
+        mProjection = mPlatform.projection();
     }
 
     void exit() {
@@ -39,7 +45,7 @@ final class MagicDeskSessionController {
                     public void restoreHardware(
                             final MagicDeskExitCoordinator.Callback callback) {
                         if (ShellAccess.isReady()) {
-                            PlatformDrivers.current().restoreRuntimeState(
+                            mPlatform.restoreRuntimeState(
                                     success -> callback.onComplete(
                                             success.booleanValue()));
                         } else {
@@ -50,7 +56,7 @@ final class MagicDeskSessionController {
                     @Override
                     public void restorePhoneScreen(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        if (!PlatformDrivers.current().phoneUi().isAvailable()) {
+                        if (!mPhoneUi.isAvailable()) {
                             callback.onComplete(true);
                             return;
                         }
@@ -155,7 +161,7 @@ final class MagicDeskSessionController {
                 ? target : null;
     }
 
-    private static String closeFailureCode(
+    private String closeFailureCode(
             final DesktopDisplayTarget target) {
         if (target != null
                 && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
@@ -163,9 +169,8 @@ final class MagicDeskSessionController {
         }
         if (target != null
                 && target.kind == DesktopDisplayTarget.Kind.WIRED
-                && PlatformDrivers.current().projection()
-                        .ownsTransportLifecycle(
-                                PlatformProjectionDriver.Transport.WIRED)) {
+                && mProjection.ownsTransportLifecycle(
+                        PlatformProjectionDriver.Transport.WIRED)) {
             return "DISPLAY-SESSION-001";
         }
         return "DISPLAY-CLOSE-001";
