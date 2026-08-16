@@ -68,6 +68,12 @@ The first review confirmed that a second capability registry would duplicate
 `PlatformDriver`, `PlatformFeatures`, `DesktopDisplayDriver`, and diagnostics.
 Capabilities should stay close to the operation that proves or consumes them.
 
+Task recovery follows the same mechanism/policy split. Parsing and normalizing
+the SystemUI WMShell desktop repository is shared Android machinery. Whether a
+firmware needs that recovery, stale phone-side freeform cleanup, or a caption
+refresh is selected by `PlatformWindowingDriver`. Phone input panels and Home
+reconciliation remain in `PlatformPhoneUiDriver`.
+
 ## Migration Order
 
 1. Enforce platform-source isolation in tests.

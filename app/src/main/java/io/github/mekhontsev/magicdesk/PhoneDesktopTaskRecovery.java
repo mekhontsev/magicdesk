@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Reconciles Nubia's desktop repository before returning to Home. */
+/** Reconciles retained WMShell desktop tasks before returning to phone Home. */
 final class PhoneDesktopTaskRecovery {
     private static final String TAG = "MagicDeskPhoneRecovery";
     private static final String MAGICDESK_PACKAGE =
@@ -126,8 +126,8 @@ final class PhoneDesktopTaskRecovery {
     }
 
     private static boolean requiresRecovery() {
-        return PlatformDrivers.current().phoneUi()
-                .requiresPhoneUiReconciliation();
+        return PlatformDrivers.current().windowing()
+                .requiresPhoneTaskRecovery();
     }
 
     static Result recoverForTest(

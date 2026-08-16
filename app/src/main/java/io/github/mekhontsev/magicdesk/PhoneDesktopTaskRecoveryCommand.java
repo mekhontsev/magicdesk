@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Revives Recent tasks needed to reconcile Nubia's phone desktop state. */
+/** Revives Recent tasks needed to reconcile WMShell's phone desktop state. */
 public final class PhoneDesktopTaskRecoveryCommand {
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";

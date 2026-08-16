@@ -51,8 +51,6 @@ public interface PlatformPhoneUiDriver {
 
     boolean isInputPanelTask(TaskRepository.TaskEntry task);
 
-    boolean requiresPhoneFreeformCleanup();
-
     boolean requiresPhoneUiReconciliation();
 
     boolean shouldRestoreLocalDesktopHost(

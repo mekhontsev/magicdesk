@@ -73,8 +73,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 error -> callCallback(() ->
                         mCallback.onObserverError(error)));
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
-        // Nubia's launcher crashes while binding a DesktopTaskView when a
-        // finished freeform task remains in Recents and DesktopRepository.
+        // The platform policy decides whether stale phone-side freeform
+        // Recents entries require active cleanup.
         mFreeformCleanup = new ShellFreeformTaskCleanup(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
@@ -177,11 +177,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mConfiguredDisplayId = displayId;
         mFocusController.configure(displayId);
         mMigrationGuard.configure(displayId, false);
-        // Nubia's stale DesktopTaskView crash is a phone Quickstep defect.
-        // External tasks must remain outside that recovery path.
+        // External tasks must remain outside phone-side Recents cleanup.
         mFreeformCleanup.configure(
-                PlatformDrivers.current().phoneUi()
-                                .requiresPhoneFreeformCleanup()
+                PlatformDrivers.current().windowing()
+                                .requiresStalePhoneFreeformTaskCleanup()
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);

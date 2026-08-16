@@ -37,11 +37,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean requiresPhoneFreeformCleanup() {
-        return true;
-    }
-
-    @Override
     public boolean requiresPhoneUiReconciliation() {
         return true;
     }
