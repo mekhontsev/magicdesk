@@ -226,10 +226,10 @@ public final class TaskWindowingCommand {
 
     static boolean normalizeFullscreenTask(
             final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object task = HiddenTaskApi.requireTask(
-                service, displayId, taskId);
+            final Object task) throws ReflectiveOperationException {
+        if (task == null) {
+            throw new IllegalArgumentException("task is required");
+        }
         if (HiddenTaskApi.getWindowConfigurationValue(
                 task, "getWindowingMode") == WINDOWING_MODE_FULLSCREEN) {
             return false;
