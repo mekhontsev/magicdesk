@@ -44,9 +44,9 @@ public final class MagicDeskRuntimeService extends Service {
     private Handler mHandler;
     private RuntimeDesktopSessionCoordinator mDesktopSession;
     private RuntimeDesktopInputCoordinator mDesktopInput;
+    private RuntimeDesktopTaskCoordinator mDesktopTaskRuntime;
     private RuntimeDisplayCoordinator mDisplayCoordinator;
     private DesktopSessionWakeLock mSessionWakeLock;
-    private DesktopTaskController mDesktopTasks;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
     private boolean mDestroyed;
@@ -289,12 +289,6 @@ public final class MagicDeskRuntimeService extends Service {
             return;
         }
         mInitialized = true;
-        mDesktopTasks = new DesktopTaskController(
-                this,
-                mHandler,
-                this::handleTaskStackChanged,
-                mWindowing,
-                mPhoneUi);
         mDesktopInput = new RuntimeDesktopInputCoordinator(
                 this,
                 mHandler,
@@ -323,6 +317,12 @@ public final class MagicDeskRuntimeService extends Service {
                         updateDesktopTasks();
                     }
                 });
+        mDesktopTaskRuntime = new RuntimeDesktopTaskCoordinator(
+                this,
+                mHandler,
+                mWindowing,
+                mPhoneUi,
+                mDesktopSession::onTaskStackChanged);
         mDesktopSession.start();
         mDisplayCoordinator.start();
         mDesktopInput.reconcileSoftwareKeyboardPolicy();
@@ -397,8 +397,8 @@ public final class MagicDeskRuntimeService extends Service {
                 mDesktopSession.destroy();
             }
         }
-        if (mDesktopTasks != null) {
-            mDesktopTasks.destroy();
+        if (mDesktopTaskRuntime != null) {
+            mDesktopTaskRuntime.destroy();
         }
         if (mDesktopInput != null) {
             mDesktopInput.destroy();
@@ -461,12 +461,6 @@ public final class MagicDeskRuntimeService extends Service {
                     Settings.Global.getUriFor(setting),
                     false,
                     mConsoleModeObserver);
-        }
-    }
-
-    private void handleTaskStackChanged() {
-        if (mDesktopSession != null) {
-            mDesktopSession.onTaskStackChanged();
         }
     }
 
@@ -552,18 +546,12 @@ public final class MagicDeskRuntimeService extends Service {
     }
 
     private void updateDesktopTasks() {
-        if (mDesktopTasks == null) {
+        if (mDesktopTaskRuntime == null) {
             return;
         }
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        if (displayId >= 0 && ShellAccess.isReady()) {
-            mDesktopTasks.setTaskWatcherEnabled(true);
-            mDesktopTasks.start(displayId);
-        } else {
-            mDesktopTasks.stop();
-            mDesktopTasks.setTaskWatcherEnabled(ShellAccess.isReady());
-        }
+        mDesktopTaskRuntime.reconcile(
+                DesktopRuntimeBridge.getSessionSnapshot(),
+                ShellAccess.isReady());
     }
 
     private void updateNotification() {

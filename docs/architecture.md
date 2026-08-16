@@ -215,7 +215,10 @@ runtime integration and are not distributed through the same release path.
   display target cannot come from different lifecycle transitions.
   `RuntimeDesktopInputCoordinator` composes
   input-device discovery, keyboard and mouse bridges, desktop text routing,
-  and software-keyboard policy. The optional non-reference-counted partial
+  and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
+  process-level `DesktopTaskController`, keeps task observation available
+  while shell access is ready, and binds display-scoped task reconciliation to
+  the active session snapshot. The optional non-reference-counted partial
   wake lock is held only while both its setting and a MagicDesk desktop
   session are active. It is released by the same service lifecycle. There is
   no boot receiver; the user starts MagicDesk manually. The notification body
