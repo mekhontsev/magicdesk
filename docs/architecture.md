@@ -210,7 +210,10 @@ runtime integration and are not distributed through the same release path.
 - `MagicDeskRuntimeService` composes the persistent notification and
   process-level runtime without duplicating subsystem state.
   `RuntimeDesktopSessionCoordinator` owns desktop-display identity, session
-  removal, and phone-Home recovery. `RuntimeDesktopInputCoordinator` composes
+  removal, and phone-Home recovery. It consumes one immutable
+  `DesktopSessionSnapshot` per decision, so the host display and the prepared
+  display target cannot come from different lifecycle transitions.
+  `RuntimeDesktopInputCoordinator` composes
   input-device discovery, keyboard and mouse bridges, desktop text routing,
   and software-keyboard policy. The optional non-reference-counted partial
   wake lock is held only while both its setting and a MagicDesk desktop
@@ -248,7 +251,10 @@ runtime integration and are not distributed through the same release path.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the keyboard bridge.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
-  which services reach the active desktop.
+  which services reach the active desktop. Host registration and display
+  target changes are serialized into one immutable `DesktopSessionSnapshot`;
+  the target may intentionally outlive an Activity during configuration
+  recreation or external-display teardown.
 - `DesktopLayoutController` owns WindowInsets, viewport, and taskbar geometry.
 - `DesktopTaskSnapshotController` serializes task refresh generations and
   filters the taskbar model.

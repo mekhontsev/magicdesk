@@ -118,12 +118,13 @@ final class RuntimeDesktopSessionCoordinator {
     void handleDisplayStateChanged(
             final int displayId,
             final boolean displayRemoved) {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
         final DesktopDisplayTarget desktopTarget = displayRemoved
-                ? DesktopRuntimeBridge.getDesktopTarget(displayId)
+                ? session.targetForDisplay(displayId)
                 : null;
         final boolean activeDesktopRemoved = displayRemoved
-                && DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                        == displayId;
+                && session.activeDisplayId() == displayId;
         final boolean externalDesktopRemoved = isExternalDesktopRemoval(
                 displayRemoved,
                 displayId,
@@ -188,8 +189,9 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     void refreshOwnership() {
-        final int desktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final int desktopDisplayId = session.activeDisplayId();
         final boolean ownsConsoleDesktop =
                 desktopDisplayId > Display.DEFAULT_DISPLAY
                         && mConsoleModeActive
@@ -274,8 +276,10 @@ final class RuntimeDesktopSessionCoordinator {
         final boolean localDesktopExitRecoveryPending =
                 mLocalDesktopExitRecoveryPending;
         final int removedDisplayId = mRemovedDesktopDisplayId;
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
         final boolean localDesktopActive =
-                DesktopRuntimeBridge.isLocalDesktopActiveOrStarting();
+                session.isLocalActiveOrStarting();
         PhoneHomeRecoveryController.restoreIfNeeded(
                 includeStrandedDesktop,
                 removedDisplayId,
@@ -325,12 +329,13 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     private void cleanupClosedLocalDesktop() {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
         if (mDestroyed
                 || mLocalDesktopCleanupInFlight
                 || mLocalDesktopExitRecoveryPending
                 || !LocalDesktopSessionState.isCleanupPending(mContext)
-                || DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                        == Display.DEFAULT_DISPLAY) {
+                || session.activeDisplayId() == Display.DEFAULT_DISPLAY) {
             return;
         }
         if (!ShellAccess.isReady()) {
@@ -359,7 +364,9 @@ final class RuntimeDesktopSessionCoordinator {
                         return;
                     }
                     if (!completed) {
-                        if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                        final DesktopSessionSnapshot currentSession =
+                                DesktopRuntimeBridge.getSessionSnapshot();
+                        if (currentSession.activeDisplayId()
                                 != Display.DEFAULT_DISPLAY) {
                             scheduleLocalDesktopCleanup();
                         }
@@ -374,10 +381,11 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     private void maintainLocalDesktopNavigationGuard() {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
         if (!ShellAccess.isReady()
                 || !LocalDesktopSessionState.isCleanupPending(mContext)
-                || DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                        != Display.DEFAULT_DISPLAY) {
+                || session.activeDisplayId() != Display.DEFAULT_DISPLAY) {
             return;
         }
         LocalDesktopNavigationController.acquire(
