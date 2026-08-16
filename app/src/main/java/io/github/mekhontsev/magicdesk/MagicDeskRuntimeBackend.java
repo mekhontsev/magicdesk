@@ -26,6 +26,8 @@ interface MagicDeskRuntimeBackend {
 
     void restorePointerPositionOnNextMotion();
 
+    void reactivatePointerOnNextMotion();
+
     Point getDesktopPointerPosition(int displayId);
 
     boolean updateDesktopPointerPosition(

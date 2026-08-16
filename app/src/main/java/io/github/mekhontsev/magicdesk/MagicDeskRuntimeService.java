@@ -153,6 +153,14 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public void reactivatePointerOnNextMotion() {
+        if (mDestroyed || mDesktopInput == null) {
+            return;
+        }
+        mDesktopInput.reactivatePointerOnNextMotion();
+    }
+
+    @Override
     public Point getDesktopPointerPosition(final int displayId) {
         return !mDestroyed && mDesktopInput != null
                 ? mDesktopInput.getPointerPosition(displayId) : null;

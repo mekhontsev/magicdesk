@@ -19,6 +19,7 @@ public final class InputBridgeDiagnosticsTest {
     public void recordsOnlyBridgeLifecycleState() {
         InputBridgeDiagnostics.noteAttempt(4);
         InputBridgeDiagnostics.noteReady(true);
+        InputBridgeDiagnostics.notePointerReactivation();
         InputBridgeDiagnostics.noteSourceRefreshFailure(
                 new IOException("input refresh failed\nwithout event data"));
 
@@ -27,6 +28,7 @@ public final class InputBridgeDiagnosticsTest {
         assertEquals(1, snapshot.attempts);
         assertEquals(1, snapshot.readySessions);
         assertEquals(1, snapshot.sourceRefreshFailures);
+        assertEquals(1, snapshot.pointerReactivations);
         assertEquals(4, snapshot.routingDisplayId);
         assertTrue(snapshot.lastFailure.contains("input refresh failed"));
         assertFalse(snapshot.lastFailure.contains("\n"));

@@ -90,6 +90,13 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void reactivatePointerOnNextMotion() {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) {
+            backend.reactivatePointerOnNextMotion();
+        }
+    }
+
     static Point getDesktopPointerPosition(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null

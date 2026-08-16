@@ -134,6 +134,12 @@ final class RuntimeDesktopInputCoordinator {
         }
     }
 
+    void reactivatePointerOnNextMotion() {
+        if (!mDestroyed) {
+            mMouseBridge.reactivatePointerOnNextMotion();
+        }
+    }
+
     Point getPointerPosition(final int displayId) {
         return isActiveDesktopDisplay(displayId)
                 ? ShellAccess.getMousePosition(displayId) : null;
