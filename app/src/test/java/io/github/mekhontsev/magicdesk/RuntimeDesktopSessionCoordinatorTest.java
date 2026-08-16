@@ -5,16 +5,16 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public final class MagicDeskRuntimeServiceTest {
+public final class RuntimeDesktopSessionCoordinatorTest {
     @Test
     public void recognizesOwnedDisplayAfterTargetMetadataWasLost() {
-        assertTrue(MagicDeskRuntimeService.isExternalDesktopRemoval(
+        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
                 true, 100, 100, null, false));
     }
 
     @Test
     public void recognizesKnownWirelessDisplayAfterOwnershipWasCleared() {
-        assertTrue(MagicDeskRuntimeService.isExternalDesktopRemoval(
+        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
                 true,
                 100,
                 -1,
@@ -24,13 +24,13 @@ public final class MagicDeskRuntimeServiceTest {
 
     @Test
     public void recognizesOnlyActiveSimulatedDisplayRemoval() {
-        assertTrue(MagicDeskRuntimeService.isExternalDesktopRemoval(
+        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
                 true,
                 100,
                 100,
                 DesktopDisplayTarget.simulated(100),
                 true));
-        assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
+        assertFalse(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
                 true,
                 100,
                 100,
@@ -40,17 +40,17 @@ public final class MagicDeskRuntimeServiceTest {
 
     @Test
     public void ignoresUnownedDisplayRemoval() {
-        assertFalse(MagicDeskRuntimeService.isExternalDesktopRemoval(
+        assertFalse(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
                 true, 100, -1, null, false));
     }
 
     @Test
     public void phoneRecoveryCompletesOnlyAfterFinalSettledPass() {
-        assertFalse(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+        assertFalse(RuntimeDesktopSessionCoordinator.isPhoneRecoveryComplete(
                 false, false));
-        assertFalse(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+        assertFalse(RuntimeDesktopSessionCoordinator.isPhoneRecoveryComplete(
                 true, true));
-        assertTrue(MagicDeskRuntimeService.isPhoneRecoveryComplete(
+        assertTrue(RuntimeDesktopSessionCoordinator.isPhoneRecoveryComplete(
                 true, false));
     }
 }
