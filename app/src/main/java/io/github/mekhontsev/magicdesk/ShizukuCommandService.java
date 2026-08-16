@@ -49,12 +49,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     public ShizukuCommandService(final Context context) {
         mContext = context;
-        mPointerDriver = PlatformDrivers.current().pointer();
-        mTextInputDriver = PlatformDrivers.current().textInput();
-        mNavigationGuard = PlatformDrivers.current().phoneUi()
-                .createNavigationGuard();
+        final PlatformDriver platform = PlatformDrivers.current();
+        final PlatformPhoneUiDriver phoneUi = platform.phoneUi();
+        mPointerDriver = platform.pointer();
+        mTextInputDriver = platform.textInput();
+        mNavigationGuard = phoneUi.createNavigationGuard();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
+                platform.windowing(),
+                phoneUi,
                 mNavigationGuard,
                 new PlatformPhoneUiDriver.InputOwner() {
                     @Override

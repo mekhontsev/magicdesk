@@ -27,6 +27,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ITaskObserverCallback mCallback;
     private final Runnable mCallbackFailure;
     private final IBinder mOwnerToken;
+    private final PlatformWindowingDriver mWindowing;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
@@ -49,25 +50,30 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final ITaskObserverCallback callback,
             final Runnable callbackFailure,
             final IBinder ownerToken,
+            final PlatformWindowingDriver windowing,
+            final PlatformPhoneUiDriver phoneUi,
             final PlatformPhoneUiDriver.NavigationGuard navigationGuard,
             final PlatformPhoneUiDriver.InputOwner inputOwner)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
         }
+        if (windowing == null || phoneUi == null) {
+            throw new IllegalArgumentException("missing platform task policy");
+        }
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
         mOwnerToken = ownerToken;
+        mWindowing = windowing;
         mNavigationGuard = navigationGuard;
         mFocusController = new ShellDesktopFocusController(
                 mService,
-                PlatformDrivers.current().windowing()
-                        .requiresMirrorInputFocusSynchronization(),
+                windowing.requiresMirrorInputFocusSynchronization(),
                 () -> callCallback(
                         mCallback::onInputFocusRefreshRequired));
-        mInputPanelGuard = PlatformDrivers.current().phoneUi()
-                .createInputPanelGuard(mService, inputOwner);
+        mInputPanelGuard = phoneUi.createInputPanelGuard(
+                mService, inputOwner);
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
                 error -> callCallback(() ->
@@ -81,8 +87,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mStateMonitor = new ShellTaskStateMonitor(
                 context,
                 mService,
-                PlatformDrivers.current().windowing()
-                        .requiresNativeFullscreenCaptionRefresh(),
+                windowing.requiresNativeFullscreenCaptionRefresh(),
                 new ShellTaskStateMonitor.Listener() {
                     @Override
                     public void onTasksSampled(
@@ -179,8 +184,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
         mFreeformCleanup.configure(
-                PlatformDrivers.current().windowing()
-                                .requiresStalePhoneFreeformTaskCleanup()
+                mWindowing.requiresStalePhoneFreeformTaskCleanup()
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
