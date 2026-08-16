@@ -416,7 +416,7 @@ final class KeyboardShortcutWatcher {
             return;
         }
         if ("ESCAPE".equals(action)) {
-            DesktopTaskController.dismissTransientActivity();
+            MagicDeskRuntime.dismissTransientActivity();
             return;
         }
         if ("ALT_F4".equals(action)) {
@@ -517,7 +517,7 @@ final class KeyboardShortcutWatcher {
                 ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
                 break;
             case DISMISS:
-                DesktopTaskController.dismissTransientActivity();
+                MagicDeskRuntime.dismissTransientActivity();
                 break;
             case CLOSE:
                 ConsoleModeSwitcher.manageActiveWindow(

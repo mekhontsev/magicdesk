@@ -235,6 +235,12 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public DesktopTaskRuntime desktopTasks() {
+        return mDestroyed || mDesktopTaskRuntime == null
+                ? null : mDesktopTaskRuntime.operations();
+    }
+
+    @Override
     public void onCreate() {
         super.onCreate();
         mDestroyed = false;

@@ -78,7 +78,7 @@ final class WindowedAppLauncher {
         final boolean restoreTouchpad =
                 ConsoleModeSwitcher.isTouchpadVisible();
         if (restoreTouchpad) {
-            DesktopTaskController.expectTouchpadDisplacement();
+            MagicDeskRuntime.expectTouchpadDisplacement();
         }
         int taskId = -1;
         try {
@@ -102,7 +102,7 @@ final class WindowedAppLauncher {
                 taskReadyCallback.onTaskReady();
             }
             if (explicitWindowed) {
-                DesktopTaskController.beginExplicitWindowedLaunch(taskId);
+                MagicDeskRuntime.beginExplicitWindowedLaunch(taskId);
             }
             if (createNew) {
                 ExistingTaskController.confirmLaunchedWindow(
@@ -122,10 +122,10 @@ final class WindowedAppLauncher {
             }
         } finally {
             if (explicitWindowed && taskId >= 0) {
-                DesktopTaskController.finishExplicitWindowedLaunch(taskId);
+                MagicDeskRuntime.finishExplicitWindowedLaunch(taskId);
             }
             if (restoreTouchpad) {
-                DesktopTaskController.finishTouchpadPreservation();
+                MagicDeskRuntime.finishTouchpadPreservation();
                 ConsoleModeSwitcher.restoreTouchpadIfMissing();
             }
         }

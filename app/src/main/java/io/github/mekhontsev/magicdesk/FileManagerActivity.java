@@ -1523,7 +1523,7 @@ public final class FileManagerActivity extends Activity
         TaskCommandQueue.execute(() -> {
             try {
                 List<TaskRepository.TaskEntry> visibleTasks =
-                        DesktopTaskController.getVisibleFreeformTasks(displayId);
+                        MagicDeskRuntime.getVisibleFreeformTasks(displayId);
                 if (visibleTasks == null || visibleTasks.isEmpty()) {
                     visibleTasks = DesktopTaskController
                             .selectVisibleFreeformTasks(

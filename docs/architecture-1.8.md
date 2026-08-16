@@ -86,4 +86,9 @@ reconciliation remain in `PlatformPhoneUiDriver`.
 5. Keep self-tests running on phone, simulated, wired, and wireless drivers as
    the behavioral contract for each migration.
 
+Session ownership is now explicit through the runtime service, immutable
+session registry, display-scoped task state, and `DesktopTaskRuntime` contract.
+No desktop task operation discovers a mutable active controller through a
+process-global lookup.
+
 Each step must leave the branch buildable and independently reviewable.

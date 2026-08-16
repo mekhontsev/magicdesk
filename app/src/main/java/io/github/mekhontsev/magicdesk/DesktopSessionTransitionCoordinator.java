@@ -74,7 +74,7 @@ final class DesktopSessionTransitionCoordinator {
             complete(callback, false);
             return;
         }
-        DesktopTaskController.disableExternalTaskMigrationProtection();
+        MagicDeskRuntime.disableExternalTaskMigrationProtection();
         final Runnable close = () -> {
             try {
                 DesktopDisplayDrivers.forTarget(target).close(
@@ -139,7 +139,7 @@ final class DesktopSessionTransitionCoordinator {
             final boolean success) {
         mGate.finishClose();
         if (!success) {
-            DesktopTaskController.restoreExternalTaskMigrationProtection();
+            MagicDeskRuntime.restoreExternalTaskMigrationProtection();
         }
         complete(callback, success);
     }

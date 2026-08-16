@@ -7,7 +7,6 @@ import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
 
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -15,7 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-final class DesktopTaskController {
+final class DesktopTaskController implements DesktopTaskRuntime {
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE = "io.github.mekhontsev.magicdesk";
     private static final long EVENT_DEBOUNCE_MILLIS = 120;
@@ -30,9 +29,6 @@ final class DesktopTaskController {
             DesktopWindowTransitionController.SHORTCUT_SNAP_RIGHT;
     static final int SHORTCUT_CLOSE =
             DesktopWindowTransitionController.SHORTCUT_CLOSE;
-    private static WeakReference<DesktopTaskController> sActiveController =
-            new WeakReference<>(null);
-
     private final Context mApplicationContext;
     private final Handler mHandler;
     private final Runnable mTaskStackChanged;
@@ -272,7 +268,6 @@ final class DesktopTaskController {
             return;
         }
         mGeneration++;
-        setActiveController(this);
         if (mTaskWatcherReady) {
             configureTaskWatcher();
         }
@@ -293,7 +288,6 @@ final class DesktopTaskController {
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
-        clearActiveController(this);
         mDisplayTaskState.clear();
     }
 
@@ -317,11 +311,11 @@ final class DesktopTaskController {
         }
     }
 
-    static synchronized List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
+    @Override
+    public List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        return controller == null
-                ? null : controller.mDisplayTaskState.visibleTasks();
+        return isActiveOnDisplay(displayId)
+                ? mDisplayTaskState.visibleTasks() : null;
     }
 
     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(
@@ -344,60 +338,59 @@ final class DesktopTaskController {
         return visibleTasks;
     }
 
-    static synchronized List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
+    @Override
+    public List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        return controller == null
+        return !isActiveOnDisplay(displayId)
                 ? Collections.emptyList()
-                : controller.mDisplayTaskState.lastVisibleTasks();
+                : mDisplayTaskState.lastVisibleTasks();
     }
 
-    static synchronized Boolean hasVisibleAppTaskSnapshot(final int displayId) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        return controller == null
-                ? null : controller.mDisplayTaskState.hasVisibleAppTask();
+    @Override
+    public Boolean hasVisibleAppTaskSnapshot(final int displayId) {
+        return isActiveOnDisplay(displayId)
+                ? mDisplayTaskState.hasVisibleAppTask() : null;
     }
 
-    static synchronized void beginFullscreenTransition(final int displayId,
+    @Override
+    public void beginFullscreenTransition(final int displayId,
             final List<TaskRepository.TaskEntry> visibleTasks, final int excludedTaskId) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        if (controller != null) {
-            controller.mDisplayTaskState.beginFullscreenTransition(
+        if (isActiveOnDisplay(displayId)) {
+            mDisplayTaskState.beginFullscreenTransition(
                     visibleTasks, excludedTaskId);
         }
     }
 
-    static synchronized void finishFullscreenTransition(final int displayId,
+    @Override
+    public void finishFullscreenTransition(final int displayId,
             final boolean success) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        if (controller != null) {
-            controller.mDisplayTaskState.finishFullscreenTransition(success);
-            controller.scheduleRefresh(0);
+        if (isActiveOnDisplay(displayId)) {
+            mDisplayTaskState.finishFullscreenTransition(success);
+            scheduleRefresh(0);
         }
     }
 
-    static synchronized void forgetVisibleFreeformTasks(final int displayId) {
-        final DesktopTaskController controller = activeForDisplay(displayId);
-        if (controller != null) {
-            controller.mDisplayTaskState.forgetVisibleTasks();
+    @Override
+    public void forgetVisibleFreeformTasks(final int displayId) {
+        if (isActiveOnDisplay(displayId)) {
+            mDisplayTaskState.forgetVisibleTasks();
         }
     }
 
-    static void focusStack(final List<TaskRepository.TaskEntry> topFirstTasks,
+    @Override
+    public void focusStack(final List<TaskRepository.TaskEntry> topFirstTasks,
             final TaskRepository.TaskEntry topTask,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning
-                || !controller.mTaskWatcherReady) {
+        if (!mRunning || !mTaskWatcherReady) {
             TaskRepository.bringStackToFront(
                     topFirstTasks, topTask, callback);
             return;
         }
         final int focusedTaskId = topTask == null ? -1 : topTask.taskId;
-        controller.mFocusingTaskId = focusedTaskId;
+        mFocusingTaskId = focusedTaskId;
         final TaskRepository.ActionCallback trackedCallback = result -> {
-            if (!result.success && controller.mFocusingTaskId == focusedTaskId) {
-                controller.mFocusingTaskId = -1;
+            if (!result.success && mFocusingTaskId == focusedTaskId) {
+                mFocusingTaskId = -1;
             }
             completeFocusCallback(callback, result.success, result.message);
         };
@@ -416,27 +409,18 @@ final class DesktopTaskController {
             orderedTaskIds.add(Integer.valueOf(topTask.taskId));
         }
         if (orderedTaskIds.isEmpty()) {
-            controller.mFocusingTaskId = -1;
+            mFocusingTaskId = -1;
             completeFocusCallback(callback, true, "no tasks");
             return;
         }
-        controller.sendFocusTasks(
-                controller.mDisplayId,
+        sendFocusTasks(
+                mDisplayId,
                 new ArrayList<>(orderedTaskIds),
                 trackedCallback);
     }
 
-    static void focusDesktopTask(
-            final int displayId,
-            final int taskId,
-            final TaskRepository.ActionCallback callback) {
-        focusDesktopTasks(
-                displayId,
-                Collections.singletonList(Integer.valueOf(taskId)),
-                callback);
-    }
-
-    static void focusDesktopTasks(
+    @Override
+    public void focusDesktopTasks(
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
@@ -444,15 +428,11 @@ final class DesktopTaskController {
             completeFocusCallback(callback, false, "no tasks");
             return;
         }
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning
-                || !controller.mTaskWatcherReady
-                || controller.mDisplayId != displayId) {
+        if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
             TaskRepository.runFocusAction(displayId, taskIds, callback);
             return;
         }
-        controller.sendFocusTasks(
-                displayId, new ArrayList<>(taskIds), callback);
+        sendFocusTasks(displayId, new ArrayList<>(taskIds), callback);
     }
 
     private void sendFocusTasks(
@@ -474,85 +454,84 @@ final class DesktopTaskController {
         });
     }
 
-    static boolean handleActiveTaskShortcut(final int shortcut) {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning) {
+    @Override
+    public boolean handleActiveTaskShortcut(final int shortcut) {
+        if (!mRunning) {
             return false;
         }
-        controller.mHandler.post(() -> controller.handleActiveTaskShortcutInternal(shortcut));
+        mHandler.post(() -> handleActiveTaskShortcutInternal(shortcut));
         return true;
     }
 
-    static void noteManualFreeformTransition(final int taskId) {
-        final DesktopTaskController controller = getActiveController();
-        if (controller != null && controller.mRunning) {
-            controller.mWindowTransitions.noteManualFreeformTransition(taskId);
+    @Override
+    public void noteManualFreeformTransition(final int taskId) {
+        if (mRunning) {
+            mWindowTransitions.noteManualFreeformTransition(taskId);
         }
     }
 
-    static void beginExplicitWindowedLaunch(final int taskId) {
-        final DesktopTaskController controller = getActiveController();
-        if (controller != null && controller.mRunning) {
-            controller.mWindowTransitions.beginExplicitWindowedLaunch(taskId);
+    @Override
+    public void beginExplicitWindowedLaunch(final int taskId) {
+        if (mRunning) {
+            mWindowTransitions.beginExplicitWindowedLaunch(taskId);
         }
     }
 
-    static void finishExplicitWindowedLaunch(final int taskId) {
-        final DesktopTaskController controller = getActiveController();
-        if (controller != null && controller.mRunning) {
-            controller.mWindowTransitions.finishExplicitWindowedLaunch(taskId);
+    @Override
+    public void finishExplicitWindowedLaunch(final int taskId) {
+        if (mRunning) {
+            mWindowTransitions.finishExplicitWindowedLaunch(taskId);
         }
     }
 
-    static void expectTouchpadDisplacement() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller != null && controller.mRunning) {
-            controller.mPhoneUiReconciler.expectTouchpadDisplacement();
-            controller.mTaskWatcher.setPhoneTouchpadPreservation(true);
+    @Override
+    public void expectTouchpadDisplacement() {
+        if (mRunning) {
+            mPhoneUiReconciler.expectTouchpadDisplacement();
+            mTaskWatcher.setPhoneTouchpadPreservation(true);
         }
     }
 
-    static void finishTouchpadPreservation() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller != null && controller.mRunning) {
-            controller.mTaskWatcher.setPhoneTouchpadPreservation(false);
-            controller.mPhoneUiReconciler.finishTouchpadPreservation();
+    @Override
+    public void finishTouchpadPreservation() {
+        if (mRunning) {
+            mTaskWatcher.setPhoneTouchpadPreservation(false);
+            mPhoneUiReconciler.finishTouchpadPreservation();
         }
     }
 
-    static void disableExternalTaskMigrationProtection() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning) {
+    @Override
+    public void disableExternalTaskMigrationProtection() {
+        if (!mRunning) {
             return;
         }
-        controller.mTaskWatcher
-                .setExternalTaskMigrationProtection(false);
+        mTaskWatcher.setExternalTaskMigrationProtection(false);
     }
 
-    static void restoreExternalTaskMigrationProtection() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning) {
+    @Override
+    public void restoreExternalTaskMigrationProtection() {
+        if (!mRunning) {
             return;
         }
-        controller.mTaskWatcher.setExternalTaskMigrationProtection(
-                controller.shouldProtectExternalSession());
+        mTaskWatcher.setExternalTaskMigrationProtection(
+                shouldProtectExternalSession());
     }
 
-    static boolean dismissTransientActivity() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning) {
+    @Override
+    public boolean dismissTransientActivity() {
+        if (!mRunning) {
             return false;
         }
-        controller.mHandler.post(controller::dismissTransientActivityInternal);
+        mHandler.post(this::dismissTransientActivityInternal);
         return true;
     }
 
-    static boolean sendSystemBack() {
-        final DesktopTaskController controller = getActiveController();
-        if (controller == null || !controller.mRunning) {
+    @Override
+    public boolean sendSystemBack() {
+        if (!mRunning) {
             return false;
         }
-        controller.mHandler.post(controller::sendSystemBackInternal);
+        mHandler.post(this::sendSystemBackInternal);
         return true;
     }
 
@@ -679,22 +658,6 @@ final class DesktopTaskController {
             }
         }
         return null;
-    }
-
-    private static synchronized DesktopTaskController getActiveController() {
-        return sActiveController.get();
-    }
-
-    private static synchronized void setActiveController(
-            final DesktopTaskController controller) {
-        sActiveController = new WeakReference<>(controller);
-    }
-
-    private static synchronized void clearActiveController(
-            final DesktopTaskController controller) {
-        if (sActiveController.get() == controller) {
-            sActiveController.clear();
-        }
     }
 
     private static boolean isFocusableTask(final TaskRepository.TaskEntry task) {
@@ -838,12 +801,8 @@ final class DesktopTaskController {
         mWindowTransitions.reconcile(snapshot.tasks, visibleTasks);
     }
 
-    private static DesktopTaskController activeForDisplay(
-            final int displayId) {
-        final DesktopTaskController controller = sActiveController.get();
-        return controller != null && controller.mRunning
-                && controller.mDisplayId == displayId
-                ? controller : null;
+    private boolean isActiveOnDisplay(final int displayId) {
+        return mRunning && mDisplayId == displayId;
     }
 
     private static TaskRepository.TaskEntry findTask(

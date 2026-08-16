@@ -266,7 +266,7 @@ final class DesktopUiGateway {
                         displayId,
                         activity != null && activity.hasWindowFocus(),
                         displayId < 0 ? null
-                                : DesktopTaskController
+                                : MagicDeskRuntime
                                         .hasVisibleAppTaskSnapshot(displayId));
         if (activity == null
                 || action == DesktopScreenPolicy.WorkspaceAction
@@ -420,7 +420,7 @@ final class DesktopUiGateway {
             return false;
         }
         final int taskId = activity.getTaskId();
-        DesktopTaskController.focusDesktopTask(
+        MagicDeskRuntime.focusDesktopTask(
                 displayId,
                 taskId,
                 result -> {

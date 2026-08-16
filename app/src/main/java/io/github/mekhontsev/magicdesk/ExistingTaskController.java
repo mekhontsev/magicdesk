@@ -123,9 +123,9 @@ final class ExistingTaskController {
                 && waitForTask
                 && explicitWindowed;
         if (protectStartupWindowing) {
-            DesktopTaskController.beginExplicitWindowedLaunch(task.taskId);
+            MagicDeskRuntime.beginExplicitWindowedLaunch(task.taskId);
         } else if (targetFreeform) {
-            DesktopTaskController.noteManualFreeformTransition(task.taskId);
+            MagicDeskRuntime.noteManualFreeformTransition(task.taskId);
         }
         boolean restoreTouchpad = false;
         try {
@@ -142,7 +142,7 @@ final class ExistingTaskController {
             }
             restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
             if (restoreTouchpad) {
-                DesktopTaskController.expectTouchpadDisplacement();
+                MagicDeskRuntime.expectTouchpadDisplacement();
             }
             boolean taskIsFreeform =
                     MODE_FREEFORM.equals(task.windowingMode);
@@ -229,11 +229,11 @@ final class ExistingTaskController {
             return ReuseResult.reused(task.packageName);
         } finally {
             if (protectStartupWindowing) {
-                DesktopTaskController.finishExplicitWindowedLaunch(
+                MagicDeskRuntime.finishExplicitWindowedLaunch(
                         task.taskId);
             }
             if (restoreTouchpad) {
-                DesktopTaskController.finishTouchpadPreservation();
+                MagicDeskRuntime.finishTouchpadPreservation();
                 ConsoleModeSwitcher.restoreTouchpadIfMissing();
             }
         }

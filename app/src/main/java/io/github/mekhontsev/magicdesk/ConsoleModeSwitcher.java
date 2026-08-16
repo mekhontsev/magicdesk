@@ -202,7 +202,7 @@ public final class ConsoleModeSwitcher {
     static void returnConsoleTasksToPhone(
             final DesktopDisplayTarget target,
             final ResultCallback callback) {
-        DesktopTaskController.disableExternalTaskMigrationProtection();
+        MagicDeskRuntime.disableExternalTaskMigrationProtection();
         OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
@@ -227,7 +227,7 @@ public final class ConsoleModeSwitcher {
                     Log.w(TAG, "Console task return failed", error);
                 } finally {
                     if (!success) {
-                        DesktopTaskController
+                        MagicDeskRuntime
                                 .restoreExternalTaskMigrationProtection();
                     }
                     if (callback != null) {
@@ -263,7 +263,7 @@ public final class ConsoleModeSwitcher {
     }
 
     static void sendSystemBack() {
-        if (!DesktopTaskController.sendSystemBack()) {
+        if (!MagicDeskRuntime.sendSystemBack()) {
             Log.w(TAG, "system Back shortcut unavailable");
         }
     }
@@ -289,7 +289,7 @@ public final class ConsoleModeSwitcher {
     }
 
     static void manageActiveWindow(final int shortcut) {
-        if (!DesktopTaskController.handleActiveTaskShortcut(shortcut)) {
+        if (!MagicDeskRuntime.handleActiveTaskShortcut(shortcut)) {
             Log.w(TAG, "window shortcut unavailable action=" + shortcut);
         }
     }

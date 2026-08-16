@@ -369,13 +369,13 @@ final class DesktopSelfTestWindowSuite {
             final CheckedSupplier<T> operation) throws Exception {
         final boolean preserve = ConsoleModeSwitcher.isTouchpadVisible();
         if (preserve) {
-            DesktopTaskController.expectTouchpadDisplacement();
+            MagicDeskRuntime.expectTouchpadDisplacement();
         }
         try {
             return operation.run();
         } finally {
             if (preserve) {
-                DesktopTaskController.finishTouchpadPreservation();
+                MagicDeskRuntime.finishTouchpadPreservation();
                 ConsoleModeSwitcher.restoreTouchpadIfMissing();
             }
         }

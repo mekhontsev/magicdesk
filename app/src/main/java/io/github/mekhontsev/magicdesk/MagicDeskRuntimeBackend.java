@@ -50,4 +50,6 @@ interface MagicDeskRuntimeBackend {
     void endDesktopTextInput(int displayId);
 
     boolean showStart();
+
+    DesktopTaskRuntime desktopTasks();
 }

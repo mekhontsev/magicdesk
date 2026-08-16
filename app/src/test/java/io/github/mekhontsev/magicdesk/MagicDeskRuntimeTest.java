@@ -180,5 +180,10 @@ public final class MagicDeskRuntimeTest {
             startShown = true;
             return true;
         }
+
+        @Override
+        public DesktopTaskRuntime desktopTasks() {
+            return null;
+        }
     }
 }

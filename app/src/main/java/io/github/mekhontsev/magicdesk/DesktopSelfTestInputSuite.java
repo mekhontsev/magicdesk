@@ -807,7 +807,7 @@ final class DesktopSelfTestInputSuite {
                         && "freeform".equals(entry.windowingMode));
         waitForFrontTask(displayId, taskId);
         waitForTaskInputFocus(displayId, taskId);
-        if (!DesktopTaskController.handleActiveTaskShortcut(
+        if (!MagicDeskRuntime.handleActiveTaskShortcut(
                 DesktopTaskController.SHORTCUT_FULLSCREEN)) {
             throw new IOException(
                     "MagicDesk fullscreen shortcut is unavailable");
@@ -1238,7 +1238,7 @@ final class DesktopSelfTestInputSuite {
         // The fixture shares MagicDesk's package, which focusStack excludes
         // along with the desktop host. Exercise the same display-targeted
         // focus transaction without the user-app filter.
-        DesktopTaskController.focusDesktopTask(
+        MagicDeskRuntime.focusDesktopTask(
                 displayId,
                 targetTask.taskId,
                 action -> {

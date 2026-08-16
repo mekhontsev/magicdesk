@@ -222,7 +222,9 @@ runtime integration and are not distributed through the same release path.
   and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
   process-level `DesktopTaskController`, keeps task observation available
   while shell access is ready, and binds display-scoped task reconciliation to
-  the active session snapshot. The optional non-reference-counted partial
+  the active session snapshot. It implements the narrow `DesktopTaskRuntime`
+  contract exposed through `MagicDeskRuntime`; callers do not locate a
+  process-global active task controller. The optional non-reference-counted partial
   wake lock is held only while both its setting and a MagicDesk desktop
   session are active. It is released by the same service lifecycle. There is
   no boot receiver; the user starts MagicDesk manually. The notification body
@@ -285,7 +287,9 @@ runtime integration and are not distributed through the same release path.
   package, and display. This prevents Nubia Quickstep from crashing while
   binding a stale `DesktopTaskView` without persistent recovery state or
   changes to unrelated Recents entries.
-- `DesktopTaskController` orchestrates native task transitions.
+- `DesktopTaskController` orchestrates native task transitions as an instance
+  owned exclusively by `RuntimeDesktopTaskCoordinator`. It contains no static
+  active-controller reference; pure task classification helpers remain static.
 - `DesktopTaskParkingController` snapshots live managed tasks when an external
   desktop is closed, parks them on display 0 as fullscreen tasks, and restores
   only the same still-live task IDs when a later desktop host becomes ready.

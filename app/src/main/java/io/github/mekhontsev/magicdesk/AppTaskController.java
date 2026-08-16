@@ -269,7 +269,7 @@ final class AppTaskController {
                                 app.packageName,
                                 AppWindowState.Mode.FULLSCREEN);
                     }
-                    DesktopTaskController.finishFullscreenTransition(
+                    MagicDeskRuntime.finishFullscreenTransition(
                             displayId, true);
                     Log.i(TAG,
                             "reused fullscreen package="
@@ -286,7 +286,7 @@ final class AppTaskController {
             final Intent launchIntent = app.launchTarget.resolve(
                     mActivity.getPackageManager());
             if (launchIntent == null) {
-                DesktopTaskController.finishFullscreenTransition(
+                MagicDeskRuntime.finishFullscreenTransition(
                         displayId, false);
                 mActivity.setTaskbarVisible(true);
                 mActivity.setErrorStatus(
@@ -309,10 +309,10 @@ final class AppTaskController {
                         app.packageName,
                         AppWindowState.Mode.FULLSCREEN);
             }
-            DesktopTaskController.finishFullscreenTransition(
+            MagicDeskRuntime.finishFullscreenTransition(
                     displayId, true);
         } catch (IOException e) {
-            DesktopTaskController.finishFullscreenTransition(
+            MagicDeskRuntime.finishFullscreenTransition(
                     displayId, false);
             mActivity.setTaskbarVisible(true);
             mActivity.setErrorStatus(
@@ -324,7 +324,7 @@ final class AppTaskController {
                             + " display=" + displayId,
                     e);
         } catch (RuntimeException e) {
-            DesktopTaskController.finishFullscreenTransition(
+            MagicDeskRuntime.finishFullscreenTransition(
                     displayId, false);
             mActivity.setTaskbarVisible(true);
             mActivity.showLaunchFailure(e);
@@ -369,7 +369,7 @@ final class AppTaskController {
                         mActivity.refreshTaskSnapshot();
                         return;
                     }
-                    DesktopTaskController.focusStack(
+                    MagicDeskRuntime.focusStack(
                             visibleTasks,
                             currentTask,
                             result -> mActivity.runOnUiThread(() -> {
@@ -466,7 +466,7 @@ final class AppTaskController {
         TaskRepository.setFullscreen(
                 task,
                 result -> {
-                    DesktopTaskController.finishFullscreenTransition(
+                    MagicDeskRuntime.finishFullscreenTransition(
                             displayId, result.success);
                     mActivity.runOnUiThread(() -> {
                         if (result.success) {
@@ -620,7 +620,7 @@ final class AppTaskController {
         clearInteractionStack();
         final int displayId = mActivity.getCurrentDisplayId();
         final List<TaskRepository.TaskEntry> savedTasks =
-                DesktopTaskController.getLastVisibleFreeformTasks(
+                MagicDeskRuntime.getLastVisibleFreeformTasks(
                         displayId);
         if (savedTasks.isEmpty()) {
             mActivity.setStatus(R.string.status_desktop_visible);
@@ -658,7 +658,7 @@ final class AppTaskController {
         final List<TaskRepository.TaskEntry> visibleTasks =
                 takeInteractionVisibleTasks();
         final int displayId = mActivity.getCurrentDisplayId();
-        DesktopTaskController.beginFullscreenTransition(
+        MagicDeskRuntime.beginFullscreenTransition(
                 displayId, visibleTasks, excludedTaskId);
         return displayId;
     }
@@ -674,7 +674,7 @@ final class AppTaskController {
             }
         }
         final int displayId = mActivity.getCurrentDisplayId();
-        DesktopTaskController.beginFullscreenTransition(
+        MagicDeskRuntime.beginFullscreenTransition(
                 displayId, visibleTasks, excludedTaskId);
         return displayId;
     }
@@ -682,7 +682,7 @@ final class AppTaskController {
     private List<TaskRepository.TaskEntry>
             captureVisibleFreeformTasks() {
         final List<TaskRepository.TaskEntry> watchedTasks =
-                DesktopTaskController.getVisibleFreeformTasks(
+                MagicDeskRuntime.getVisibleFreeformTasks(
                         mActivity.getCurrentDisplayId());
         return watchedTasks == null
                 ? getVisibleFreeformTasks(mActivity.getTaskSnapshot())

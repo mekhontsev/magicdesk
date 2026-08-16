@@ -59,6 +59,10 @@ final class RuntimeDesktopTaskCoordinator {
         mTasks.destroy();
     }
 
+    DesktopTaskRuntime operations() {
+        return mTasks;
+    }
+
     static Mode modeFor(
             final DesktopSessionSnapshot session,
             final boolean shellReady) {

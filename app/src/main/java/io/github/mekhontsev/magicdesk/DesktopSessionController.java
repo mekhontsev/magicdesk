@@ -51,7 +51,7 @@ final class DesktopSessionController {
         try {
             prepareDisplayWindowing(preparedTarget);
             final Boolean visibleTaskSnapshot =
-                    DesktopTaskController.hasVisibleAppTaskSnapshot(
+                    MagicDeskRuntime.hasVisibleAppTaskSnapshot(
                             preparedTarget.displayId);
             final boolean restoreWindows = visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
