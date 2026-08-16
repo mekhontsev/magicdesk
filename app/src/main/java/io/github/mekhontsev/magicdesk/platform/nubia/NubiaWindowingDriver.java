@@ -17,7 +17,8 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
         // Starting an already running desktop task from Nubia's phone launcher
         // can remove the entire NubiaAppMirrorDisplay instead of moving only
         // that task. The shell observer rejects that migration while the
-        // external session is active.
+        // external session is active. The observer also normalizes any
+        // system-driven freeform move that bypasses the launch callback.
         return true;
     }
 

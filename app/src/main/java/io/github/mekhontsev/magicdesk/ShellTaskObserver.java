@@ -248,6 +248,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     @Override
     public void onTaskStackChanged() {
+        mMigrationGuard.onTaskStackChanged();
         signalChange();
     }
 

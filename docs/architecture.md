@@ -273,6 +273,13 @@ runtime integration and are not distributed through the same release path.
   only the same still-live task IDs when a later desktop host becomes ready.
   It preserves each task's desktop mode, relative bounds, visibility, and
   stacking order without relaunching tasks that Android or the user closed.
+- `ShellExternalTaskMigrationGuard` intercepts launcher requests for a task
+  hosted on an external desktop. It also observes already completed system
+  moves, including `Alt+Tab`, and scans display 0 when protection starts and
+  after task-stack changes. Every observed freeform task is normalized while
+  an external session is active. This invariant applies to
+  MagicDesk and third-party tasks alike, so Nubia Quickstep never receives
+  phone-side freeform state from those transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.

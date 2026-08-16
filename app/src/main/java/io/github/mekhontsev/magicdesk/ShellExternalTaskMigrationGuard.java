@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Prevents a phone launcher request from destroying a hosted desktop display. */
+/** Prevents phone-side freeform state from destabilizing Nubia Quickstep. */
 final class ShellExternalTaskMigrationGuard implements Closeable {
     interface ErrorListener {
         void onError(String message);
@@ -25,6 +25,7 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int MAGICDESK_LAUNCH_FLAGS =
             Intent.FLAG_ACTIVITY_CLEAR_TOP
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -112,8 +113,39 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         if (mEnabled) {
             captureDesktopTasks(mDisplayId);
             registerActivityController();
+            schedulePhoneTaskScan();
         } else {
             unregisterActivityController();
+        }
+    }
+
+    private void schedulePhoneTaskScan() {
+        try {
+            mMigrationExecutor.execute(this::onTaskStackChanged);
+        } catch (RuntimeException error) {
+            report("could not schedule initial phone task scan: "
+                    + usefulMessage(error));
+        }
+    }
+
+    void onTaskStackChanged() {
+        synchronized (this) {
+            if (!mEnabled) {
+                return;
+            }
+        }
+        try {
+            for (final Object task : HiddenTaskApi.getTasks(
+                    mService, Display.DEFAULT_DISPLAY)) {
+                final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+                if (!normalizeObservedPhoneTask(
+                        taskId, Display.DEFAULT_DISPLAY, task)) {
+                    forget(taskId);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            report("could not inspect phone tasks: "
+                    + usefulMessage(error));
         }
     }
 
@@ -125,6 +157,9 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         final int displayId = HiddenTaskApi.getTaskDisplayId(taskInfo);
         if (isConfiguredFor(displayId)) {
             captureDesktopTask(taskInfo, displayId);
+        } else if (normalizeObservedPhoneTask(
+                taskInfo.taskId, displayId, taskInfo)) {
+            // Keep transition ownership until fullscreen is committed.
         } else {
             forget(taskInfo.taskId);
         }
@@ -133,18 +168,22 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
     void onTaskDisplayChanged(
             final int taskId,
             final int newDisplayId) {
-        if (!isConfiguredFor(newDisplayId)) {
-            forget(taskId);
-            return;
-        }
         try {
             final Object task = HiddenTaskApi.findTask(
                     mService, newDisplayId, taskId);
-            if (task != null) {
-                captureDesktopTask(task, newDisplayId);
+            if (isConfiguredFor(newDisplayId)) {
+                if (task != null) {
+                    captureDesktopTask(task, newDisplayId);
+                }
+                return;
             }
+            if (task != null && normalizeObservedPhoneTask(
+                    taskId, newDisplayId, task)) {
+                return;
+            }
+            forget(taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            report("could not capture task moved to external desktop: "
+            report("could not inspect task after display change: "
                     + usefulMessage(error));
         }
     }
@@ -317,6 +356,79 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
                 if (migrated) {
                     mDesktopTasks.remove(Integer.valueOf(state.taskId));
                 }
+            }
+        }
+    }
+
+    private boolean normalizeObservedPhoneTask(
+            final int taskId,
+            final int displayId,
+            final Object task) {
+        if (displayId != Display.DEFAULT_DISPLAY) {
+            return false;
+        }
+        final boolean freeform;
+        try {
+            freeform = HiddenTaskApi.getWindowConfigurationValue(
+                    task, "getWindowingMode") == WINDOWING_MODE_FREEFORM;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            report("could not inspect phone task " + taskId + ": "
+                    + usefulMessage(error));
+            return false;
+        }
+        synchronized (this) {
+            if (!ExternalTaskMigrationPolicy.shouldNormalizeObservedTask(
+                    displayId,
+                    mEnabled,
+                    freeform)) {
+                return false;
+            }
+            // This task is no longer hosted by the external desktop. Remove
+            // stale launch interception state before normalizing its phone
+            // windowing mode; a later move back will capture it again.
+            mDesktopTasks.remove(Integer.valueOf(taskId));
+            if (mMigratingTasks.contains(Integer.valueOf(taskId))) {
+                return true;
+            }
+            mMigratingTasks.add(Integer.valueOf(taskId));
+        }
+        try {
+            mMigrationExecutor.execute(() -> normalizePhoneTask(taskId));
+            Log.i(TAG, "normalizing freeform task on phone task=" + taskId);
+        } catch (RuntimeException error) {
+            synchronized (this) {
+                mMigratingTasks.remove(Integer.valueOf(taskId));
+            }
+            report("could not schedule phone normalization for task "
+                    + taskId + ": " + usefulMessage(error));
+        }
+        return true;
+    }
+
+    private void normalizePhoneTask(final int taskId) {
+        synchronized (this) {
+            if (!mEnabled
+                    || !mMigratingTasks.contains(
+                            Integer.valueOf(taskId))) {
+                return;
+            }
+        }
+        try {
+            // Alt+Tab and other system task switches bypass activityStarting.
+            // No task may remain freeform on display 0 during an external
+            // session: Nubia Quickstep can crash and erase launcher state.
+            final boolean normalized =
+                    TaskWindowingCommand.normalizeFullscreenTask(
+                            mService, Display.DEFAULT_DISPLAY, taskId);
+            Log.i(TAG, (normalized
+                    ? "normalized phone task to fullscreen task="
+                    : "phone task already fullscreen task=") + taskId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            report("could not normalize phone task " + taskId
+                    + ": " + usefulMessage(error));
+        } finally {
+            synchronized (this) {
+                mMigratingTasks.remove(Integer.valueOf(taskId));
             }
         }
     }

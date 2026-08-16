@@ -217,6 +217,47 @@ public final class TaskWindowingCommand {
                 TRANSIT_TO_FRONT, transactionClass, transaction);
     }
 
+    static boolean normalizeFullscreenTask(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        if (HiddenTaskApi.getWindowConfigurationValue(
+                task, "getWindowingMode") == WINDOWING_MODE_FULLSCREEN) {
+            return false;
+        }
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object taskToken = HiddenTaskApi.getField(task, "token");
+        transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                .invoke(transaction, taskToken, new Rect());
+        transactionClass.getMethod(
+                "setDensityDpi", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken, Integer.valueOf(0));
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass,
+                transaction,
+                tokenClass,
+                taskToken,
+                true);
+        // Preserve the current stack order. The task may be a background
+        // phone task discovered by the global display-0 invariant. Applying
+        // synchronously also closes the interval in which Quickstep could
+        // observe freeform state after a system-driven display move.
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+        return true;
+    }
+
     private static void restoreLayout(
             final int displayId,
             final String[] args) throws ReflectiveOperationException {
