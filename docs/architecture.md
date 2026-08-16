@@ -355,6 +355,11 @@ isolated behind these boundaries.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
+- `DesktopRuntimeBridge` is only the stable process-local facade.
+  `DesktopSessionRegistry` owns the immutable target/host snapshot, while
+  `DesktopUiGateway` alone owns weak references to the live desktop Activity
+  and dispatches UI commands. Session state therefore does not acquire UI
+  behavior, and UI liveness cannot become a second session-state authority.
 - `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
   and simulated. A driver owns environment-specific start/close behavior,
   launch-area policy, phone-screen and touchpad availability, and display
