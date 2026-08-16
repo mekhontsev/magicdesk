@@ -91,4 +91,10 @@ session registry, display-scoped task state, and `DesktopTaskRuntime` contract.
 No desktop task operation discovers a mutable active controller through a
 process-global lookup.
 
+Window launches have one operation lifecycle. UI status and recovery are
+owned by `AppTaskController`, fresh launch/reuse selection by
+`WindowedAppLauncher`, and existing-task normalization by
+`ExistingTaskController`. One transient launch lease owns startup windowing
+and touchpad preservation across those layers.
+
 Each step must leave the branch buildable and independently reviewable.

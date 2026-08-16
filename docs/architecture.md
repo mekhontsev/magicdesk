@@ -316,8 +316,13 @@ runtime integration and are not distributed through the same release path.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
 - `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
   coordinate task actions, Show Desktop, restoration, and exact-task
-  switching. `WindowedAppLauncher` delegates task placement to a short-lived
-  shell command without retaining another Activity.
+  switching. `AppTaskController` has one UI lifecycle for built-in and regular
+  window launches. `WindowedAppLauncher` owns fresh launch/reuse selection and
+  delegates task placement to a short-lived shell command without retaining
+  another Activity. `ExistingTaskController` performs only task discovery and
+  normalization. A single `WindowedTaskLaunchLease` spans each operation so
+  startup-window protection and phone-touchpad preservation cannot be entered
+  twice by the launcher and reuse path.
 
 ### Platform services
 

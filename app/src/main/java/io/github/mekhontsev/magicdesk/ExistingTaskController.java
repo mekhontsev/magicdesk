@@ -26,7 +26,7 @@ final class ExistingTaskController {
             final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
         return reuseIfExists(target, targetDisplayId, targetFreeform,
-                null, false, false, false, null);
+                null, false, false, false, null, null);
     }
 
     static ReuseResult normalizeLaunchedFullscreen(
@@ -61,10 +61,11 @@ final class ExistingTaskController {
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
-                explicitWindowed, targetBounds);
+                explicitWindowed, targetBounds, launchLease);
     }
 
     static ReuseResult reuseFreeformIfExists(
@@ -72,10 +73,11 @@ final class ExistingTaskController {
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
-                explicitWindowed, targetBounds);
+                explicitWindowed, targetBounds, launchLease);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -110,7 +112,8 @@ final class ExistingTaskController {
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease outerLaunchLease) throws IOException {
         TaskInfo task = waitForTask
                 ? waitForBestTask(target, targetDisplayId, targetFreeform)
                 : findBestTask(target, targetDisplayId, targetFreeform);
@@ -119,16 +122,16 @@ final class ExistingTaskController {
             return ReuseResult.notFound();
         }
 
-        final boolean protectStartupWindowing = targetFreeform
-                && waitForTask
-                && explicitWindowed;
-        if (protectStartupWindowing) {
-            MagicDeskRuntime.beginExplicitWindowedLaunch(task.taskId);
-        } else if (targetFreeform) {
-            MagicDeskRuntime.noteManualFreeformTransition(task.taskId);
-        }
-        boolean restoreTouchpad = false;
+        final WindowedTaskLaunchLease launchLease =
+                outerLaunchLease == null
+                        ? WindowedTaskLaunchLease.acquire()
+                        : outerLaunchLease;
         try {
+            if (targetFreeform && waitForTask && explicitWindowed) {
+                launchLease.protectStartupTask(task.taskId);
+            } else if (targetFreeform) {
+                launchLease.noteFreeformTask(task.taskId);
+            }
             Log.i(TAG, "found package=" + target.packageName
                     + " rootTask=" + task.rootTaskId
                     + " task=" + task.taskId
@@ -139,10 +142,6 @@ final class ExistingTaskController {
                     + " nativeDesktop=" + nativeDesktop);
             if (nativeDesktop) {
                 NativeDesktopController.requireAvailable();
-            }
-            restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
-            if (restoreTouchpad) {
-                MagicDeskRuntime.expectTouchpadDisplacement();
             }
             boolean taskIsFreeform =
                     MODE_FREEFORM.equals(task.windowingMode);
@@ -228,13 +227,8 @@ final class ExistingTaskController {
             bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
             return ReuseResult.reused(task.packageName);
         } finally {
-            if (protectStartupWindowing) {
-                MagicDeskRuntime.finishExplicitWindowedLaunch(
-                        task.taskId);
-            }
-            if (restoreTouchpad) {
-                MagicDeskRuntime.finishTouchpadPreservation();
-                ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            if (outerLaunchLease == null) {
+                launchLease.close();
             }
         }
     }

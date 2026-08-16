@@ -102,37 +102,16 @@ final class AppTaskController {
             return;
         }
 
-        mActivity.setTaskbarVisible(true);
-        mActivity.setStatus(mActivity.getString(
-                R.string.status_launching_window, label));
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
-        TaskCommandQueue.execute(() -> {
-            try {
-                WindowedAppLauncher.launchBuiltInWindow(
-                        launchIntent,
-                        launchTarget,
-                        displayId,
-                        getTaskIds(visibleTasks),
-                        () -> publishConfirmedLaunchSnapshot(displayId));
-                mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
-                        return;
-                    }
-                    mActivity.setStatus(mActivity.getString(
-                            R.string.status_switch_done, label));
-                    mActivity.refreshTaskSnapshot();
-                });
-            } catch (IOException | RuntimeException error) {
-                TaskRepository.bringStackToFront(
-                        visibleTasks, null, null);
-                mActivity.runOnUiThread(() -> {
-                    if (!mActivity.isActivityUnavailable()) {
-                        mActivity.showLaunchFailure(error);
-                    }
-                });
-            }
-        });
+        launchWindow(
+                launchIntent,
+                launchTarget,
+                label,
+                true,
+                BuiltInDesktopAppCatalog.defaultWindowBounds(launchTarget),
+                multipleWindows
+                        ? WindowedAppLauncher.TaskReusePolicy.CREATE_NEW
+                        : WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                null);
     }
 
     private void launchFloating(
@@ -170,18 +149,11 @@ final class AppTaskController {
             focusTask(app, existingTask);
             return;
         }
-        Log.i(TAG, "launch floating package=" + app.packageName
-                + " display=" + mActivity.getCurrentDisplayId()
-                + " explicitWindowed=" + explicitWindowed);
-        mActivity.setTaskbarVisible(true);
-        mActivity.setStatus(mActivity.getString(
-                R.string.status_launching_window, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
-        final int displayId = mActivity.getCurrentDisplayId();
         final Intent launchIntent = app.launchTarget.resolve(
                 mActivity.getPackageManager());
         if (launchIntent == null) {
+            final List<TaskRepository.TaskEntry> visibleTasks =
+                    takeInteractionVisibleTasks();
             TaskRepository.bringStackToFront(visibleTasks, null, null);
             mActivity.setErrorStatus(
                     "APP-LAUNCH-002",
@@ -192,28 +164,59 @@ final class AppTaskController {
                     null);
             return;
         }
+        Log.i(TAG, "launch floating package=" + app.packageName
+                + " display=" + mActivity.getCurrentDisplayId()
+                + " explicitWindowed=" + explicitWindowed);
+        launchWindow(
+                launchIntent,
+                app.launchTarget,
+                app.label,
+                explicitWindowed,
+                preferredBounds,
+                reusePolicy,
+                () -> {
+                    if (explicitWindowed && remembersWindowState(app)) {
+                        AppWindowStateStore.rememberMode(
+                                app.packageName,
+                                AppWindowState.Mode.WINDOWED);
+                    }
+                });
+    }
+
+    private void launchWindow(
+            final Intent launchIntent,
+            final AppLaunchTarget launchTarget,
+            final String label,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds,
+            final WindowedAppLauncher.TaskReusePolicy reusePolicy,
+            final Runnable afterLaunch) {
+        mActivity.setTaskbarVisible(true);
+        mActivity.setStatus(mActivity.getString(
+                R.string.status_launching_window, label));
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                takeInteractionVisibleTasks();
+        final int displayId = mActivity.getCurrentDisplayId();
         TaskCommandQueue.execute(() -> {
             try {
                 WindowedAppLauncher.launch(
                         launchIntent,
-                        app.launchTarget,
+                        launchTarget,
                         displayId,
                         getTaskIds(visibleTasks),
                         explicitWindowed,
                         preferredBounds,
                         reusePolicy,
                         () -> publishConfirmedLaunchSnapshot(displayId));
-                if (explicitWindowed && remembersWindowState(app)) {
-                    AppWindowStateStore.rememberMode(
-                            app.packageName,
-                            AppWindowState.Mode.WINDOWED);
+                if (afterLaunch != null) {
+                    afterLaunch.run();
                 }
                 mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;
                     }
                     mActivity.setStatus(mActivity.getString(
-                            R.string.status_switch_done, app.label));
+                            R.string.status_switch_done, label));
                     mActivity.refreshTaskSnapshot();
                 });
             } catch (IOException | RuntimeException error) {
