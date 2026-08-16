@@ -38,6 +38,8 @@ final class DesktopTaskController {
     private final Runnable mTaskStackChanged;
     private final DesktopTaskWatcher mTaskWatcher;
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
+    private final PlatformPhoneUiDriver mPhoneUi;
+    private final PlatformWindowingDriver mWindowing;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
     private final AppWindowStateTracker mAppWindowStates;
@@ -57,12 +59,16 @@ final class DesktopTaskController {
     DesktopTaskController(
             final Context context,
             final Handler handler,
-            final Runnable taskStackChanged) {
+            final Runnable taskStackChanged,
+            final PlatformWindowingDriver windowing,
+            final PlatformPhoneUiDriver phoneUi) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
         mTaskStackChanged = taskStackChanged;
+        mPhoneUi = phoneUi;
+        mWindowing = windowing;
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
-                mApplicationContext);
+                mApplicationContext, phoneUi);
         mAppWindowStates = new AppWindowStateTracker(handler);
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
@@ -749,8 +755,7 @@ final class DesktopTaskController {
                         || target.kind == DesktopDisplayTarget.Kind.WIRELESS)
                 && DesktopDisplayDrivers.forTarget(target)
                         .features().rootTaskTransfer
-                && PlatformDrivers.current().windowing()
-                        .protectsExternalSessionFromPhoneTaskMigration();
+                && mWindowing.protectsExternalSessionFromPhoneTaskMigration();
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {
@@ -759,8 +764,7 @@ final class DesktopTaskController {
             return;
         }
         final boolean shouldRestoreLocalDesktop =
-                PlatformDrivers.current().phoneUi()
-                        .shouldRestoreLocalDesktopHost(
+                mPhoneUi.shouldRestoreLocalDesktopHost(
                         mDisplayId,
                         snapshot.tasks,
                         MAGICDESK_PACKAGE);

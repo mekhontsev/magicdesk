@@ -48,6 +48,7 @@ public final class MagicDeskRuntimeService extends Service {
     private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
     private final PlatformProjectionDriver mProjection =
             mPlatform.projection();
+    private final PlatformWindowingDriver mWindowing = mPlatform.windowing();
 
     private Handler mHandler;
     private RuntimeDisplayCoordinator mDisplayCoordinator;
@@ -364,7 +365,11 @@ public final class MagicDeskRuntimeService extends Service {
         }
         mInitialized = true;
         mDesktopTasks = new DesktopTaskController(
-                this, mHandler, this::handleTaskStackChanged);
+                this,
+                mHandler,
+                this::handleTaskStackChanged,
+                mWindowing,
+                mPhoneUi);
         mDesktopMouseBridge = new DesktopMouseBridge(this);
         mInputCoordinator = new RuntimeInputCoordinator(
                 this, mHandler, this::handleInputStateChanged);

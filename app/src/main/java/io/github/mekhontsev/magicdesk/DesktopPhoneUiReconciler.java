@@ -21,9 +21,11 @@ final class DesktopPhoneUiReconciler {
     private boolean mTouchpadRestorePending;
     private boolean mAwaitingPlatformPanelRemoval;
 
-    DesktopPhoneUiReconciler(final Context context) {
+    DesktopPhoneUiReconciler(
+            final Context context,
+            final PlatformPhoneUiDriver phoneUi) {
         mHomeComponents = PhoneHomeComponents.resolve(context);
-        mPhoneUi = PlatformDrivers.current().phoneUi();
+        mPhoneUi = phoneUi;
     }
 
     void reset() {
