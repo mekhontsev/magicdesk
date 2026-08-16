@@ -58,46 +58,4 @@ final class DesktopDisplayDriverSupport {
         }
     }
 
-    static void complete(
-            final DesktopDisplayDriver.CompletionCallback callback,
-            final boolean success) {
-        if (callback != null) {
-            callback.onComplete(success);
-        }
-    }
-
-    static void closeDirectExternal(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final DesktopDisplayDriver.CompletionCallback callback) {
-        DesktopRuntimeBridge.closeDesktopSession(target.displayId);
-        if (restorePhonePanel) {
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
-        }
-        complete(callback, true);
-    }
-
-    static boolean ownsTransportLifecycle(
-            final PlatformProjectionDriver.Transport transport) {
-        return PlatformDrivers.current().projection()
-                .ownsTransportLifecycle(transport);
-    }
-
-    static void closeExternal(
-            final DesktopDisplayTarget target,
-            final PlatformProjectionDriver.Transport transport,
-            final boolean restorePhonePanel,
-            final DesktopDisplayDriver.CompletionCallback callback) {
-        if (!ownsTransportLifecycle(transport)) {
-            closeDirectExternal(target, restorePhonePanel, callback);
-            return;
-        }
-        if (restorePhonePanel) {
-            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                    success -> complete(callback, success));
-        } else {
-            ConsoleModeSwitcher.switchToMirror(
-                    success -> complete(callback, success));
-        }
-    }
 }

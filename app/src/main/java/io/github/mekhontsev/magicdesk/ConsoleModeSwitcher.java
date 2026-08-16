@@ -17,8 +17,16 @@ public final class ConsoleModeSwitcher {
             "/storage/emulated/0/Pictures/Screenshots";
     private static final SerializedDesktopOperationQueue OPERATIONS =
             new SerializedDesktopOperationQueue();
+    private static final PlatformDriver PLATFORM = PlatformDrivers.current();
+    private static final PlatformProjectionDriver PROJECTION =
+            PLATFORM.projection();
+    private static final PlatformPhoneUiDriver PHONE_UI = PLATFORM.phoneUi();
     private static final DesktopSessionTransitionCoordinator TRANSITIONS =
-            new DesktopSessionTransitionCoordinator(OPERATIONS);
+            new DesktopSessionTransitionCoordinator(
+                    OPERATIONS,
+                    MagicDeskApplication.applicationContext(),
+                    PLATFORM.features(),
+                    PROJECTION);
 
     private ConsoleModeSwitcher() {
     }
@@ -52,8 +60,7 @@ public final class ConsoleModeSwitcher {
                             .restorePointerPositionOnNextMotion();
                 }
                 try {
-                    success = PlatformDrivers.current().phoneUi()
-                            .setPhoneScreenOff(screenOff);
+                    success = PHONE_UI.setPhoneScreenOff(screenOff);
                     Log.i(TAG, "Shell phone display off="
                             + screenOff + " success=" + success);
                     if (!success) {
@@ -114,8 +121,7 @@ public final class ConsoleModeSwitcher {
                         MagicDeskApplication.applicationContext();
                 displayProfile = DisplayProfileController
                         .prepareExternalProfile(context, wiredDisplayId);
-                selection = PlatformDrivers.current().projection()
-                        .readExternalDisplayModes(
+                selection = PROJECTION.readExternalDisplayModes(
                         context,
                         wiredDisplayId,
                         displayProfile == null
@@ -150,7 +156,7 @@ public final class ConsoleModeSwitcher {
 
     static void restorePhoneAfterExternalDesktop() {
         OPERATIONS.execute(() -> {
-            PlatformDrivers.current().phoneUi().setPhoneScreenOff(false);
+            PHONE_UI.setPhoneScreenOff(false);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
     }
@@ -163,40 +169,20 @@ public final class ConsoleModeSwitcher {
     static void updateExternalTaskCaptionTarget(
             final int displayId,
             final boolean wiredDesktop) {
-        OPERATIONS.execute(new Runnable() {
-            @Override
-            public void run() {
-                final PlatformProjectionDriver.Transport transport;
-                if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
-                    transport = PlatformProjectionDriver.Transport.NONE;
-                } else if (wiredDesktop) {
-                    transport = PlatformProjectionDriver.Transport.WIRED;
-                } else if (ConsoleDisplayController.findWirelessDisplayId()
-                        == displayId) {
-                    transport = PlatformProjectionDriver.Transport.WIRELESS;
-                } else {
-                    transport = PlatformProjectionDriver.Transport.NONE;
-                }
-                PlatformDrivers.current().projection()
-                        .setCaptionTransport(transport);
-            }
-        });
+        TRANSITIONS.updateCaptionTransport(displayId, wiredDesktop);
     }
 
     static void switchToMirror(final ResultCallback callback) {
         TRANSITIONS.switchToMirror(
+                false,
                 callback == null ? null : callback::onComplete);
     }
 
     static void switchToMirrorWithControlPanel(
             final ResultCallback callback) {
-        ControlActivity.finishActiveForMirrorTransition();
-        switchToMirror(success -> {
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
-            if (callback != null) {
-                callback.onComplete(success);
-            }
-        });
+        TRANSITIONS.switchToMirror(
+                true,
+                callback == null ? null : callback::onComplete);
     }
 
     static void returnConsoleTasksToPhone(
@@ -352,9 +338,7 @@ public final class ConsoleModeSwitcher {
     }
 
     static int getActiveConsoleDisplayId() {
-        return PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(
-                        MagicDeskApplication.applicationContext());
+        return TRANSITIONS.activeDesktopDisplayId();
     }
 
     private static void captureScreenshotInternal() {

@@ -4,8 +4,11 @@ import android.view.Display;
 
 /** Registry and resolution boundary for desktop display drivers. */
 final class DesktopDisplayDrivers {
+    private static final PlatformDriver PLATFORM = PlatformDrivers.current();
+    private static final PlatformFeatures FEATURES = PLATFORM.features();
     private static final DesktopDisplayDriver PHONE = new PhoneDisplayDriver();
-    private static final DesktopDisplayDriver WIRED = new WiredDisplayDriver();
+    private static final DesktopDisplayDriver WIRED =
+            new WiredDisplayDriver(PLATFORM.projection());
     private static final DesktopDisplayDriver WIRELESS =
             new WirelessDisplayDriver();
     private static final DesktopDisplayDriver SIMULATED =
@@ -15,11 +18,11 @@ final class DesktopDisplayDrivers {
     }
 
     static boolean isSupported(final DesktopDisplayTarget.Kind kind) {
-        return PlatformDrivers.current().features().supportsDisplay(kind);
+        return FEATURES.supportsDisplay(kind);
     }
 
     static boolean isExternalDesktopSupported() {
-        return PlatformDrivers.current().features().supportsExternalDesktop();
+        return FEATURES.supportsExternalDesktop();
     }
 
     static DesktopDisplayDriver forKind(

@@ -35,16 +35,6 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
-    public void close(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final CompletionCallback callback) {
-        requireTarget(target);
-        DesktopRuntimeBridge.closeDesktopSession(Display.DEFAULT_DISPLAY);
-        DesktopDisplayDriverSupport.complete(callback, true);
-    }
-
-    @Override
     public boolean isSessionDisplayRemoval(
             final DesktopDisplayTarget target,
             final int removedDisplayId,
@@ -52,9 +42,4 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
         return false;
     }
 
-    private static void requireTarget(final DesktopDisplayTarget target) {
-        if (target == null || target.kind != DesktopDisplayTarget.Kind.PHONE) {
-            throw new IllegalArgumentException("phone target is required");
-        }
-    }
 }

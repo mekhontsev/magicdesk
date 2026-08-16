@@ -15,11 +15,14 @@ final class ConsoleSessionController {
     private ConsoleSessionController() {
     }
 
-    static void show(final int displayId) {
+    static void show(
+            final int displayId,
+            final PlatformProjectionDriver projection) {
+        if (projection == null) {
+            throw new IllegalArgumentException("projection driver is required");
+        }
         final android.content.Context context =
                 MagicDeskApplication.applicationContext();
-        final PlatformProjectionDriver projection =
-                PlatformDrivers.current().projection();
         int consoleDisplayId = displayId > 0
                 ? displayId : projection.activeDesktopDisplayId(context);
         boolean startedConsoleMode = false;

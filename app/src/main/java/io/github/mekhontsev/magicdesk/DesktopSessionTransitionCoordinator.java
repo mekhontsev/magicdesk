@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
 import android.util.Log;
 import android.view.Display;
 
@@ -12,11 +13,25 @@ final class DesktopSessionTransitionCoordinator {
     private static final String TAG = "MagicDeskConsoleSwitcher";
 
     private final SerializedDesktopOperationQueue mOperations;
+    private final Context mContext;
+    private final PlatformFeatures mFeatures;
+    private final PlatformProjectionDriver mProjection;
     private final DesktopTransitionGate mGate = new DesktopTransitionGate();
 
     DesktopSessionTransitionCoordinator(
-            final SerializedDesktopOperationQueue operations) {
+            final SerializedDesktopOperationQueue operations,
+            final Context context,
+            final PlatformFeatures features,
+            final PlatformProjectionDriver projection) {
+        if (operations == null || context == null || features == null
+                || projection == null) {
+            throw new IllegalArgumentException(
+                    "desktop transition dependencies are required");
+        }
         mOperations = operations;
+        mContext = context.getApplicationContext();
+        mFeatures = features;
+        mProjection = projection;
     }
 
     void showPreferredDesktop(final int knownConsoleDisplayId) {
@@ -43,7 +58,7 @@ final class DesktopSessionTransitionCoordinator {
             throw new IllegalArgumentException(
                     "a prepared external display target is required");
         }
-        if (!DesktopDisplayDrivers.isSupported(target.kind)) {
+        if (!mFeatures.supportsDisplay(target.kind)) {
             throw new IllegalStateException(
                     "display target is unsupported by the current platform");
         }
@@ -75,17 +90,17 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         MagicDeskRuntime.disableExternalTaskMigrationProtection();
-        final Runnable close = () -> {
+        final Runnable close = () -> mOperations.execute(() -> {
+            final boolean success;
             try {
-                DesktopDisplayDrivers.forTarget(target).close(
-                        target,
-                        restorePhonePanel,
-                        success -> finishDesktopClose(callback, success));
+                success = closeDesktopNow(target, restorePhonePanel);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Desktop close failed", error);
                 finishDesktopClose(callback, false);
+                return;
             }
-        };
+            finishDesktopClose(callback, success);
+        });
         if (restorePhonePanel
                 && target.displayId > Display.DEFAULT_DISPLAY) {
             MagicDeskRuntime.parkDesktopTasks(target, parked -> {
@@ -100,37 +115,30 @@ final class DesktopSessionTransitionCoordinator {
         }
     }
 
-    void switchToMirror(final CompletionCallback callback) {
+    void switchToMirror(
+            final boolean restorePhonePanel,
+            final CompletionCallback callback) {
         if (!mGate.beginModeTransition()) {
             Log.i(TAG, "Console mode transition is already in progress");
             complete(callback, false);
             return;
         }
+        if (restorePhonePanel) {
+            ControlActivity.finishActiveForMirrorTransition();
+        }
         mOperations.execute(() -> {
             boolean success = false;
             try {
-                if (activeDesktopDisplayId() <= 0) {
-                    success = true;
-                } else if (PlatformDrivers.current().projection()
-                        .requestMirrorMode()) {
-                    success = PlatformDrivers.current().projection()
-                            .waitForDesktopStop(
-                                    MagicDeskApplication
-                                            .applicationContext());
-                    if (!success) {
-                        Log.w(TAG,
-                                "Console display remained active after Mirror request");
-                    }
-                }
-                if (success && ShellAccess.isReady()) {
-                    PlatformDrivers.current().projection()
-                            .setCaptionTransport(
-                                    PlatformProjectionDriver.Transport.NONE);
-                }
+                success = switchToMirrorNow();
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Mirror transition failed", error);
             } finally {
+                if (restorePhonePanel) {
+                    PhoneControlPanelLauncher.openOnPhoneWithShell();
+                }
                 mGate.finishStart();
-                complete(callback, success);
             }
+            complete(callback, success);
         });
     }
 
@@ -144,11 +152,74 @@ final class DesktopSessionTransitionCoordinator {
         complete(callback, success);
     }
 
-    private static void showPreferredDesktopNow(
+    int activeDesktopDisplayId() {
+        return mProjection.activeDesktopDisplayId(mContext);
+    }
+
+    void updateCaptionTransport(
+            final int displayId,
+            final boolean wiredDesktop) {
+        mOperations.execute(() -> {
+            final PlatformProjectionDriver.Transport transport;
+            if (displayId <= Display.DEFAULT_DISPLAY) {
+                transport = PlatformProjectionDriver.Transport.NONE;
+            } else if (wiredDesktop) {
+                transport = PlatformProjectionDriver.Transport.WIRED;
+            } else if (ConsoleDisplayController.findWirelessDisplayId()
+                    == displayId) {
+                transport = PlatformProjectionDriver.Transport.WIRELESS;
+            } else {
+                transport = PlatformProjectionDriver.Transport.NONE;
+            }
+            mProjection.setCaptionTransport(transport);
+        });
+    }
+
+    private boolean closeDesktopNow(
+            final DesktopDisplayTarget target,
+            final boolean restorePhonePanel) {
+        final PlatformProjectionDriver.Transport transport =
+                transportFor(target.kind);
+        final boolean platformOwned = transport
+                != PlatformProjectionDriver.Transport.NONE
+                && mProjection.ownsTransportLifecycle(transport);
+        if (platformOwned && restorePhonePanel) {
+            ControlActivity.finishActiveForMirrorTransition();
+        }
+        final boolean success;
+        if (platformOwned) {
+            success = switchToMirrorNow();
+        } else {
+            DesktopRuntimeBridge.closeDesktopSession(target.displayId);
+            success = true;
+        }
+        if (restorePhonePanel) {
+            PhoneControlPanelLauncher.openOnPhoneWithShell();
+        }
+        return success;
+    }
+
+    private boolean switchToMirrorNow() {
+        boolean success = activeDesktopDisplayId() <= Display.DEFAULT_DISPLAY;
+        if (!success && mProjection.requestMirrorMode()) {
+            success = mProjection.waitForDesktopStop(mContext);
+            if (!success) {
+                Log.w(TAG,
+                        "Console display remained active after Mirror request");
+            }
+        }
+        if (success && ShellAccess.isReady()) {
+            mProjection.setCaptionTransport(
+                    PlatformProjectionDriver.Transport.NONE);
+        }
+        return success;
+    }
+
+    private void showPreferredDesktopNow(
             final int knownConsoleDisplayId) {
-        final boolean wiredSupported = DesktopDisplayDrivers.isSupported(
+        final boolean wiredSupported = mFeatures.supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRED);
-        final boolean wirelessSupported = DesktopDisplayDrivers.isSupported(
+        final boolean wirelessSupported = mFeatures.supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS);
         if (wiredSupported
                 && (knownConsoleDisplayId > Display.DEFAULT_DISPLAY
@@ -172,10 +243,15 @@ final class DesktopSessionTransitionCoordinator {
         Log.i(TAG, "No connected external display is available");
     }
 
-    private static int activeDesktopDisplayId() {
-        return PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(
-                        MagicDeskApplication.applicationContext());
+    private static PlatformProjectionDriver.Transport transportFor(
+            final DesktopDisplayTarget.Kind kind) {
+        if (kind == DesktopDisplayTarget.Kind.WIRED) {
+            return PlatformProjectionDriver.Transport.WIRED;
+        }
+        if (kind == DesktopDisplayTarget.Kind.WIRELESS) {
+            return PlatformProjectionDriver.Transport.WIRELESS;
+        }
+        return PlatformProjectionDriver.Transport.NONE;
     }
 
     private static void complete(

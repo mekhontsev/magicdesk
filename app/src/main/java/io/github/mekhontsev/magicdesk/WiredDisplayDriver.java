@@ -8,6 +8,14 @@ import java.io.IOException;
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(false, true, true, true);
+    private final PlatformProjectionDriver mProjection;
+
+    WiredDisplayDriver(final PlatformProjectionDriver projection) {
+        if (projection == null) {
+            throw new IllegalArgumentException("projection driver is required");
+        }
+        mProjection = projection;
+    }
 
     @Override
     public DesktopDisplayTarget.Kind kind() {
@@ -55,9 +63,9 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        if (DesktopDisplayDriverSupport.ownsTransportLifecycle(
+        if (mProjection.ownsTransportLifecycle(
                 PlatformProjectionDriver.Transport.WIRED)) {
-            ConsoleSessionController.show(displayId);
+            ConsoleSessionController.show(displayId, mProjection);
             return;
         }
         final int connectedDisplayId = displayId > 0
@@ -71,19 +79,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         }
         DesktopDisplayDriverSupport.showConnectedExternal(
                 this, connectedDisplayId);
-    }
-
-    @Override
-    public void close(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final CompletionCallback callback) {
-        requireTarget(target);
-        DesktopDisplayDriverSupport.closeExternal(
-                target,
-                PlatformProjectionDriver.Transport.WIRED,
-                restorePhonePanel,
-                callback);
     }
 
     private static boolean isBackedBySeparateOutput(

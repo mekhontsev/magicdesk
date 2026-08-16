@@ -28,19 +28,6 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
-    public void close(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final CompletionCallback callback) {
-        requireTarget(target);
-        DesktopDisplayDriverSupport.closeExternal(
-                target,
-                PlatformProjectionDriver.Transport.WIRELESS,
-                restorePhonePanel,
-                callback);
-    }
-
-    @Override
     public boolean isSessionDisplayRemoval(
             final DesktopDisplayTarget target,
             final int removedDisplayId,

@@ -4,10 +4,6 @@ import android.app.Activity;
 
 /** Owns transport-specific lifecycle and policy for one display environment. */
 interface DesktopDisplayDriver {
-    interface CompletionCallback {
-        void onComplete(boolean success);
-    }
-
     DesktopDisplayTarget.Kind kind();
 
     DesktopDisplayFeatures features();
@@ -28,11 +24,6 @@ interface DesktopDisplayDriver {
     }
 
     void show(Activity source, int displayId);
-
-    void close(
-            DesktopDisplayTarget target,
-            boolean restorePhonePanel,
-            CompletionCallback callback);
 
     boolean isSessionDisplayRemoval(
             DesktopDisplayTarget target,
