@@ -376,10 +376,11 @@ isolated behind these boundaries.
   and dispatches UI commands. Session state therefore does not acquire UI
   behavior, and UI liveness cannot become a second session-state authority.
 - `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
-  and simulated. A driver owns environment-specific start/close behavior,
-  launch-area policy, phone-screen and touchpad availability, and display
-  removal semantics. Shared task, window, input, and desktop UI code remains
-  transport-independent.
+  and simulated. A driver owns environment-specific activation, launch-area
+  policy, phone-screen and touchpad availability, capture support, and display
+  removal semantics. Closing and mirror transitions are deliberately absent
+  from the drivers: one session coordinator combines the selected display
+  target with the selected platform transport lifecycle.
 - `DesktopDisplayDrivers` is the only registry for resolving those drivers.
   `ConsoleModeSwitcher` serializes public session transitions and delegates
   the selected target to the registry.
@@ -390,7 +391,19 @@ isolated behind these boundaries.
   and shortcuts. `DesktopSessionTransitionCoordinator` owns activation,
   close, and mirror sequencing; `SerializedDesktopOperationQueue` provides the
   single ordered executor shared with shell settings and input policy. The
-  facade owns neither transition flags nor an executor.
+  facade owns neither transition flags nor an executor. Platform projection
+  and feature contracts are injected into the coordinator, so a close cannot
+  re-enter `ConsoleModeSwitcher` through a display driver.
+- Desktop shortcut and panel commands enter through `MagicDeskRuntime`. The
+  runtime service is the availability and ownership boundary;
+  `DesktopRuntimeBridge` remains the lower-level gateway that dispatches a
+  command to the currently registered host on the main thread. Self-tests may
+  address that gateway directly when the gateway itself is the subject under
+  test.
+- Platform phone-UI adapters receive the active desktop display ID with a
+  phone-screen request. They do not discover session state through
+  `DesktopRuntimeBridge` and publish state changes through the runtime rather
+  than reaching a desktop Activity.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.

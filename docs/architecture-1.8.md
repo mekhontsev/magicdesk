@@ -48,9 +48,11 @@ desktop UI or duplicate session state.
 
 Display drivers remain independent from platform drivers:
 
-- display drivers describe phone, wired, wireless, and simulated lifecycle;
+- display drivers describe phone, wired, wireless, and simulated activation,
+  capabilities, and display-removal behavior;
 - platform drivers describe firmware capabilities and workarounds;
-- session orchestration composes the two for one active target.
+- session orchestration composes the two for one active target and exclusively
+  owns close and mirror transitions.
 
 ## External Project Review
 
@@ -108,5 +110,23 @@ longer apply Nubia behavior unconditionally. Existing platform contracts select
 caption repair, focus synchronization, phone task recovery, and the pointer
 driver. Source-isolation tests reject fully qualified implementation references
 and known vendor runtime identifiers outside platform adapters.
+
+The session transition path now has one owner. Display drivers cannot close a
+session or call back into `ConsoleModeSwitcher`; the coordinator receives the
+selected projection and feature contracts and performs direct-session close or
+platform-owned mirror teardown on the same serialized queue. This removes the
+former facade -> driver -> facade loop.
+
+Desktop UI commands follow the same ownership rule. Shortcuts and session
+orchestration enter through `MagicDeskRuntime`; only the runtime backend talks
+to the live-host gateway. Platform adapters cannot read that gateway. For
+example, the Nubia phone-display guard receives its desktop display ID from
+orchestration and reports a generic platform-state change instead of reading
+session state or refreshing desktop controls itself.
+
+Architecture tests preserve these boundaries: platform implementations may
+not reference `DesktopRuntimeBridge`, console commands may not bypass the
+runtime, and the session coordinator may not re-enter its facade or resolve a
+new platform dependency.
 
 Each step must leave the branch buildable and independently reviewable.
