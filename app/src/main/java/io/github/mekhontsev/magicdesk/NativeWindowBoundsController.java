@@ -8,10 +8,7 @@ import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 final class NativeWindowBoundsController {
     interface RuntimeState {
@@ -27,40 +24,34 @@ final class NativeWindowBoundsController {
 
     private final Context mApplicationContext;
     private final Handler mHandler;
+    private final DesktopTaskRuntimeRegistry mTaskStates;
     private final RuntimeState mRuntimeState;
-    private final Map<Integer, Rect> mLastWindowBounds = new HashMap<>();
-    private final Map<Integer, Rect> mMaximizeRestoreBounds = new HashMap<>();
-    private final Map<Integer, BoundsTransition> mTransitions = new HashMap<>();
 
     NativeWindowBoundsController(
             final Context context,
             final Handler handler,
+            final DesktopTaskRuntimeRegistry taskStates,
             final RuntimeState runtimeState) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
+        mTaskStates = taskStates;
         mRuntimeState = runtimeState;
     }
 
     void reset() {
-        mLastWindowBounds.clear();
-        mMaximizeRestoreBounds.clear();
-        mTransitions.clear();
-    }
-
-    void forget(final int taskId) {
-        final Integer key = Integer.valueOf(taskId);
-        mLastWindowBounds.remove(key);
-        mMaximizeRestoreBounds.remove(key);
-        mTransitions.remove(key);
+        mTaskStates.clearNativeBoundsState();
     }
 
     void clearForFullscreen(final int taskId) {
-        forget(taskId);
+        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+        if (state != null) {
+            state.clearNativeBoundsState();
+        }
     }
 
     Rect getMaximizeRestoreBounds(final int taskId) {
-        final Rect bounds = mMaximizeRestoreBounds.get(Integer.valueOf(taskId));
-        return bounds == null ? null : new Rect(bounds);
+        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+        return state == null ? null : state.maximizeRestoreBounds();
     }
 
     Rect getSnappedBounds(final boolean left) {
@@ -121,28 +112,30 @@ final class NativeWindowBoundsController {
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
             final boolean clearsMaximizeState) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        final BoundsTransition transition =
-                new BoundsTransition(targetBounds, clearsMaximizeState);
-        mTransitions.put(taskId, transition);
+        final int taskId = task.taskId;
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        final DesktopTaskRuntimeState.BoundsTransition transition =
+                state.beginBoundsTransition(
+                        targetBounds, clearsMaximizeState);
         TaskRepository.resizeTaskBounds(
                 task,
                 targetBounds,
                 result -> mHandler.post(() -> {
-                    if (mTransitions.get(taskId) != transition) {
+                    if (!mTaskStates.isCurrent(taskId, state)
+                            || !state.isBoundsTransition(transition)) {
                         if (result.success) {
                             mRuntimeState.scheduleRefresh();
                         }
                         return;
                     }
                     if (!result.success) {
-                        mTransitions.remove(taskId);
+                        state.clearBoundsTransition(transition);
                         if (!clearsMaximizeState) {
-                            mMaximizeRestoreBounds.remove(taskId);
+                            state.clearMaximizeRestoreBounds();
                         }
                         Log.w(TAG,
                                 "native bounds transition failed task="
-                                        + task.taskId
+                                        + taskId
                                         + " message=" + result.message);
                         return;
                     }
@@ -150,10 +143,7 @@ final class NativeWindowBoundsController {
                 }));
     }
 
-    void reconcile(
-            final List<TaskRepository.TaskEntry> tasks,
-            final Set<Integer> fullscreenTransitionTasks,
-            final Map<Integer, Rect> fullscreenRestoreBounds) {
+    void reconcile(final List<TaskRepository.TaskEntry> tasks) {
         if (mRuntimeState.windowContext() == null) {
             return;
         }
@@ -167,21 +157,23 @@ final class NativeWindowBoundsController {
                     || !task.isBoundedFreeform()) {
                 continue;
             }
-            final Integer taskId = Integer.valueOf(task.taskId);
-            if (fullscreenTransitionTasks.contains(taskId)
-                    || fullscreenRestoreBounds.containsKey(taskId)) {
-                forget(task.taskId);
+            final DesktopTaskRuntimeState state =
+                    mTaskStates.state(task.taskId);
+            if (state.isFullscreenTransition()
+                    || state.fullscreenRestoreBounds() != null) {
+                state.clearNativeBoundsState();
                 continue;
             }
 
-            final BoundsTransition transition = mTransitions.get(taskId);
+            final DesktopTaskRuntimeState.BoundsTransition transition =
+                    state.boundsTransition();
             if (transition != null) {
-                if (task.bounds.equals(transition.targetBounds)) {
-                    mTransitions.remove(taskId);
+                if (task.bounds.equals(transition.targetBounds())) {
+                    state.clearBoundsTransition(transition);
                     if (transition.clearsMaximizeState) {
-                        mMaximizeRestoreBounds.remove(taskId);
-                        mLastWindowBounds.put(
-                                taskId, new Rect(transition.targetBounds));
+                        state.clearMaximizeRestoreBounds();
+                        state.setLastWindowBounds(
+                                transition.targetBounds());
                     }
                 }
                 continue;
@@ -190,20 +182,19 @@ final class NativeWindowBoundsController {
                 continue;
             }
 
-            final Rect restoreBounds = mMaximizeRestoreBounds.get(taskId);
+            final Rect restoreBounds = state.maximizeRestoreBounds();
             if (task.bounds.equals(fullscreenBounds)) {
                 if (restoreBounds != null) {
                     requestBounds(task, restoreBounds, true);
                 } else {
-                    Rect previousBounds = mLastWindowBounds.get(taskId);
+                    Rect previousBounds = state.lastWindowBounds();
                     if (previousBounds == null || previousBounds.isEmpty()
                             || previousBounds.equals(fullscreenBounds)
                             || previousBounds.equals(maximizedBounds)) {
                         previousBounds =
                                 getDefaultWindowBounds(maximizedBounds);
                     }
-                    mMaximizeRestoreBounds.put(
-                            taskId, new Rect(previousBounds));
+                    state.setMaximizeRestoreBounds(previousBounds);
                     requestBounds(task, maximizedBounds, false);
                 }
                 continue;
@@ -224,14 +215,13 @@ final class NativeWindowBoundsController {
             }
 
             if (task.bounds.equals(maximizedBounds)) {
-                Rect previousBounds = mLastWindowBounds.get(taskId);
+                Rect previousBounds = state.lastWindowBounds();
                 if (previousBounds == null || previousBounds.isEmpty()) {
                     previousBounds = getDefaultWindowBounds(maximizedBounds);
                 }
-                mMaximizeRestoreBounds.put(
-                        taskId, new Rect(previousBounds));
+                state.setMaximizeRestoreBounds(previousBounds);
             } else {
-                mLastWindowBounds.put(taskId, new Rect(task.bounds));
+                state.setLastWindowBounds(task.bounds);
             }
         }
     }
@@ -262,17 +252,5 @@ final class NativeWindowBoundsController {
     private static int dp(final Context context, final int value) {
         return Math.round(
                 value * context.getResources().getDisplayMetrics().density);
-    }
-
-    private static final class BoundsTransition {
-        final Rect targetBounds;
-        final boolean clearsMaximizeState;
-
-        BoundsTransition(
-                final Rect targetBounds,
-                final boolean clearsMaximizeState) {
-            this.targetBounds = new Rect(targetBounds);
-            this.clearsMaximizeState = clearsMaximizeState;
-        }
     }
 }

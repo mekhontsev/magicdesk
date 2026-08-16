@@ -40,6 +40,7 @@ final class DesktopTaskController {
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
     private final PlatformPhoneUiDriver mPhoneUi;
     private final PlatformWindowingDriver mWindowing;
+    private final DesktopTaskRuntimeRegistry mTaskRuntimeStates;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
     private final AppWindowStateTracker mAppWindowStates;
@@ -70,9 +71,11 @@ final class DesktopTaskController {
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
                 mApplicationContext, phoneUi);
         mAppWindowStates = new AppWindowStateTracker(handler);
+        mTaskRuntimeStates = new DesktopTaskRuntimeRegistry();
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
                 handler,
+                mTaskRuntimeStates,
                 new NativeWindowBoundsController.RuntimeState() {
                     @Override
                     public int displayId() {
@@ -105,9 +108,9 @@ final class DesktopTaskController {
                     }
                 });
         mWindowTransitions = new DesktopWindowTransitionController(
-                mApplicationContext,
                 mHandler,
                 mNativeWindowBounds,
+                mTaskRuntimeStates,
                 new DesktopWindowTransitionController.RuntimeState() {
                     @Override
                     public int displayId() {
@@ -780,10 +783,7 @@ final class DesktopTaskController {
                 return;
             }
         }
-        mNativeWindowBounds.reconcile(
-                snapshot.tasks,
-                mWindowTransitions.fullscreenTransitionTasks(),
-                mWindowTransitions.fullscreenRestoreBounds());
+        mNativeWindowBounds.reconcile(snapshot.tasks);
         DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         final Set<Integer> visibleAppTaskIds = new HashSet<>();

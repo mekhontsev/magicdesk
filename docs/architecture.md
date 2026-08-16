@@ -299,6 +299,12 @@ runtime integration and are not distributed through the same release path.
   MagicDesk and third-party tasks alike, so Nubia Quickstep never receives
   phone-side freeform state from those transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
+- `DesktopTaskRuntimeRegistry` owns one transient state object per Android task
+  ID. Bounds, maximize/restore, fullscreen, immersive, and startup-windowed
+  transitions share that object instead of maintaining parallel controller
+  maps. Removing a task invalidates late asynchronous callbacks atomically;
+  stopping the bounds controller clears only its bounds fields and preserves
+  live fullscreen/immersive ownership.
 - `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.

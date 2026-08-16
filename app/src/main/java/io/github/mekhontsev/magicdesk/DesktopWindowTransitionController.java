@@ -1,17 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.Context;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 final class DesktopWindowTransitionController {
     interface RuntimeState {
@@ -30,59 +26,43 @@ final class DesktopWindowTransitionController {
 
     private static final String TAG = "MagicDeskTasks";
     private final Handler mHandler;
-    private final Context mContext;
     private final NativeWindowBoundsController mNativeWindowBounds;
+    private final DesktopTaskRuntimeRegistry mTaskStates;
     private final RuntimeState mRuntimeState;
-    private final Map<Integer, Rect> mRestoreBounds = new HashMap<>();
-    private final Map<Integer, Rect> mFullscreenRestoreBounds =
-            new HashMap<>();
-    private final Map<Integer, Boolean> mImmersiveRequests = new HashMap<>();
-    private final Set<Integer> mAppRequestedFullscreenTasks =
-            new HashSet<>();
-    private final Set<Integer> mFullscreenTransitionTasks = new HashSet<>();
-    private final Set<Integer> mManualImmersiveOverrides =
-            ConcurrentHashMap.newKeySet();
-    private final Set<Integer> mStartupWindowedTasks =
-            ConcurrentHashMap.newKeySet();
 
     DesktopWindowTransitionController(
-            final Context context,
             final Handler handler,
             final NativeWindowBoundsController nativeWindowBounds,
+            final DesktopTaskRuntimeRegistry taskStates,
             final RuntimeState runtimeState) {
-        mContext = context.getApplicationContext();
         mHandler = handler;
         mNativeWindowBounds = nativeWindowBounds;
+        mTaskStates = taskStates;
         mRuntimeState = runtimeState;
     }
 
-    Set<Integer> fullscreenTransitionTasks() {
-        return mFullscreenTransitionTasks;
-    }
-
-    Map<Integer, Rect> fullscreenRestoreBounds() {
-        return mFullscreenRestoreBounds;
-    }
-
     boolean hasManagedFullscreenState(final int taskId) {
-        return mFullscreenRestoreBounds.containsKey(Integer.valueOf(taskId));
+        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+        return state != null && state.fullscreenRestoreBounds() != null;
     }
 
     void observeWindowingModeChange(
             final int taskId,
             final int previousMode,
             final int currentMode) {
-        final Integer taskKey = Integer.valueOf(taskId);
+        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
         if (!shouldForgetManagedFullscreenState(
                 previousMode,
                 currentMode,
-                mFullscreenTransitionTasks.contains(taskKey))) {
+                state != null && state.isFullscreenTransition())) {
             return;
         }
         // A native restore bypasses MagicDesk's restore callback. Forget its
         // old fullscreen ownership before classifying the next transition.
-        mFullscreenRestoreBounds.remove(taskKey);
-        mAppRequestedFullscreenTasks.remove(taskKey);
+        if (state != null) {
+            state.clearFullscreenRestoreBounds();
+            state.setAppRequestedFullscreen(false);
+        }
     }
 
     static boolean shouldForgetManagedFullscreenState(
@@ -137,8 +117,8 @@ final class DesktopWindowTransitionController {
             if (task == null) {
                 return;
             }
-            final Integer taskId = Integer.valueOf(task.taskId);
-            mManualImmersiveOverrides.add(taskId);
+            mTaskStates.state(task.taskId)
+                    .setManualImmersiveOverride(true);
             restoreFullscreenTask(task, true);
         }));
     }
@@ -147,11 +127,11 @@ final class DesktopWindowTransitionController {
             final int taskId,
             final boolean requestingImmersive,
             final boolean initialSample) {
-        final Integer key = Integer.valueOf(taskId);
-        final Boolean previous = mImmersiveRequests.put(
-                key, Boolean.valueOf(requestingImmersive));
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        final Boolean previous =
+                state.updateImmersiveRequested(requestingImmersive);
         if (initialSample) {
-            if (mAppRequestedFullscreenTasks.contains(key)) {
+            if (state.isAppRequestedFullscreen()) {
                 mRuntimeState.scheduleRefresh();
             }
             return;
@@ -159,10 +139,10 @@ final class DesktopWindowTransitionController {
         final boolean newImmersiveRequest = isNewImmersiveRequest(
                 previous, requestingImmersive, initialSample);
         final boolean startupWindowedRequest = newImmersiveRequest
-                && mStartupWindowedTasks.remove(key);
+                && state.consumeStartupWindowed();
         if (shouldClearManualImmersiveOverride(
                 newImmersiveRequest, startupWindowedRequest)) {
-            mManualImmersiveOverrides.remove(key);
+            state.setManualImmersiveOverride(false);
         } else if (startupWindowedRequest) {
             Log.i(TAG, "kept startup task windowed task=" + taskId);
         }
@@ -171,7 +151,8 @@ final class DesktopWindowTransitionController {
 
     void noteManualFreeformTransition(final int taskId) {
         if (taskId >= 0) {
-            mManualImmersiveOverrides.add(Integer.valueOf(taskId));
+            mTaskStates.state(taskId)
+                    .setManualImmersiveOverride(true);
         }
     }
 
@@ -179,15 +160,18 @@ final class DesktopWindowTransitionController {
         if (taskId < 0) {
             return;
         }
-        final Integer key = Integer.valueOf(taskId);
-        mManualImmersiveOverrides.add(key);
-        mStartupWindowedTasks.add(key);
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        state.setManualImmersiveOverride(true);
+        state.setStartupWindowed(true);
         Log.i(TAG, "protecting startup windowed task=" + taskId);
     }
 
     void finishExplicitWindowedLaunch(final int taskId) {
         if (taskId >= 0) {
-            mStartupWindowedTasks.remove(Integer.valueOf(taskId));
+            final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+            if (state != null) {
+                state.setStartupWindowed(false);
+            }
         }
     }
 
@@ -208,19 +192,14 @@ final class DesktopWindowTransitionController {
     }
 
     void forgetTaskState(final int taskId) {
-        final Integer key = Integer.valueOf(taskId);
-        mImmersiveRequests.remove(key);
-        mAppRequestedFullscreenTasks.remove(key);
-        if (mFullscreenTransitionTasks.remove(key)
-                && mFullscreenTransitionTasks.isEmpty()) {
+        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+        final boolean transitionPending = state != null
+                && state.isFullscreenTransition();
+        mTaskStates.forget(taskId);
+        if (transitionPending && !hasFullscreenTransitions()) {
             finishWorkspaceTransition(
                     mRuntimeState.displayId(), false);
         }
-        mManualImmersiveOverrides.remove(key);
-        mStartupWindowedTasks.remove(key);
-        mFullscreenRestoreBounds.remove(key);
-        mRestoreBounds.remove(key);
-        mNativeWindowBounds.forget(taskId);
     }
 
     void reconcile(
@@ -256,14 +235,14 @@ final class DesktopWindowTransitionController {
             snapFullscreenTask(task, left);
             return;
         }
-        final Integer taskId = Integer.valueOf(task.taskId);
-        if (!mRestoreBounds.containsKey(taskId)) {
+        final DesktopTaskRuntimeState state =
+                mTaskStates.state(task.taskId);
+        if (state.windowRestoreBounds() == null) {
             final Rect nativeRestoreBounds =
                     mNativeWindowBounds.getMaximizeRestoreBounds(task.taskId);
-            mRestoreBounds.put(
-                    taskId,
-                    new Rect(nativeRestoreBounds != null
-                            ? nativeRestoreBounds : task.bounds));
+            state.setWindowRestoreBounds(
+                    nativeRestoreBounds != null
+                            ? nativeRestoreBounds : task.bounds);
         }
         mNativeWindowBounds.requestBounds(
                 task, mNativeWindowBounds.getSnappedBounds(left), true);
@@ -272,32 +251,36 @@ final class DesktopWindowTransitionController {
     private void snapFullscreenTask(
             final TaskRepository.TaskEntry task,
             final boolean left) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        if (!mFullscreenTransitionTasks.add(taskId)) {
+        final int taskId = task.taskId;
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        if (!state.beginFullscreenTransition()) {
             return;
         }
-        final Rect savedBounds = mFullscreenRestoreBounds.get(taskId);
+        final Rect savedBounds = state.fullscreenRestoreBounds();
         final Rect restoreBounds;
         if (savedBounds != null) {
-            restoreBounds = new Rect(savedBounds);
+            restoreBounds = savedBounds;
         } else {
             try {
                 restoreBounds = FloatingWindowController
                         .getDefaultWindowBounds(mRuntimeState.displayId());
             } catch (IOException e) {
-                mFullscreenTransitionTasks.remove(taskId);
+                state.finishFullscreenTransition();
                 Log.w(TAG,
                         "cannot resolve fullscreen snap restore bounds", e);
                 return;
             }
         }
-        mManualImmersiveOverrides.add(taskId);
+        state.setManualImmersiveOverride(true);
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
         TaskRepository.setFreeform(
                 task, targetBounds,
                 result -> mHandler.post(() -> {
-                    mFullscreenTransitionTasks.remove(taskId);
+                    if (!mTaskStates.isCurrent(taskId, state)) {
+                        return;
+                    }
+                    state.finishFullscreenTransition();
                     if (!result.success) {
                         Log.w(TAG,
                                 "fullscreen snap failed task="
@@ -305,9 +288,9 @@ final class DesktopWindowTransitionController {
                                         + " message=" + result.message);
                         return;
                     }
-                    mRestoreBounds.put(taskId, restoreBounds);
-                    mFullscreenRestoreBounds.remove(taskId);
-                    mAppRequestedFullscreenTasks.remove(taskId);
+                    state.setWindowRestoreBounds(restoreBounds);
+                    state.clearFullscreenRestoreBounds();
+                    state.setAppRequestedFullscreen(false);
                     rememberWindowed(task, targetBounds);
                     mRuntimeState.scheduleRefresh();
                 }));
@@ -316,23 +299,30 @@ final class DesktopWindowTransitionController {
     private void restoreOrMinimize(
             final TaskRepository.TaskEntry task,
             final TaskRepository.TaskEntry minimizeFocusTask) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        final Rect savedBounds = mRestoreBounds.get(taskId);
+        final DesktopTaskRuntimeState state =
+                mTaskStates.find(task.taskId);
+        final Rect savedBounds = state == null
+                ? null : state.windowRestoreBounds();
         if (savedBounds == null) {
             minimize(task, minimizeFocusTask);
             return;
         }
-        resize(task, new Rect(savedBounds), true);
+        resize(task, savedBounds, true);
     }
 
     private void resize(
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
             final boolean clearRestoreBounds) {
+        final DesktopTaskRuntimeState state =
+                mTaskStates.state(task.taskId);
         TaskRepository.resizeTaskBounds(
                 task,
                 targetBounds,
                 result -> mHandler.post(() -> {
+                    if (!mTaskStates.isCurrent(task.taskId, state)) {
+                        return;
+                    }
                     if (!result.success) {
                         Log.w(TAG,
                                 "native bounds change failed task="
@@ -341,8 +331,7 @@ final class DesktopWindowTransitionController {
                         return;
                     }
                     if (clearRestoreBounds) {
-                        mRestoreBounds.remove(
-                                Integer.valueOf(task.taskId));
+                        state.clearWindowRestoreBounds();
                     }
                     mRuntimeState.scheduleRefresh();
                 }));
@@ -351,18 +340,19 @@ final class DesktopWindowTransitionController {
     private void makeFullscreen(
             final TaskRepository.TaskEntry task,
             final boolean appRequested) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        if (!mFullscreenTransitionTasks.add(taskId)) {
+        final int taskId = task.taskId;
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        if (!state.beginFullscreenTransition()) {
             return;
         }
         final int displayId = mRuntimeState.displayId();
-        mFullscreenRestoreBounds.put(taskId, new Rect(task.bounds));
+        state.setFullscreenRestoreBounds(task.bounds);
         if (!appRequested) {
             rememberWindowed(task, task.bounds);
         }
         mNativeWindowBounds.clearForFullscreen(task.taskId);
         if (appRequested) {
-            mAppRequestedFullscreenTasks.add(taskId);
+            state.setAppRequestedFullscreen(true);
         }
         DesktopTaskStateStore.beginFullscreenTransition(
                 displayId,
@@ -370,12 +360,15 @@ final class DesktopWindowTransitionController {
                 task.taskId);
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> {
+                    if (!mTaskStates.isCurrent(taskId, state)) {
+                        return;
+                    }
                     if (!result.success) {
-                        mFullscreenTransitionTasks.remove(taskId);
+                        state.finishFullscreenTransition();
                         finishWorkspaceTransition(displayId, false);
-                        mFullscreenRestoreBounds.remove(taskId);
+                        state.clearFullscreenRestoreBounds();
                         if (appRequested) {
-                            mAppRequestedFullscreenTasks.remove(taskId);
+                            state.setAppRequestedFullscreen(false);
                         }
                         Log.w(TAG,
                                 "fullscreen shortcut failed task="
@@ -389,7 +382,7 @@ final class DesktopWindowTransitionController {
                         mRuntimeState.scheduleRefresh();
                         return;
                     }
-                    mFullscreenTransitionTasks.remove(taskId);
+                    state.finishFullscreenTransition();
                     finishWorkspaceTransition(displayId, true);
                     if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
                         AppWindowStateStore.rememberMode(
@@ -409,20 +402,21 @@ final class DesktopWindowTransitionController {
     private void restoreFullscreenTask(
             final TaskRepository.TaskEntry task,
             final boolean userRequested) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        if (!mFullscreenTransitionTasks.add(taskId)) {
+        final int taskId = task.taskId;
+        final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
+        if (!state.beginFullscreenTransition()) {
             return;
         }
-        final Rect savedBounds = mFullscreenRestoreBounds.get(taskId);
+        final Rect savedBounds = state.fullscreenRestoreBounds();
         final Rect targetBounds;
         if (savedBounds != null) {
-            targetBounds = new Rect(savedBounds);
+            targetBounds = savedBounds;
         } else {
             try {
                 targetBounds = FloatingWindowController
                         .getDefaultWindowBounds(mRuntimeState.displayId());
             } catch (IOException e) {
-                mFullscreenTransitionTasks.remove(taskId);
+                state.finishFullscreenTransition();
                 Log.w(TAG,
                         "cannot resolve fullscreen restore bounds", e);
                 return;
@@ -432,6 +426,7 @@ final class DesktopWindowTransitionController {
                 task, targetBounds,
                 result -> mHandler.post(() -> finishFullscreenRestore(
                         task,
+                        state,
                         targetBounds,
                         userRequested,
                         result.success,
@@ -440,19 +435,22 @@ final class DesktopWindowTransitionController {
 
     private void finishFullscreenRestore(
             final TaskRepository.TaskEntry task,
+            final DesktopTaskRuntimeState state,
             final Rect targetBounds,
             final boolean userRequested,
             final boolean success,
             final String message) {
-        final Integer taskId = Integer.valueOf(task.taskId);
-        mFullscreenTransitionTasks.remove(taskId);
+        if (!mTaskStates.isCurrent(task.taskId, state)) {
+            return;
+        }
+        state.finishFullscreenTransition();
         if (!success) {
             Log.w(TAG, "fullscreen restore failed task=" + task.taskId
                     + " message=" + message);
             return;
         }
-        mFullscreenRestoreBounds.remove(taskId);
-        mAppRequestedFullscreenTasks.remove(taskId);
+        state.clearFullscreenRestoreBounds();
+        state.setAppRequestedFullscreen(false);
         if (userRequested) {
             rememberWindowed(task, targetBounds);
         }
@@ -467,26 +465,27 @@ final class DesktopWindowTransitionController {
             liveTaskIds.add(Integer.valueOf(task.taskId));
         }
         final Set<Integer> staleAutomaticTasks =
-                new HashSet<>(mAppRequestedFullscreenTasks);
+                appRequestedFullscreenTaskIds();
         staleAutomaticTasks.removeAll(liveTaskIds);
         for (final Integer taskId : staleAutomaticTasks) {
             forgetTaskState(taskId.intValue());
         }
 
-        for (final Integer taskId
-                : new HashSet<>(mAppRequestedFullscreenTasks)) {
-            if (Boolean.TRUE.equals(mImmersiveRequests.get(taskId))) {
+        for (final Integer taskId : appRequestedFullscreenTaskIds()) {
+            final DesktopTaskRuntimeState state =
+                    mTaskStates.find(taskId.intValue());
+            if (state == null || state.isImmersiveRequested()) {
                 continue;
             }
             final TaskRepository.TaskEntry task =
                     findTask(allTasks, taskId.intValue());
             if (task == null || task.isFreeform()) {
                 if (task != null
-                        && mFullscreenTransitionTasks.contains(taskId)) {
+                        && state.isFullscreenTransition()) {
                     continue;
                 }
-                mAppRequestedFullscreenTasks.remove(taskId);
-                mFullscreenRestoreBounds.remove(taskId);
+                state.setAppRequestedFullscreen(false);
+                state.clearFullscreenRestoreBounds();
                 continue;
             }
             restoreFullscreenTask(task, false);
@@ -497,20 +496,22 @@ final class DesktopWindowTransitionController {
         }
         final TaskRepository.TaskEntry topTask =
                 visibleFreeformTasks.get(0);
-        final Integer topTaskId = Integer.valueOf(topTask.taskId);
+        final DesktopTaskRuntimeState topState =
+                mTaskStates.find(topTask.taskId);
         if (topTask.active
-                && Boolean.TRUE.equals(mImmersiveRequests.get(topTaskId))
-                && !mAppRequestedFullscreenTasks.contains(topTaskId)
-                && !mManualImmersiveOverrides.contains(topTaskId)
-                && !mFullscreenTransitionTasks.contains(topTaskId)) {
+                && topState != null
+                && topState.isImmersiveRequested()
+                && !topState.isAppRequestedFullscreen()
+                && !topState.hasManualImmersiveOverride()
+                && !topState.isFullscreenTransition()) {
             makeFullscreen(topTask, true);
         }
     }
 
     private void reconcileSubmittedAppFullscreenTransitions(
             final List<TaskRepository.TaskEntry> tasks) {
-        if (mFullscreenTransitionTasks.isEmpty()
-                || mAppRequestedFullscreenTasks.isEmpty()) {
+        if (!hasFullscreenTransitions()
+                || !hasAppRequestedFullscreenTasks()) {
             return;
         }
         final Set<Integer> liveTaskIds = new HashSet<>();
@@ -521,28 +522,72 @@ final class DesktopWindowTransitionController {
             }
             final Integer taskId = Integer.valueOf(task.taskId);
             liveTaskIds.add(taskId);
-            if (mFullscreenTransitionTasks.contains(taskId)
-                    && mAppRequestedFullscreenTasks.contains(taskId)
+            final DesktopTaskRuntimeState state =
+                    mTaskStates.find(task.taskId);
+            if (state != null
+                    && state.isFullscreenTransition()
+                    && state.isAppRequestedFullscreen()
                     && !task.isFreeform()) {
                 completedTaskIds.add(taskId);
             }
         }
         for (final Integer taskId : completedTaskIds) {
-            mFullscreenTransitionTasks.remove(taskId);
+            final DesktopTaskRuntimeState state =
+                    mTaskStates.find(taskId.intValue());
+            if (state != null) {
+                state.finishFullscreenTransition();
+            }
         }
         if (!completedTaskIds.isEmpty()
-                && mFullscreenTransitionTasks.isEmpty()) {
+                && !hasFullscreenTransitions()) {
             finishWorkspaceTransition(
                     mRuntimeState.displayId(), true);
         }
 
-        final Set<Integer> removedTaskIds =
-                new HashSet<>(mFullscreenTransitionTasks);
-        removedTaskIds.retainAll(mAppRequestedFullscreenTasks);
+        final Set<Integer> removedTaskIds = fullscreenTransitionTaskIds();
+        removedTaskIds.retainAll(appRequestedFullscreenTaskIds());
         removedTaskIds.removeAll(liveTaskIds);
         for (final Integer taskId : removedTaskIds) {
             forgetTaskState(taskId.intValue());
         }
+    }
+
+    private boolean hasFullscreenTransitions() {
+        for (final DesktopTaskRuntimeState state : mTaskStates.snapshot()) {
+            if (state.isFullscreenTransition()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAppRequestedFullscreenTasks() {
+        for (final DesktopTaskRuntimeState state : mTaskStates.snapshot()) {
+            if (state.isAppRequestedFullscreen()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Integer> fullscreenTransitionTaskIds() {
+        final Set<Integer> taskIds = new HashSet<>();
+        for (final DesktopTaskRuntimeState state : mTaskStates.snapshot()) {
+            if (state.isFullscreenTransition()) {
+                taskIds.add(Integer.valueOf(state.taskId()));
+            }
+        }
+        return taskIds;
+    }
+
+    private Set<Integer> appRequestedFullscreenTaskIds() {
+        final Set<Integer> taskIds = new HashSet<>();
+        for (final DesktopTaskRuntimeState state : mTaskStates.snapshot()) {
+            if (state.isAppRequestedFullscreen()) {
+                taskIds.add(Integer.valueOf(state.taskId()));
+            }
+        }
+        return taskIds;
     }
 
     private void finishWorkspaceTransition(
