@@ -53,6 +53,22 @@ interface MagicDeskRuntimeBackend {
 
     boolean showStart();
 
+    boolean toggleDesktopWorkspace();
+
+    boolean advanceAltTab(boolean reverse);
+
+    boolean finishAltTab();
+
+    boolean cancelAltTab();
+
+    boolean toggleShortcutHelp();
+
+    boolean toggleNotificationCenter();
+
+    boolean toggleSystemPanel();
+
+    boolean openSettings();
+
     DesktopTaskRuntime desktopTasks();
 
     DesktopTaskParkingRuntime desktopTaskParking();

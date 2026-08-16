@@ -243,6 +243,47 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public boolean toggleDesktopWorkspace() {
+        return !mDestroyed && DesktopRuntimeBridge.toggleDesktopWorkspace();
+    }
+
+    @Override
+    public boolean advanceAltTab(final boolean reverse) {
+        return !mDestroyed && DesktopRuntimeBridge.advanceAltTab(reverse);
+    }
+
+    @Override
+    public boolean finishAltTab() {
+        return !mDestroyed && DesktopRuntimeBridge.finishAltTab();
+    }
+
+    @Override
+    public boolean cancelAltTab() {
+        return !mDestroyed && DesktopRuntimeBridge.cancelAltTab();
+    }
+
+    @Override
+    public boolean toggleShortcutHelp() {
+        return !mDestroyed && DesktopRuntimeBridge.toggleShortcutHelp();
+    }
+
+    @Override
+    public boolean toggleNotificationCenter() {
+        return !mDestroyed
+                && DesktopRuntimeBridge.toggleNotificationCenter();
+    }
+
+    @Override
+    public boolean toggleSystemPanel() {
+        return !mDestroyed && DesktopRuntimeBridge.toggleSystemPanel();
+    }
+
+    @Override
+    public boolean openSettings() {
+        return !mDestroyed && DesktopRuntimeBridge.openSettings();
+    }
+
+    @Override
     public DesktopTaskRuntime desktopTasks() {
         return mDestroyed || mDesktopTaskRuntime == null
                 ? null : mDesktopTaskRuntime.operations();

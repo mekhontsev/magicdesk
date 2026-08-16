@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -30,6 +31,14 @@ public final class MagicDeskRuntimeTest {
         assertFalse(MagicDeskRuntime.capturePointerPosition());
         assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
+        assertFalse(MagicDeskRuntime.toggleDesktopWorkspace());
+        assertFalse(MagicDeskRuntime.advanceAltTab(false));
+        assertFalse(MagicDeskRuntime.finishAltTab());
+        assertFalse(MagicDeskRuntime.cancelAltTab());
+        assertFalse(MagicDeskRuntime.toggleShortcutHelp());
+        assertFalse(MagicDeskRuntime.toggleNotificationCenter());
+        assertFalse(MagicDeskRuntime.toggleSystemPanel());
+        assertFalse(MagicDeskRuntime.openSettings());
         assertFalse(parkingResult[0]);
     }
 
@@ -43,10 +52,19 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
+        assertTrue(MagicDeskRuntime.toggleDesktopWorkspace());
+        assertTrue(MagicDeskRuntime.advanceAltTab(true));
+        assertTrue(MagicDeskRuntime.finishAltTab());
+        assertTrue(MagicDeskRuntime.cancelAltTab());
+        assertTrue(MagicDeskRuntime.toggleShortcutHelp());
+        assertTrue(MagicDeskRuntime.toggleNotificationCenter());
+        assertTrue(MagicDeskRuntime.toggleSystemPanel());
+        assertTrue(MagicDeskRuntime.openSettings());
         assertTrue(mAttached.desktopTasksRefreshed);
         assertTrue(mAttached.pointerReactivationRequested);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
+        assertEquals(0xff, mAttached.uiCommands);
     }
 
     @Test
@@ -82,6 +100,7 @@ public final class MagicDeskRuntimeTest {
         private boolean pointerReactivationRequested;
         private boolean parkingCleared;
         private boolean startShown;
+        private int uiCommands;
         private final DesktopTaskParkingRuntime mParking =
                 new DesktopTaskParkingRuntime() {
                     @Override
@@ -221,6 +240,56 @@ public final class MagicDeskRuntimeTest {
         @Override
         public boolean showStart() {
             startShown = true;
+            return true;
+        }
+
+        @Override
+        public boolean toggleDesktopWorkspace() {
+            uiCommands |= 1;
+            return true;
+        }
+
+        @Override
+        public boolean advanceAltTab(final boolean reverse) {
+            if (reverse) {
+                uiCommands |= 2;
+            }
+            return true;
+        }
+
+        @Override
+        public boolean finishAltTab() {
+            uiCommands |= 4;
+            return true;
+        }
+
+        @Override
+        public boolean cancelAltTab() {
+            uiCommands |= 8;
+            return true;
+        }
+
+        @Override
+        public boolean toggleShortcutHelp() {
+            uiCommands |= 16;
+            return true;
+        }
+
+        @Override
+        public boolean toggleNotificationCenter() {
+            uiCommands |= 32;
+            return true;
+        }
+
+        @Override
+        public boolean toggleSystemPanel() {
+            uiCommands |= 64;
+            return true;
+        }
+
+        @Override
+        public boolean openSettings() {
+            uiCommands |= 128;
             return true;
         }
 

@@ -102,7 +102,7 @@ public final class ConsoleModeSwitcher {
     }
 
     static void toggleDesktopWorkspace() {
-        if (!DesktopRuntimeBridge.toggleDesktopWorkspace()) {
+        if (!MagicDeskRuntime.toggleDesktopWorkspace()) {
             showMagicDesk();
         }
     }
@@ -226,26 +226,25 @@ public final class ConsoleModeSwitcher {
 
     static void showMagicDeskStart() {
         Log.i(TAG, "show MagicDesk Start overlay");
-        if (!DesktopRuntimeBridge.showStart()
-                && !MagicDeskRuntime.showStart()) {
+        if (!MagicDeskRuntime.showStart()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Start");
         }
     }
 
     static void advanceAltTab(final boolean reverse) {
-        if (!DesktopRuntimeBridge.advanceAltTab(reverse)) {
+        if (!MagicDeskRuntime.advanceAltTab(reverse)) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab");
         }
     }
 
     static void finishAltTab() {
-        if (!DesktopRuntimeBridge.finishAltTab()) {
+        if (!MagicDeskRuntime.finishAltTab()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab completion");
         }
     }
 
     static void cancelAltTab() {
-        DesktopRuntimeBridge.cancelAltTab();
+        MagicDeskRuntime.cancelAltTab();
     }
 
     static void sendSystemBack() {
@@ -281,25 +280,25 @@ public final class ConsoleModeSwitcher {
     }
 
     static void showShortcutHelp() {
-        if (!DesktopRuntimeBridge.toggleShortcutHelp()) {
+        if (!MagicDeskRuntime.toggleShortcutHelp()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for shortcut help");
         }
     }
 
     static void toggleNotificationCenter() {
-        if (!DesktopRuntimeBridge.toggleNotificationCenter()) {
+        if (!MagicDeskRuntime.toggleNotificationCenter()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for notifications");
         }
     }
 
     static void toggleSystemPanel() {
-        if (!DesktopRuntimeBridge.toggleSystemPanel()) {
+        if (!MagicDeskRuntime.toggleSystemPanel()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for system controls");
         }
     }
 
     static void openSettings() {
-        if (!DesktopRuntimeBridge.openSettings()) {
+        if (!MagicDeskRuntime.openSettings()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for settings");
         }
     }

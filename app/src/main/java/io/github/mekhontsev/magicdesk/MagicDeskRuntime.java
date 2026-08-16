@@ -162,6 +162,46 @@ public final class MagicDeskRuntime {
         return backend != null && backend.showStart();
     }
 
+    static boolean toggleDesktopWorkspace() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.toggleDesktopWorkspace();
+    }
+
+    static boolean advanceAltTab(final boolean reverse) {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.advanceAltTab(reverse);
+    }
+
+    static boolean finishAltTab() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.finishAltTab();
+    }
+
+    static boolean cancelAltTab() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.cancelAltTab();
+    }
+
+    static boolean toggleShortcutHelp() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.toggleShortcutHelp();
+    }
+
+    static boolean toggleNotificationCenter() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.toggleNotificationCenter();
+    }
+
+    static boolean toggleSystemPanel() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.toggleSystemPanel();
+    }
+
+    static boolean openSettings() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.openSettings();
+    }
+
     static void parkDesktopTasks(
             final DesktopDisplayTarget source,
             final DesktopTaskParkingRuntime.ResultCallback callback) {
