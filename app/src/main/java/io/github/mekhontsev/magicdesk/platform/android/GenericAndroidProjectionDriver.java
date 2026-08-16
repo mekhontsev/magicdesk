@@ -67,6 +67,11 @@ final class GenericAndroidProjectionDriver
     }
 
     @Override
+    public void releaseExternalDisplayMode(final int displayId) {
+        // Generic Android does not expose output configuration here.
+    }
+
+    @Override
     public PreparedMode prepareExternalDisplay(
             final Context context,
             final int physicalDisplayId,

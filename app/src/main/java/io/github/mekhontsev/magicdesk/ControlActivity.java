@@ -352,15 +352,37 @@ public final class ControlActivity extends Activity
         if (mExternalDisplayProfile == null) {
             return;
         }
+        final DisplayProfileStore.Profile profile = mExternalDisplayProfile;
         DisplayProfileStore.setOutputTiming(
-                mExternalDisplayProfile, outputTiming);
-        DisplayProfileStore.save(mExternalDisplayProfile);
+                profile, outputTiming);
+        DisplayProfileStore.save(profile);
         if (mExternalModeSelection != null) {
             mExternalModeSelection =
                     mExternalModeSelection.withPreferredTiming(
-                            mExternalDisplayProfile.outputTiming);
+                            profile.outputTiming);
         }
         refresh();
+        if (!profile.resetOutputModePending
+                || mWiredDisplayId <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        final int displayId = mWiredDisplayId;
+        ConsoleModeSwitcher.executeSerialized(() -> {
+            // Release MagicDesk's previous explicit mode immediately. A later
+            // SmartCast choice must not be erased when the desktop starts.
+            if (!profile.resetOutputModePending
+                    || profile.outputTiming != null) {
+                return;
+            }
+            try {
+                mProjection.releaseExternalDisplayMode(displayId);
+                profile.resetOutputModePending = false;
+                DisplayProfileStore.save(profile);
+            } catch (final java.io.IOException ignored) {
+                // prepareExternalDisplay() retries while the display exists.
+            }
+            runOnUiThread(this::refresh);
+        });
     }
 
     @Override
