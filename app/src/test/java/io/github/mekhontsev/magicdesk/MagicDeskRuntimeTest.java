@@ -39,10 +39,12 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.attach(mAttached);
 
         MagicDeskRuntime.refreshDesktopTasks();
+        MagicDeskRuntime.reactivatePointerOnNextMotion();
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
         assertTrue(mAttached.desktopTasksRefreshed);
+        assertTrue(mAttached.pointerReactivationRequested);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
     }
@@ -77,6 +79,7 @@ public final class MagicDeskRuntimeTest {
             implements MagicDeskRuntimeBackend {
         private final boolean mAvailable;
         private boolean desktopTasksRefreshed;
+        private boolean pointerReactivationRequested;
         private boolean parkingCleared;
         private boolean startShown;
         private final DesktopTaskParkingRuntime mParking =
@@ -156,6 +159,11 @@ public final class MagicDeskRuntimeTest {
 
         @Override
         public void restorePointerPositionOnNextMotion() {
+        }
+
+        @Override
+        public void reactivatePointerOnNextMotion() {
+            pointerReactivationRequested = true;
         }
 
         @Override
