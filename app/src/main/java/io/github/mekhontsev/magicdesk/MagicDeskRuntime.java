@@ -155,6 +155,39 @@ public final class MagicDeskRuntime {
         return backend != null && backend.showStart();
     }
 
+    static void parkDesktopTasks(
+            final DesktopDisplayTarget source,
+            final DesktopTaskParkingRuntime.ResultCallback callback) {
+        final DesktopTaskParkingRuntime parking = desktopTaskParking();
+        if (parking != null) {
+            parking.park(source, callback);
+        } else if (callback != null) {
+            callback.onComplete(false);
+        }
+    }
+
+    static void restoreParkedDesktopTasksWhenReady(
+            final DesktopDisplayTarget target) {
+        final DesktopTaskParkingRuntime parking = desktopTaskParking();
+        if (parking != null) {
+            parking.restoreWhenReady(target);
+        }
+    }
+
+    static void onDesktopHostReadyForParkedTasks(final int displayId) {
+        final DesktopTaskParkingRuntime parking = desktopTaskParking();
+        if (parking != null) {
+            parking.onDesktopHostReady(displayId);
+        }
+    }
+
+    static void clearParkedDesktopTasks() {
+        final DesktopTaskParkingRuntime parking = desktopTaskParking();
+        if (parking != null) {
+            parking.clear();
+        }
+    }
+
     static List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
         final DesktopTaskRuntime tasks = desktopTasks();
@@ -325,6 +358,11 @@ public final class MagicDeskRuntime {
     private static DesktopTaskRuntime desktopTasks() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null ? null : backend.desktopTasks();
+    }
+
+    private static DesktopTaskParkingRuntime desktopTaskParking() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null ? null : backend.desktopTaskParking();
     }
 
     private static void completeTaskAction(

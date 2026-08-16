@@ -13,6 +13,8 @@ final class RuntimeDesktopTaskCoordinator {
     }
 
     private final DesktopTaskController mTasks;
+    private final DesktopTaskParkingController mParking =
+            new DesktopTaskParkingController();
 
     private Mode mMode = Mode.DISABLED;
     private boolean mDestroyed;
@@ -56,11 +58,16 @@ final class RuntimeDesktopTaskCoordinator {
         }
         mDestroyed = true;
         mMode = Mode.DISABLED;
+        mParking.clear();
         mTasks.destroy();
     }
 
     DesktopTaskRuntime operations() {
         return mTasks;
+    }
+
+    DesktopTaskParkingRuntime parking() {
+        return mParking;
     }
 
     static Mode modeFor(

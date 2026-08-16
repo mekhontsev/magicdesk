@@ -91,6 +91,12 @@ session registry, display-scoped task state, and `DesktopTaskRuntime` contract.
 No desktop task operation discovers a mutable active controller through a
 process-global lookup.
 
+Parked desktop tasks use the same ownership boundary. Their records, pending
+target, and restore operation belong to `RuntimeDesktopTaskCoordinator` through
+the `DesktopTaskParkingRuntime` contract. Closing and reopening a desktop can
+preserve live tasks while the runtime service remains active, but a full exit
+or runtime teardown invalidates queued parking work and clears the records.
+
 Window launches have one operation lifecycle. UI status and recovery are
 owned by `AppTaskController`, fresh launch/reuse selection by
 `WindowedAppLauncher`, and existing-task normalization by

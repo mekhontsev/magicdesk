@@ -52,4 +52,6 @@ interface MagicDeskRuntimeBackend {
     boolean showStart();
 
     DesktopTaskRuntime desktopTasks();
+
+    DesktopTaskParkingRuntime desktopTaskParking();
 }

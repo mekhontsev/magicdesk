@@ -19,11 +19,18 @@ public final class MagicDeskRuntimeTest {
 
     @Test
     public void missingBackendUsesSafeDefaults() {
+        final boolean[] parkingResult = {true};
+
+        MagicDeskRuntime.parkDesktopTasks(
+                DesktopDisplayTarget.wired(7),
+                success -> parkingResult[0] = success);
+
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
         assertFalse(MagicDeskRuntime.capturePointerPosition());
         assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
+        assertFalse(parkingResult[0]);
     }
 
     @Test
@@ -32,9 +39,11 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.attach(mAttached);
 
         MagicDeskRuntime.refreshDesktopTasks();
+        MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
         assertTrue(mAttached.desktopTasksRefreshed);
+        assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
     }
 
@@ -68,7 +77,33 @@ public final class MagicDeskRuntimeTest {
             implements MagicDeskRuntimeBackend {
         private final boolean mAvailable;
         private boolean desktopTasksRefreshed;
+        private boolean parkingCleared;
         private boolean startShown;
+        private final DesktopTaskParkingRuntime mParking =
+                new DesktopTaskParkingRuntime() {
+                    @Override
+                    public void park(
+                            final DesktopDisplayTarget source,
+                            final ResultCallback callback) {
+                        if (callback != null) {
+                            callback.onComplete(true);
+                        }
+                    }
+
+                    @Override
+                    public void restoreWhenReady(
+                            final DesktopDisplayTarget target) {
+                    }
+
+                    @Override
+                    public void onDesktopHostReady(final int displayId) {
+                    }
+
+                    @Override
+                    public void clear() {
+                        parkingCleared = true;
+                    }
+                };
 
         FakeBackend(final boolean available) {
             mAvailable = available;
@@ -184,6 +219,11 @@ public final class MagicDeskRuntimeTest {
         @Override
         public DesktopTaskRuntime desktopTasks() {
             return null;
+        }
+
+        @Override
+        public DesktopTaskParkingRuntime desktopTaskParking() {
+            return mParking;
         }
     }
 }

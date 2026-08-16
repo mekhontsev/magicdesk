@@ -593,7 +593,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     public void onDesktopHostReady() {
-        DesktopTaskParkingController.onDesktopHostReady(
+        MagicDeskRuntime.onDesktopHostReadyForParkedTasks(
                 getCurrentDisplayId());
     }
 

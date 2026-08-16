@@ -32,7 +32,7 @@ final class MagicDeskSessionController {
         Log.i(TAG, "full MagicDesk exit requested");
         mHost.showSessionStatus(
                 mActivity.getString(R.string.status_exiting));
-        DesktopTaskParkingController.clear();
+        MagicDeskRuntime.clearParkedDesktopTasks();
         BuiltInWindowRegistry.finishAll(this::startExit);
     }
 

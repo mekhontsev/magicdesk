@@ -88,7 +88,7 @@ final class DesktopSessionTransitionCoordinator {
         };
         if (restorePhonePanel
                 && target.displayId > Display.DEFAULT_DISPLAY) {
-            DesktopTaskParkingController.park(target, parked -> {
+            MagicDeskRuntime.parkDesktopTasks(target, parked -> {
                 if (!parked) {
                     Log.w(TAG,
                             "Desktop close continues after partial task parking");

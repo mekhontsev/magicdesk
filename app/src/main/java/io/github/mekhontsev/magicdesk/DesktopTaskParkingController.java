@@ -14,25 +14,23 @@ import java.util.Map;
 import java.util.Set;
 
 /** Keeps live desktop tasks parked on the phone while desktop mode is closed. */
-final class DesktopTaskParkingController {
+final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private static final String TAG = "MagicDeskTaskParking";
     private static final String RETURN_COMMAND =
             "io.github.mekhontsev.magicdesk.ConsoleTaskReturnCommand";
 
-    private static final Object LOCK = new Object();
-    private static final Map<Integer, ParkedTask> PARKED =
+    private final Object mLock = new Object();
+    private final Map<Integer, ParkedTask> mParked =
             new LinkedHashMap<>();
-    private static DesktopDisplayTarget sPendingTarget;
-    private static boolean sRestoreInProgress;
+    private DesktopDisplayTarget mPendingTarget;
+    private boolean mRestoreInProgress;
+    private long mGeneration;
 
-    private DesktopTaskParkingController() {
+    DesktopTaskParkingController() {
     }
 
-    interface ResultCallback {
-        void onComplete(boolean success);
-    }
-
-    static void park(
+    @Override
+    public void park(
             final DesktopDisplayTarget source,
             final ResultCallback callback) {
         if (source == null
@@ -40,44 +38,55 @@ final class DesktopTaskParkingController {
             complete(callback, true);
             return;
         }
-        TaskCommandQueue.execute(() -> parkNow(source, callback));
+        final long generation;
+        synchronized (mLock) {
+            generation = mGeneration;
+        }
+        TaskCommandQueue.execute(
+                () -> parkNow(source, callback, generation));
     }
 
-    static void restoreWhenReady(final DesktopDisplayTarget target) {
+    @Override
+    public void restoreWhenReady(final DesktopDisplayTarget target) {
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY) {
             return;
         }
-        synchronized (LOCK) {
-            if (PARKED.isEmpty()) {
+        synchronized (mLock) {
+            if (mParked.isEmpty()) {
                 return;
             }
-            sPendingTarget = target;
+            mPendingTarget = target;
         }
         restoreIfReady(target);
     }
 
-    static void onDesktopHostReady(final int displayId) {
+    @Override
+    public void onDesktopHostReady(final int displayId) {
         final DesktopDisplayTarget target;
-        synchronized (LOCK) {
-            target = sPendingTarget != null
-                            && sPendingTarget.displayId == displayId
-                    ? sPendingTarget
+        synchronized (mLock) {
+            target = mPendingTarget != null
+                            && mPendingTarget.displayId == displayId
+                    ? mPendingTarget
                     : DesktopRuntimeBridge.getDesktopTarget(displayId);
         }
         restoreIfReady(target);
     }
 
-    static void clear() {
-        synchronized (LOCK) {
-            PARKED.clear();
-            sPendingTarget = null;
+    @Override
+    public void clear() {
+        synchronized (mLock) {
+            mGeneration++;
+            mParked.clear();
+            mPendingTarget = null;
+            mRestoreInProgress = false;
         }
     }
 
-    private static void parkNow(
+    private void parkNow(
             final DesktopDisplayTarget source,
-            final ResultCallback callback) {
+            final ResultCallback callback,
+            final long generation) {
         final TaskRepository.Snapshot snapshot =
                 TaskRepository.loadNow(source.displayId);
         if (!snapshot.available) {
@@ -117,14 +126,17 @@ final class DesktopTaskParkingController {
         }
 
         final Set<Integer> returnedTaskIds = parseReturnedTaskIds(output);
-        synchronized (LOCK) {
-            for (final ParkedTask task : candidates) {
-                if (returnedTaskIds.contains(Integer.valueOf(task.taskId))) {
-                    PARKED.remove(Integer.valueOf(task.taskId));
-                    PARKED.put(Integer.valueOf(task.taskId), task);
+        synchronized (mLock) {
+            if (generation == mGeneration) {
+                for (final ParkedTask task : candidates) {
+                    if (returnedTaskIds.contains(
+                            Integer.valueOf(task.taskId))) {
+                        mParked.remove(Integer.valueOf(task.taskId));
+                        mParked.put(Integer.valueOf(task.taskId), task);
+                    }
                 }
+                mPendingTarget = null;
             }
-            sPendingTarget = null;
         }
         final boolean success = returnedTaskIds.size() == candidates.size();
         if (!success) {
@@ -139,26 +151,33 @@ final class DesktopTaskParkingController {
         complete(callback, success);
     }
 
-    private static void restoreIfReady(final DesktopDisplayTarget target) {
+    private void restoreIfReady(final DesktopDisplayTarget target) {
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY
                 || !DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                         target.displayId)) {
             return;
         }
-        synchronized (LOCK) {
-            if (PARKED.isEmpty() || sRestoreInProgress) {
+        final long generation;
+        synchronized (mLock) {
+            if (mParked.isEmpty() || mRestoreInProgress) {
                 return;
             }
-            sRestoreInProgress = true;
+            mRestoreInProgress = true;
+            generation = mGeneration;
         }
-        TaskCommandQueue.execute(() -> restoreNow(target));
+        TaskCommandQueue.execute(() -> restoreNow(target, generation));
     }
 
-    private static void restoreNow(final DesktopDisplayTarget target) {
+    private void restoreNow(
+            final DesktopDisplayTarget target,
+            final long generation) {
         final List<ParkedTask> saved;
-        synchronized (LOCK) {
-            saved = new ArrayList<>(PARKED.values());
+        synchronized (mLock) {
+            if (generation != mGeneration) {
+                return;
+            }
+            saved = new ArrayList<>(mParked.values());
         }
         final Set<Integer> completed = new HashSet<>();
         final List<Integer> restoredTaskIds = new ArrayList<>();
@@ -173,6 +192,9 @@ final class DesktopTaskParkingController {
             }
 
             for (int index = saved.size() - 1; index >= 0; index--) {
+                if (!isCurrentGeneration(generation)) {
+                    return;
+                }
                 final ParkedTask parked = saved.get(index);
                 final TaskRepository.TaskEntry alreadyRestored =
                         findLiveTask(desktop.tasks, parked);
@@ -205,26 +227,38 @@ final class DesktopTaskParkingController {
                     Log.w(TAG, "Could not restore task=" + parked.taskId, error);
                 }
             }
-            restoreStackState(target.displayId, saved, restoredTaskIds);
+            if (isCurrentGeneration(generation)) {
+                restoreStackState(target.displayId, saved, restoredTaskIds);
+            }
         } catch (IOException | RuntimeException error) {
             recordFailure("Could not restore parked desktop tasks",
                     error.getMessage());
         } finally {
-            synchronized (LOCK) {
-                for (final Integer taskId : completed) {
-                    PARKED.remove(taskId);
+            final boolean current;
+            synchronized (mLock) {
+                current = generation == mGeneration;
+                if (current) {
+                    for (final Integer taskId : completed) {
+                        mParked.remove(taskId);
+                    }
+                    if (mPendingTarget != null
+                            && mPendingTarget.displayId == target.displayId) {
+                        mPendingTarget = null;
+                    }
+                    mRestoreInProgress = false;
                 }
-                if (sPendingTarget != null
-                        && sPendingTarget.displayId == target.displayId) {
-                    sPendingTarget = null;
-                }
-                sRestoreInProgress = false;
             }
-            if (!restoredTaskIds.isEmpty()) {
+            if (current && !restoredTaskIds.isEmpty()) {
                 MagicDeskRuntime.refreshDesktopTasks();
             }
             Log.i(TAG, "restored=" + restoredTaskIds.size()
                     + " display=" + target.displayId);
+        }
+    }
+
+    private boolean isCurrentGeneration(final long generation) {
+        synchronized (mLock) {
+            return generation == mGeneration;
         }
     }
 
