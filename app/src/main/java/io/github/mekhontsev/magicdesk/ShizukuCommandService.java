@@ -29,7 +29,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
+    private final PlatformInputRoutingDriver mInputRoutingDriver;
     private final PlatformPointerDriver mPointerDriver;
+    private final PlatformProjectionDriver mProjectionDriver;
     private final PlatformTextInputDriver mTextInputDriver;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
@@ -51,7 +53,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
         final PlatformPhoneUiDriver phoneUi = platform.phoneUi();
+        mInputRoutingDriver = platform.inputRouting();
         mPointerDriver = platform.pointer();
+        mProjectionDriver = platform.projection();
         mTextInputDriver = platform.textInput();
         mNavigationGuard = phoneUi.createNavigationGuard();
         mTaskObserverManager = new ShellTaskObserverManager(
@@ -407,7 +411,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 session = DesktopInputRoutingSession.open(
                         mContext,
                         displayId,
-                        expectedVirtualKeyboardCount);
+                        expectedVirtualKeyboardCount,
+                        mInputRoutingDriver,
+                        mPointerDriver,
+                        mProjectionDriver);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;

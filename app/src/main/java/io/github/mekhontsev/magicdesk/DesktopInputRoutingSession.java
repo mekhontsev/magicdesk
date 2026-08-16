@@ -20,6 +20,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
+    private final PlatformInputRoutingDriver mInputRouting;
+    private final PlatformPointerDriver mPointer;
+    private final PlatformProjectionDriver mProjection;
 
     private Object mInputManager;
     private Method mAddAssociation;
@@ -31,13 +34,22 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
     private int mVirtualKeyboardCount;
     private boolean mClosed;
 
-    private DesktopInputRoutingSession() {
+    private DesktopInputRoutingSession(
+            final PlatformInputRoutingDriver inputRouting,
+            final PlatformPointerDriver pointer,
+            final PlatformProjectionDriver projection) {
+        mInputRouting = inputRouting;
+        mPointer = pointer;
+        mProjection = projection;
     }
 
     static DesktopInputRoutingSession open(
             final Context context,
             final int displayId,
-            final int expectedVirtualKeyboardCount) throws Exception {
+            final int expectedVirtualKeyboardCount,
+            final PlatformInputRoutingDriver inputRouting,
+            final PlatformPointerDriver pointer,
+            final PlatformProjectionDriver projection) throws Exception {
         if (context == null) {
             throw new IllegalArgumentException(
                     "input routing requires a service context");
@@ -56,7 +68,8 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 DesktopInputDeviceDiscovery.findRoutableMice();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
-                new DesktopInputRoutingSession();
+                new DesktopInputRoutingSession(
+                        inputRouting, pointer, projection);
         try {
             session.start(context, displayId, keyboards, mice);
             session.mVirtualKeyboardCount =
@@ -128,7 +141,8 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
-        final RoutingTarget target = findRoutingTarget(context, displayId);
+        final RoutingTarget target = findRoutingTarget(
+                context, displayId, mProjection);
         mDisplayId = displayId;
         mAssociationTarget = target.associationTarget;
         if (target.physicalPort) {
@@ -165,10 +179,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             associatePort(mouse.location);
         }
 
-        mPlatformSession = PlatformDrivers.current()
-                .inputRouting().open(target.platformConsole);
+        mPlatformSession = mInputRouting.open(target.platformConsole);
         if (!target.platformConsole) {
-            PlatformDrivers.current().pointer().refreshViewport();
+            mPointer.refreshViewport();
         }
     }
 
@@ -228,14 +241,14 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     private static RoutingTarget findRoutingTarget(
             final Context context,
-            final int displayId)
+            final int displayId,
+            final PlatformProjectionDriver projection)
             throws Exception {
         final Object displayManager = getService(
                 "display", "android.hardware.display.IDisplayManager");
         final Class<?> displayManagerInterface =
                 Class.forName("android.hardware.display.IDisplayManager");
-        if (displayId == PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(context)) {
+        if (displayId == projection.activeDesktopDisplayId(context)) {
             final int physicalPort = findExternalDisplayPort(
                     displayManager, displayManagerInterface);
             if (physicalPort >= 0) {
