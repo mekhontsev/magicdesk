@@ -22,4 +22,6 @@ oneway interface ITaskObserverCallback {
         int left, int top, int right, int bottom) = 7;
 
     void onInputFocusRefreshRequired() = 8;
+
+    void onPhoneTaskNormalized(int taskId) = 9;
 }

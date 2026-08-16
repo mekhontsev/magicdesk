@@ -348,6 +348,14 @@ final class DesktopTaskWatcher {
                 mListener.onInputFocusRefreshRequired(generation));
     }
 
+    private void onPhoneTaskNormalized(
+            final int generation,
+            final int taskId) {
+        if (mListener.isActive(generation)) {
+            PhoneTaskGuardDiagnostics.noteNormalization(taskId);
+        }
+    }
+
     private void onObserverError(
             final int generation,
             final String error) {
@@ -485,6 +493,12 @@ final class DesktopTaskWatcher {
         public void onInputFocusRefreshRequired()
                 throws RemoteException {
             mOwner.onInputFocusRefreshRequired(mGeneration);
+        }
+
+        @Override
+        public void onPhoneTaskNormalized(final int taskId)
+                throws RemoteException {
+            mOwner.onPhoneTaskNormalized(mGeneration, taskId);
         }
     }
 }

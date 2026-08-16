@@ -17,8 +17,9 @@ import java.util.concurrent.Executors;
 
 /** Prevents phone-side freeform state from destabilizing Nubia Quickstep. */
 final class ShellExternalTaskMigrationGuard implements Closeable {
-    interface ErrorListener {
+    interface Listener {
         void onError(String message);
+        void onPhoneTaskNormalized(int taskId);
     }
 
     private static final String TAG = "MagicDeskTasks";
@@ -34,7 +35,7 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
                     | Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
 
     private final Object mService;
-    private final ErrorListener mErrorListener;
+    private final Listener mListener;
     private final Map<Integer, TaskState> mDesktopTasks = new HashMap<>();
     private final Set<Integer> mMigratingTasks = new HashSet<>();
     private final ExecutorService mMigrationExecutor =
@@ -97,9 +98,9 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
 
     ShellExternalTaskMigrationGuard(
             final Object service,
-            final ErrorListener errorListener) {
+            final Listener listener) {
         mService = service;
-        mErrorListener = errorListener;
+        mListener = listener;
     }
 
     synchronized void configure(
@@ -392,16 +393,10 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
             }
             mMigratingTasks.add(Integer.valueOf(taskId));
         }
-        try {
-            mMigrationExecutor.execute(() -> normalizePhoneTask(taskId));
-            Log.i(TAG, "normalizing freeform task on phone task=" + taskId);
-        } catch (RuntimeException error) {
-            synchronized (this) {
-                mMigratingTasks.remove(Integer.valueOf(taskId));
-            }
-            report("could not schedule phone normalization for task "
-                    + taskId + ": " + usefulMessage(error));
-        }
+        // The TaskStackListener callback is the earliest reliable point at
+        // which display 0 exposes this task. Normalize it before returning so
+        // Quickstep cannot bind the transient freeform state.
+        normalizePhoneTask(taskId);
         return true;
     }
 
@@ -417,12 +412,22 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
             // Alt+Tab and other system task switches bypass activityStarting.
             // No task may remain freeform on display 0 during an external
             // session: Nubia Quickstep can crash and erase launcher state.
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.DEFAULT_DISPLAY, taskId);
+            if (task == null) {
+                Log.i(TAG, "skipped stale phone normalization task="
+                        + taskId);
+                return;
+            }
             final boolean normalized =
                     TaskWindowingCommand.normalizeFullscreenTask(
-                            mService, Display.DEFAULT_DISPLAY, taskId);
+                            mService, task);
             Log.i(TAG, (normalized
                     ? "normalized phone task to fullscreen task="
                     : "phone task already fullscreen task=") + taskId);
+            if (normalized && mListener != null) {
+                mListener.onPhoneTaskNormalized(taskId);
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
             report("could not normalize phone task " + taskId
                     + ": " + usefulMessage(error));
@@ -475,8 +480,8 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
 
     private void report(final String message) {
         Log.w(TAG, message);
-        if (mErrorListener != null) {
-            mErrorListener.onError(message);
+        if (mListener != null) {
+            mListener.onError(message);
         }
     }
 
