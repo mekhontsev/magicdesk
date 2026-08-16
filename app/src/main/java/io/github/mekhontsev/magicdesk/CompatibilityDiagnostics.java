@@ -298,6 +298,9 @@ public final class CompatibilityDiagnostics {
                 phoneHome.hasPrimary(),
                 "Phone launcher HOME activity",
                 phoneHome.diagnosticDetail());
+        report.append("Phone task guard: ")
+                .append(PhoneTaskGuardDiagnostics.snapshot().reportLine())
+                .append('\n');
         final boolean globalInput = ShellAccess.isReady()
                 && audit.platform.features().externalInputBridge
                 && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;

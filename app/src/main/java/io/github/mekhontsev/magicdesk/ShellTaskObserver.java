@@ -76,8 +76,19 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, inputOwner);
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
-                error -> callCallback(() ->
-                        mCallback.onObserverError(error)));
+                new ShellExternalTaskMigrationGuard.Listener() {
+                    @Override
+                    public void onError(final String error) {
+                        callCallback(() ->
+                                mCallback.onObserverError(error));
+                    }
+
+                    @Override
+                    public void onPhoneTaskNormalized(final int taskId) {
+                        callCallback(() ->
+                                mCallback.onPhoneTaskNormalized(taskId));
+                    }
+                });
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // The platform policy decides whether stale phone-side freeform
         // Recents entries require active cleanup.
