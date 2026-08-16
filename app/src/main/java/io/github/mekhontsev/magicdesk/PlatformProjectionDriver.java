@@ -137,6 +137,9 @@ public interface PlatformProjectionDriver {
             int displayId,
             String preferredTiming);
 
+    /** Relinquish a previously selected output mode to the system. */
+    void releaseExternalDisplayMode(int displayId) throws IOException;
+
     PreparedMode prepareExternalDisplay(
             Context context,
             int physicalDisplayId,

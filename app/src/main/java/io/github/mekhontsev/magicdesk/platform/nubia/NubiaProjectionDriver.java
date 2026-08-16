@@ -76,6 +76,12 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
+    public void releaseExternalDisplayMode(final int displayId)
+            throws IOException {
+        NubiaHdmiModeController.clearSystemModePreference(displayId);
+    }
+
+    @Override
     public PreparedMode prepareExternalDisplay(
             final Context context,
             final int physicalDisplayId,
