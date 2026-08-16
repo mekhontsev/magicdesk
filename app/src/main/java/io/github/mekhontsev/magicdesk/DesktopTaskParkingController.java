@@ -228,6 +228,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 }
             }
             if (isCurrentGeneration(generation)) {
+                restoreFreeformLayout(
+                        target, saved, restoredTaskIds);
                 restoreStackState(target.displayId, saved, restoredTaskIds);
             }
         } catch (IOException | RuntimeException error) {
@@ -352,6 +354,40 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     Collections.singletonList(
                             Integer.valueOf(desktopHost.taskId))));
         }
+    }
+
+    private static void restoreFreeformLayout(
+            final DesktopDisplayTarget target,
+            final List<ParkedTask> savedTopFirst,
+            final List<Integer> restoredTaskIds) throws IOException {
+        if (restoredTaskIds.isEmpty()) {
+            return;
+        }
+        final Set<Integer> restored = new HashSet<>(restoredTaskIds);
+        final StringBuilder arguments = new StringBuilder("restore-layout ")
+                .append(target.displayId);
+        int count = 0;
+        for (int index = savedTopFirst.size() - 1; index >= 0; index--) {
+            final ParkedTask task = savedTopFirst.get(index);
+            if (task.fullscreen
+                    || !restored.contains(Integer.valueOf(task.taskId))) {
+                continue;
+            }
+            final Rect bounds = FloatingWindowController.getWindowBounds(
+                    target.displayId, task.bounds);
+            arguments.append(' ').append(task.taskId)
+                    .append(' ').append(bounds.left)
+                    .append(' ').append(bounds.top)
+                    .append(' ').append(bounds.right)
+                    .append(' ').append(bounds.bottom);
+            count++;
+        }
+        if (count == 0) {
+            return;
+        }
+        ShellAccess.run(AppProcessCommand.run(
+                TaskWindowingCommand.class.getName(),
+                arguments.toString()));
     }
 
     static List<ParkedTask> captureTasks(

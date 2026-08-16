@@ -283,16 +283,16 @@ public final class TaskWindowingCommand {
             }
             bounds[index] = new Rect(left, top, right, bottom);
         }
-        applyTaskLayout(displayId, taskIds, bounds, true);
+        applyFreeformLayout(displayId, taskIds, bounds, true);
         System.out.println("task-layout-restored=" + taskCount);
     }
 
-    private static void applyTaskLayout(
+    private static void applyFreeformLayout(
             final int displayId,
             final int[] taskIds,
             final Rect[] bounds,
             final boolean reorder) throws ReflectiveOperationException {
-        applyTaskLayout(
+        applyFreeformLayout(
                 HiddenTaskApi.getService(),
                 displayId,
                 taskIds,
@@ -300,7 +300,7 @@ public final class TaskWindowingCommand {
                 reorder);
     }
 
-    private static void applyTaskLayout(
+    private static void applyFreeformLayout(
             final Object service,
             final int displayId,
             final int[] taskIds,
@@ -314,22 +314,48 @@ public final class TaskWindowingCommand {
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction = transactionClass.getConstructor().newInstance();
+        final Method setWindowingMode = transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE);
         final Method setBounds = bounds == null ? null : transactionClass.getMethod(
                 "setBounds", tokenClass, Rect.class);
+        final Method setForceTranslucent = transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE);
         final Method reorderTask = reorder ? transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE) : null;
         for (int index = 0; index < taskIds.length; index++) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskIds[index]);
+            setWindowingMode.invoke(
+                    transaction,
+                    taskToken,
+                    Integer.valueOf(WINDOWING_MODE_FREEFORM));
             if (setBounds != null) {
                 setBounds.invoke(transaction, taskToken, bounds[index]);
             }
+            setForceTranslucent.invoke(
+                    transaction, taskToken, Boolean.FALSE);
+            TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                    transactionClass,
+                    transaction,
+                    tokenClass,
+                    taskToken,
+                    false);
             if (reorderTask != null) {
                 reorderTask.invoke(
                         transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
             }
         }
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
+        // Finalize all restored windows in one transition. Independent task
+        // moves can otherwise settle out of order and overwrite each other's
+        // freeform state on physical projection displays.
+        TaskFullscreenTransitionCommand.startTransition(
+                transactionClass, transaction);
+        if (bounds != null) {
+            for (int index = 0; index < taskIds.length; index++) {
+                TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+                        service, displayId, taskIds[index], bounds[index]);
+            }
+        }
     }
 
     static void applyFreeform(

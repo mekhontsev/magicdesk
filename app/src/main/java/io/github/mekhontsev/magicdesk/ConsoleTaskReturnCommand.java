@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
-import android.graphics.Rect;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -16,7 +15,6 @@ import java.util.concurrent.TimeUnit;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class ConsoleTaskReturnCommand {
     private static final int PHONE_DISPLAY_ID = 0;
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final long MOVE_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(5);
     private static final long MOVE_POLL_MILLIS = 25L;
@@ -51,9 +49,12 @@ public final class ConsoleTaskReturnCommand {
             for (final int taskId : taskIds) {
                 try {
                     moveRootTask(taskId, PHONE_DISPLAY_ID);
-                    final Object task = awaitTask(
-                            service, PHONE_DISPLAY_ID, taskId);
-                    normalizePhoneTask(service, task);
+                    awaitTask(service, PHONE_DISPLAY_ID, taskId);
+                    // The display move is a WMShell transition. A direct WCT
+                    // can lose a race with its final state and leave the top
+                    // task freeform on the phone.
+                    TaskFullscreenTransitionCommand.applyFullscreen(
+                            PHONE_DISPLAY_ID, taskId, false, false);
                     System.out.println("task-returned=" + taskId);
                     moved++;
                 } catch (IOException | ReflectiveOperationException
@@ -157,14 +158,14 @@ public final class ConsoleTaskReturnCommand {
         }
     }
 
-    private static Object awaitTask(final Object service, final int displayId,
+    private static void awaitTask(final Object service, final int displayId,
             final int taskId) throws ReflectiveOperationException {
         final long deadline = System.nanoTime() + MOVE_TIMEOUT_NANOS;
         do {
             final Object task =
                     HiddenTaskApi.findTask(service, displayId, taskId);
             if (task != null) {
-                return task;
+                return;
             }
             try {
                 Thread.sleep(MOVE_POLL_MILLIS);
@@ -175,26 +176,6 @@ public final class ConsoleTaskReturnCommand {
         } while (System.nanoTime() < deadline);
         throw new IllegalStateException(
                 "task " + taskId + " did not move to display " + displayId);
-    }
-
-    private static void normalizePhoneTask(final Object service, final Object task)
-            throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.getField(task, "token");
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod("setDensityDpi", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(0));
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass, transaction, tokenClass, taskToken, true);
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
     }
 
     private static int parseDisplayId(final String value) {

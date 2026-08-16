@@ -566,7 +566,7 @@ public final class TaskDisplayAreaLaunchCommand {
                         + ", mode=" + windowingMode);
     }
 
-    private static void waitForTaskFreeformBounds(
+    static void waitForTaskFreeformBounds(
             final Object service,
             final int displayId,
             final int taskId,
