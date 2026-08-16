@@ -371,6 +371,11 @@ isolated behind these boundaries.
 - `ConsoleSessionController` owns the optional RedMagic wired Console
   activation path. Standard Android displays bypass it and enter the common
   desktop session directly.
+- `ConsoleModeSwitcher` remains the compatibility facade used by activities
+  and shortcuts. `DesktopSessionTransitionCoordinator` owns activation,
+  close, and mirror sequencing; `SerializedDesktopOperationQueue` provides the
+  single ordered executor shared with shell settings and input policy. The
+  facade owns neither transition flags nor an executor.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
