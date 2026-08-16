@@ -7,6 +7,7 @@ final class InputBridgeDiagnostics {
     private static int sFailures;
     private static int sSourceRefreshFailures;
     private static int sBridgeAnomalies;
+    private static int sPointerReactivations;
     private static int sLastRoutingDisplayId = -1;
     private static String sLastFailure = "";
 
@@ -41,6 +42,10 @@ final class InputBridgeDiagnostics {
         sLastFailure = normalize(detail);
     }
 
+    static synchronized void notePointerReactivation() {
+        sPointerReactivations++;
+    }
+
     static synchronized Snapshot snapshot() {
         return new Snapshot(
                 sAttempts,
@@ -49,6 +54,7 @@ final class InputBridgeDiagnostics {
                 sFailures,
                 sSourceRefreshFailures,
                 sBridgeAnomalies,
+                sPointerReactivations,
                 sLastRoutingDisplayId,
                 sLastFailure);
     }
@@ -60,6 +66,7 @@ final class InputBridgeDiagnostics {
         sFailures = 0;
         sSourceRefreshFailures = 0;
         sBridgeAnomalies = 0;
+        sPointerReactivations = 0;
         sLastRoutingDisplayId = -1;
         sLastFailure = "";
     }
@@ -89,6 +96,7 @@ final class InputBridgeDiagnostics {
         final int failures;
         final int sourceRefreshFailures;
         final int bridgeAnomalies;
+        final int pointerReactivations;
         final int routingDisplayId;
         final String lastFailure;
 
@@ -99,6 +107,7 @@ final class InputBridgeDiagnostics {
                 final int failures,
                 final int sourceRefreshFailures,
                 final int bridgeAnomalies,
+                final int pointerReactivations,
                 final int routingDisplayId,
                 final String lastFailure) {
             this.attempts = attempts;
@@ -107,6 +116,7 @@ final class InputBridgeDiagnostics {
             this.failures = failures;
             this.sourceRefreshFailures = sourceRefreshFailures;
             this.bridgeAnomalies = bridgeAnomalies;
+            this.pointerReactivations = pointerReactivations;
             this.routingDisplayId = routingDisplayId;
             this.lastFailure = lastFailure;
         }
@@ -118,6 +128,7 @@ final class InputBridgeDiagnostics {
                     + ", failures=" + failures
                     + ", sourceRefreshFailures=" + sourceRefreshFailures
                     + ", anomalies=" + bridgeAnomalies
+                    + ", pointerReactivations=" + pointerReactivations
                     + ", routingDisplay=" + routingDisplayId
                     + (lastFailure.isEmpty()
                             ? "" : ", lastFailure=" + lastFailure);

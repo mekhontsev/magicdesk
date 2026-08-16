@@ -355,6 +355,7 @@ static int process_key_event(
         if (source->consumed[code] || !first_global) {
             return 0;
         }
+        emit_line("MAGICDESK_KEYBOARD_ACTIVITY");
         if (flush_pending_modifiers(state) < 0
                 || write_event(active_uinput_fd(state), event) < 0) {
             return -1;

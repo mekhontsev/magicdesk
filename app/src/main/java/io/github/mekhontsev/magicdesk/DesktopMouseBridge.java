@@ -23,6 +23,7 @@ final class DesktopMouseBridge {
     private boolean mRequested;
     private boolean mReady;
     private boolean mPointerRestoreArmed;
+    private boolean mPointerReactivationArmed;
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
@@ -59,6 +60,7 @@ final class DesktopMouseBridge {
             mRequested = false;
             mReady = false;
             mPointerRestoreArmed = false;
+            mPointerReactivationArmed = false;
             mScrollRemainder = 0.0f;
             ++mGeneration;
             stream = mStream;
@@ -117,6 +119,22 @@ final class DesktopMouseBridge {
         }
         if (stream != null) {
             writeControl(stream, "restore-pointer-on-motion");
+        }
+    }
+
+    void reactivatePointerOnNextMotion() {
+        final ShellStreamHandle stream;
+        synchronized (mLock) {
+            if (!mRequested) {
+                return;
+            }
+            mPointerReactivationArmed = true;
+            stream = mStream;
+        }
+        if (stream != null) {
+            // This is an in-process pipe command. The native bridge coalesces
+            // repeated key activity until the next physical mouse motion.
+            writeControl(stream, "reactivate-pointer-on-motion");
         }
     }
 
@@ -236,14 +254,19 @@ final class DesktopMouseBridge {
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
             final boolean restorePointer;
+            final boolean reactivatePointer;
             synchronized (mLock) {
                 if (isActiveLocked(generation) && mStream == stream) {
                     mReady = true;
                 }
                 restorePointer = mPointerRestoreArmed;
+                reactivatePointer = mPointerReactivationArmed;
             }
             if (restorePointer) {
                 writeControl(stream, "restore-pointer-on-motion");
+            }
+            if (reactivatePointer) {
+                writeControl(stream, "reactivate-pointer-on-motion");
             }
             Log.i(TAG, line);
             return;
@@ -257,6 +280,18 @@ final class DesktopMouseBridge {
                 mPointerRestoreArmed = false;
             }
             ShellAccess.restorePointerPositionIfDisplaced();
+            return;
+        }
+        if (line.startsWith("MAGICDESK_MOUSE_POINTER_REACTIVATE")) {
+            synchronized (mLock) {
+                if (!isActiveLocked(generation) || mStream != stream) {
+                    return;
+                }
+                mPointerReactivationArmed = false;
+            }
+            if (writePointerControl(stream, "activate-pointer")) {
+                InputBridgeDiagnostics.notePointerReactivation();
+            }
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {

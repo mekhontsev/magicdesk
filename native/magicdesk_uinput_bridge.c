@@ -29,6 +29,7 @@ struct bridge_state {
     bool forwarded_down[KEY_MAX + 1];
     bool started;
     bool pointer_restore_armed;
+    bool pointer_reactivation_armed;
     bool pointer_moved;
     int pointer_activation_direction;
 };
@@ -272,7 +273,8 @@ static int process_event(
                 state, &state->sources[source_index], event);
     }
     if (event->type == EV_REL) {
-        if (state->pointer_restore_armed
+        if ((state->pointer_restore_armed
+                    || state->pointer_reactivation_armed)
                 && (event->code == REL_X || event->code == REL_Y)
                 && event->value != 0) {
             state->pointer_moved = true;
@@ -283,11 +285,16 @@ static int process_event(
         if (write_event(state->uinput_fd, event) < 0) {
             return -1;
         }
-        if (state->pointer_restore_armed && state->pointer_moved
-                && event->code == SYN_REPORT) {
-            state->pointer_restore_armed = false;
+        if (state->pointer_moved && event->code == SYN_REPORT) {
             state->pointer_moved = false;
-            emit_line("MAGICDESK_MOUSE_POINTER_MOTION");
+            if (state->pointer_restore_armed) {
+                state->pointer_restore_armed = false;
+                emit_line("MAGICDESK_MOUSE_POINTER_MOTION");
+            }
+            if (state->pointer_reactivation_armed) {
+                state->pointer_reactivation_armed = false;
+                emit_line("MAGICDESK_MOUSE_POINTER_REACTIVATE");
+            }
         }
         return 0;
     }
@@ -306,6 +313,11 @@ static int handle_control_line(
     }
     if (strcmp(line, "restore-pointer-on-motion") == 0) {
         state->pointer_restore_armed = true;
+        state->pointer_moved = false;
+        return 0;
+    }
+    if (strcmp(line, "reactivate-pointer-on-motion") == 0) {
+        state->pointer_reactivation_armed = true;
         state->pointer_moved = false;
         return 0;
     }

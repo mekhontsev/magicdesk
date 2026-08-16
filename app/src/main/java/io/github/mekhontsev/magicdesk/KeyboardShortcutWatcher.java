@@ -391,6 +391,11 @@ final class KeyboardShortcutWatcher {
             final String line,
             final ShellStreamHandle keyboardStream,
             final long generation) {
+        if ("MAGICDESK_KEYBOARD_ACTIVITY".equals(line)) {
+            MagicDeskRuntimeService
+                    .reactivatePointerOnNextMotionIfRunning();
+            return;
+        }
         if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")
                 || "MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
             handleGeteventLine(line, true);

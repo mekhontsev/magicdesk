@@ -226,6 +226,15 @@ public final class MagicDeskRuntimeService extends Service {
                 .restorePointerPositionIfDisplacedOnNextMotion();
     }
 
+    static void reactivatePointerOnNextMotionIfRunning() {
+        final MagicDeskRuntimeService service = sInstance.get();
+        if (service == null || service.mDestroyed
+                || service.mDesktopMouseBridge == null) {
+            return;
+        }
+        service.mDesktopMouseBridge.reactivatePointerOnNextMotion();
+    }
+
     static Point getDesktopPointerPositionIfRunning(
             final int displayId) {
         final MagicDeskRuntimeService service = sInstance.get();
