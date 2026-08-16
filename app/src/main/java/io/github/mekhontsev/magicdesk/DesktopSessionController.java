@@ -67,7 +67,7 @@ final class DesktopSessionController {
                         + " task=" + desktopTaskId
                         + " output=" + focusOutput.replace('\n', ' '));
                 if (restoreWindows) {
-                    DesktopRuntimeBridge.restoreLastVisibleWindows();
+                    MagicDeskRuntime.restoreLastVisibleWindows();
                 }
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
                         preparedTarget);

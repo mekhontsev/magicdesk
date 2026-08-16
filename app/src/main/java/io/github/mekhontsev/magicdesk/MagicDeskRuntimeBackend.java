@@ -12,6 +12,8 @@ interface MagicDeskRuntimeBackend {
 
     void refreshDesktopTasks();
 
+    void refreshPlatformState();
+
     void refreshSettings();
 
     boolean isSessionWakeLockHeld();
@@ -54,6 +56,8 @@ interface MagicDeskRuntimeBackend {
     boolean showStart();
 
     boolean toggleDesktopWorkspace();
+
+    boolean restoreLastVisibleWindows();
 
     boolean advanceAltTab(boolean reverse);
 

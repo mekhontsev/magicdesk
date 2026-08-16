@@ -47,6 +47,13 @@ public final class MagicDeskRuntime {
         }
     }
 
+    public static void refreshPlatformState() {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) {
+            backend.refreshPlatformState();
+        }
+    }
+
     static void refreshSettings() {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
@@ -165,6 +172,11 @@ public final class MagicDeskRuntime {
     static boolean toggleDesktopWorkspace() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null && backend.toggleDesktopWorkspace();
+    }
+
+    static boolean restoreLastVisibleWindows() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.restoreLastVisibleWindows();
     }
 
     static boolean advanceAltTab(final boolean reverse) {

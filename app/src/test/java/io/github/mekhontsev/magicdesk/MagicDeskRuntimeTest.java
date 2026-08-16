@@ -32,6 +32,7 @@ public final class MagicDeskRuntimeTest {
         assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
         assertFalse(MagicDeskRuntime.toggleDesktopWorkspace());
+        assertFalse(MagicDeskRuntime.restoreLastVisibleWindows());
         assertFalse(MagicDeskRuntime.advanceAltTab(false));
         assertFalse(MagicDeskRuntime.finishAltTab());
         assertFalse(MagicDeskRuntime.cancelAltTab());
@@ -48,11 +49,13 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.attach(mAttached);
 
         MagicDeskRuntime.refreshDesktopTasks();
+        MagicDeskRuntime.refreshPlatformState();
         MagicDeskRuntime.reactivatePointerOnNextMotion();
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
         assertTrue(MagicDeskRuntime.toggleDesktopWorkspace());
+        assertTrue(MagicDeskRuntime.restoreLastVisibleWindows());
         assertTrue(MagicDeskRuntime.advanceAltTab(true));
         assertTrue(MagicDeskRuntime.finishAltTab());
         assertTrue(MagicDeskRuntime.cancelAltTab());
@@ -61,10 +64,11 @@ public final class MagicDeskRuntimeTest {
         assertTrue(MagicDeskRuntime.toggleSystemPanel());
         assertTrue(MagicDeskRuntime.openSettings());
         assertTrue(mAttached.desktopTasksRefreshed);
+        assertTrue(mAttached.platformStateRefreshed);
         assertTrue(mAttached.pointerReactivationRequested);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
-        assertEquals(0xff, mAttached.uiCommands);
+        assertEquals(0x1ff, mAttached.uiCommands);
     }
 
     @Test
@@ -97,6 +101,7 @@ public final class MagicDeskRuntimeTest {
             implements MagicDeskRuntimeBackend {
         private final boolean mAvailable;
         private boolean desktopTasksRefreshed;
+        private boolean platformStateRefreshed;
         private boolean pointerReactivationRequested;
         private boolean parkingCleared;
         private boolean startShown;
@@ -147,6 +152,11 @@ public final class MagicDeskRuntimeTest {
         @Override
         public void refreshDesktopTasks() {
             desktopTasksRefreshed = true;
+        }
+
+        @Override
+        public void refreshPlatformState() {
+            platformStateRefreshed = true;
         }
 
         @Override
@@ -246,6 +256,12 @@ public final class MagicDeskRuntimeTest {
         @Override
         public boolean toggleDesktopWorkspace() {
             uiCommands |= 1;
+            return true;
+        }
+
+        @Override
+        public boolean restoreLastVisibleWindows() {
+            uiCommands |= 256;
             return true;
         }
 

@@ -60,7 +60,11 @@ public final class ConsoleModeSwitcher {
                             .restorePointerPositionOnNextMotion();
                 }
                 try {
-                    success = PHONE_UI.setPhoneScreenOff(screenOff);
+                    final int desktopDisplayId = screenOff
+                            ? TRANSITIONS.activeDesktopDisplayId()
+                            : android.view.Display.INVALID_DISPLAY;
+                    success = PHONE_UI.setPhoneScreenOff(
+                            screenOff, desktopDisplayId);
                     Log.i(TAG, "Shell phone display off="
                             + screenOff + " success=" + success);
                     if (!success) {
@@ -156,7 +160,8 @@ public final class ConsoleModeSwitcher {
 
     static void restorePhoneAfterExternalDesktop() {
         OPERATIONS.execute(() -> {
-            PHONE_UI.setPhoneScreenOff(false);
+            PHONE_UI.setPhoneScreenOff(
+                    false, android.view.Display.INVALID_DISPLAY);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
     }

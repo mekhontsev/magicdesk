@@ -98,6 +98,17 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public void refreshPlatformState() {
+        if (mDestroyed || mHandler == null) {
+            return;
+        }
+        mHandler.post(() -> {
+            updateNotification();
+            DesktopRuntimeBridge.refreshDesktopControls();
+        });
+    }
+
+    @Override
     public void refreshSettings() {
         if (mDestroyed || mHandler == null) {
             return;
@@ -245,6 +256,11 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public boolean toggleDesktopWorkspace() {
         return !mDestroyed && DesktopRuntimeBridge.toggleDesktopWorkspace();
+    }
+
+    @Override
+    public boolean restoreLastVisibleWindows() {
+        return !mDestroyed && DesktopRuntimeBridge.restoreLastVisibleWindows();
     }
 
     @Override

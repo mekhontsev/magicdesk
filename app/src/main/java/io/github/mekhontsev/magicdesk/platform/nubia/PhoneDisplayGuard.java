@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.DesktopRuntimeBridge;
 import io.github.mekhontsev.magicdesk.MagicDeskApplication;
 import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
 import io.github.mekhontsev.magicdesk.ShellAccess;
@@ -40,14 +39,12 @@ final class PhoneDisplayGuard {
     private PhoneDisplayGuard() {
     }
 
-    static boolean enable() {
+    static boolean enable(final int desktopDisplayId) {
         final String restoreOperation = resolveRestoreOperation();
         if (restoreOperation == null) {
             Log.w(TAG, "DisplayManager has no supported display restore command");
             return false;
         }
-        final int desktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (desktopDisplayId <= 0) {
             Log.w(TAG, "No active desktop display to protect");
             return false;
@@ -253,8 +250,7 @@ final class PhoneDisplayGuard {
         if (!ConsoleModeState.setPhoneScreenOff(screenOff)) {
             return;
         }
-        MagicDeskRuntime.refreshNotification();
-        DesktopRuntimeBridge.refreshDesktopControls();
+        MagicDeskRuntime.refreshPlatformState();
     }
 
     private static void closeQuietly(final Closeable closeable) {

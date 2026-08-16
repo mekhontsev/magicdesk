@@ -64,7 +64,7 @@ public interface PlatformPhoneUiDriver {
 
     boolean isPhoneScreenControlActive();
 
-    boolean setPhoneScreenOff(boolean screenOff);
+    boolean setPhoneScreenOff(boolean screenOff, int desktopDisplayId);
 
     void requestPhoneScreenRestore();
 

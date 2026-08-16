@@ -77,6 +77,23 @@ public final class PlatformSourceIsolationTest {
                 violations.isEmpty());
     }
 
+    @Test
+    public void platformAdaptersDoNotReachDesktopHostFacade()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = "/" + relativePath(source);
+            if (relative.contains(PLATFORM_DIRECTORY)
+                    && read(source).contains("DesktopRuntimeBridge")) {
+                violations.add(relative.substring(1));
+            }
+        }
+        assertTrue(
+                "Platform adapters reaching desktop host facade: "
+                        + violations,
+                violations.isEmpty());
+    }
+
     private static List<Path> productionSources() throws IOException {
         final List<Path> sources = new ArrayList<>();
         try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {
