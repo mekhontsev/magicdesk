@@ -352,13 +352,13 @@ public final class ControlActivity extends Activity
         if (mExternalDisplayProfile == null) {
             return;
         }
-        final String normalizedTiming = outputTiming == null
-                || outputTiming.isEmpty() ? null : outputTiming;
-        mExternalDisplayProfile.outputTiming = normalizedTiming;
+        DisplayProfileStore.setOutputTiming(
+                mExternalDisplayProfile, outputTiming);
         DisplayProfileStore.save(mExternalDisplayProfile);
         if (mExternalModeSelection != null) {
             mExternalModeSelection =
-                    mExternalModeSelection.withPreferredTiming(normalizedTiming);
+                    mExternalModeSelection.withPreferredTiming(
+                            mExternalDisplayProfile.outputTiming);
         }
         refresh();
     }

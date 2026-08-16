@@ -29,6 +29,14 @@ final class NubiaExternalDisplayModeController {
         final boolean fillDisplay = profile == null || profile.fillDisplay;
         final String outputTiming = profile == null
                 ? null : profile.outputTiming;
+        if (profile != null && profile.resetOutputModePending) {
+            // Relinquish only the mode previously owned by MagicDesk. Once
+            // selected, System/native must leave later SmartCast choices alone.
+            NubiaHdmiModeController.clearSystemModePreference(
+                    physicalDisplayId);
+            profile.resetOutputModePending = false;
+            DisplayProfileStore.save(profile);
+        }
         final NubiaHdmiModeController.Selection selection =
                 NubiaHdmiModeController.readSelection(
                         context, physicalDisplayId, outputTiming);

@@ -94,7 +94,8 @@ final class NubiaHdmiModeController {
             final int displayId,
             final Selection selection) throws IOException {
         if (selection != null && selection.isSystemDefaultRequested()) {
-            return applySystemDefault(context, displayId);
+            // System/native means MagicDesk does not own the output mode.
+            return displayId;
         }
         if (selection == null || selection.target == null
                 || !selection.configurable
@@ -104,19 +105,12 @@ final class NubiaHdmiModeController {
         return applyMode(context, displayId, selection);
     }
 
-    private static int applySystemDefault(
-            final Context context,
-            final int displayId) throws IOException {
+    static void clearSystemModePreference(final int displayId)
+            throws IOException {
         ShellAccess.run("/system/bin/cmd display "
                 + "clear-user-preferred-display-mode " + displayId);
-        final int settledDisplayId = waitForAvailableDisplay(context);
-        if (settledDisplayId <= Display.DEFAULT_DISPLAY) {
-            throw new IOException(
-                    "display did not settle after restoring the system mode");
-        }
-        Log.i(TAG, "restored Android system display mode display="
-                + displayId + "->" + settledDisplayId);
-        return settledDisplayId;
+        Log.i(TAG, "released Android display mode preference display="
+                + displayId);
     }
 
     static int applyMode(
@@ -375,42 +369,6 @@ final class NubiaHdmiModeController {
         } catch (IOException | RuntimeException cleanupError) {
             originalError.addSuppressed(cleanupError);
         }
-    }
-
-    private static int waitForAvailableDisplay(final Context context) {
-        final DisplayManager manager =
-                context.getSystemService(DisplayManager.class);
-        final long deadline = SystemClock.uptimeMillis() + MODE_TIMEOUT_MS;
-        int stableDisplayId = -1;
-        String stableMode = null;
-        int stableSamples = 0;
-        while (SystemClock.uptimeMillis() < deadline) {
-            final int displayId = ConsoleDisplayController.findExternalDisplayId();
-            final Display display = displayId <= Display.DEFAULT_DISPLAY
-                    || manager == null ? null : manager.getDisplay(displayId);
-            final Display.Mode mode = display == null ? null : display.getMode();
-            if (mode == null) {
-                stableDisplayId = -1;
-                stableMode = null;
-                stableSamples = 0;
-            } else {
-                final String modeKey = mode.getPhysicalWidth() + "x"
-                        + mode.getPhysicalHeight() + "@"
-                        + Math.round(mode.getRefreshRate());
-                if (displayId == stableDisplayId && modeKey.equals(stableMode)) {
-                    stableSamples++;
-                } else {
-                    stableDisplayId = displayId;
-                    stableMode = modeKey;
-                    stableSamples = 1;
-                }
-                if (stableSamples >= 3) {
-                    return displayId;
-                }
-            }
-            SystemClock.sleep(MODE_POLL_MS);
-        }
-        return -1;
     }
 
     static Selection systemSelection(

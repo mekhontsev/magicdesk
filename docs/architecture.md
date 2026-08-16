@@ -792,6 +792,12 @@ resolution.
 Output timing changes real HDMI/DisplayPort geometry; desktop DPI remains an
 independent per-monitor UI scale.
 
+Selecting **System/native** relinquishes MagicDesk's Android display-mode
+preference once, when changing away from an explicit MagicDesk timing. Later
+desktop starts leave the mode selected by SmartCast or another system UI
+untouched. This ownership distinction is persisted with the display profile,
+so restarting MagicDesk cannot repeatedly clear a system-owned mode.
+
 ### Caption visibility
 
 RedMagic uses separate privacy filters for wireless and wired projection:

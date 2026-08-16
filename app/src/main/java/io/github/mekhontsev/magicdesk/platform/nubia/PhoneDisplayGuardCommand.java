@@ -7,7 +7,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -38,20 +37,24 @@ public final class PhoneDisplayGuardCommand {
     private final int mAppUid;
     private final String mRestoreOperation;
     private final int mDesktopDisplayId;
+    private final int mInputPackageUid;
     private final Map<Integer, NubiaCpuFreezerWorkingState.Session>
             mFreezerSessions = new LinkedHashMap<>();
     private Set<Integer> mReportedUids = new LinkedHashSet<>();
     private final Set<Integer> mProtectionFailures = new LinkedHashSet<>();
     private String mLastTaskReadFailure;
+    private String mLastPointerRefreshFailure;
     private volatile boolean mFinished;
 
     private PhoneDisplayGuardCommand(
             final int appUid,
             final String restoreOperation,
-            final int desktopDisplayId) {
+            final int desktopDisplayId,
+            final int inputPackageUid) {
         mAppUid = appUid;
         mRestoreOperation = restoreOperation;
         mDesktopDisplayId = desktopDisplayId;
+        mInputPackageUid = inputPackageUid;
     }
 
     public static void main(final String[] arguments) {
@@ -61,7 +64,8 @@ public final class PhoneDisplayGuardCommand {
             guard = new PhoneDisplayGuardCommand(
                     parseAppUid(arguments[0]),
                     parseRestoreOperation(arguments[1]),
-                    parseDesktopDisplayId(arguments[2]));
+                    parseDesktopDisplayId(arguments[2]),
+                    parseOptionalAppUid(arguments[3]));
         } catch (IllegalArgumentException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
             return;
@@ -95,6 +99,7 @@ public final class PhoneDisplayGuardCommand {
         if (!requestDisplayPower("power-off")) {
             throw new IOException("DisplayManager rejected power-off for display 0");
         }
+        refreshPointerViewport();
         mLastHeartbeat.set(android.os.SystemClock.elapsedRealtime());
         startWatchdog();
         System.out.println(READY);
@@ -106,6 +111,7 @@ public final class PhoneDisplayGuardCommand {
             while ((line = reader.readLine()) != null) {
                 if (HEARTBEAT.equals(line)) {
                     refreshFreezerState();
+                    refreshPointerViewport();
                     mLastHeartbeat.set(
                             android.os.SystemClock.elapsedRealtime());
                 } else if (RESTORE.equals(line)) {
@@ -173,6 +179,9 @@ public final class PhoneDisplayGuardCommand {
     private void refreshFreezerState() throws ReflectiveOperationException {
         final Set<Integer> desiredUids = new LinkedHashSet<>();
         desiredUids.add(Integer.valueOf(mAppUid));
+        if (mInputPackageUid >= 10_000) {
+            desiredUids.add(Integer.valueOf(mInputPackageUid));
+        }
         try {
             desiredUids.addAll(ShellTaskUidReader.read(mDesktopDisplayId));
             mLastTaskReadFailure = null;
@@ -188,6 +197,7 @@ public final class PhoneDisplayGuardCommand {
         }
 
         synchronized (mFreezerSessions) {
+            desiredUids.addAll(mFreezerSessions.keySet());
             for (final Integer uid : desiredUids) {
                 final NubiaCpuFreezerWorkingState.Session existing =
                         mFreezerSessions.get(uid);
@@ -220,18 +230,8 @@ public final class PhoneDisplayGuardCommand {
                 }
             }
 
-            final Iterator<Map.Entry<Integer,
-                    NubiaCpuFreezerWorkingState.Session>> iterator =
-                    mFreezerSessions.entrySet().iterator();
-            while (iterator.hasNext()) {
-                final Map.Entry<Integer, NubiaCpuFreezerWorkingState.Session>
-                        entry = iterator.next();
-                if (!desiredUids.contains(entry.getKey())) {
-                    entry.getValue().close();
-                    iterator.remove();
-                }
-            }
-            mProtectionFailures.retainAll(desiredUids);
+            // Keep the union for the whole screen-off interval. Releasing a
+            // briefly absent task can freeze shared input state mid-session.
             final Set<Integer> protectedUids =
                     new LinkedHashSet<>(mFreezerSessions.keySet());
             if (!protectedUids.equals(mReportedUids)) {
@@ -255,9 +255,9 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private static void validateArguments(final String[] arguments) {
-        if (arguments == null || arguments.length != 3) {
+        if (arguments == null || arguments.length != 4) {
             throw new IllegalArgumentException(
-                    "expected application UID, restore operation, and desktop display");
+                    "expected application UID, restore operation, desktop display, and input UID");
         }
     }
 
@@ -287,6 +287,28 @@ public final class PhoneDisplayGuardCommand {
             throw new IllegalArgumentException("invalid application UID " + uid);
         }
         return uid;
+    }
+
+    private static int parseOptionalAppUid(final String argument) {
+        if ("-1".equals(argument)) {
+            return -1;
+        }
+        return parseAppUid(argument);
+    }
+
+    private void refreshPointerViewport() {
+        try {
+            NubiaMouseController.createOrUpdateViewport();
+            mLastPointerRefreshFailure = null;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            final String failure = usefulMessage(error);
+            if (!failure.equals(mLastPointerRefreshFailure)) {
+                mLastPointerRefreshFailure = failure;
+                System.err.println(
+                        "MagicDesk phone display: could not refresh pointer viewport: "
+                                + failure);
+            }
+        }
     }
 
     private static String parseRestoreOperation(final String operation) {

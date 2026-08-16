@@ -149,6 +149,8 @@ and selected-display recording.
   across displays. Desktop-item and application-window positions use relative
   coordinates so the layout adapts to each display, while output mode, Fill
   display, and DPI remain per-monitor settings.
+- Leave SmartCast or the system projection UI in control when output mode is
+  set to **System/native**; later desktop starts do not overwrite that choice.
 - Remember an application's explicit Windowed or Fullscreen choice and its last
   freeform position for subsequent Auto launches.
 - Use the phone's current static wallpaper or set a local image as the custom

@@ -18,7 +18,7 @@ public final class DisplayProfileStore {
         return profile;
     }
 
-    static boolean save(final Profile profile) {
+    public static boolean save(final Profile profile) {
         if (profile == null || profile.key == null
                 || profile.key.length() == 0) {
             return false;
@@ -26,6 +26,19 @@ public final class DisplayProfileStore {
         final Profile snapshot = copy(profile);
         return DesktopStateStore.update(state ->
                 state.displayProfiles.put(snapshot.key, snapshot));
+    }
+
+    static void setOutputTiming(
+            final Profile profile,
+            final String outputTiming) {
+        final String normalizedTiming = outputTiming == null
+                || outputTiming.isEmpty() ? null : outputTiming;
+        if (normalizedTiming == null) {
+            profile.resetOutputModePending |= profile.outputTiming != null;
+        } else {
+            profile.resetOutputModePending = false;
+        }
+        profile.outputTiming = normalizedTiming;
     }
 
     static Profile copy(final Profile source) {
@@ -37,6 +50,7 @@ public final class DisplayProfileStore {
         copy.dpiExplicit = source.dpiExplicit;
         copy.fillDisplay = source.fillDisplay;
         copy.outputTiming = source.outputTiming;
+        copy.resetOutputModePending = source.resetOutputModePending;
         return copy;
     }
 
@@ -46,6 +60,7 @@ public final class DisplayProfileStore {
         public boolean dpiExplicit;
         public boolean fillDisplay = true;
         public String outputTiming;
+        public boolean resetOutputModePending;
         Profile(final String key) {
             this.key = key;
         }

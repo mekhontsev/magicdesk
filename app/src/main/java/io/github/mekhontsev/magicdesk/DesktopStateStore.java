@@ -357,6 +357,9 @@ final class DesktopStateStore {
         if (profile.outputTiming != null && !profile.outputTiming.isEmpty()) {
             json.put("outputTiming", profile.outputTiming);
         }
+        if (profile.resetOutputModePending) {
+            json.put("resetOutputModePending", true);
+        }
         return json;
     }
 
@@ -376,6 +379,8 @@ final class DesktopStateStore {
         profile.fillDisplay = json.optBoolean("fillDisplay", true);
         final String outputTiming = json.optString("outputTiming", "");
         profile.outputTiming = outputTiming.isEmpty() ? null : outputTiming;
+        profile.resetOutputModePending = json.optBoolean(
+                "resetOutputModePending", false);
         return profile;
     }
 

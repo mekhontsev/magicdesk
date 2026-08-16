@@ -9,6 +9,7 @@ import io.github.mekhontsev.magicdesk.DisplayProfileStore;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
+import io.github.mekhontsev.magicdesk.ShellAccess;
 
 import android.content.Context;
 import android.provider.Settings;
@@ -75,13 +76,18 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                     .append(", fill=").append(displayProfile.fillDisplay)
                     .append(", output=")
                     .append(displayProfile.outputTiming == null
-                            ? "system" : displayProfile.outputTiming);
+                            ? "system" : displayProfile.outputTiming)
+                    .append(", resetPending=")
+                    .append(displayProfile.resetOutputModePending);
         }
+        appendAndroidDisplayModeState(report, physicalDisplayId);
         report.append('\n')
                 .append("Phone screen guard: active=")
                 .append(PhoneDisplayGuard.isActive())
                 .append(", protectedUids=")
                 .append(PhoneDisplayGuard.protectedUidSummary())
+                .append(", inputUid=")
+                .append(PhoneDisplayGuard.inputPackageUid())
                 .append('\n')
                 .append("Nubia projection settings: fit=")
                 .append(Settings.Global.getString(
@@ -100,6 +106,39 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                         context.getContentResolver(),
                         "nb_app_mirror_now_fit"))
                 .append('\n');
+    }
+
+    private static void appendAndroidDisplayModeState(
+            final StringBuilder report,
+            final int displayId) {
+        if (displayId <= 0) {
+            return;
+        }
+        report.append('\n')
+                .append("Android display mode state: user=")
+                .append(runDisplayCommand(
+                        "get-user-preferred-display-mode " + displayId))
+                .append(", global=")
+                .append(runDisplayCommand("get-user-preferred-display-mode"))
+                .append(", connectedAt=")
+                .append(runDisplayCommand(
+                        "get-active-display-mode-at-start " + displayId));
+    }
+
+    private static String runDisplayCommand(final String arguments) {
+        try {
+            final ShellAccess.CommandResult result =
+                    ShellAccess.executeForConsole(
+                            "/system/bin/cmd display " + arguments);
+            final String output = result.output == null
+                    ? "" : result.output.trim().replace('\n', ' ');
+            return result.exitCode == 0
+                    ? output : "error(" + result.exitCode + "):" + output;
+        } catch (java.io.IOException | RuntimeException error) {
+            final String message = error.getMessage();
+            return "error:" + (message == null
+                    ? error.getClass().getSimpleName() : message);
+        }
     }
 
     @Override

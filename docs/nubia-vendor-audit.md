@@ -285,9 +285,12 @@ unfreeze --sticky` did not override this separate vendor freezer. The service's
 UID 2000 and is the firmware's own transient protection for an executing
 service. The display helper refreshes it with the existing heartbeat for
 MagicDesk and every application UID that owns a live task on the desktop
-display. It clears entries when tasks leave that display and after `power-reset`.
-If cleanup cannot run, `cfreezer` expires an unrefreshed working state
-internally. A dynamic `setFrozenWhiteList` entry was also tested
+display, plus Nubia's mirror-input package when present. It retains that union
+for the screen-off interval because a briefly absent task must not freeze
+shared desktop input, and refreshes the firmware mouse viewport after the
+display power transition. All entries are cleared after `power-reset`. If
+cleanup cannot run, `cfreezer` expires an unrefreshed working state internally.
+A dynamic `setFrozenWhiteList` entry was also tested
 successfully but rejected for production because abrupt helper termination
 could leave that persistent entry behind.
 
