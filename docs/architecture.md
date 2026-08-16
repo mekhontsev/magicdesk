@@ -207,11 +207,16 @@ runtime integration and are not distributed through the same release path.
   Nubia ignores a Mirror-to-desktop command while Android Home is the sole
   foreground task. It never appears in Recents and is removed after the real
   desktop host task is ready.
-- `MagicDeskRuntimeService` owns the persistent notification and process-level
-  runtime. An optional non-reference-counted partial wake lock is held only
-  while both its setting and a MagicDesk desktop session are active, and is
-  released by the same service lifecycle. There is no boot receiver; the user
-  starts MagicDesk manually. The notification body is a stable display-0 entry
+- `MagicDeskRuntimeService` composes the persistent notification and
+  process-level runtime without duplicating subsystem state.
+  `RuntimeDesktopSessionCoordinator` owns desktop-display identity, session
+  removal, and phone-Home recovery. `RuntimeDesktopInputCoordinator` composes
+  input-device discovery, keyboard and mouse bridges, desktop text routing,
+  and software-keyboard policy. The optional non-reference-counted partial
+  wake lock is held only while both its setting and a MagicDesk desktop
+  session are active. It is released by the same service lifecycle. There is
+  no boot receiver; the user starts MagicDesk manually. The notification body
+  is a stable display-0 entry
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Desktop Show/Restore remains a taskbar and `Win+D`
   command rather than a state-dependent notification action.
