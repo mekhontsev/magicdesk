@@ -446,10 +446,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             final int focusedTaskId = taskIds.get(
                     taskIds.size() - 1).intValue();
-            // Release the host window before WMShell raises the target task.
-            // Otherwise Nubia WMS can leave keyboard focus on the host while
-            // reporting the client task as focused.
-            DesktopRuntimeBridge.prepareTaskFocus(displayId, focusedTaskId);
+            if (mWindowing.requiresMirrorInputFocusSynchronization()) {
+                // Affected firmware can leave input focus on the host while
+                // reporting the raised client task as focused.
+                DesktopRuntimeBridge.prepareTaskFocus(
+                        displayId, focusedTaskId);
+            }
             mTaskWatcher.sendFocusStack(displayId, taskIds, callback);
         });
     }

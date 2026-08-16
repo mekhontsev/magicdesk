@@ -212,7 +212,8 @@ public final class TaskRepository {
             return;
         }
         runAction(createTaskWindowingCommand(
-                "desktop-host " + task.displayId + " " + task.taskId),
+                "desktop-host " + task.displayId + " " + task.taskId
+                        + " " + captionRefreshArgument()),
                 callback);
     }
 
@@ -373,7 +374,13 @@ public final class TaskRepository {
             final int taskId) {
         return AppProcessCommand.run(
                 TASK_FULLSCREEN_TRANSITION_COMMAND,
-                displayId + " " + taskId);
+                displayId + " " + taskId
+                        + " " + captionRefreshArgument());
+    }
+
+    private static int captionRefreshArgument() {
+        return PlatformDrivers.current().windowing()
+                .requiresNativeFullscreenCaptionRefresh() ? 1 : 0;
     }
 
     static String createClientPreservingFullscreenTransitionCommand(

@@ -14,19 +14,26 @@ import java.util.stream.Stream;
 
 public final class PlatformSourceIsolationTest {
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
-    private static final String IMPLEMENTATION_IMPORT =
-            "import io.github.mekhontsev.magicdesk.platform.";
+    private static final String IMPLEMENTATION_REFERENCE =
+            "io.github.mekhontsev.magicdesk.platform.";
     private static final String PLATFORM_SELECTOR =
             "io/github/mekhontsev/magicdesk/PlatformDrivers.java";
     private static final String VENDOR_DIRECTORY =
             "/io/github/mekhontsev/magicdesk/platform/nubia/";
+    private static final String PLATFORM_DIRECTORY =
+            "/io/github/mekhontsev/magicdesk/platform/";
     private static final String[] VENDOR_RUNTIME_IDENTIFIERS = {
         "\"cn.nubia",
         "\"com.zte",
         "\"com.redmagic",
         "\"redmagic.app.manager",
         "\"nubia_screen_off_tp",
-        "\"app_mirror_displayid"
+        "\"app_mirror_displayid",
+        "\"NubiaAppMirrorDisplay",
+        "\"setCmdToDisplay",
+        "\"RedMagicAppManager",
+        "\"ColorfulLightService",
+        "\"/sys/kernel/lcd_enhance/"
     };
 
     @Test
@@ -35,8 +42,10 @@ public final class PlatformSourceIsolationTest {
         final List<String> violations = new ArrayList<>();
         for (final Path source : productionSources()) {
             final String relative = relativePath(source);
+            final String rooted = "/" + relative;
             if (!PLATFORM_SELECTOR.equals(relative)
-                    && read(source).contains(IMPLEMENTATION_IMPORT)) {
+                    && !rooted.contains(PLATFORM_DIRECTORY)
+                    && read(source).contains(IMPLEMENTATION_REFERENCE)) {
                 violations.add(relative);
             }
         }

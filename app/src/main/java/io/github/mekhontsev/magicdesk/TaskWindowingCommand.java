@@ -38,9 +38,10 @@ public final class TaskWindowingCommand {
                         parseInt(args[5], "right"), parseInt(args[6], "bottom"));
                 return;
             }
-            if (args.length == 3 && "desktop-host".equals(args[0])) {
+            if (args.length == 4 && "desktop-host".equals(args[0])) {
                 setDesktopHost(parseInt(args[1], "display id"),
-                        parseInt(args[2], "task id"));
+                        parseInt(args[2], "task id"),
+                        parseFlag(args[3], "refresh caption"));
                 return;
             }
             if (args.length == 4 && "minimize".equals(args[0])) {
@@ -61,7 +62,7 @@ public final class TaskWindowingCommand {
             }
             System.err.println("usage: TaskWindowingCommand "
                     + "<freeform|bounds display task left top right bottom"
-                    + "|desktop-host display task"
+                    + "|desktop-host display task refresh-caption"
                     + "|minimize display task focus-task"
                     + "|focus display task..."
                     + "|restore-layout display task left top right bottom...>");
@@ -90,10 +91,16 @@ public final class TaskWindowingCommand {
         System.out.println("task-freeform=" + taskId);
     }
 
-    private static void setDesktopHost(final int displayId, final int taskId)
+    private static void setDesktopHost(
+            final int displayId,
+            final int taskId,
+            final boolean refreshCaption)
             throws ReflectiveOperationException {
         TaskFullscreenTransitionCommand.applyFullscreen(
-                displayId, taskId, true);
+                displayId,
+                taskId,
+                true,
+                refreshCaption);
         System.out.println("desktop-host=" + taskId);
     }
 
@@ -480,5 +487,14 @@ public final class TaskWindowingCommand {
             throw new IllegalArgumentException("invalid " + label);
         }
         return parsed;
+    }
+
+    private static boolean parseFlag(
+            final String value, final String label) {
+        final int parsed = parseInt(value, label);
+        if (parsed > 1) {
+            throw new IllegalArgumentException("invalid " + label);
+        }
+        return parsed == 1;
     }
 }

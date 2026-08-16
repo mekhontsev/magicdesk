@@ -182,7 +182,10 @@ final class DesktopSelfTestCleanup {
                             DesktopSelfTestComponents.FIXTURE_CLASS)) {
                 continue;
             }
-            if (requiresPhoneDesktopExitBeforeRemoval(task)) {
+            if (requiresPhoneDesktopExitBeforeRemoval(
+                    task,
+                    PlatformDrivers.current().windowing()
+                            .requiresPhoneTaskRecovery())) {
                 // Removing a phone freeform task directly leaves its ID in
                 // Nubia's DesktopRepository. Leave the desk before removal.
                 ShellAccess.run(
@@ -215,8 +218,10 @@ final class DesktopSelfTestCleanup {
     }
 
     static boolean requiresPhoneDesktopExitBeforeRemoval(
-            final TaskStackParser.Entry task) {
-        return task != null
+            final TaskStackParser.Entry task,
+            final boolean requiresPhoneTaskRecovery) {
+        return requiresPhoneTaskRecovery
+                && task != null
                 && task.displayId == Display.DEFAULT_DISPLAY
                 && "freeform".equals(task.windowingMode);
     }

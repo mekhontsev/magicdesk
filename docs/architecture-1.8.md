@@ -97,4 +97,10 @@ owned by `AppTaskController`, fresh launch/reuse selection by
 `ExistingTaskController`. One transient launch lease owns startup windowing
 and touchpad preservation across those layers.
 
+The shared fullscreen, focus, self-test cleanup, and pointer-recovery paths no
+longer apply Nubia behavior unconditionally. Existing platform contracts select
+caption repair, focus synchronization, phone task recovery, and the pointer
+driver. Source-isolation tests reject fully qualified implementation references
+and known vendor runtime identifiers outside platform adapters.
+
 Each step must leave the branch buildable and independently reviewable.

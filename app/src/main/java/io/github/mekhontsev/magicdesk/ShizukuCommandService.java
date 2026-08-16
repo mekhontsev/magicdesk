@@ -825,15 +825,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         try {
             final Point position =
                     mPointerDriver.restorePositionIfDisplaced();
-            if (position != null) {
-                DesktopPointerInjector.injectTouchpadMotion(
-                        displayId,
-                        position,
-                        DesktopPointerInjector.TOUCHPAD_HOVER,
-                        0L);
+            if (position != null
+                    && !mPointerDriver.updatePosition(
+                            displayId,
+                            position.x,
+                            position.y,
+                            DesktopPointerInjector.TOUCHPAD_HOVER,
+                            0L)) {
+                throw new IllegalStateException(
+                        "platform pointer restore failed");
             }
             Log.i(TAG, "input reclaimed after platform panel task removal");
-        } catch (ReflectiveOperationException | RuntimeException error) {
+        } catch (RuntimeException error) {
             Log.w(TAG,
                     "could not restore pointer after platform panel",
                     error);

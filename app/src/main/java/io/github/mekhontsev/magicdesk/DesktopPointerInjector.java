@@ -77,7 +77,8 @@ public final class DesktopPointerInjector {
             final int displayId,
             final Point position,
             final int action,
-            final long downTime)
+            final long downTime,
+            final int hoverToolType)
             throws ReflectiveOperationException {
         validateDisplay(displayId);
         final InjectionContext context = injectionContext();
@@ -86,7 +87,7 @@ public final class DesktopPointerInjector {
         switch (action) {
             case TOUCHPAD_HOVER:
                 context.injectTouchpadHoverAsync(
-                        displayId, position, eventTime);
+                        displayId, position, eventTime, hoverToolType);
                 return;
             case TOUCHPAD_DRAG_START:
                 context.injectMouseAsync(displayId, position, gestureDownTime,
@@ -284,20 +285,24 @@ public final class DesktopPointerInjector {
         void injectTouchpadHoverAsync(
                 final int displayId,
                 final Point position,
-                final long eventTime)
+                final long eventTime,
+                final int toolType)
                 throws ReflectiveOperationException {
-            // Nubia's desktop resize listener expects this mouse/finger
-            // combination. Its vendor cursor event has no Android device ID.
+            if (toolType != MotionEvent.TOOL_TYPE_MOUSE
+                    && toolType != MotionEvent.TOOL_TYPE_FINGER) {
+                throw new IllegalArgumentException(
+                        "unsupported hover tool type: " + toolType);
+            }
             inject(displayId, position, eventTime,
                     MotionEvent.ACTION_HOVER_MOVE,
-                    MotionEvent.TOOL_TYPE_FINGER,
+                    toolType,
                     InputDevice.SOURCE_MOUSE,
                     0,
                     0,
                     0.0f,
                     INJECTION_MODE_ASYNC,
                     pointerDeviceId(displayId),
-                    0.0f);
+                    toolType == MotionEvent.TOOL_TYPE_MOUSE ? 1.0f : 0.0f);
         }
 
         void injectMouseHover(

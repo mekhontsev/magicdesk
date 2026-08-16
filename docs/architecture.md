@@ -290,6 +290,7 @@ runtime integration and are not distributed through the same release path.
 - `DesktopTaskController` orchestrates native task transitions as an instance
   owned exclusively by `RuntimeDesktopTaskCoordinator`. It contains no static
   active-controller reference; pure task classification helpers remain static.
+  Pre-focus host relayout is enabled only by the selected windowing driver.
 - `DesktopTaskParkingController` snapshots live managed tasks when an external
   desktop is closed, parks them on display 0 as fullscreen tasks, and restores
   only the same still-live task IDs when a later desktop host becomes ready.
@@ -323,6 +324,11 @@ runtime integration and are not distributed through the same release path.
   normalization. A single `WindowedTaskLaunchLease` spans each operation so
   startup-window protection and phone-touchpad preservation cannot be entered
   twice by the launcher and reuse path.
+- Shared fullscreen commands perform caption-source repair only when requested
+  by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
+  the same platform policy. Shell input recovery calls the selected
+  `PlatformPointerDriver`; the Nubia driver alone chooses its firmware-specific
+  finger-tool hover event.
 
 ### Platform services
 
