@@ -27,16 +27,19 @@ final class DesktopWindowTransitionController {
     private static final String TAG = "MagicDeskTasks";
     private final Handler mHandler;
     private final NativeWindowBoundsController mNativeWindowBounds;
+    private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskStates;
     private final RuntimeState mRuntimeState;
 
     DesktopWindowTransitionController(
             final Handler handler,
             final NativeWindowBoundsController nativeWindowBounds,
+            final DesktopDisplayTaskState displayTaskState,
             final DesktopTaskRuntimeRegistry taskStates,
             final RuntimeState runtimeState) {
         mHandler = handler;
         mNativeWindowBounds = nativeWindowBounds;
+        mDisplayTaskState = displayTaskState;
         mTaskStates = taskStates;
         mRuntimeState = runtimeState;
     }
@@ -354,10 +357,8 @@ final class DesktopWindowTransitionController {
         if (appRequested) {
             state.setAppRequestedFullscreen(true);
         }
-        DesktopTaskStateStore.beginFullscreenTransition(
-                displayId,
-                DesktopTaskStateStore.getVisibleTasks(displayId),
-                task.taskId);
+        mDisplayTaskState.beginFullscreenTransition(
+                mDisplayTaskState.visibleTasks(), task.taskId);
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> {
                     if (!mTaskStates.isCurrent(taskId, state)) {
@@ -593,8 +594,7 @@ final class DesktopWindowTransitionController {
     private void finishWorkspaceTransition(
             final int displayId,
             final boolean success) {
-        DesktopTaskStateStore.finishFullscreenTransition(
-                displayId, success);
+        mDisplayTaskState.finishFullscreenTransition(success);
         if (mRuntimeState.isRunning()
                 && mRuntimeState.displayId() == displayId) {
             mRuntimeState.scheduleRefresh();

@@ -305,7 +305,9 @@ runtime integration and are not distributed through the same release path.
   maps. Removing a task invalidates late asynchronous callbacks atomically;
   stopping the bounds controller clears only its bounds fields and preserves
   live fullscreen/immersive ownership.
-- `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
+- `DesktopDisplayTaskState` owns the active controller's visible workspace,
+  last visible Z-order, and fullscreen-transition freeze as one display-scoped
+  value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
 - `AppTaskController`, `WorkspaceAppController`, and `AltTabController`

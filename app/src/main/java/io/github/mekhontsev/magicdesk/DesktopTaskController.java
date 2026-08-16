@@ -40,6 +40,7 @@ final class DesktopTaskController {
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
     private final PlatformPhoneUiDriver mPhoneUi;
     private final PlatformWindowingDriver mWindowing;
+    private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskRuntimeStates;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
@@ -71,6 +72,7 @@ final class DesktopTaskController {
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
                 mApplicationContext, phoneUi);
         mAppWindowStates = new AppWindowStateTracker(handler);
+        mDisplayTaskState = new DesktopDisplayTaskState();
         mTaskRuntimeStates = new DesktopTaskRuntimeRegistry();
         mNativeWindowBounds = new NativeWindowBoundsController(
                 mApplicationContext,
@@ -110,6 +112,7 @@ final class DesktopTaskController {
         mWindowTransitions = new DesktopWindowTransitionController(
                 mHandler,
                 mNativeWindowBounds,
+                mDisplayTaskState,
                 mTaskRuntimeStates,
                 new DesktopWindowTransitionController.RuntimeState() {
                     @Override
@@ -278,7 +281,6 @@ final class DesktopTaskController {
     }
 
     void stop() {
-        final int stoppedDisplayId = mDisplayId;
         mRunning = false;
         mGeneration++;
         mHandler.removeCallbacks(mRefreshRunnable);
@@ -292,7 +294,7 @@ final class DesktopTaskController {
         mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
         clearActiveController(this);
-        DesktopTaskStateStore.clear(stoppedDisplayId);
+        mDisplayTaskState.clear();
     }
 
     void destroy() {
@@ -317,7 +319,9 @@ final class DesktopTaskController {
 
     static synchronized List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
-        return DesktopTaskStateStore.getVisibleTasks(displayId);
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        return controller == null
+                ? null : controller.mDisplayTaskState.visibleTasks();
     }
 
     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(
@@ -342,31 +346,41 @@ final class DesktopTaskController {
 
     static synchronized List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
-        return DesktopTaskStateStore.getLastVisibleTasks(displayId);
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        return controller == null
+                ? Collections.emptyList()
+                : controller.mDisplayTaskState.lastVisibleTasks();
     }
 
     static synchronized Boolean hasVisibleAppTaskSnapshot(final int displayId) {
-        return DesktopTaskStateStore.hasVisibleAppTask(displayId);
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        return controller == null
+                ? null : controller.mDisplayTaskState.hasVisibleAppTask();
     }
 
     static synchronized void beginFullscreenTransition(final int displayId,
             final List<TaskRepository.TaskEntry> visibleTasks, final int excludedTaskId) {
-        DesktopTaskStateStore.beginFullscreenTransition(
-                displayId, visibleTasks, excludedTaskId);
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        if (controller != null) {
+            controller.mDisplayTaskState.beginFullscreenTransition(
+                    visibleTasks, excludedTaskId);
+        }
     }
 
     static synchronized void finishFullscreenTransition(final int displayId,
             final boolean success) {
-        DesktopTaskStateStore.finishFullscreenTransition(displayId, success);
-        final DesktopTaskController controller = sActiveController.get();
-        if (controller != null && controller.mRunning
-                && controller.mDisplayId == displayId) {
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        if (controller != null) {
+            controller.mDisplayTaskState.finishFullscreenTransition(success);
             controller.scheduleRefresh(0);
         }
     }
 
     static synchronized void forgetVisibleFreeformTasks(final int displayId) {
-        DesktopTaskStateStore.forgetVisibleTasks(displayId);
+        final DesktopTaskController controller = activeForDisplay(displayId);
+        if (controller != null) {
+            controller.mDisplayTaskState.forgetVisibleTasks();
+        }
     }
 
     static void focusStack(final List<TaskRepository.TaskEntry> topFirstTasks,
@@ -820,9 +834,16 @@ final class DesktopTaskController {
                 mFocusingTaskId = -1;
             }
         }
-        DesktopTaskStateStore.publish(
-                mDisplayId, visibleTasks, hasVisibleAppTask);
+        mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
         mWindowTransitions.reconcile(snapshot.tasks, visibleTasks);
+    }
+
+    private static DesktopTaskController activeForDisplay(
+            final int displayId) {
+        final DesktopTaskController controller = sActiveController.get();
+        return controller != null && controller.mRunning
+                && controller.mDisplayId == displayId
+                ? controller : null;
     }
 
     private static TaskRepository.TaskEntry findTask(
