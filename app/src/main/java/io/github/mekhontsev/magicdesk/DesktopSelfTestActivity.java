@@ -1,6 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.Editable;
@@ -8,6 +12,8 @@ import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.EditText;
@@ -22,12 +28,36 @@ public final class DesktopSelfTestActivity extends Activity {
     static final String EXTRA_DISPLAY_ID = "self_test_display_id";
     static final String EXTRA_TOKEN = "self_test_token";
     static final String EXTRA_ALLOW_DISPLAY_MOVE = "self_test_allow_display_move";
+    static final String ACTION_SET_IMMERSIVE =
+            BuildConfig.APPLICATION_ID + ".action.SELF_TEST_SET_IMMERSIVE";
+    static final String EXTRA_IMMERSIVE = "self_test_immersive";
+    static final String EXTRA_IMMERSIVE_TOKEN =
+            "self_test_immersive_token";
+    private static final String MANAGE_ACTIVITY_TASKS_PERMISSION =
+            "android.permission.MANAGE_ACTIVITY_TASKS";
     static final String FIRST_FRAME_MARKER_FILE =
             "desktop-self-test-first-frame.txt";
     static final String TEXT_MARKER_FILE = "desktop-self-test-text.txt";
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private String mToken = "";
     private boolean mAllowDisplayMove;
+    private boolean mImmersiveReceiverRegistered;
+    private final BroadcastReceiver mImmersiveReceiver =
+            new BroadcastReceiver() {
+                @Override
+                public void onReceive(
+                        final Context context,
+                        final Intent intent) {
+                    if (intent != null
+                            && ACTION_SET_IMMERSIVE.equals(
+                                    intent.getAction())
+                            && mToken.equals(intent.getStringExtra(
+                                    EXTRA_IMMERSIVE_TOKEN))) {
+                        applyImmersive(intent.getBooleanExtra(
+                                EXTRA_IMMERSIVE, false));
+                    }
+                }
+            };
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -44,7 +74,23 @@ public final class DesktopSelfTestActivity extends Activity {
         final FrameLayout content = createContent();
         recordFirstFrame(content);
         setContentView(content);
+        registerReceiver(
+                mImmersiveReceiver,
+                new IntentFilter(ACTION_SET_IMMERSIVE),
+                MANAGE_ACTIVITY_TASKS_PERMISSION,
+                null,
+                Context.RECEIVER_EXPORTED);
+        mImmersiveReceiverRegistered = true;
         finishIfMoved();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (mImmersiveReceiverRegistered) {
+            unregisterReceiver(mImmersiveReceiver);
+            mImmersiveReceiverRegistered = false;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -66,6 +112,19 @@ public final class DesktopSelfTestActivity extends Activity {
         }
         finishAndRemoveTask();
         overridePendingTransition(0, 0);
+    }
+
+    private void applyImmersive(final boolean enabled) {
+        final WindowInsetsController controller =
+                getWindow().getInsetsController();
+        if (controller == null) {
+            return;
+        }
+        if (enabled) {
+            controller.hide(WindowInsets.Type.systemBars());
+        } else {
+            controller.show(WindowInsets.Type.systemBars());
+        }
     }
 
     private FrameLayout createContent() {

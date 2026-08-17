@@ -70,6 +70,13 @@ final class NativeWindowBoundsController {
                         workArea.bottom);
     }
 
+    boolean isNativeCaptionSnapOutsideWorkArea(final Rect bounds) {
+        return correctNativeCaptionSnapBounds(
+                bounds,
+                getFullscreenBounds(),
+                getTaskbarMaximizedBounds()) != null;
+    }
+
     Rect getFullscreenBounds() {
         final DesktopViewport viewport = mRuntimeState.viewport();
         if (viewport != null) {
@@ -182,6 +189,20 @@ final class NativeWindowBoundsController {
                 continue;
             }
 
+            final Rect correctedSnapBounds =
+                    correctNativeCaptionSnapBounds(
+                            task.bounds,
+                            fullscreenBounds,
+                            maximizedBounds);
+            if (correctedSnapBounds != null) {
+                // Nubia's caption layout menu divides the full display and
+                // ignores MagicDesk's taskbar work area. Keep the native UI,
+                // but normalize its exact half-screen result like Win+Left or
+                // Win+Right. Arbitrary user resizing is left untouched.
+                requestBounds(task, correctedSnapBounds, true);
+                continue;
+            }
+
             final Rect restoreBounds = state.maximizeRestoreBounds();
             if (task.bounds.equals(fullscreenBounds)) {
                 if (restoreBounds != null) {
@@ -224,6 +245,69 @@ final class NativeWindowBoundsController {
                 state.setLastWindowBounds(task.bounds);
             }
         }
+    }
+
+    static Rect correctNativeCaptionSnapBounds(
+            final Rect taskBounds,
+            final Rect displayBounds,
+            final Rect workAreaBounds) {
+        if (taskBounds == null
+                || displayBounds == null
+                || workAreaBounds == null
+                || !TaskRepository.hasExplicitBounds(taskBounds)
+                || !TaskRepository.hasExplicitBounds(displayBounds)
+                || !TaskRepository.hasExplicitBounds(workAreaBounds)
+                || taskBounds.top != displayBounds.top
+                || taskBounds.bottom != displayBounds.bottom) {
+            return null;
+        }
+        final int displayMiddle =
+                displayBounds.left
+                        + (displayBounds.right - displayBounds.left) / 2;
+        final boolean left = taskBounds.left == displayBounds.left
+                && taskBounds.right == displayMiddle;
+        final boolean right = taskBounds.left == displayMiddle
+                && taskBounds.right == displayBounds.right;
+        if (!left && !right) {
+            return null;
+        }
+        final int workAreaMiddle =
+                workAreaBounds.left
+                        + (workAreaBounds.right - workAreaBounds.left) / 2;
+        final Rect corrected = left
+                ? rect(
+                        workAreaBounds.left,
+                        workAreaBounds.top,
+                        workAreaMiddle,
+                        workAreaBounds.bottom)
+                : rect(
+                        workAreaMiddle,
+                        workAreaBounds.top,
+                        workAreaBounds.right,
+                        workAreaBounds.bottom);
+        return sameBounds(taskBounds, corrected) ? null : corrected;
+    }
+
+    private static boolean sameBounds(
+            final Rect first,
+            final Rect second) {
+        return first.left == second.left
+                && first.top == second.top
+                && first.right == second.right
+                && first.bottom == second.bottom;
+    }
+
+    private static Rect rect(
+            final int left,
+            final int top,
+            final int right,
+            final int bottom) {
+        final Rect bounds = new Rect();
+        bounds.left = left;
+        bounds.top = top;
+        bounds.right = right;
+        bounds.bottom = bottom;
+        return bounds;
     }
 
     private Rect getDefaultWindowBounds(final Rect workArea) {

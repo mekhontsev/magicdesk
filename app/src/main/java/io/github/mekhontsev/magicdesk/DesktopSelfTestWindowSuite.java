@@ -8,6 +8,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_M
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
 import android.content.ComponentName;
 import android.content.Context;
@@ -279,6 +280,13 @@ final class DesktopSelfTestWindowSuite {
                 targetFixtureTaskId,
                 windowBounds,
                 captionReference);
+        verifyAppRequestedFullscreenRestore(
+                result,
+                targetDisplayId,
+                targetFixtureTaskId,
+                windowBounds,
+                captureSource,
+                captionReference);
         require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
             ShellAccess.run(AppProcessCommand.run(
                     "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
@@ -299,6 +307,127 @@ final class DesktopSelfTestWindowSuite {
                 token,
                 settledGeometry);
         DesktopSelfTestTaskStackGuard.finish(result);
+    }
+
+    private static void verifyAppRequestedFullscreenRestore(
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int taskId,
+            final Rect expectedBounds,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestInputSuite.CaptionReference captionReference)
+            throws AbortSelfTest {
+        final String token = Long.toHexString(System.nanoTime());
+        final DesktopTaskLaunchProbe.Observation launch = require(
+                result,
+                "WINDOW-017",
+                "Launch application fullscreen test window",
+                () -> {
+                    final DesktopTaskLaunchProbe.Observation observation =
+                            preservePhoneTouchpad(() ->
+                                    launchFixtureAndObserve(
+                                            displayId,
+                                            token,
+                                            expectedBounds));
+                    if (observation.taskId == taskId) {
+                        throw new IOException(
+                                "Android reused the primary test task");
+                    }
+                    return observation;
+                });
+        final int immersiveTaskId = launch.taskId;
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
+                immersiveTaskId);
+        boolean restored = false;
+        try {
+            require(result,
+                    "WINDOW-015",
+                    "Enter application-requested fullscreen",
+                    () -> {
+                        setFixtureImmersive(token, true);
+                        final TaskStackParser.Entry task = waitForTask(
+                                displayId,
+                                FIXTURE_CLASS,
+                                entry -> entry.taskId == immersiveTaskId
+                                        && "fullscreen".equals(
+                                                entry.windowingMode));
+                        return "task=" + task.taskId;
+                    });
+            require(result,
+                    "WINDOW-016",
+                    "Restore application-requested window bounds",
+                    () -> {
+                        setFixtureImmersive(token, false);
+                        final TaskStackParser.Entry task = waitForTask(
+                                displayId,
+                                FIXTURE_CLASS,
+                                entry -> entry.taskId == immersiveTaskId
+                                        && "freeform".equals(
+                                                entry.windowingMode)
+                                        && DesktopSelfTestGeometry.matches(
+                                                entry.bounds,
+                                                expectedBounds));
+                        return DesktopSelfTestGeometry.format(task.bounds);
+                    });
+            restored = true;
+            DesktopSelfTestInputSuite.verifyCaptionStructure(
+                    result,
+                    "CAPTION-005",
+                    "Verify application fullscreen restored caption",
+                    immersiveTaskId,
+                    expectedBounds);
+            DesktopSelfTestInputSuite.verifyCaptionSurface(
+                    result,
+                    "CAPTION-SURFACE-003",
+                    "Verify application fullscreen restored caption surface",
+                    immersiveTaskId);
+            DesktopSelfTestInputSuite.verifyCaptionRendering(
+                    result,
+                    "CAPTION-006",
+                    "Verify application fullscreen restored caption rendering",
+                    captureSource,
+                    immersiveTaskId,
+                    expectedBounds,
+                    captionReference);
+        } finally {
+            if (!restored) {
+                try {
+                    setFixtureImmersive(token, false);
+                } catch (IOException ignored) {
+                    // Removing the temporary task also clears this request.
+                }
+            }
+            removeFixtureTaskBestEffort(immersiveTaskId);
+        }
+    }
+
+    private static void setFixtureImmersive(
+            final String token,
+            final boolean enabled)
+            throws IOException {
+        ShellAccess.run("/system/bin/am broadcast --user 0 -a "
+                + ShellCommandLine.quote(
+                        DesktopSelfTestActivity.ACTION_SET_IMMERSIVE)
+                + " -p " + ShellCommandLine.quote(PACKAGE_NAME)
+                + " --ez "
+                + ShellCommandLine.quote(
+                        DesktopSelfTestActivity.EXTRA_IMMERSIVE)
+                + " " + enabled
+                + " --es "
+                + ShellCommandLine.quote(
+                        DesktopSelfTestActivity.EXTRA_IMMERSIVE_TOKEN)
+                + " " + ShellCommandLine.quote(token));
+    }
+
+    private static void removeFixtureTaskBestEffort(final int taskId) {
+        try {
+            ShellAccess.run(AppProcessCommand.run(
+                    "io.github.mekhontsev.magicdesk.TaskControlCommand",
+                    "remove " + taskId));
+            waitForTaskAbsent(taskId);
+        } catch (IOException ignored) {
+            // The global self-test cleanup removes any remaining fixture.
+        }
     }
 
     private static void verifyDisplayGeometry(

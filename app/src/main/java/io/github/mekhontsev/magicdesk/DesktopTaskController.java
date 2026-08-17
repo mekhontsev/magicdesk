@@ -246,13 +246,17 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }
-                        mAppWindowStates.observe(
-                                packageName,
-                                displayId,
-                                bounds,
-                                mNativeWindowBounds
-                                        .getTaskbarMaximizedBounds(),
-                                mNativeWindowBounds.getFullscreenBounds());
+                        if (!mNativeWindowBounds
+                                .isNativeCaptionSnapOutsideWorkArea(bounds)) {
+                            mAppWindowStates.observe(
+                                    packageName,
+                                    displayId,
+                                    bounds,
+                                    mNativeWindowBounds
+                                            .getTaskbarMaximizedBounds(),
+                                    mNativeWindowBounds
+                                            .getFullscreenBounds());
+                        }
                         scheduleRefresh(0);
                     }
 
@@ -362,7 +366,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             if (task.visible && task.isFreeform()
                     && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)) {
+                            .isControllableApplicationTask(task)) {
                 visibleTasks.add(task);
             }
         }
@@ -682,7 +686,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     && task.visible
                     && task.isFreeform()
                     && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)) {
+                            .isControllableApplicationTask(task)) {
                 return task;
             }
         }
@@ -840,7 +844,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (aboveDesktopHost
                     && task != null && task.displayId == mDisplayId && task.visible
                     && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)) {
+                            .isControllableApplicationTask(task)) {
                 hasVisibleAppTask = true;
                 visibleAppTaskIds.add(Integer.valueOf(task.taskId));
             }
@@ -918,7 +922,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 && task.displayId == mDisplayId
                 && task.visible
                 && task.isBoundedFreeform()
-                && DesktopManagedTaskPolicy.isManagedApplicationTask(task);
+                && DesktopManagedTaskPolicy.isControllableApplicationTask(
+                        task);
     }
 
     static boolean isDesktopHostTask(final TaskRepository.TaskEntry task) {

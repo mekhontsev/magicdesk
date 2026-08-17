@@ -418,7 +418,7 @@ public final class TaskRepository {
         return task != null && task.taskId >= 0 && task.rootTaskId >= 0;
     }
 
-    private static boolean hasExplicitBounds(final Rect bounds) {
+    static boolean hasExplicitBounds(final Rect bounds) {
         return bounds != null
                 && bounds.right > bounds.left
                 && bounds.bottom > bounds.top;
