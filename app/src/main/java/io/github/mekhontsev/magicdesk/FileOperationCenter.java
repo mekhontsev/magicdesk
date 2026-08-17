@@ -172,10 +172,31 @@ final class FileOperationCenter implements ShellAccess.StateListener {
 
     void cancel() {
         final long operationId;
+        final boolean cancelledPending;
         synchronized (this) {
+            if (!mSnapshot.isBusy()) {
+                return;
+            }
             operationId = mSnapshot.operationId;
+            cancelledPending = operationId <= 0L;
+            if (cancelledPending) {
+                mRequestGeneration++;
+                mClipboardGeneration = -1L;
+                mSnapshot = new Snapshot(
+                        ++mSequence,
+                        State.FINISHED,
+                        NO_OPERATION,
+                        mSnapshot.operation,
+                        mSnapshot.completedItems,
+                        mSnapshot.totalItems,
+                        mSnapshot.currentPath,
+                        mSnapshot.bytesCompleted,
+                        false,
+                        "file operation cancelled");
+            }
         }
-        if (operationId <= 0L) {
+        if (cancelledPending) {
+            notifyListeners();
             return;
         }
         mWorker.execute(() -> {
