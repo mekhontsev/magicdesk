@@ -389,6 +389,10 @@
     <string name="search_apps_hint">Search apps, files and actions</string>
     <string name="search_no_results">No matching results</string>
     <string name="taskbar_running_description">%1$s, task %2$d</string>
+    <plurals name="taskbar_hidden_items_description">
+        <item quantity="one">%1$d more taskbar item</item>
+        <item quantity="other">%1$d more taskbar items</item>
+    </plurals>
     <string name="context_desktop">Desktop</string>
     <string name="context_task_status">Task %1$d | %2$s</string>
     <string name="open_tasks_title">Open tasks (%1$d)</string>

@@ -43,7 +43,9 @@ The result is a familiar desktop model:
 
 - Android applications run in overlapping, resizable system windows with
   native WMShell decorations.
-- A persistent taskbar tracks real Android tasks and pinned applications.
+- A persistent taskbar tracks real Android tasks and pinned applications,
+  collecting items that do not fit into an explicit icon-and-name overflow
+  menu instead of leaving them off-screen.
 - Start, freely positioned desktop shortcuts, a global desktop folder, Android
   widgets, task switching, and Show Desktop provide normal mouse-driven
   navigation.

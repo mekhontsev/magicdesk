@@ -621,6 +621,11 @@ no separate phone implementation of the desktop.
 
 The taskbar is a display-scoped application overlay. It remains above freeform
 tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
+Its shared controller measures the actual task viewport on every display and
+reserves one slot for an overflow menu when task or pin icons no longer fit.
+Overflow entries retain the same exact-task actions and context targets as
+their ordinary taskbar icons; screen drivers do not implement separate sizing
+or task-switching behavior.
 When automatic hiding is enabled, the same existing pointer-edge state machine
 reveals it without introducing a second overlay or polling loop, and window
 placement uses the full viewport. IME and other forced-visible policy still
