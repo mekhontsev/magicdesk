@@ -66,6 +66,15 @@ public final class PlatformSourceIsolationTest {
     }
 
     @Test
+    public void platformImplementationsDoNotImportEachOther()
+            throws IOException {
+        assertImplementationsDoNotImportEachOther(
+                IMPLEMENTATION_REFERENCE,
+                PLATFORM_SELECTOR,
+                "Platform");
+    }
+
+    @Test
     public void vendorRuntimeIdentifiersStayInVendorAdapter()
             throws IOException {
         final List<String> violations = new ArrayList<>();
@@ -104,6 +113,15 @@ public final class PlatformSourceIsolationTest {
                 "SoC implementation imports outside composition root: "
                         + violations,
                 violations.isEmpty());
+    }
+
+    @Test
+    public void socImplementationsDoNotImportEachOther()
+            throws IOException {
+        assertImplementationsDoNotImportEachOther(
+                SOC_IMPLEMENTATION_REFERENCE,
+                SOC_SELECTOR,
+                "SoC");
     }
 
     @Test
@@ -155,6 +173,60 @@ public final class PlatformSourceIsolationTest {
 
     private static String read(final Path source) throws IOException {
         return Files.readString(source, StandardCharsets.UTF_8);
+    }
+
+    private static void assertImplementationsDoNotImportEachOther(
+            final String packagePrefix,
+            final String selector,
+            final String label) throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            if (selector.equals(relative)) {
+                continue;
+            }
+            final String ownImplementation = implementationName(
+                    relative, packagePrefix);
+            for (final String line : read(source).split("\\R")) {
+                final String importedImplementation = implementationName(
+                        line.trim(), packagePrefix);
+                if (importedImplementation != null
+                        && !importedImplementation.equals(ownImplementation)) {
+                    violations.add(relative + ": " + line.trim());
+                }
+            }
+        }
+        assertTrue(label + " implementations importing each other: "
+                + violations, violations.isEmpty());
+    }
+
+    private static String implementationName(
+            final String value, final String packagePrefix) {
+        final String pathPrefix = packagePrefix.replace('.', '/');
+        final int packageIndex = value.indexOf(packagePrefix);
+        final int pathIndex = value.indexOf(pathPrefix);
+        final int start;
+        if (packageIndex >= 0) {
+            start = packageIndex + packagePrefix.length();
+        } else if (pathIndex >= 0) {
+            start = pathIndex + pathPrefix.length();
+        } else {
+            return null;
+        }
+        int end = start;
+        while (end < value.length()) {
+            final char character = value.charAt(end);
+            if (character == '.' || character == '/'
+                    || Character.isJavaIdentifierPart(character)) {
+                if (character == '.' || character == '/') {
+                    break;
+                }
+                end++;
+                continue;
+            }
+            break;
+        }
+        return end == start ? null : value.substring(start, end);
     }
 
     private static String relativePath(final Path source) {
