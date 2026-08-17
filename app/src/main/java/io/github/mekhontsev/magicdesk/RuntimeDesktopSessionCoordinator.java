@@ -33,6 +33,7 @@ final class RuntimeDesktopSessionCoordinator {
     private boolean mPhoneHomeRecoveryAgain;
     private boolean mAllowUnsettledDisplayRecovery;
     private int mRemovedDesktopDisplayId = Display.INVALID_DISPLAY;
+    private int mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
     private boolean mRestorePhonePanelAfterRecovery;
     private boolean mLocalDesktopCleanupInFlight;
     private boolean mLocalDesktopExitRecoveryPending;
@@ -72,6 +73,7 @@ final class RuntimeDesktopSessionCoordinator {
 
     void destroy() {
         mDestroyed = true;
+        mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
         mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
         mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
         mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
@@ -91,6 +93,21 @@ final class RuntimeDesktopSessionCoordinator {
 
     boolean ownsExternalDesktop() {
         return mDesktopDisplayId > Display.DEFAULT_DISPLAY;
+    }
+
+    boolean prepareDisplayRemoval(final int displayId) {
+        if (mDestroyed || displayId <= Display.DEFAULT_DISPLAY
+                || displayId != mDesktopDisplayId) {
+            return false;
+        }
+        mExpectedRemovedDisplayId = displayId;
+        return true;
+    }
+
+    void cancelDisplayRemoval(final int displayId) {
+        if (mExpectedRemovedDisplayId == displayId) {
+            mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
+        }
     }
 
     void reconcileFailedDesktopLaunch(final int displayId) {
@@ -120,12 +137,19 @@ final class RuntimeDesktopSessionCoordinator {
                 mDesktopDisplayId,
                 desktopTarget,
                 activeDesktopRemoved);
+        final boolean expectedDesktopRemoval = displayRemoved
+                && mExpectedRemovedDisplayId == displayId;
+        if (expectedDesktopRemoval) {
+            mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
+        }
         if (displayRemoved) {
             PhoneTouchpadController.release(displayId);
             DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (externalDesktopRemoved) {
                 mRemovedDesktopDisplayId = displayId;
-                mRestorePhonePanelAfterRecovery = true;
+                if (!expectedDesktopRemoval) {
+                    mRestorePhonePanelAfterRecovery = true;
+                }
                 scheduleDisplayRemovalWatchdog();
             }
         }
@@ -185,6 +209,14 @@ final class RuntimeDesktopSessionCoordinator {
                 desktopDisplayId > Display.DEFAULT_DISPLAY
                         && mConsoleModeActive
                         && desktopDisplayId == mConsoleDisplayId;
+        if (mExpectedRemovedDisplayId > Display.DEFAULT_DISPLAY
+                && desktopDisplayId != mExpectedRemovedDisplayId
+                && mDisplayExists.test(mExpectedRemovedDisplayId)) {
+            // A local desktop session can close while its backing display
+            // remains connected, so no display-removed callback will consume
+            // the expected transition marker.
+            mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
+        }
         final boolean changed = desktopDisplayId != mDesktopDisplayId
                 || ownsConsoleDesktop != mOwnsConsoleDesktop;
         mDesktopDisplayId = desktopDisplayId;

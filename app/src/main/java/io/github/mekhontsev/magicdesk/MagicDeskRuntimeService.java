@@ -160,6 +160,42 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public void preparePhysicalPointerHandoff(final int displayId) {
+        if (mDestroyed || mDesktopInput == null) {
+            return;
+        }
+        mDesktopInput.preparePhysicalPointerHandoff(displayId);
+    }
+
+    @Override
+    public boolean prepareDesktopDisplayRemoval(
+            final int displayId) {
+        if (mDestroyed || mDesktopInput == null
+                || mDesktopSession == null
+                || !mDesktopSession.prepareDisplayRemoval(displayId)) {
+            return false;
+        }
+        if (mDesktopInput.suspendMouseBridgeForDisplayRemoval(displayId)) {
+            return true;
+        }
+        mDesktopSession.cancelDisplayRemoval(displayId);
+        return false;
+    }
+
+    @Override
+    public void cancelDesktopDisplayRemoval(final int displayId) {
+        if (mDestroyed) {
+            return;
+        }
+        if (mDesktopSession != null) {
+            mDesktopSession.cancelDisplayRemoval(displayId);
+        }
+        if (mDesktopInput != null) {
+            mDesktopInput.cancelMouseBridgeDisplayRemoval(displayId);
+        }
+    }
+
+    @Override
     public Point getDesktopPointerPosition(final int displayId) {
         return !mDestroyed && mDesktopInput != null
                 ? mDesktopInput.getPointerPosition(displayId) : null;
@@ -442,6 +478,9 @@ public final class MagicDeskRuntimeService extends Service
 
     private void handleDisplayStateChanged(
             final int displayId, final boolean displayRemoved) {
+        if (displayRemoved && mDesktopInput != null) {
+            mDesktopInput.onDesktopDisplayRemoved(displayId);
+        }
         if (mDesktopSession != null) {
             mDesktopSession.handleDisplayStateChanged(
                     displayId, displayRemoved);
@@ -457,7 +496,7 @@ public final class MagicDeskRuntimeService extends Service
             public void onReceive(final Context context, final Intent intent) {
                 if (Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction())) {
                     if (mDesktopInput != null) {
-                        mDesktopInput.scheduleDeviceRefresh();
+                        mDesktopInput.onConfigurationChanged();
                     }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
                         && mPhoneUi.isPhoneScreenControlActive()) {

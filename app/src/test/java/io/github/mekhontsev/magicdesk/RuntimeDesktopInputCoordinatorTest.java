@@ -35,12 +35,17 @@ public final class RuntimeDesktopInputCoordinatorTest {
     @Test
     public void mouseBridgeRequiresShellBridgeAndExternalDesktop() {
         assertTrue(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
-                true, 7, true));
+                true, 7, true, Display.INVALID_DISPLAY));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
-                false, 7, true));
+                false, 7, true, Display.INVALID_DISPLAY));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
-                true, 7, false));
+                true, 7, false, Display.INVALID_DISPLAY));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
-                true, Display.DEFAULT_DISPLAY, true));
+                true, Display.DEFAULT_DISPLAY, true,
+                Display.INVALID_DISPLAY));
+        assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+                true, 7, true, 7));
+        assertTrue(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+                true, 8, true, 7));
     }
 }

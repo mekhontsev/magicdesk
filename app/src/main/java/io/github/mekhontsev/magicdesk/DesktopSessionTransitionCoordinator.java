@@ -190,6 +190,8 @@ final class DesktopSessionTransitionCoordinator {
         if (platformOwned) {
             success = switchToMirrorNow();
         } else {
+            MagicDeskRuntime.prepareDesktopDisplayRemoval(
+                    target.displayId);
             DesktopRuntimeBridge.closeDesktopSession(target.displayId);
             success = true;
         }
@@ -200,13 +202,21 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     private boolean switchToMirrorNow() {
-        boolean success = activeDesktopDisplayId() <= Display.DEFAULT_DISPLAY;
+        final int desktopDisplayId = activeDesktopDisplayId();
+        boolean success = desktopDisplayId <= Display.DEFAULT_DISPLAY;
+        final boolean displayRemovalPrepared = !success
+                && MagicDeskRuntime.prepareDesktopDisplayRemoval(
+                        desktopDisplayId);
         if (!success && mProjection.requestMirrorMode()) {
             success = mProjection.waitForDesktopStop(mContext);
             if (!success) {
                 Log.w(TAG,
                         "Console display remained active after Mirror request");
             }
+        }
+        if (!success && displayRemovalPrepared) {
+            MagicDeskRuntime.cancelDesktopDisplayRemoval(
+                    desktopDisplayId);
         }
         if (success && ShellAccess.isReady()) {
             mProjection.setCaptionTransport(

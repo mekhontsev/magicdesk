@@ -236,4 +236,6 @@ interface IShizukuCommandService {
     SystemMonitorSnapshot readSystemMonitorSnapshot(
         boolean includeProcessMemory) = 70;
 
+    void refreshPointerViewport() = 71;
+
 }

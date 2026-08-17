@@ -104,6 +104,27 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void preparePhysicalPointerHandoff(final int displayId) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) {
+            backend.preparePhysicalPointerHandoff(displayId);
+        }
+    }
+
+    static boolean prepareDesktopDisplayRemoval(
+            final int displayId) {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null
+                && backend.prepareDesktopDisplayRemoval(displayId);
+    }
+
+    static void cancelDesktopDisplayRemoval(final int displayId) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) {
+            backend.cancelDesktopDisplayRemoval(displayId);
+        }
+    }
+
     static Point getDesktopPointerPosition(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null

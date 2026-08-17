@@ -138,6 +138,13 @@ final class DesktopMouseBridge {
         }
     }
 
+    void preparePhysicalPointerHandoff() {
+        final ShellStreamHandle stream = readyStream();
+        if (stream != null) {
+            writeControl(stream, "prepare-physical-pointer");
+        }
+    }
+
     boolean scrollPointer(final float amount) {
         final ShellStreamHandle stream;
         final int steps;

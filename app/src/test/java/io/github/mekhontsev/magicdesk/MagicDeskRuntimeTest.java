@@ -51,6 +51,9 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.refreshDesktopTasks();
         MagicDeskRuntime.refreshPlatformState();
         MagicDeskRuntime.reactivatePointerOnNextMotion();
+        MagicDeskRuntime.preparePhysicalPointerHandoff(7);
+        assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
+        MagicDeskRuntime.cancelDesktopDisplayRemoval(7);
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
@@ -66,6 +69,9 @@ public final class MagicDeskRuntimeTest {
         assertTrue(mAttached.desktopTasksRefreshed);
         assertTrue(mAttached.platformStateRefreshed);
         assertTrue(mAttached.pointerReactivationRequested);
+        assertEquals(7, mAttached.pointerHandoffDisplayId);
+        assertEquals(7, mAttached.pointerSuspensionDisplayId);
+        assertEquals(7, mAttached.pointerSuspensionCancelledDisplayId);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
         assertEquals(0x1ff, mAttached.uiCommands);
@@ -103,6 +109,9 @@ public final class MagicDeskRuntimeTest {
         private boolean desktopTasksRefreshed;
         private boolean platformStateRefreshed;
         private boolean pointerReactivationRequested;
+        private int pointerHandoffDisplayId = -1;
+        private int pointerSuspensionDisplayId = -1;
+        private int pointerSuspensionCancelledDisplayId = -1;
         private boolean parkingCleared;
         private boolean startShown;
         private int uiCommands;
@@ -193,6 +202,23 @@ public final class MagicDeskRuntimeTest {
         @Override
         public void reactivatePointerOnNextMotion() {
             pointerReactivationRequested = true;
+        }
+
+        @Override
+        public void preparePhysicalPointerHandoff(final int displayId) {
+            pointerHandoffDisplayId = displayId;
+        }
+
+        @Override
+        public boolean prepareDesktopDisplayRemoval(
+                final int displayId) {
+            pointerSuspensionDisplayId = displayId;
+            return true;
+        }
+
+        @Override
+        public void cancelDesktopDisplayRemoval(final int displayId) {
+            pointerSuspensionCancelledDisplayId = displayId;
         }
 
         @Override

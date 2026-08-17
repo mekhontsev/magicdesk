@@ -56,6 +56,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private int mPointerX;
     private int mPointerY;
     private long mPointerDragDownTime;
+    private boolean mPhysicalPointerPrepared;
     private MirrorInputEditText mMirrorInput;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
@@ -194,6 +195,11 @@ public final class MagicDeskTouchpadActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus) {
             return;
+        }
+        if (!mPhysicalPointerPrepared) {
+            mPhysicalPointerPrepared = true;
+            MagicDeskRuntime.preparePhysicalPointerHandoff(
+                    mTargetDisplayId);
         }
         if (hasTextInputProxy()) {
             showKeyboardIfReady();

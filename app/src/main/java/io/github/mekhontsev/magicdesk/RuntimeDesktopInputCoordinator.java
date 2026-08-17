@@ -38,6 +38,8 @@ final class RuntimeDesktopInputCoordinator {
     private boolean mKeyboardWatcherRunning;
     private int mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
+    private int mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
+    private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
     private int mInputSourceRefreshGeneration;
     private boolean mShowImeOverrideActive;
     private String mPreviousShowImeWithHardKeyboard;
@@ -71,6 +73,7 @@ final class RuntimeDesktopInputCoordinator {
 
     void destroy() {
         mDestroyed = true;
+        mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         ++mInputSourceRefreshGeneration;
         mInputDevices.stop();
         mMouseBridge.stop();
@@ -87,6 +90,28 @@ final class RuntimeDesktopInputCoordinator {
 
     void scheduleDeviceRefresh() {
         mInputDevices.scheduleRefresh();
+    }
+
+    void onConfigurationChanged() {
+        scheduleDeviceRefresh();
+        if (mPointerViewportRecoveryDisplayId <= Display.DEFAULT_DISPLAY
+                || ownsExternalDesktop()) {
+            return;
+        }
+        if (ShellAccess.refreshPointerViewport()) {
+            Log.i(TAG, "phone pointer viewport finalized after display removal="
+                    + mPointerViewportRecoveryDisplayId);
+            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
+        }
+    }
+
+    void onDesktopDisplayRemoved(final int displayId) {
+        if (mDestroyed || displayId <= Display.DEFAULT_DISPLAY
+                || (displayId != mDesktopDisplayId
+                        && displayId != mMouseBridgeSuspendedDisplayId)) {
+            return;
+        }
+        mPointerViewportRecoveryDisplayId = displayId;
     }
 
     void onConsoleModeChanged() {
@@ -106,6 +131,10 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         mDesktopDisplayId = displayId;
+        if (displayId > Display.DEFAULT_DISPLAY) {
+            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
+        }
+        clearCompletedMouseBridgeSuspension(displayId);
         if (!ownershipChanged) {
             updateExternalImePolicy();
             return;
@@ -124,6 +153,7 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         mDesktopDisplayId = displayId;
+        clearCompletedMouseBridgeSuspension(displayId);
         updateShowImeOverride();
         updateKeyboardWatcher();
         updateMouseBridge();
@@ -154,6 +184,35 @@ final class RuntimeDesktopInputCoordinator {
         if (!mDestroyed) {
             mMouseBridge.reactivatePointerOnNextMotion();
         }
+    }
+
+    void preparePhysicalPointerHandoff(final int displayId) {
+        if (isActiveDesktopDisplay(displayId)) {
+            mMouseBridge.preparePhysicalPointerHandoff();
+        }
+    }
+
+    boolean suspendMouseBridgeForDisplayRemoval(final int displayId) {
+        if (!isActiveDesktopDisplay(displayId)) {
+            return false;
+        }
+        mMouseBridgeSuspendedDisplayId = displayId;
+        // Release the physical source while its current display still exists.
+        // Waiting for the display callback leaves vendor pointer controllers
+        // processing virtual motion against an already removed display.
+        mMouseBridge.stop();
+        return true;
+    }
+
+    void cancelMouseBridgeDisplayRemoval(final int displayId) {
+        if (mDestroyed || mMouseBridgeSuspendedDisplayId != displayId) {
+            return;
+        }
+        mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
+        if (mPointerViewportRecoveryDisplayId == displayId) {
+            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
+        }
+        updateMouseBridge();
     }
 
     Point getPointerPosition(final int displayId) {
@@ -310,10 +369,19 @@ final class RuntimeDesktopInputCoordinator {
         if (shouldRunMouseBridge(
                 ShellAccess.isReady(),
                 mDesktopDisplayId,
-                mPlatformFeatures.externalInputBridge)) {
+                mPlatformFeatures.externalInputBridge,
+                mMouseBridgeSuspendedDisplayId)) {
             mMouseBridge.start();
         } else {
             mMouseBridge.stop();
+        }
+    }
+
+    private void clearCompletedMouseBridgeSuspension(
+            final int displayId) {
+        if (mMouseBridgeSuspendedDisplayId != Display.INVALID_DISPLAY
+                && mMouseBridgeSuspendedDisplayId != displayId) {
+            mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
         }
     }
 
@@ -471,9 +539,11 @@ final class RuntimeDesktopInputCoordinator {
     static boolean shouldRunMouseBridge(
             final boolean shellReady,
             final int desktopDisplayId,
-            final boolean externalInputBridge) {
+            final boolean externalInputBridge,
+            final int suspendedDisplayId) {
         return shellReady
                 && externalInputBridge
-                && desktopDisplayId > Display.DEFAULT_DISPLAY;
+                && desktopDisplayId > Display.DEFAULT_DISPLAY
+                && desktopDisplayId != suspendedDisplayId;
     }
 }

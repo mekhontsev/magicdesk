@@ -32,6 +32,10 @@ int magicdesk_grab_sources(
 
 int magicdesk_try_grab_source(struct source_device *source);
 
+void magicdesk_ungrab_sources(
+        struct source_device *sources,
+        int source_count);
+
 int magicdesk_override_source_repeat(
         struct source_device *source,
         unsigned int delay_ms,

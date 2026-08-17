@@ -356,6 +356,10 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             }
         }
         mAssociatedInputPorts.clear();
+        // The routing target may have disappeared while vendor input still
+        // uses its viewport. Rebuild it only after physical ports are back on
+        // Android's default routing so the phone cannot retain desktop bounds.
+        mPointer.refreshViewport();
         mDisplayId = -1;
         mAssociationTarget = null;
         mKeyboardAssociationCount = 0;

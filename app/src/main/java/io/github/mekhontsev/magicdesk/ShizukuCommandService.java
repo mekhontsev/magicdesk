@@ -329,6 +329,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void refreshPointerViewport() {
+        mPointerDriver.refreshViewport();
+    }
+
+    @Override
     public boolean injectPointerClick(
             final int displayId,
             final int button) {
