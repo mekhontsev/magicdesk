@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.PowerManager;
 import android.util.Log;
@@ -21,6 +22,7 @@ final class DesktopSessionWakeLock {
         }
     }
 
+    @SuppressLint("WakelockTimeout")
     void reconcile(final boolean enabled, final int desktopDisplayId) {
         final boolean shouldHold = shouldHold(enabled, desktopDisplayId);
         if (mWakeLock == null || shouldHold == mWakeLock.isHeld()) {
@@ -28,6 +30,8 @@ final class DesktopSessionWakeLock {
         }
         try {
             if (shouldHold) {
+                // The foreground desktop service owns this lock and releases
+                // it when the session or the preference ends.
                 mWakeLock.acquire();
             } else {
                 mWakeLock.release();
