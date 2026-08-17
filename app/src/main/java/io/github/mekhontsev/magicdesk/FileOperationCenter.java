@@ -227,23 +227,27 @@ final class FileOperationCenter implements ShellAccess.StateListener {
                     destination,
                     mCallback,
                     mOwnerToken);
+            final boolean cancel;
             synchronized (this) {
-                if (generation != mRequestGeneration
-                        || !mSnapshot.isBusy()) {
-                    ShellAccess.cancelShellFileOperation(operationId);
-                    return;
+                cancel = generation != mRequestGeneration
+                        || !mSnapshot.isBusy();
+                if (!cancel) {
+                    mSnapshot = new Snapshot(
+                            ++mSequence,
+                            State.RUNNING,
+                            operationId,
+                            operation,
+                            mSnapshot.completedItems,
+                            paths.size(),
+                            mSnapshot.currentPath,
+                            mSnapshot.bytesCompleted,
+                            false,
+                            "");
                 }
-                mSnapshot = new Snapshot(
-                        ++mSequence,
-                        State.RUNNING,
-                        operationId,
-                        operation,
-                        mSnapshot.completedItems,
-                        paths.size(),
-                        mSnapshot.currentPath,
-                        mSnapshot.bytesCompleted,
-                        false,
-                        "");
+            }
+            if (cancel) {
+                ShellAccess.cancelShellFileOperation(operationId);
+                return;
             }
             notifyListeners();
         } catch (IOException | RuntimeException error) {
@@ -299,16 +303,15 @@ final class FileOperationCenter implements ShellAccess.StateListener {
             final long operationId,
             final boolean successful,
             final String message) {
+        final long clipboardGeneration;
         synchronized (this) {
             if (!mSnapshot.isBusy()
                     || (mSnapshot.operationId > 0L
                     && mSnapshot.operationId != operationId)) {
                 return;
             }
-            if (successful && mClipboardGeneration >= 0L) {
-                FileManagerClipboard.clearIfGeneration(
-                        mClipboardGeneration);
-            }
+            clipboardGeneration = successful
+                    ? mClipboardGeneration : -1L;
             mClipboardGeneration = -1L;
             mSnapshot = new Snapshot(
                     ++mSequence,
@@ -321,6 +324,9 @@ final class FileOperationCenter implements ShellAccess.StateListener {
                     mSnapshot.bytesCompleted,
                     successful,
                     message);
+        }
+        if (clipboardGeneration >= 0L) {
+            FileManagerClipboard.clearIfGeneration(clipboardGeneration);
         }
         notifyListeners();
     }

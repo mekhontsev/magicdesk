@@ -399,7 +399,8 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void continueExternalSelfTest(final int displayId) {
-        if (mWirelessDisplayListener == null
+        if (isFinishing() || isDestroyed()
+                || mWirelessDisplayListener == null
                 || mDisplayManager == null) {
             return;
         }

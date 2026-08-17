@@ -82,8 +82,30 @@ final class DisplayRecordingController {
         mListeners.remove(listener);
     }
 
-    synchronized void toggle() {
-        switch (mSnapshot.state) {
+    void toggle() {
+        final State operation;
+        final Snapshot snapshot;
+        synchronized (this) {
+            operation = mSnapshot.state;
+            switch (operation) {
+                case IDLE:
+                    snapshot = setSnapshotLocked(
+                            State.STARTING,
+                            "Starting screen recording...");
+                    break;
+                case RECORDING:
+                    snapshot = setSnapshotLocked(
+                            State.FINALIZING,
+                            "Finalizing recording...");
+                    break;
+                case STARTING:
+                case FINALIZING:
+                default:
+                    return;
+            }
+        }
+        dispatchSnapshot(snapshot);
+        switch (operation) {
             case IDLE:
                 start();
                 break;
@@ -98,7 +120,6 @@ final class DisplayRecordingController {
     }
 
     private void start() {
-        publish(State.STARTING, "Starting screen recording...");
         mExecutor.execute(() -> {
             String outputPath = null;
             DesktopCaptureTarget capture = null;
@@ -167,7 +188,6 @@ final class DisplayRecordingController {
     }
 
     private void stop() {
-        publish(State.FINALIZING, "Finalizing recording...");
         showStatus("Finalizing recording...", true);
         mExecutor.execute(() -> {
             try {
@@ -200,13 +220,27 @@ final class DisplayRecordingController {
         });
     }
 
-    private synchronized void publish(
+    private void publish(
+            final State state,
+            final String message) {
+        final Snapshot snapshot;
+        synchronized (this) {
+            snapshot = setSnapshotLocked(state, message);
+        }
+        dispatchSnapshot(snapshot);
+    }
+
+    private Snapshot setSnapshotLocked(
             final State state,
             final String message) {
         final Snapshot snapshot = new Snapshot(state, message);
         mSnapshot = snapshot;
+        return snapshot;
+    }
+
+    private void dispatchSnapshot(final Snapshot snapshot) {
         MagicDeskRuntime.setOperationStatus(
-                state == State.IDLE ? null : message);
+                snapshot.state == State.IDLE ? null : snapshot.message);
         mMainHandler.post(() -> {
             for (final Listener listener : mListeners) {
                 listener.onRecordingStateChanged(snapshot);

@@ -80,6 +80,7 @@ public final class FileManagerActivity extends Activity
     private FileManagerImportController mImporter;
     private FileManagerSearchController mSearch;
     private ShellDirectoryObserverHandle mDirectoryObserver;
+    private int mDirectoryObserverGeneration;
     private FileOpenWithController mOpenWith;
     private PopupWindow mItemMenu;
     private OnBackInvokedCallback mBackCallback;
@@ -1374,12 +1375,15 @@ public final class FileManagerActivity extends Activity
         if (mDestroyed || mSearchMode || !ShellAccess.isReady()) {
             return;
         }
+        final int observerGeneration = mDirectoryObserverGeneration;
         try {
             mDirectoryObserver = ShellAccess.openShellDirectoryObserver(
                     path,
                     mDirectoryCallback,
                     () -> runOnUiThread(() -> {
-                        if (!mDestroyed) {
+                        if (!mDestroyed
+                                && observerGeneration
+                                == mDirectoryObserverGeneration) {
                             mDirectoryObserver = null;
                         }
                     }));
@@ -1407,6 +1411,7 @@ public final class FileManagerActivity extends Activity
     }
 
     private void closeDirectoryObserver() {
+        mDirectoryObserverGeneration++;
         if (mDirectoryObserver != null) {
             mDirectoryObserver.close();
             mDirectoryObserver = null;

@@ -503,6 +503,9 @@ public final class DeviceSetupActivity extends Activity {
             } catch (IOException e) {
                 Log.w(TAG, "reboot failed", e);
                 runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
                     setBusy(false, 0);
                     showOperationError(e);
                     if (mAudit != null) {
