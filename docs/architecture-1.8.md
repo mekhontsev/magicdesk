@@ -54,6 +54,12 @@ Display drivers remain independent from platform drivers:
 - session orchestration composes the two for one active target and exclusively
   owns close and mirror transitions.
 
+SoC-specific display services are optional operation backends, not firmware
+platforms. For example, a Qualcomm `IDisplayConfig` backend is discovered from
+its Binder service and may augment output-mode diagnostics or control on any
+compatible device. Its absence must be inert, and Nubia, generic Android, and
+future firmware drivers must not be multiplied into SoC-specific variants.
+
 ## External Project Review
 
 The following projects are useful references, not architecture templates:

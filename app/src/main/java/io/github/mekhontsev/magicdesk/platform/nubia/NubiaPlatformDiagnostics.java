@@ -10,6 +10,7 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
 import io.github.mekhontsev.magicdesk.ShellAccess;
+import io.github.mekhontsev.magicdesk.platform.qualcomm.QualcommDisplayConfigProbe;
 
 import android.content.Context;
 import android.provider.Settings;
@@ -23,6 +24,7 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
             final StringBuilder report,
             final Context context) {
         NubiaCapabilityProbe.appendTo(report, context);
+        QualcommDisplayConfigProbe.appendTo(report);
     }
 
     @Override
