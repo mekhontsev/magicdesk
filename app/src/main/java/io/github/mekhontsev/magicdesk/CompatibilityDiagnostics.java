@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -42,9 +44,10 @@ public final class CompatibilityDiagnostics {
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
     private static final int MAX_REPORTED_EVENT_CHARS = 64_000;
     private static final int MAX_LOGCAT_CHARS = 48_000;
+    private static final int MAX_RECORDED_EVENT_SIGNATURES = 256;
     private static volatile Context sApplicationContext;
     private static final Set<String> RECORDED_EVENT_SIGNATURES =
-            new HashSet<>();
+            new LinkedHashSet<>();
 
     private CompatibilityDiagnostics() {
     }
@@ -119,7 +122,17 @@ public final class CompatibilityDiagnostics {
     }
 
     static boolean isDuplicate(final String signature) {
-        return !RECORDED_EVENT_SIGNATURES.add(signature);
+        if (!RECORDED_EVENT_SIGNATURES.add(signature)) {
+            return true;
+        }
+        if (RECORDED_EVENT_SIGNATURES.size()
+                > MAX_RECORDED_EVENT_SIGNATURES) {
+            final Iterator<String> oldest =
+                    RECORDED_EVENT_SIGNATURES.iterator();
+            oldest.next();
+            oldest.remove();
+        }
+        return false;
     }
 
     static String buildReport(final Context context) {

@@ -20,6 +20,21 @@ public final class CompatibilityDiagnosticsTest {
     }
 
     @Test
+    public void boundsProcessSignatureIndex() {
+        assertFalse(CompatibilityDiagnostics.isDuplicate(
+                "bounded-event-0"));
+        for (int index = 1; index <= 300; index++) {
+            assertFalse(CompatibilityDiagnostics.isDuplicate(
+                    "bounded-event-" + index));
+        }
+
+        assertFalse(CompatibilityDiagnostics.isDuplicate(
+                "bounded-event-0"));
+        assertTrue(CompatibilityDiagnostics.isDuplicate(
+                "bounded-event-0"));
+    }
+
+    @Test
     public void removesStaticAuditStatesFromHistoricalEvents() {
         final String events =
                 "2026-08-04 | PROFILE-001 | Unverified firmware\n"
