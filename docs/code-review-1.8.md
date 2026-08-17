@@ -73,6 +73,7 @@ behind new abstraction layers.
 | Self-test preparation | Closing Diagnostics before the test began left host observation active. | Preparation-only cancellation in `f94c45e`. |
 | Debug probes | Failure could strand instrumentation, skip Binder unregister, or replace an active caption transport. | Guaranteed completion and original-state restoration in `0af8d19`. |
 | Setup UI | Runtime failures outside `IOException` handling could leave startup/setup permanently busy. | Async-boundary recovery and diagnostics in `49c6e03`. |
+| SoC probe compatibility | An incompatible Qualcomm Binder revision produced Android crash records instead of a normal unavailable-backend result. | Fail-closed app-process command handling in `da2cbfe`. |
 
 ## Architectural assessment
 
@@ -556,7 +557,7 @@ does not claim that private Android firmware behavior can be proven off-device.
 | `io/github/mekhontsev/magicdesk/platform/nubia/SystemNavigationGuard.java` | Nubia platform adapter | Reviewed as an optional capability adapter; failure remains inert or diagnostic. |
 | `io/github/mekhontsev/magicdesk/platform/nubia/WirelessDisplayCommand.java` | Nubia platform adapter | Reviewed as an optional capability adapter; failure remains inert or diagnostic. |
 | `io/github/mekhontsev/magicdesk/platform/nubia/WirelessDisplayController.java` | Nubia platform adapter | Reviewed as an optional capability adapter; failure remains inert or diagnostic. |
-| `io/github/mekhontsev/magicdesk/soc/qualcomm/QualcommDisplayConfigBridge.java` | SoC adapter | Reviewed as an optional capability adapter; failure remains inert or diagnostic. |
+| `io/github/mekhontsev/magicdesk/soc/qualcomm/QualcommDisplayConfigBridge.java` | SoC adapter | Hardened in `da2cbfe`; incompatible Binder revisions now fail closed without an Android crash record. |
 | `io/github/mekhontsev/magicdesk/soc/qualcomm/QualcommDisplayModeBackend.java` | SoC adapter | Reviewed as an optional capability adapter; failure remains inert or diagnostic. |
 
 ## Debug instrumentation ledger
@@ -851,3 +852,10 @@ lint reported no errors. Remaining warnings are the intentional private API
 adapter surface, the non-resizeable phone touchpad, wording suggestions,
 toolchain-version notices, and the isolated kernel artifact packaging noted
 under residual risks above.
+
+Post-review device validation ran the same external-display self-test against
+both HDMI and Miracast. Each run completed with 88 passes, one expected warning
+for the shell-inaccessible Nubia `edid_modes` file, zero failures and complete
+cleanup. The runs covered caption structure/rendering, direct freeform launch,
+phone-to-desktop migration, focus, native snap, maximized/fullscreen Alt+Tab,
+desktop-surface stability and phone-UI isolation.
