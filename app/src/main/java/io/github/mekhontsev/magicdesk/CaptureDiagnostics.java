@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -10,6 +11,7 @@ import java.util.TimeZone;
 
 /** Records real capture workflow outcomes without running diagnostic captures. */
 final class CaptureDiagnostics {
+    private static final String TAG = "MagicDeskCapture";
     private static final Object LOCK = new Object();
     private static final String PREFS = "capture_diagnostics";
     private static final String KEY_BUILD = "build";
@@ -83,10 +85,12 @@ final class CaptureDiagnostics {
             if (!buildId().equals(preferences.getString(KEY_BUILD, null))) {
                 editor.clear().putString(KEY_BUILD, buildId());
             }
-            editor.putString(prefix + ".state", state)
+            if (!editor.putString(prefix + ".state", state)
                     .putLong(prefix + ".time", System.currentTimeMillis())
                     .putString(prefix + ".detail", clean(detail))
-                    .commit();
+                    .commit()) {
+                Log.w(TAG, "could not persist capture diagnostics");
+            }
         }
     }
 

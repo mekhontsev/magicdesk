@@ -9,6 +9,7 @@ import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Display;
 import android.view.InputDevice;
 
@@ -35,6 +36,7 @@ import java.util.Set;
 import java.util.TimeZone;
 
 public final class CompatibilityDiagnostics {
+    private static final String TAG = "MagicDeskDiagnostics";
     private static final Object LOCK = new Object();
     private static final String PREFS = "compatibility_diagnostics";
     private static final String PREF_EVENT_BUILD = "event_build";
@@ -180,10 +182,12 @@ public final class CompatibilityDiagnostics {
             return;
         }
         clearEvents(context);
-        preferences.edit()
+        if (!preferences.edit()
                 .putString(PREF_EVENT_BUILD, build)
                 .remove(LEGACY_PREF_EVENT_VERSION)
-                .commit();
+                .commit()) {
+            Log.w(TAG, "could not persist compatibility event build");
+        }
     }
 
     private static void appendDevice(final StringBuilder report) {

@@ -139,10 +139,12 @@ public final class NubiaCaptionVisibilityManager {
         try {
             setSurfaceFlingerOption(
                     context, transport, restoreValue.intValue());
-            preferences.edit()
+            if (!preferences.edit()
                     .remove(KEY_OWNED_TRANSPORT)
                     .remove(KEY_RESTORE_VALUE)
-                    .commit();
+                    .commit()) {
+                Log.w(TAG, "could not clear failed caption ownership");
+            }
         } catch (IOException restoreError) {
             Log.w(TAG, "could not roll back caption visibility", restoreError);
         }
