@@ -83,6 +83,7 @@ interface IShizukuCommandService {
         int width,
         int height,
         int bitrateMbps,
+        String audioMode,
         IBinder ownerToken) = 24;
 
     String stopDisplayRecording(IBinder ownerToken) = 25;

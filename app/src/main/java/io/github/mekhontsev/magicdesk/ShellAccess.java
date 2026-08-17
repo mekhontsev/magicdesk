@@ -1010,6 +1010,7 @@ public final class ShellAccess {
             final int width,
             final int height,
             final int bitrateMbps,
+            final String audioMode,
             final IBinder ownerToken) throws IOException {
         try {
             return requireService().startDisplayRecording(
@@ -1018,6 +1019,7 @@ public final class ShellAccess {
                     width,
                     height,
                     bitrateMbps,
+                    audioMode,
                     ownerToken);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);

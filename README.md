@@ -82,7 +82,7 @@ Galaxy device and One UI version.
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real Desktop directory plus built-in Files for the complete shell-accessible filesystem, file operations, external editors, drag-and-drop, and Console/Termux handoff | File workflows are primarily provided through My Files |
 | Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
-| Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
+| Capture | Screenshots and configurable recording of the selected display; verified firmware adds internal audio, with video-only fallback elsewhere | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
 | Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
 | Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
@@ -173,8 +173,9 @@ and Android user; neither kind of state is written into the desktop folder.
   notification popups.
 - Calendar panel, battery state, active keyboard-layout indicator, screenshots,
   and optional phone-screen control.
-- Configurable selected-display recording with internal audio when the
-  firmware exposes the required capture and audio sources.
+- Configurable selected-display recording with `Auto`, `Microphone`, and
+  `No audio` modes. `Auto` uses a platform internal-audio backend when the
+  firmware declares one and otherwise records video without sound.
 - Connected-display identification and per-monitor DPI. Platform extensions
   may also expose output resolution, refresh-rate selection, and **Fill
   display** for sinks that otherwise add letterboxing.
@@ -381,7 +382,7 @@ supports tablets and allows development without an external monitor.
 | `Win+Q` | Toggle the System panel |
 | `Win+I` | Open MagicDesk settings |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
-| `Win+Shift+Print Screen` | Start or stop desktop recording with internal audio; save under `Movies/MagicDesk` |
+| `Win+Shift+Print Screen` | Start or stop desktop recording; include internal audio when supported and save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |

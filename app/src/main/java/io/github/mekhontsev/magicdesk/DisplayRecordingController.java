@@ -125,19 +125,22 @@ final class DisplayRecordingController {
                 Log.i(TAG, "recording start requested path=" + outputPath
                         + " " + capture.diagnosticDetail()
                         + " size=" + width + "x" + height
-                        + " bitrateMbps=" + settings.bitrateMbps);
+                        + " bitrateMbps=" + settings.bitrateMbps
+                        + " audioMode=" + settings.audioMode.storedValue());
                 final String startedPath = ShellAccess.startDisplayRecording(
                         capture.physicalDisplayId,
                         outputPath,
                         width,
                         height,
                         settings.bitrateMbps,
+                        settings.audioMode.storedValue(),
                         mOwnerToken);
                 if (!outputPath.equals(startedPath)) {
                     throw new IOException(
                             "unexpected recording response: " + startedPath);
                 }
-                mCaptureDetail = capture.diagnosticDetail();
+                mCaptureDetail = capture.diagnosticDetail()
+                        + ", audioMode=" + settings.audioMode.storedValue();
                 CaptureDiagnostics.recordRecordingStarted(mCaptureDetail);
                 publish(State.RECORDING, "Recording desktop display");
                 showStatus("Screen recording started", false);

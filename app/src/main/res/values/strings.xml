@@ -443,6 +443,10 @@
     <string name="recording_display_unavailable">Desktop display unavailable</string>
     <string name="recording_bitrate">Video bitrate</string>
     <string name="recording_bitrate_value">%1$d Mbps</string>
+    <string name="recording_audio">Audio</string>
+    <string name="recording_audio_auto">Auto</string>
+    <string name="recording_audio_microphone">Microphone</string>
+    <string name="recording_audio_none">No audio</string>
     <string name="action_bitrate_decrease">Decrease recording bitrate</string>
     <string name="action_bitrate_increase">Increase recording bitrate</string>
     <string name="shortcut_desktop">Win + D</string>

@@ -52,6 +52,10 @@ final class CaptureDiagnostics {
         }
         final SharedPreferences preferences = context.getSharedPreferences(
                 PREFS, Context.MODE_PRIVATE);
+        report.append("Recording audio mode: ")
+                .append(DisplayRecordingSettings.load(context)
+                        .audioMode.storedValue())
+                .append('\n');
         final boolean currentBuild = buildId().equals(
                 preferences.getString(KEY_BUILD, null));
         appendEntry(report, "Screenshot", preferences, SCREENSHOT, currentBuild);

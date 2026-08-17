@@ -19,6 +19,8 @@ final class DisplayCapturePanelController {
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private final Map<Integer, Button> mScaleButtons = new LinkedHashMap<>();
+    private final Map<RecordingAudioMode, Button> mAudioModeButtons =
+            new LinkedHashMap<>();
     private final DisplayRecordingController.Listener mRecordingListener =
             this::updateRecordingState;
 
@@ -50,9 +52,11 @@ final class DisplayCapturePanelController {
     void populate(final LinearLayout parent, final int spacing) {
         mSettings = DisplayRecordingSettings.load(mActivity);
         mScaleButtons.clear();
+        mAudioModeButtons.clear();
 
         addHeader(parent);
         addActions(parent, spacing);
+        addAudioMode(parent, spacing);
         addResolution(parent, spacing);
         addBitrate(parent, spacing);
 
@@ -162,6 +166,50 @@ final class DisplayCapturePanelController {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
+    private void addAudioMode(
+            final LinearLayout parent,
+            final int spacing) {
+        final TextView label = new TextView(mActivity);
+        label.setText(R.string.recording_audio);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(14);
+        final LinearLayout.LayoutParams labelParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, spacing, 0, 0);
+        parent.addView(label, labelParams);
+
+        final GridLayout modes = new GridLayout(mActivity);
+        modes.setColumnCount(3);
+        addAudioModeButton(
+                modes,
+                R.string.recording_audio_auto,
+                RecordingAudioMode.AUTO);
+        addAudioModeButton(
+                modes,
+                R.string.recording_audio_microphone,
+                RecordingAudioMode.MICROPHONE);
+        addAudioModeButton(
+                modes,
+                R.string.recording_audio_none,
+                RecordingAudioMode.NONE);
+        parent.addView(modes, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    private void addAudioModeButton(
+            final GridLayout grid,
+            final int textResId,
+            final RecordingAudioMode mode) {
+        final Button button = mUi.actionButton(
+                textResId, DesktopUiFactory.COLOR_PANEL_ALT);
+        button.setOnClickListener(view -> setAudioMode(mode));
+        mAudioModeButtons.put(mode, button);
+        addGridButton(grid, button, 3);
+    }
+
     private void addBitrate(
             final LinearLayout parent,
             final int spacing) {
@@ -247,6 +295,12 @@ final class DisplayCapturePanelController {
         updateSettingsUi();
     }
 
+    private void setAudioMode(final RecordingAudioMode audioMode) {
+        DisplayRecordingSettings.saveAudioMode(mActivity, audioMode);
+        mSettings = DisplayRecordingSettings.load(mActivity);
+        updateSettingsUi();
+    }
+
     private void adjustBitrate(final int delta) {
         setBitrate(mSettings.bitrateMbps + delta);
     }
@@ -258,6 +312,17 @@ final class DisplayCapturePanelController {
     }
 
     private void updateSettingsUi() {
+        for (final Map.Entry<RecordingAudioMode, Button> entry
+                : mAudioModeButtons.entrySet()) {
+            final boolean selected = entry.getKey() == mSettings.audioMode;
+            entry.getValue().setAlpha(selected ? 1f : 0.72f);
+            entry.getValue().setBackground(mUi.rounded(
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    dp(10),
+                    selected
+                            ? DesktopUiFactory.COLOR_CYAN
+                            : DesktopUiFactory.COLOR_PANEL_ALT));
+        }
         for (final Map.Entry<Integer, Button> entry
                 : mScaleButtons.entrySet()) {
             final boolean selected = entry.getKey().intValue()
@@ -347,6 +412,9 @@ final class DisplayCapturePanelController {
             mBitrateSlider.setEnabled(settingsEnabled);
         }
         for (final Button button : mScaleButtons.values()) {
+            button.setEnabled(settingsEnabled);
+        }
+        for (final Button button : mAudioModeButtons.values()) {
             button.setEnabled(settingsEnabled);
         }
         if (mStatus != null) {

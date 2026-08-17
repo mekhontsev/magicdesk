@@ -1067,40 +1067,53 @@ for changes made outside MagicDesk.
 ## Desktop Display Recording
 
 MagicDesk resolves the active desktop's logical display to its physical display
-ID and records either the phone or external RedMagic output with Android's
-system `screenrecord --display-id` command. Internal audio uses the firmware's
-`AUDIO_SOURCE_SYSTEM_RECORD` value `80`, the same source used by the stock ZTE
-screen recorder and Game Highlights. The source is accepted by
-`MediaRecorder`, but the audio HAL rejects it through `AudioRecord`; these APIs
-are not interchangeable on the verified firmware.
+ID and records it with Android's system `screenrecord --display-id` command.
+Video capture is a platform-independent baseline and does not depend on an
+internal-audio backend. The Nubia driver can additionally use the firmware's
+`SYSTEM_RECORD_MODE` source `80`, the same source used by the stock ZTE screen
+recorder and Game Highlights. The source is accepted by `MediaRecorder`, but
+the audio HAL rejects it through `AudioRecord`; these APIs are not
+interchangeable on the verified firmware.
 
-Internal-audio recording is an explicit platform capability. The Standard
-Android driver leaves it disabled instead of probing source `80`; screenshots
-remain available independently. A future platform can expose recording only
-after supplying and verifying its own internal-audio backend.
+Internal audio is an optional platform capability. The Nubia driver passively
+asks the framework whether source `80` is valid and reads its diagnostic name;
+this check does not construct a recorder or capture sound. In `Auto`, audio is
+attempted only when the framework declares the source. The Standard Android
+driver and firmware without a declared backend make `Auto` record video without
+sound; the user-selected microphone remains platform-independent. A future
+platform can add internal audio by implementing the same driver contract
+without changing the display-recording session.
 
-The Capture panel stores a global resolution scale (`100%`, `75%`, or `50%`)
-and H.264 bitrate (`4`-`40 Mbps`). Native resolution omits `screenrecord`'s
-`--size` option; scaled output preserves the physical display aspect ratio and
-uses even dimensions for encoder compatibility. The default remains native
-resolution at `20 Mbps`.
+The Capture panel stores a global audio mode, resolution scale (`100%`, `75%`,
+or `50%`), and H.264 bitrate (`4`-`40 Mbps`). `Auto` permits the selected
+platform backend to record internal audio and falls back to video-only;
+`Microphone` uses Android's standard `MediaRecorder.AudioSource.MIC`; `No
+audio` never constructs an audio recorder. Native resolution omits
+`screenrecord`'s `--size` option; scaled output preserves the physical display
+aspect ratio and uses even dimensions for encoder compatibility. The defaults
+remain `Auto`, native resolution, and `20 Mbps`.
 
 A Shizuku UserService is an `app_process` with an Application context but no
 bound `ActivityThread.AppBindData`. Android 16's `MediaRecorder(Context)` passes
 `ActivityThread.currentPackageName()` into JNI, where a null value aborts the
-entire process. `InternalAudioRecorder` temporarily supplies the matching
+entire process. `MediaRecorderAudioRecorder` temporarily supplies the matching
 MagicDesk or `com.android.shell` application identity only while constructing
 the recorder, then immediately restores the prior ActivityThread state. This
-keeps the stock vendor audio path usable for both supported service identities.
+shared recorder supports both the standard microphone and platform-provided
+audio sources.
 
-Audio starts before video, so an unsupported audio source cannot leave an
-orphan screen recorder. The video shell wrapper also watches its UserService
-PID and sends `SIGINT` to `screenrecord` if that owner disappears. Temporary
-tracks live under `Movies/MagicDesk/.recording` with `.nomedia`; successful
-capture normalizes each track's timestamps against measured monotonic start
-times, muxes H.264 and AAC into one MP4, and indexes only the finished file.
-The video start time is measured when the encoder first writes output rather
-than when the process is forked, avoiding a firmware-observed startup error of
+When available, audio starts before video so their measured monotonic start
+times can be aligned. `Auto` treats internal audio as optional and falls back
+to video-only if its backend cannot start. An explicitly selected microphone
+must start successfully; later stop, validation, or mux failures still preserve
+the completed H.264 video rather than losing the entire recording.
+The video shell wrapper also watches its UserService PID and sends `SIGINT` to
+`screenrecord` if that owner disappears. Temporary tracks live under
+`Movies/MagicDesk/.recording` with `.nomedia`; successful audio capture is
+muxed with the video into one MP4, while video-only capture publishes the
+original screenrecord file directly. Only the finished file is indexed. The
+video start time is measured when the encoder first writes output rather than
+when the process is forked, avoiding a firmware-observed startup error of
 roughly 100 ms.
 
 ## Hardware Controls

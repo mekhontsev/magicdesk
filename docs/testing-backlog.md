@@ -192,6 +192,20 @@ retired prototypes are listed separately and are not current product modes.
   internal audio at 48 kHz, compensates the measured track-start offset, and
   leaves no `screenrecord` process or temporary track after finalization.
 
+## Pending: Capture Fallbacks
+
+- [ ] Record with `Microphone`, speak during capture, and confirm the final MP4
+  contains the microphone track synchronized with the selected display.
+- [ ] Select `No audio` on a firmware with a working internal-audio backend,
+  record a desktop session, and confirm the MP4 has no audio track and no audio
+  temporary file survives.
+- [ ] Under the Standard Android platform override, record and finalize a
+  video-only desktop capture. Confirm the MP4 remains playable and no audio or
+  mux temporary file survives.
+- [ ] On a Nubia firmware that does not declare source `80`, confirm
+  diagnostics reports `missing` and recording follows the same video-only
+  path without constructing `MediaRecorder`.
+
 ## Completed: Desktop Content
 
 - [x] On the phone desktop, verify fixed `/storage/emulated/0/Desktop`

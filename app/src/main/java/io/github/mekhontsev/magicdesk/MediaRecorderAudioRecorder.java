@@ -1,6 +1,4 @@
-package io.github.mekhontsev.magicdesk.platform.nubia;
-
-import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
+package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -15,10 +13,10 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-final class InternalAudioRecorder
+/** Records one framework MediaRecorder audio source from the shell service. */
+public final class MediaRecorderAudioRecorder
         implements PlatformAudioCaptureDriver.Recorder {
     private static final String TAG = "MagicDeskRecording";
-    // RedMagic's stock screen recorder and Game Highlights use this vendor source.
     private static final int SAMPLE_RATE_HZ = 48_000;
     private static final int BIT_RATE = 96_000;
     private static final int SHELL_UID = 2_000;
@@ -26,22 +24,28 @@ final class InternalAudioRecorder
 
     private final Context mContext;
     private final String mOutputPath;
+    private final int mAudioSource;
     private MediaRecorder mRecorder;
     private boolean mStarted;
 
-    InternalAudioRecorder(final Context context, final String outputPath) {
+    public MediaRecorderAudioRecorder(
+            final Context context,
+            final String outputPath,
+            final int audioSource) {
         mContext = context;
         mOutputPath = outputPath;
+        mAudioSource = audioSource;
     }
 
+    @Override
     @SuppressLint({"MissingPermission", "WrongConstant"})
     public void start() throws IOException {
         if (mRecorder != null) {
-            throw new IllegalStateException("internal audio recorder already started");
+            throw new IllegalStateException("audio recorder already started");
         }
         final MediaRecorder recorder = createRecorder(attributionContext());
         try {
-            recorder.setAudioSource(InternalAudioSourceCapability.SOURCE);
+            recorder.setAudioSource(mAudioSource);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
             recorder.setAudioChannels(1);
@@ -58,6 +62,7 @@ final class InternalAudioRecorder
         }
     }
 
+    @Override
     public void stop() {
         final MediaRecorder recorder = mRecorder;
         if (recorder == null) {
@@ -134,8 +139,7 @@ final class InternalAudioRecorder
                 }
                 return new MediaRecorder(context);
             } catch (ReflectiveOperationException | RuntimeException error) {
-                throw new IOException(
-                        "cannot initialize the vendor audio recorder", error);
+                throw new IOException("cannot initialize audio recorder", error);
             } finally {
                 if (identityInstalled) {
                     try {

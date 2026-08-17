@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.media.MediaRecorder;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -48,6 +49,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
     private long mVideoStartedNanos;
     private long mAudioStartedNanos;
     private boolean mAudioUsable;
+    private String mAudioKind = "none";
 
     ShellDisplayRecordingSession(final Context context) {
         mContext = context;
@@ -59,6 +61,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             final int width,
             final int height,
             final int bitrateMbps,
+            final String audioModeValue,
             final IBinder ownerToken) {
         if (mState != State.IDLE) {
             throw new IllegalStateException("display recording is already active");
@@ -71,12 +74,14 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             throw new IllegalArgumentException("invalid physical display id");
         }
         validateVideoOptions(width, height, bitrateMbps);
+        final RecordingAudioMode audioMode =
+                RecordingAudioMode.fromStoredValue(audioModeValue);
         final String validatedOutput = validateOutputPath(outputPath);
         preparePaths(validatedOutput);
         try {
             prepareOutputDirectory();
             linkOwner(ownerToken);
-            startOptionalAudio();
+            startAudio(audioMode);
             startVideo(
                     physicalDisplayId,
                     width,
@@ -89,7 +94,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             mState = State.RECORDING;
             Log.i(TAG, "recording started physicalDisplay="
                     + physicalDisplayId
-                    + " audio=" + (mAudioUsable ? "internal" : "none")
+                    + " audio=" + (mAudioUsable ? mAudioKind : "none")
                     + (mAudioUsable ? " videoOffsetUs="
                             + Math.max(0L, (mVideoStartedNanos
                                     - mAudioStartedNanos) / 1_000L) : "")
@@ -120,7 +125,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             validateCaptureFiles();
             publishCapture();
             Log.i(TAG, "recording saved audio="
-                    + (mAudioUsable ? "internal" : "none")
+                    + (mAudioUsable ? mAudioKind : "none")
                     + " output=" + mOutputPath);
             return mOutputPath;
         } catch (IOException | ErrnoException | RuntimeException error) {
@@ -174,7 +179,28 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         mVideoStartedNanos = awaitVideoOutput();
     }
 
-    private void startOptionalAudio() {
+    private void startAudio(final RecordingAudioMode audioMode)
+            throws IOException {
+        switch (audioMode) {
+            case NONE:
+                Log.i(TAG, "audio disabled by recording settings");
+                return;
+            case MICROPHONE:
+                mAudioRecorder = new MediaRecorderAudioRecorder(
+                        mContext,
+                        mAudioPath,
+                        MediaRecorder.AudioSource.MIC);
+                mAudioRecorder.start();
+                markAudioStarted("microphone");
+                return;
+            case AUTO:
+            default:
+                startOptionalInternalAudio();
+                return;
+        }
+    }
+
+    private void startOptionalInternalAudio() {
         final PlatformAudioCaptureDriver driver =
                 PlatformDrivers.current().audioCapture();
         if (!driver.isAvailable()) {
@@ -185,13 +211,18 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         try {
             mAudioRecorder = driver.createRecorder(mContext, mAudioPath);
             mAudioRecorder.start();
-            mAudioStartedNanos = SystemClock.elapsedRealtimeNanos();
-            mAudioUsable = true;
+            markAudioStarted("internal");
         } catch (IOException | RuntimeException error) {
             Log.w(TAG, "internal audio unavailable; recording video only",
                     error);
             closeAudioAfterFailure();
         }
+    }
+
+    private void markAudioStarted(final String kind) {
+        mAudioStartedNanos = SystemClock.elapsedRealtimeNanos();
+        mAudioUsable = true;
+        mAudioKind = kind;
     }
 
     private void stopCapture() throws IOException {
@@ -201,7 +232,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             }
         } catch (RuntimeException error) {
             mAudioUsable = false;
-            Log.w(TAG, "internal audio could not be finalized; saving video only",
+            Log.w(TAG, "audio could not be finalized; saving video only",
                     error);
         }
         final Process process = mVideoProcess;
@@ -236,7 +267,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
                 && (!new File(mAudioPath).isFile()
                         || new File(mAudioPath).length() == 0L)) {
             mAudioUsable = false;
-            Log.w(TAG, "internal audio recorder produced no audio; "
+            Log.w(TAG, "audio recorder produced no audio; "
                     + "saving video only");
         }
     }
@@ -256,7 +287,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
             } catch (IOException | RuntimeException error) {
                 mAudioUsable = false;
                 deleteIfPresent(mMuxPath);
-                Log.w(TAG, "internal audio could not be muxed; "
+                Log.w(TAG, "audio could not be muxed; "
                         + "saving video only", error);
             }
         }
@@ -269,6 +300,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         mAudioRecorder = null;
         mAudioUsable = false;
         mAudioStartedNanos = 0L;
+        mAudioKind = "none";
         if (recorder == null) {
             return;
         }
@@ -377,6 +409,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         mVideoStartedNanos = 0L;
         mAudioStartedNanos = 0L;
         mAudioUsable = false;
+        mAudioKind = "none";
     }
 
     private void unlinkOwner() {

@@ -12,6 +12,7 @@ final class DisplayRecordingSettings {
     private static final String PREFS = "magicdesk_recording";
     private static final String PREF_SCALE_PERCENT = "scale_percent";
     private static final String PREF_BITRATE_MBPS = "bitrate_mbps";
+    private static final String PREF_AUDIO_MODE = "audio_mode";
 
     private DisplayRecordingSettings() {
     }
@@ -22,7 +23,10 @@ final class DisplayRecordingSettings {
                 sanitizeScale(preferences.getInt(
                         PREF_SCALE_PERCENT, DEFAULT_SCALE_PERCENT)),
                 sanitizeBitrate(preferences.getInt(
-                        PREF_BITRATE_MBPS, DEFAULT_BITRATE_MBPS)));
+                        PREF_BITRATE_MBPS, DEFAULT_BITRATE_MBPS)),
+                RecordingAudioMode.fromStoredValue(preferences.getString(
+                        PREF_AUDIO_MODE,
+                        RecordingAudioMode.AUTO.storedValue())));
     }
 
     static void saveScale(final Context context, final int scalePercent) {
@@ -37,10 +41,25 @@ final class DisplayRecordingSettings {
                 .apply();
     }
 
+    static void saveAudioMode(
+            final Context context,
+            final RecordingAudioMode audioMode) {
+        preferences(context).edit()
+                .putString(
+                        PREF_AUDIO_MODE,
+                        (audioMode == null
+                                ? RecordingAudioMode.AUTO : audioMode)
+                                .storedValue())
+                .apply();
+    }
+
     static void reset(final Context context) {
         preferences(context).edit()
                 .putInt(PREF_SCALE_PERCENT, DEFAULT_SCALE_PERCENT)
                 .putInt(PREF_BITRATE_MBPS, DEFAULT_BITRATE_MBPS)
+                .putString(
+                        PREF_AUDIO_MODE,
+                        RecordingAudioMode.AUTO.storedValue())
                 .apply();
     }
 
@@ -86,10 +105,15 @@ final class DisplayRecordingSettings {
     static final class Values {
         final int scalePercent;
         final int bitrateMbps;
+        final RecordingAudioMode audioMode;
 
-        Values(final int scalePercent, final int bitrateMbps) {
+        Values(
+                final int scalePercent,
+                final int bitrateMbps,
+                final RecordingAudioMode audioMode) {
             this.scalePercent = scalePercent;
             this.bitrateMbps = bitrateMbps;
+            this.audioMode = audioMode;
         }
     }
 

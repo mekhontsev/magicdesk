@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
+import io.github.mekhontsev.magicdesk.MediaRecorderAudioRecorder;
 
 import android.content.Context;
 
@@ -20,6 +21,7 @@ final class NubiaAudioCaptureDriver implements PlatformAudioCaptureDriver {
     public Recorder createRecorder(
             final Context context,
             final String outputPath) {
-        return new InternalAudioRecorder(context, outputPath);
+        return new MediaRecorderAudioRecorder(
+                context, outputPath, InternalAudioSourceCapability.SOURCE);
     }
 }

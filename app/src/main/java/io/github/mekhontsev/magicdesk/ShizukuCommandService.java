@@ -546,6 +546,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int width,
             final int height,
             final int bitrateMbps,
+            final String audioMode,
             final IBinder ownerToken) {
         return mDisplayRecording.start(
                 physicalDisplayId,
@@ -553,6 +554,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 width,
                 height,
                 bitrateMbps,
+                audioMode,
                 ownerToken);
     }
 

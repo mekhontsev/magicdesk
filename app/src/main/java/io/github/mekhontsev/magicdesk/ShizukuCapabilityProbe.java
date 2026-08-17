@@ -41,6 +41,7 @@ public final class ShizukuCapabilityProbe {
             "android.permission.STATUS_BAR",
             "android.permission.SET_ORIENTATION",
             "android.permission.CAPTURE_VIDEO_OUTPUT",
+            "android.permission.RECORD_AUDIO",
             "android.permission.READ_FRAME_BUFFER",
             "android.permission.REBOOT",
             "android.permission.CHANGE_COMPONENT_ENABLED_STATE"
