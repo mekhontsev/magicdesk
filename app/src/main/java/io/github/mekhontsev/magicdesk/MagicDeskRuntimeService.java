@@ -52,10 +52,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private final ShellAccess.StateListener mShellStateListener =
             snapshot -> {
-                final Handler handler = mHandler;
-                if (handler != null) {
-                    handler.post(this::handleShellStateChanged);
-                }
+                postIfAlive(this::handleShellStateChanged);
             };
 
     @Override
@@ -70,17 +67,14 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             updateNotification();
-        } else if (mHandler != null) {
-            mHandler.post(this::updateNotification);
+        } else {
+            postIfAlive(this::updateNotification);
         }
     }
 
     @Override
     public void setOperationStatus(final String status) {
-        if (mDestroyed || mHandler == null) {
-            return;
-        }
-        mHandler.post(() -> {
+        postIfAlive(() -> {
             mOperationStatus = status;
             updateNotification();
         });
@@ -88,10 +82,10 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void refreshDesktopTasks() {
-        if (mDestroyed || mHandler == null || mDesktopSession == null) {
+        if (mDesktopSession == null) {
             return;
         }
-        mHandler.post(() -> {
+        postIfAlive(() -> {
             mDesktopSession.refreshOwnership();
             updateDesktopTasks();
         });
@@ -99,10 +93,7 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void refreshPlatformState() {
-        if (mDestroyed || mHandler == null) {
-            return;
-        }
-        mHandler.post(() -> {
+        postIfAlive(() -> {
             updateNotification();
             DesktopRuntimeBridge.refreshDesktopControls();
         });
@@ -110,10 +101,7 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void refreshSettings() {
-        if (mDestroyed || mHandler == null) {
-            return;
-        }
-        mHandler.post(this::refreshRuntimeSettings);
+        postIfAlive(this::refreshRuntimeSettings);
     }
 
     @Override
@@ -125,11 +113,11 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void reconcileFailedDesktopLaunch(final int displayId) {
-        if (mDestroyed || mHandler == null || mDesktopSession == null
+        if (mDesktopSession == null
                 || displayId <= android.view.Display.DEFAULT_DISPLAY) {
             return;
         }
-        mHandler.post(() -> mDesktopSession
+        postIfAlive(() -> mDesktopSession
                 .reconcileFailedDesktopLaunch(displayId));
     }
 
@@ -246,11 +234,7 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public boolean showStart() {
-        if (mDestroyed || mHandler == null) {
-            return false;
-        }
-        mHandler.post(this::showStartOnDesktop);
-        return true;
+        return postIfAlive(this::showStartOnDesktop);
     }
 
     @Override
@@ -445,6 +429,9 @@ public final class MagicDeskRuntimeService extends Service
         }
         mPlatform.stopRuntime();
         mPhoneUi.requestPhoneScreenRestore();
+        if (mHandler != null) {
+            mHandler.removeCallbacksAndMessages(null);
+        }
         super.onDestroy();
     }
 
@@ -584,6 +571,9 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void updateNotification() {
+        if (mDestroyed) {
+            return;
+        }
         final NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -660,5 +650,17 @@ public final class MagicDeskRuntimeService extends Service
                 NotificationManager.IMPORTANCE_LOW);
         channel.setDescription(getString(R.string.notification_channel_description));
         manager.createNotificationChannel(channel);
+    }
+
+    private boolean postIfAlive(final Runnable action) {
+        final Handler handler = mHandler;
+        if (mDestroyed || handler == null) {
+            return false;
+        }
+        return handler.post(() -> {
+            if (!mDestroyed) {
+                action.run();
+            }
+        });
     }
 }
