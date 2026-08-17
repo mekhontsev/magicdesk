@@ -10,6 +10,7 @@ final class AltTabController {
     private boolean mActive;
     private boolean mLoadInProgress;
     private boolean mCommitPending;
+    private int mGeneration;
     private int mPendingOffset;
     private int mSelectedIndex = -1;
     private int mStartingTaskId = -1;
@@ -54,9 +55,11 @@ final class AltTabController {
         mActivity.hideAllPanels();
 
         final int displayId = mActivity.getCurrentDisplayId();
+        final int generation = ++mGeneration;
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
-                    if (!mActive
+                    if (generation != mGeneration
+                            || !mActive
                             || mActivity.isActivityUnavailable()
                             || displayId
                                     != mActivity.getCurrentDisplayId()) {
@@ -166,6 +169,7 @@ final class AltTabController {
     }
 
     void reset() {
+        mGeneration++;
         mActive = false;
         mLoadInProgress = false;
         mCommitPending = false;

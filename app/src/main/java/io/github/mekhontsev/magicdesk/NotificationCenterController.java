@@ -493,6 +493,9 @@ final class NotificationCenterController {
 
     private void showPopup(
             final DesktopNotificationListenerService.Entry entry) {
+        if (mActivity.isActivityUnavailable()) {
+            return;
+        }
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (!mActivity.isDesktopShell() || entry == null || overlays == null
                 || isDeviceLocked()) {

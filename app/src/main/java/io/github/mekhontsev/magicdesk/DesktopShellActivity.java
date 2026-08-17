@@ -1436,6 +1436,9 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void hideAllPanels() {
+        if (mTaskOverviewController != null) {
+            mTaskOverviewController.cancelPendingShow();
+        }
         if (mOverlayPanelController != null) {
             mOverlayPanelController.hideAll();
         }

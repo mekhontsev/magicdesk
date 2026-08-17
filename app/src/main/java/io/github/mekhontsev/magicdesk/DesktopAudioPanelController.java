@@ -36,6 +36,9 @@ final class DesktopAudioPanelController {
     }
 
     void start() {
+        if (mVolumeReceiver != null) {
+            return;
+        }
         mVolumeReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(
