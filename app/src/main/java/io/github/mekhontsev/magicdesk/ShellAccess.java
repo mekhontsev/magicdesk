@@ -727,6 +727,65 @@ public final class ShellAccess {
         }
     }
 
+    static ShellDirectoryObserverHandle openShellDirectoryObserver(
+            final String absolutePath,
+            final IShellDirectoryObserverCallback callback,
+            final Runnable disconnected) throws IOException {
+        if (callback == null) {
+            throw new IOException("missing directory observer callback");
+        }
+        final IShizukuCommandService service = requireService();
+        final ShellDirectoryObserverHandle handle =
+                new ShellDirectoryObserverHandle(
+                        service, absolutePath, callback, disconnected);
+        try {
+            handle.start();
+            return handle;
+        } catch (RemoteException error) {
+            handle.closeAfterStartFailure();
+            handleServiceFailure(error);
+            throw shellFileFailure("directory observer", error);
+        } catch (RuntimeException error) {
+            handle.closeAfterStartFailure();
+            throw shellFileFailure("directory observer", error);
+        }
+    }
+
+    static long startShellFileSearch(
+            final String rootPath,
+            final String query,
+            final boolean showHidden,
+            final int maxResults,
+            final IFileSearchCallback callback,
+            final IBinder ownerToken) throws IOException {
+        try {
+            return requireService().startShellFileSearch(
+                    rootPath,
+                    query,
+                    showHidden,
+                    maxResults,
+                    callback,
+                    ownerToken);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("search start", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("search start", error);
+        }
+    }
+
+    static void cancelShellFileSearch(final long searchId)
+            throws IOException {
+        try {
+            requireService().cancelShellFileSearch(searchId);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("search cancellation", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("search cancellation", error);
+        }
+    }
+
     private static IOException shellFileFailure(
             final String action, final Throwable error) {
         return new IOException(

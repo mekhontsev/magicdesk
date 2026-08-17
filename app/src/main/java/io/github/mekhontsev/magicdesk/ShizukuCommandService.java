@@ -696,6 +696,41 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void startShellDirectoryObserver(
+            final String absolutePath,
+            final IShellDirectoryObserverCallback callback) {
+        mFileSystem.startDirectoryObserver(absolutePath, callback);
+    }
+
+    @Override
+    public void stopShellDirectoryObserver(
+            final IShellDirectoryObserverCallback callback) {
+        mFileSystem.stopDirectoryObserver(callback);
+    }
+
+    @Override
+    public long startShellFileSearch(
+            final String rootPath,
+            final String query,
+            final boolean showHidden,
+            final int maxResults,
+            final IFileSearchCallback callback,
+            final IBinder ownerToken) {
+        return mFileSystem.startSearch(
+                rootPath,
+                query,
+                showHidden,
+                maxResults,
+                callback,
+                ownerToken);
+    }
+
+    @Override
+    public void cancelShellFileSearch(final long searchId) {
+        mFileSystem.cancelSearch(searchId);
+    }
+
+    @Override
     public ParcelFileDescriptor openVerifiedShellFile(
             final String absolutePath,
             final String mode,

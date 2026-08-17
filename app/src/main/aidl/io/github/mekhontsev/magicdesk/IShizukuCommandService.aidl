@@ -5,6 +5,8 @@ import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.DesktopFileInfo;
 import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.IFileOperationCallback;
+import io.github.mekhontsev.magicdesk.IFileSearchCallback;
+import io.github.mekhontsev.magicdesk.IShellDirectoryObserverCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
 import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
@@ -212,5 +214,22 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         int taskId) = 65;
+
+    void startShellDirectoryObserver(
+        String absolutePath,
+        IShellDirectoryObserverCallback callback) = 66;
+
+    void stopShellDirectoryObserver(
+        IShellDirectoryObserverCallback callback) = 67;
+
+    long startShellFileSearch(
+        String rootPath,
+        String query,
+        boolean showHidden,
+        int maxResults,
+        IFileSearchCallback callback,
+        IBinder ownerToken) = 68;
+
+    void cancelShellFileSearch(long searchId) = 69;
 
 }
