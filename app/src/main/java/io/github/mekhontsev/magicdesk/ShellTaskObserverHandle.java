@@ -75,8 +75,28 @@ final class ShellTaskObserverHandle implements Closeable {
     boolean releaseFullscreenTask(
             final int displayId,
             final int taskId) throws IOException {
-        return callServiceForBoolean(() -> mService.releaseFullscreenTask(
+        return callServiceForResult(() -> mService.releaseFullscreenTask(
                 mCallback, displayId, taskId));
+    }
+
+    void startSelfTestTaskStackGuard(
+            final int displayId,
+            final int hostTaskId,
+            final String stage) throws IOException {
+        callService(() -> mService.startSelfTestTaskStackGuard(
+                mCallback, displayId, hostTaskId, stage));
+    }
+
+    void setSelfTestTaskStackGuardStage(final String stage)
+            throws IOException {
+        callService(() -> mService.setSelfTestTaskStackGuardStage(
+                mCallback, stage));
+    }
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard()
+            throws IOException {
+        return callServiceForResult(() ->
+                mService.stopSelfTestTaskStackGuard(mCallback));
     }
 
     void setPhoneTouchpadPreservation(final boolean enabled)
@@ -146,8 +166,8 @@ final class ShellTaskObserverHandle implements Closeable {
         }
     }
 
-    private boolean callServiceForBoolean(final RemoteBooleanServiceCall call)
-            throws IOException {
+    private <T> T callServiceForResult(
+            final RemoteResultServiceCall<T> call) throws IOException {
         if (mClosed.get()) {
             throw new IOException("task observer is closed");
         }
@@ -202,7 +222,7 @@ final class ShellTaskObserverHandle implements Closeable {
     }
 
     @FunctionalInterface
-    private interface RemoteBooleanServiceCall {
-        boolean run() throws RemoteException;
+    private interface RemoteResultServiceCall<T> {
+        T run() throws RemoteException;
     }
 }

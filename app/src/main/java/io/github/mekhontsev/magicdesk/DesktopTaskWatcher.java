@@ -157,6 +157,48 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean startSelfTestTaskStackGuard(
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            mHandle.startSelfTestTaskStackGuard(
+                    displayId, hostTaskId, stage);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "failed to start self-test task-stack guard", error);
+            return false;
+        }
+    }
+
+    synchronized void setSelfTestTaskStackGuardStage(final String stage) {
+        if (mHandle == null) {
+            return;
+        }
+        try {
+            mHandle.setSelfTestTaskStackGuardStage(stage);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to update self-test task-stack stage", error);
+        }
+    }
+
+    synchronized SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
+        if (mHandle == null) {
+            return SelfTestTaskStackReport.unavailable(
+                    "task observer unavailable");
+        }
+        try {
+            return mHandle.stopSelfTestTaskStackGuard();
+        } catch (IOException error) {
+            Log.w(TAG, "failed to stop self-test task-stack guard", error);
+            return SelfTestTaskStackReport.unavailable(
+                    ShellAccess.usefulMessage(error));
+        }
+    }
+
     synchronized boolean setPhoneTouchpadPreservation(
             final boolean enabled) {
         if (mHandle == null) {

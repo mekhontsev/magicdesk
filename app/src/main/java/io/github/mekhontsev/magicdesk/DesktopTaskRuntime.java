@@ -48,4 +48,11 @@ interface DesktopTaskRuntime {
     boolean dismissTransientActivity();
 
     boolean sendSystemBack();
+
+    boolean startSelfTestTaskStackGuard(
+            int displayId, int hostTaskId, String stage);
+
+    void setSelfTestTaskStackGuardStage(String stage);
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard();
 }

@@ -6,6 +6,7 @@ import io.github.mekhontsev.magicdesk.DesktopFileInfo;
 import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.IFileOperationCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
+import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
 import io.github.mekhontsev.magicdesk.ShellFilePage;
 
@@ -192,5 +193,18 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         int taskId) = 61;
+
+    void startSelfTestTaskStackGuard(
+        ITaskObserverCallback callback,
+        int displayId,
+        int hostTaskId,
+        String stage) = 62;
+
+    void setSelfTestTaskStackGuardStage(
+        ITaskObserverCallback callback,
+        String stage) = 63;
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+        ITaskObserverCallback callback) = 64;
 
 }

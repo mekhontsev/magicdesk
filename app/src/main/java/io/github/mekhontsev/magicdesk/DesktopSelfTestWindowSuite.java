@@ -79,6 +79,8 @@ final class DesktopSelfTestWindowSuite {
                 appContext, targetDisplayId, result);
         verifyDesktopWallpaper(targetDisplayId, result);
         DesktopSelfTestHostObserver.markReady();
+        DesktopSelfTestTaskStackGuard.begin(
+                targetDisplayId, desktopTask.taskId, "WINDOW-000");
         require(result, "WINDOW-000", "Clear stale self-test windows", () -> {
             DesktopSelfTestCleanup.removeFixtureTasks();
             return "ready";
@@ -291,6 +293,7 @@ final class DesktopSelfTestWindowSuite {
                 targetFixtureTaskId,
                 token,
                 settledGeometry);
+        DesktopSelfTestTaskStackGuard.finish(result);
     }
 
     private static void verifyDisplayGeometry(

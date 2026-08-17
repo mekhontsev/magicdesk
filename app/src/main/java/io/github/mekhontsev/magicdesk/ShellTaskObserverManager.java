@@ -92,6 +92,26 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, taskId);
     }
 
+    void startSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        requireSession(callback).observer.startSelfTestTaskStackGuard(
+                displayId, hostTaskId, stage);
+    }
+
+    void setSelfTestTaskStackGuardStage(
+            final ITaskObserverCallback callback,
+            final String stage) {
+        requireSession(callback).observer.setSelfTestTaskStackGuardStage(stage);
+    }
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback) {
+        return requireSession(callback).observer.stopSelfTestTaskStackGuard();
+    }
+
     void setPhoneTouchpadPreservation(
             final ITaskObserverCallback callback,
             final boolean enabled) {

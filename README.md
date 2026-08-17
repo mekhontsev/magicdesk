@@ -463,6 +463,12 @@ closes one task while checking the fullscreen survivor's real input focus. It
 also recreates the desktop Activity and checks hidden Android and RedMagic APIs
 that can be inspected safely.
 
+While those stages run, an event-driven task-stack guard records the hierarchy
+reported by Android callbacks. It detects intermediate display or windowing-
+mode detours, a freeform task reaching the phone, an unexpected HOME task,
+desktop-host visibility loss, and a gap where neither fullscreen task is
+visible. This structural check does not poll or capture screen pixels.
+
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified
 connection UI, the test opens it and waits for Android to report the display.
@@ -475,11 +481,11 @@ selection is checked when WMShell exposes a transition trace.
 
 The simulated target owns a temporary 1920x1080 display through a
 lifecycle-bound shell-service stream. Its setting is restored when the test
-finishes or its process disconnects. A one-shot shell task observer records
-each test window's first front-state and reports transient fullscreen launches
-instead of mistaking a later corrected state for the initial one. The test also
-removes the simulated display once while its desktop is live and verifies
-runtime, task-area, and migrated-task cleanup.
+finishes or its process disconnects. A one-shot launch probe records each test
+window's first front-state and reports transient fullscreen launches instead
+of mistaking a later corrected state for the initial one. The test also removes
+the simulated display once while its desktop is live and verifies runtime,
+task-area, and migrated-task cleanup.
 
 Debug builds expose the same lifecycle check as an instrumentation regression:
 

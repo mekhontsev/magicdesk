@@ -42,9 +42,17 @@ final class DesktopSelfTestHostObserver {
         return sActive;
     }
 
-    static synchronized void stage(final String stage) {
-        if (sActive && stage != null && !stage.isEmpty()) {
-            sStage = stage;
+    static void stage(final String stage) {
+        boolean changed = false;
+        synchronized (DesktopSelfTestHostObserver.class) {
+            if (sActive && stage != null && !stage.isEmpty()
+                    && !stage.equals(sStage)) {
+                sStage = stage;
+                changed = true;
+            }
+        }
+        if (changed) {
+            DesktopSelfTestTaskStackGuard.stage(stage);
         }
     }
 

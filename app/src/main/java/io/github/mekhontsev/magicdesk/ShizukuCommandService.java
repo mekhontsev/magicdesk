@@ -254,6 +254,29 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void startSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        mTaskObserverManager.startSelfTestTaskStackGuard(
+                callback, displayId, hostTaskId, stage);
+    }
+
+    @Override
+    public void setSelfTestTaskStackGuardStage(
+            final ITaskObserverCallback callback,
+            final String stage) {
+        mTaskObserverManager.setSelfTestTaskStackGuardStage(callback, stage);
+    }
+
+    @Override
+    public SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback) {
+        return mTaskObserverManager.stopSelfTestTaskStackGuard(callback);
+    }
+
+    @Override
     public void stopTaskObserver(final ITaskObserverCallback callback) {
         mTaskObserverManager.stop(callback);
     }

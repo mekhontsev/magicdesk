@@ -600,12 +600,19 @@ phone retains the ordinary fullscreen `move-stack` behavior. These paths use
 explicit display IDs and never depend on display names, package exceptions, or
 timing guesses.
 
-A one-shot shell-UID `TaskStackListener` is registered only around self-test
-fixture transitions. It captures the first `onTaskMovedToFront` configuration,
-so the test distinguishes a true initial freeform launch from a fullscreen task
-that is corrected after it becomes visible. The same probe verifies a direct
-fullscreen-phone to freeform-external move. It is inactive during normal
-desktop operation.
+The shell task observer exposes an optional self-test guard. While a test is
+active, every task callback captures a bounded `getAllTasks()` snapshot tagged
+with the current test stage. A pure analyzer checks the desktop host, fixture
+display and windowing mode, HOME visibility, one-way task transitions, and
+windowed/fullscreen visibility continuity. No snapshots are taken during
+normal desktop operation, and the guard uses neither polling nor timing
+guesses.
+
+A separate one-shot launch probe captures the first
+`onTaskMovedToFront` configuration, so the test distinguishes a true initial
+freeform launch from a fullscreen task that is corrected after it becomes
+visible. The same probe verifies a direct fullscreen-phone to
+freeform-external move.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external

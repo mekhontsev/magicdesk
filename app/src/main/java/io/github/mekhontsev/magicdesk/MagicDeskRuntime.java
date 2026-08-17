@@ -395,6 +395,30 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.sendSystemBack();
     }
 
+    static boolean startSelfTestTaskStackGuard(
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks != null && tasks.startSelfTestTaskStackGuard(
+                displayId, hostTaskId, stage);
+    }
+
+    static void setSelfTestTaskStackGuardStage(final String stage) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.setSelfTestTaskStackGuardStage(stage);
+        }
+    }
+
+    static SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks == null
+                ? SelfTestTaskStackReport.unavailable(
+                        "desktop task runtime unavailable")
+                : tasks.stopSelfTestTaskStackGuard();
+    }
+
     static synchronized void attach(
             final MagicDeskRuntimeBackend backend) {
         if (backend != null) {

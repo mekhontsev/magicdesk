@@ -561,6 +561,33 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return true;
     }
 
+    @Override
+    public boolean startSelfTestTaskStackGuard(
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        return mRunning
+                && mTaskWatcherReady
+                && mDisplayId == displayId
+                && mTaskWatcher.startSelfTestTaskStackGuard(
+                        displayId, hostTaskId, stage);
+    }
+
+    @Override
+    public void setSelfTestTaskStackGuardStage(final String stage) {
+        if (mRunning && mTaskWatcherReady) {
+            mTaskWatcher.setSelfTestTaskStackGuardStage(stage);
+        }
+    }
+
+    @Override
+    public SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
+        return mTaskWatcherReady
+                ? mTaskWatcher.stopSelfTestTaskStackGuard()
+                : SelfTestTaskStackReport.unavailable(
+                        "task observer unavailable");
+    }
+
     private void sendSystemBackInternal() {
         final int displayId = mDisplayId;
         if (!mRunning || displayId < 0) {

@@ -111,6 +111,11 @@ caption repair, focus synchronization, phone task recovery, and the pointer
 driver. Source-isolation tests reject fully qualified implementation references
 and known vendor runtime identifiers outside platform adapters.
 
+Self-test window stages now share an event-driven task-stack invariant guard.
+The shell observer records bounded snapshots only on Android task callbacks and
+stage boundaries; a platform-neutral analyzer detects transient display or
+windowing-mode detours and visibility gaps that final-state assertions miss.
+
 True-fullscreen Alt+Tab uses a shared Android task-display-area mechanism, not
 a platform workaround. The ownership invariant and the failed alternatives are
 recorded in [Fullscreen Alt+Tab](fullscreen-alt-tab.md). The self-test contract

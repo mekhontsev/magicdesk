@@ -74,6 +74,7 @@ final class DesktopSelfTestController {
                 "SELFTEST-PRECONDITION-000",
                 "Phone is unlocked and awake", "ready");
 
+        DesktopSelfTestTaskStackGuard.cancel();
         final DesktopSelfTestTarget target = requestedTarget == null
                 ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
         if (!DesktopSelfTestHostObserver.isActive()) {
@@ -145,6 +146,7 @@ final class DesktopSelfTestController {
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
+            DesktopSelfTestTaskStackGuard.finish(result);
             if (!observationsRecorded) {
                 recordDesktopHostObservation(result, displayId);
                 recordPhoneUiObservation(result, displayId);
