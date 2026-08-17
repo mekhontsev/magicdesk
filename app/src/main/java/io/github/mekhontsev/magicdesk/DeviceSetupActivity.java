@@ -163,26 +163,32 @@ public final class DeviceSetupActivity extends Activity {
         }
         setBusy(true, R.string.setup_status_checking);
         new Thread(() -> {
-            final DeviceSetupManager.Audit audit =
-                    DeviceSetupManager.audit(getApplicationContext(), mSessionProfile);
-            runOnUiThread(() -> {
-                if (isActivityUnavailable()) {
-                    return;
-                }
-                DeviceSetupManager.activateRuntime(this, audit);
-                mAudit = audit;
-                if (!mManual && audit.canEnterMagicDesk()) {
-                    mBusy = false;
-                    startMagicDesk();
-                    return;
-                }
-                if (!audit.canEnterMagicDesk()) {
-                    DeviceSetupManager.revokeRuntimeAuthorization(this);
-                }
-                ensureSetupContent();
-                setBusy(false, 0);
-                renderAudit(audit);
-            });
+            try {
+                final DeviceSetupManager.Audit audit =
+                        DeviceSetupManager.audit(
+                                getApplicationContext(), mSessionProfile);
+                runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
+                    DeviceSetupManager.activateRuntime(this, audit);
+                    mAudit = audit;
+                    if (!mManual && audit.canEnterMagicDesk()) {
+                        mBusy = false;
+                        startMagicDesk();
+                        return;
+                    }
+                    if (!audit.canEnterMagicDesk()) {
+                        DeviceSetupManager.revokeRuntimeAuthorization(this);
+                    }
+                    ensureSetupContent();
+                    setBusy(false, 0);
+                    renderAudit(audit);
+                });
+            } catch (RuntimeException error) {
+                Log.w(TAG, "device audit failed", error);
+                showAuditFailure(error);
+            }
         }, "MagicDeskSetupAudit").start();
     }
 
@@ -380,7 +386,7 @@ public final class DeviceSetupActivity extends Activity {
                     setBusy(false, 0);
                     continueFromSetup();
                 });
-            } catch (IOException error) {
+            } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "automatic overlay provisioning failed", error);
                 runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
@@ -426,7 +432,7 @@ public final class DeviceSetupActivity extends Activity {
         }
     }
 
-    private void showOverlayPermissionError(final IOException error) {
+    private void showOverlayPermissionError(final Throwable error) {
         final String message = error.getMessage() == null
                 ? error.getClass().getSimpleName() : error.getMessage();
         final String errorCode = "OVERLAY-002";
@@ -500,7 +506,7 @@ public final class DeviceSetupActivity extends Activity {
         new Thread(() -> {
             try {
                 DeviceSetupManager.reboot();
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "reboot failed", e);
                 runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
@@ -536,7 +542,7 @@ public final class DeviceSetupActivity extends Activity {
                     }
                     renderAudit(audit);
                 });
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "setup operation failed", e);
                 runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
@@ -550,7 +556,19 @@ public final class DeviceSetupActivity extends Activity {
         }, "MagicDeskSetupOperation").start();
     }
 
-    private void showOperationError(final IOException error) {
+    private void showAuditFailure(final Throwable error) {
+        runOnUiThread(() -> {
+            if (isActivityUnavailable()) {
+                return;
+            }
+            DeviceSetupManager.revokeRuntimeAuthorization(this);
+            ensureSetupContent();
+            setBusy(false, 0);
+            showOperationError(error);
+        });
+    }
+
+    private void showOperationError(final Throwable error) {
         final String message = error.getMessage() == null
                 ? error.getClass().getSimpleName() : error.getMessage();
         final String errorCode = "SETUP-001";

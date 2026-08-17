@@ -79,13 +79,13 @@ public final class ControlActivity extends Activity
         }
         mStartupAuditRunning = true;
         new Thread(() -> {
-            final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
-                    getApplicationContext(), mSessionProfile);
-            if (!audit.canEnterMagicDesk()) {
-                runOnUiThread(this::openDeviceSetupAfterFailedAudit);
-                return;
-            }
             try {
+                final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
+                        getApplicationContext(), mSessionProfile);
+                if (!audit.canEnterMagicDesk()) {
+                    runOnUiThread(this::openDeviceSetupAfterFailedAudit);
+                    return;
+                }
                 DeviceSetupManager.ensureOverlayPermission(
                         getApplicationContext());
                 runOnUiThread(() -> {
@@ -96,10 +96,10 @@ public final class ControlActivity extends Activity
                     mStartupPrepared = true;
                     continueStartup();
                 });
-            } catch (java.io.IOException error) {
+            } catch (java.io.IOException | RuntimeException error) {
                 CompatibilityDiagnostics.record(
-                        "OVERLAY-002",
-                        "Desktop overlay permission provisioning failed",
+                        "SETUP-002",
+                        "MagicDesk startup audit failed",
                         error.getMessage() == null
                                 ? error.getClass().getSimpleName()
                                 : error.getMessage(),
