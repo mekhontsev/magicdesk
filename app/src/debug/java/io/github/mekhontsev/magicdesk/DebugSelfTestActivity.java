@@ -3,11 +3,13 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 
 import java.util.Locale;
 
 /** ADB-only entry point that starts the regular diagnostics self-test path. */
 public final class DebugSelfTestActivity extends Activity {
+    private static final String TAG = "MagicDeskDebugTest";
     private static final String EXTRA_TARGET = "target";
 
     @Override
@@ -19,8 +21,18 @@ public final class DebugSelfTestActivity extends Activity {
             return;
         }
         new Thread(() -> {
-            final DeviceSetupManager.Audit audit =
-                    DeviceSetupManager.audit(getApplicationContext());
+            final DeviceSetupManager.Audit audit;
+            try {
+                audit = DeviceSetupManager.audit(getApplicationContext());
+            } catch (RuntimeException error) {
+                Log.e(TAG, "device setup audit failed", error);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        finish();
+                    }
+                });
+                return;
+            }
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;

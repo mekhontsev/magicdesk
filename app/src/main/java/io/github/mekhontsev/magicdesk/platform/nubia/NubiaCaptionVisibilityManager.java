@@ -89,6 +89,16 @@ public final class NubiaCaptionVisibilityManager {
         return acquire(context, preferences, target);
     }
 
+    /** Exposes owned state only to the debug vendor probe so it can restore it. */
+    static synchronized Transport ownedTransportForDiagnostics() {
+        final Context context = MagicDeskApplication.applicationContext();
+        if (context == null) {
+            return Transport.NONE;
+        }
+        return readOwnedTransport(context.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE));
+    }
+
     static Integer parsePrivacyValue(final String value) {
         if (value == null) {
             return null;

@@ -56,7 +56,15 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
 
     @Override
     public void onStart() {
-        final Thread thread = new Thread(this::runProbe, "MagicDeskNubiaVendorProbe");
+        final Thread thread = new Thread(() -> {
+            try {
+                runProbe();
+            } catch (RuntimeException error) {
+                final Bundle result = new Bundle();
+                result.putString("probe_failure", failure(error));
+                finish(Activity.RESULT_CANCELED, result);
+            }
+        }, "MagicDeskNubiaVendorProbe");
         thread.setDaemon(true);
         thread.start();
     }
@@ -220,20 +228,40 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
 
     private static String probeCaptionVisibilityMutation()
             throws IOException {
-        if (!NubiaCaptionVisibilityManager.setTransport(
-                NubiaCaptionVisibilityManager.Transport.WIRELESS)) {
-            throw new IOException("could not enable wireless captions");
+        final NubiaCaptionVisibilityManager.Transport original =
+                NubiaCaptionVisibilityManager.ownedTransportForDiagnostics();
+        IOException failure = null;
+        try {
+            if (!NubiaCaptionVisibilityManager.setTransport(
+                    NubiaCaptionVisibilityManager.Transport.WIRELESS)) {
+                throw new IOException("could not enable wireless captions");
+            }
+            if (!NubiaCaptionVisibilityManager.setTransport(
+                    NubiaCaptionVisibilityManager.Transport.WIRED)) {
+                throw new IOException(
+                        "could not restore wireless privacy or enable wired captions");
+            }
+            if (!NubiaCaptionVisibilityManager.setTransport(
+                    NubiaCaptionVisibilityManager.Transport.NONE)) {
+                throw new IOException("could not restore wired privacy");
+            }
+        } catch (IOException error) {
+            failure = error;
+        } finally {
+            if (!NubiaCaptionVisibilityManager.setTransport(original)) {
+                final IOException restoreError = new IOException(
+                        "could not restore original caption transport " + original);
+                if (failure != null) {
+                    restoreError.addSuppressed(failure);
+                }
+                throw restoreError;
+            }
         }
-        if (!NubiaCaptionVisibilityManager.setTransport(
-                NubiaCaptionVisibilityManager.Transport.WIRED)) {
-            throw new IOException(
-                    "could not restore wireless privacy or enable wired captions");
+        if (failure != null) {
+            throw failure;
         }
-        if (!NubiaCaptionVisibilityManager.setTransport(
-                NubiaCaptionVisibilityManager.Transport.NONE)) {
-            throw new IOException("could not restore wired privacy");
-        }
-        return "changed=wireless,wired restored=vendor-privacy";
+        return "changed=wireless,wired restored="
+                + original.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String probeDisplayRead()
