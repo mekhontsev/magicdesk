@@ -5,6 +5,7 @@ import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 
 import android.graphics.Point;
 import android.util.Log;
+import android.view.MotionEvent;
 
 final class NubiaPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
@@ -60,7 +61,11 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
             final Point position = new Point(x, y);
             NubiaMouseController.setMousePosition(displayId, position);
             DesktopPointerInjector.injectTouchpadMotion(
-                    displayId, position, action, downTime);
+                    displayId,
+                    position,
+                    action,
+                    downTime,
+                    MotionEvent.TOOL_TYPE_FINGER);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.e(TAG, "absolute mouse movement failed", error);

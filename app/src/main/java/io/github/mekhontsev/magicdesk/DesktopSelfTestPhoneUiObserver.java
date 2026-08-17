@@ -71,34 +71,39 @@ final class DesktopSelfTestPhoneUiObserver {
     static void sampleCurrentTasks() throws IOException {
         final List<TaskStackParser.Entry> tasks = TaskStackParser.parse(
                 ShellAccess.run("/system/bin/cmd activity stack list"));
-        boolean touchpadVisible = false;
-        boolean fixtureVisible = false;
-        for (final TaskStackParser.Entry task : tasks) {
-            if (task.displayId != Display.DEFAULT_DISPLAY) {
-                continue;
+        synchronized (DesktopSelfTestPhoneUiObserver.class) {
+            if (!sActive) {
+                return;
             }
-            final boolean fixture =
-                    hasClass(task.componentName, FIXTURE_CLASS)
-                            || hasClass(task.topActivityName, FIXTURE_CLASS);
-            observePhoneTaskMode(
-                    task.taskId, fixture, task.windowingMode);
-            if (!task.visible) {
-                continue;
+            boolean touchpadVisible = false;
+            boolean fixtureVisible = false;
+            for (final TaskStackParser.Entry task : tasks) {
+                if (task.displayId != Display.DEFAULT_DISPLAY) {
+                    continue;
+                }
+                final boolean fixture =
+                        hasClass(task.componentName, FIXTURE_CLASS)
+                                || hasClass(task.topActivityName, FIXTURE_CLASS);
+                observePhoneTaskMode(
+                        task.taskId, fixture, task.windowingMode);
+                if (!task.visible) {
+                    continue;
+                }
+                final boolean touchpad =
+                        hasClass(task.componentName, TOUCHPAD_CLASS)
+                                || hasClass(task.topActivityName, TOUCHPAD_CLASS);
+                touchpadVisible |= touchpad;
+                fixtureVisible |= fixture
+                        && task.taskId != sAllowedPhoneFixtureTaskId;
             }
-            final boolean touchpad =
-                    hasClass(task.componentName, TOUCHPAD_CLASS)
-                            || hasClass(task.topActivityName, TOUCHPAD_CLASS);
-            touchpadVisible |= touchpad;
-            fixtureVisible |= fixture
-                    && task.taskId != sAllowedPhoneFixtureTaskId;
+            PHONE_TASK_MODES.completeBaseline();
+            observeTaskState(touchpadVisible, fixtureVisible);
         }
-        PHONE_TASK_MODES.completeBaseline();
-        observeTaskState(touchpadVisible, fixtureVisible);
     }
 
-    static void observePhoneTasks(
+    static synchronized void observePhoneTasks(
             final List<TaskRepository.TaskEntry> phoneTasks) {
-        if (phoneTasks == null) {
+        if (!sActive || phoneTasks == null) {
             return;
         }
         boolean touchpadVisible = false;

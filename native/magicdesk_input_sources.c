@@ -55,13 +55,29 @@ int magicdesk_try_grab_source(struct source_device *source) {
     }
     source->grabbed = true;
     const int active_after = source_has_active_keys(source->fd);
-    if (active_after <= 0) {
-        return active_after < 0 ? -1 : 1;
+    if (active_after == 0) {
+        return 1;
     }
     ioctl(source->fd, EVIOCGRAB, 0);
     source->grabbed = false;
     drain_source(source->fd);
-    return 0;
+    return active_after < 0 ? -1 : 0;
+}
+
+void magicdesk_ungrab_sources(
+        struct source_device *sources,
+        const int source_count) {
+    for (int index = 0; index < source_count; ++index) {
+        struct source_device *source = &sources[index];
+        if (!source->grabbed) {
+            continue;
+        }
+        ioctl(source->fd, EVIOCGRAB, 0);
+        source->grabbed = false;
+        // Events queued while this fd held the grab were not delivered to
+        // Android and therefore cannot initialize its physical pointer.
+        drain_source(source->fd);
+    }
 }
 
 int magicdesk_override_source_repeat(

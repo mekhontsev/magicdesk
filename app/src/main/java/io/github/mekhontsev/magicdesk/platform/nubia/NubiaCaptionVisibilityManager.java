@@ -89,6 +89,16 @@ public final class NubiaCaptionVisibilityManager {
         return acquire(context, preferences, target);
     }
 
+    /** Exposes owned state only to the debug vendor probe so it can restore it. */
+    static synchronized Transport ownedTransportForDiagnostics() {
+        final Context context = MagicDeskApplication.applicationContext();
+        if (context == null) {
+            return Transport.NONE;
+        }
+        return readOwnedTransport(context.getSharedPreferences(
+                PREFS, Context.MODE_PRIVATE));
+    }
+
     static Integer parsePrivacyValue(final String value) {
         if (value == null) {
             return null;
@@ -139,10 +149,12 @@ public final class NubiaCaptionVisibilityManager {
         try {
             setSurfaceFlingerOption(
                     context, transport, restoreValue.intValue());
-            preferences.edit()
+            if (!preferences.edit()
                     .remove(KEY_OWNED_TRANSPORT)
                     .remove(KEY_RESTORE_VALUE)
-                    .commit();
+                    .commit()) {
+                Log.w(TAG, "could not clear failed caption ownership");
+            }
         } catch (IOException restoreError) {
             Log.w(TAG, "could not roll back caption visibility", restoreError);
         }

@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -10,6 +11,7 @@ import java.util.TimeZone;
 
 /** Records real capture workflow outcomes without running diagnostic captures. */
 final class CaptureDiagnostics {
+    private static final String TAG = "MagicDeskCapture";
     private static final Object LOCK = new Object();
     private static final String PREFS = "capture_diagnostics";
     private static final String KEY_BUILD = "build";
@@ -46,24 +48,22 @@ final class CaptureDiagnostics {
         report.append("## Capture workflows\n");
         if (context == null) {
             report.append("Screenshot: NOT_TESTED | diagnostics unavailable\n")
-                    .append("Screen recording with internal audio: NOT_TESTED"
+                    .append("Screen recording: NOT_TESTED"
                             + " | diagnostics unavailable\n\n");
             return;
         }
         final SharedPreferences preferences = context.getSharedPreferences(
                 PREFS, Context.MODE_PRIVATE);
+        report.append("Recording audio mode: ")
+                .append(DisplayRecordingSettings.load(context)
+                        .audioMode.storedValue())
+                .append('\n');
         final boolean currentBuild = buildId().equals(
                 preferences.getString(KEY_BUILD, null));
         appendEntry(report, "Screenshot", preferences, SCREENSHOT, currentBuild);
-        if (!PlatformDrivers.current().audioCapture().isAvailable()) {
-            report.append("Screen recording with internal audio: "
-                            + "NOT_SUPPORTED | not provided by the selected "
-                            + "platform\n\n");
-            return;
-        }
         appendEntry(
                 report,
-                "Screen recording with internal audio",
+                "Screen recording",
                 preferences,
                 RECORDING,
                 currentBuild);
@@ -85,10 +85,12 @@ final class CaptureDiagnostics {
             if (!buildId().equals(preferences.getString(KEY_BUILD, null))) {
                 editor.clear().putString(KEY_BUILD, buildId());
             }
-            editor.putString(prefix + ".state", state)
+            if (!editor.putString(prefix + ".state", state)
                     .putLong(prefix + ".time", System.currentTimeMillis())
                     .putString(prefix + ".detail", clean(detail))
-                    .commit();
+                    .commit()) {
+                Log.w(TAG, "could not persist capture diagnostics");
+            }
         }
     }
 

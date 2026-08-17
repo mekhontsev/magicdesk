@@ -23,6 +23,16 @@ final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean requiresPhoneTaskRecovery() {
+        return false;
+    }
+
+    @Override
+    public boolean requiresStalePhoneFreeformTaskCleanup() {
+        return false;
+    }
+
+    @Override
     public String restrictionsPropertyKey() {
         return null;
     }

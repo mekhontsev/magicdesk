@@ -43,7 +43,11 @@ The result is a familiar desktop model:
 
 - Android applications run in overlapping, resizable system windows with
   native WMShell decorations.
-- A persistent taskbar tracks real Android tasks and pinned applications.
+- A persistent taskbar tracks real Android tasks and pinned applications,
+  collecting items that do not fit into an explicit icon-and-name overflow
+  menu instead of leaving them off-screen.
+- On the phone desktop, an upward swipe from the bottom content edge reveals
+  the taskbar over a fullscreen application without opening Android Recents.
 - Start, freely positioned desktop shortcuts, a global desktop folder, Android
   widgets, task switching, and Show Desktop provide normal mouse-driven
   navigation.
@@ -82,7 +86,7 @@ Galaxy device and One UI version.
 | Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
 | Desktop files | A real Desktop directory plus built-in Files for the complete shell-accessible filesystem, file operations, external editors, drag-and-drop, and Console/Termux handoff | File workflows are primarily provided through My Files |
 | Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
-| Capture | Screenshots and configurable recording of the selected display with internal audio | Samsung system screenshot and screen-recording tools; availability varies by device and software |
+| Capture | Screenshots and configurable recording of the selected display; verified firmware adds internal audio, with video-only fallback elsewhere | Samsung system screenshot and screen-recording tools; availability varies by device and software |
 | Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
 | Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
 | Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
@@ -120,7 +124,8 @@ and selected-display recording.
 - Open the built-in **Files** window for the complete filesystem visible to
   the authorized Android shell identity. It supports path navigation, hidden
   files, sorting, selection, create, rename, permanent
-  delete, copy, cut, paste, current-folder name filtering, properties,
+  delete, copy, cut, paste, current-folder name filtering, recursive name
+  search, live directory updates, properties,
   external editors, and global file
   drag-and-drop. Conflicting copies receive a numeric suffix instead of
   silently replacing data. Desktop and Files items use the same context menu,
@@ -129,6 +134,8 @@ and selected-display recording.
   when one exists, and its in-window **Open with** dialog can set the same
   system-wide default.
   Multiple Files windows can use the same process-local copy/cut buffer.
+  Shell copy, move, and delete operations continue if their initiating Files
+  window is closed; reopening Files reconnects to progress and cancellation.
   An APK can be installed or updated only after an explicit confirmation.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
@@ -136,6 +143,10 @@ and selected-display recording.
   Termux session without resetting that session's current state.
 - Prepare a selected `.sh` file in Console from its context menu. The command
   is quoted and shown for review; it is never executed automatically.
+- Drop Files or Desktop items onto Console to insert safely quoted paths at the
+  command cursor. Console can open its current directory in Files, reveal a
+  selected output path after shell-side validation, and complete paths with
+  `Tab`.
 - Request another task for a compatible application through **New window**.
   MagicDesk Files supports this directly; Android applications may reject the
   request through their own activity launch mode.
@@ -166,15 +177,22 @@ and Android user; neither kind of state is written into the desktop folder.
 
 ### Desktop controls
 
-- Start menu with application search and keyboard navigation.
+- Start menu with unified application, file, MagicDesk setting, and desktop
+  action search, plus keyboard navigation. Desktop file results use the same
+  bounded, shell-backed search contract as Files; Files retains recursive
+  search from any visible directory.
 - Open Tasks view with exact-task focus and close controls.
+- Open **Task Manager** for running application tasks, live CPU and memory
+  indicators, per-task focus and close, explicit force-stop, and a
+  lifecycle-bound application log viewer filtered by Android UID.
 - Right-click context menus in MagicDesk and ordinary applications.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.
 - Calendar panel, battery state, active keyboard-layout indicator, screenshots,
   and optional phone-screen control.
-- Configurable selected-display recording with internal audio when the
-  firmware exposes the required capture and audio sources.
+- Configurable selected-display recording with `Auto`, `Microphone`, and
+  `No audio` modes. `Auto` uses a platform internal-audio backend when the
+  firmware declares one and otherwise records video without sound.
 - Connected-display identification and per-monitor DPI. Platform extensions
   may also expose output resolution, refresh-rate selection, and **Fill
   display** for sinks that otherwise add letterboxing.
@@ -381,7 +399,7 @@ supports tablets and allows development without an external monitor.
 | `Win+Q` | Toggle the System panel |
 | `Win+I` | Open MagicDesk settings |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
-| `Win+Shift+Print Screen` | Start or stop desktop recording with internal audio; save under `Movies/MagicDesk` |
+| `Win+Shift+Print Screen` | Start or stop desktop recording; include internal audio when supported and save under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |
@@ -415,6 +433,10 @@ The trust boundaries are deliberately narrow:
   identity. Applications opened from Files receive only a temporary URI for
   the selected file; they do not inherit the shell identity or its filesystem
   access.
+- Task Manager uses the existing task repository rather than a second task
+  parser. Application log streams are explicitly opened by the user, filtered
+  to the selected application UID, bounded in memory, and closed with their
+  viewer window.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
   settings; supported Nubia/REDMAGIC firmware additionally uses two documented
@@ -457,8 +479,17 @@ selected viewport and accepts the minimum window size enforced by that
 display's WMShell implementation. It exercises the production desktop,
 freeform, fullscreen, minimize/restore, taskbar geometry, native
 caption and resize input, native left/right placement, and keyboard focus
-switching between two windows. It also recreates the desktop Activity and
-checks hidden Android and RedMagic APIs that can be inspected safely.
+switching between two windows. It verifies that Alt+Tab between two true
+fullscreen tasks never converts either task to freeform, then restores and
+closes one task while checking the fullscreen survivor's real input focus. It
+also recreates the desktop Activity and checks hidden Android and RedMagic APIs
+that can be inspected safely.
+
+While those stages run, an event-driven task-stack guard records the hierarchy
+reported by Android callbacks. It detects intermediate display or windowing-
+mode detours, a freeform task reaching the phone, an unexpected HOME task,
+desktop-host visibility loss, and a gap where neither fullscreen task is
+visible. This structural check does not poll or capture screen pixels.
 
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified
@@ -472,9 +503,11 @@ selection is checked when WMShell exposes a transition trace.
 
 The simulated target owns a temporary 1920x1080 display through a
 lifecycle-bound shell-service stream. Its setting is restored when the test
-finishes or its process disconnects. A one-shot shell task observer records
-each test window's first front-state and reports transient fullscreen launches
-instead of mistaking a later corrected state for the initial one.
+finishes or its process disconnects. A one-shot launch probe records each test
+window's first front-state and reports transient fullscreen launches instead
+of mistaking a later corrected state for the initial one. The test also removes
+the simulated display once while its desktop is live and verifies runtime,
+task-area, and migrated-task cleanup.
 
 Debug builds expose the same lifecycle check as an instrumentation regression:
 
@@ -561,7 +594,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Shell access and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)
-- [Deferred validation backlog](docs/testing-backlog.md)
+- [Validation matrix](docs/testing-backlog.md)
 - [Contributing and IDE setup](CONTRIBUTING.md)
 
 ## Project

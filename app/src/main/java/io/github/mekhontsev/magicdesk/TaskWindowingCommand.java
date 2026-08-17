@@ -38,9 +38,10 @@ public final class TaskWindowingCommand {
                         parseInt(args[5], "right"), parseInt(args[6], "bottom"));
                 return;
             }
-            if (args.length == 3 && "desktop-host".equals(args[0])) {
+            if (args.length == 4 && "desktop-host".equals(args[0])) {
                 setDesktopHost(parseInt(args[1], "display id"),
-                        parseInt(args[2], "task id"));
+                        parseInt(args[2], "task id"),
+                        parseFlag(args[3], "refresh caption"));
                 return;
             }
             if (args.length == 4 && "minimize".equals(args[0])) {
@@ -61,7 +62,7 @@ public final class TaskWindowingCommand {
             }
             System.err.println("usage: TaskWindowingCommand "
                     + "<freeform|bounds display task left top right bottom"
-                    + "|desktop-host display task"
+                    + "|desktop-host display task refresh-caption"
                     + "|minimize display task focus-task"
                     + "|focus display task..."
                     + "|restore-layout display task left top right bottom...>");
@@ -90,10 +91,16 @@ public final class TaskWindowingCommand {
         System.out.println("task-freeform=" + taskId);
     }
 
-    private static void setDesktopHost(final int displayId, final int taskId)
+    private static void setDesktopHost(
+            final int displayId,
+            final int taskId,
+            final boolean refreshCaption)
             throws ReflectiveOperationException {
         TaskFullscreenTransitionCommand.applyFullscreen(
-                displayId, taskId, true);
+                displayId,
+                taskId,
+                true,
+                refreshCaption);
         System.out.println("desktop-host=" + taskId);
     }
 
@@ -276,16 +283,16 @@ public final class TaskWindowingCommand {
             }
             bounds[index] = new Rect(left, top, right, bottom);
         }
-        applyTaskLayout(displayId, taskIds, bounds, true);
+        applyFreeformLayout(displayId, taskIds, bounds, true);
         System.out.println("task-layout-restored=" + taskCount);
     }
 
-    private static void applyTaskLayout(
+    private static void applyFreeformLayout(
             final int displayId,
             final int[] taskIds,
             final Rect[] bounds,
             final boolean reorder) throws ReflectiveOperationException {
-        applyTaskLayout(
+        applyFreeformLayout(
                 HiddenTaskApi.getService(),
                 displayId,
                 taskIds,
@@ -293,7 +300,7 @@ public final class TaskWindowingCommand {
                 reorder);
     }
 
-    private static void applyTaskLayout(
+    private static void applyFreeformLayout(
             final Object service,
             final int displayId,
             final int[] taskIds,
@@ -307,22 +314,48 @@ public final class TaskWindowingCommand {
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction = transactionClass.getConstructor().newInstance();
+        final Method setWindowingMode = transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE);
         final Method setBounds = bounds == null ? null : transactionClass.getMethod(
                 "setBounds", tokenClass, Rect.class);
+        final Method setForceTranslucent = transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE);
         final Method reorderTask = reorder ? transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE) : null;
         for (int index = 0; index < taskIds.length; index++) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskIds[index]);
+            setWindowingMode.invoke(
+                    transaction,
+                    taskToken,
+                    Integer.valueOf(WINDOWING_MODE_FREEFORM));
             if (setBounds != null) {
                 setBounds.invoke(transaction, taskToken, bounds[index]);
             }
+            setForceTranslucent.invoke(
+                    transaction, taskToken, Boolean.FALSE);
+            TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                    transactionClass,
+                    transaction,
+                    tokenClass,
+                    taskToken,
+                    false);
             if (reorderTask != null) {
                 reorderTask.invoke(
                         transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
             }
         }
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
+        // Finalize all restored windows in one transition. Independent task
+        // moves can otherwise settle out of order and overwrite each other's
+        // freeform state on physical projection displays.
+        TaskFullscreenTransitionCommand.startTransition(
+                transactionClass, transaction);
+        if (bounds != null) {
+            for (int index = 0; index < taskIds.length; index++) {
+                TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+                        service, displayId, taskIds[index], bounds[index]);
+            }
+        }
     }
 
     static void applyFreeform(
@@ -375,6 +408,20 @@ public final class TaskWindowingCommand {
                 taskId,
                 bounds,
                 FreeformApplication.SHOW_TRANSITION);
+    }
+
+    static void prepareFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        applyPreparedFullscreen(service, displayId, taskId, true);
+    }
+
+    static void showPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        applyPreparedFullscreen(service, displayId, taskId, false);
     }
 
     static void restorePreparedTask(
@@ -474,11 +521,66 @@ public final class TaskWindowingCommand {
         }
     }
 
+    private static void applyPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final boolean hidden) throws ReflectiveOperationException {
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                .invoke(transaction, taskToken, new Rect());
+        transactionClass.getMethod(
+                "setDensityDpi", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken, Integer.valueOf(0));
+        transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.FALSE);
+        transactionClass.getMethod(
+                "setHidden", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.valueOf(hidden));
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass,
+                transaction,
+                tokenClass,
+                taskToken,
+                true);
+        if (hidden) {
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+        } else {
+            TaskFullscreenTransitionCommand.startTransition(
+                    TRANSIT_TO_FRONT, transactionClass, transaction);
+        }
+    }
+
     private static int parseInt(final String value, final String label) {
         final int parsed = Integer.parseInt(value);
         if (parsed < 0) {
             throw new IllegalArgumentException("invalid " + label);
         }
         return parsed;
+    }
+
+    private static boolean parseFlag(
+            final String value, final String label) {
+        final int parsed = parseInt(value, label);
+        if (parsed > 1) {
+            throw new IllegalArgumentException("invalid " + label);
+        }
+        return parsed == 1;
     }
 }

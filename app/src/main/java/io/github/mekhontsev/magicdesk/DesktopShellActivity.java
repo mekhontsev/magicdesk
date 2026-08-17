@@ -26,6 +26,8 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -97,7 +99,10 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopInputController mInputController;
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
+    private final OnBackInvokedCallback mExternalBackCallback =
+            this::handleExternalBack;
     private boolean mDesktopWindowFocusable = true;
+    private boolean mExternalBackCallbackRegistered;
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
     private boolean mTaskbarAutoHide;
@@ -201,7 +206,7 @@ public abstract class DesktopShellActivity extends Activity
                         if (mTaskbarRevealController != null) {
                             mTaskbarRevealController.updateViewport();
                         }
-                        MagicDeskRuntimeService.refreshDesktopTasksIfRunning();
+                        MagicDeskRuntime.refreshDesktopTasks();
                     }
                 });
         mCalendarController = new CalendarPanelController(
@@ -245,6 +250,7 @@ public abstract class DesktopShellActivity extends Activity
         mInputController = new DesktopInputController(this);
         mHostWindowController = new DesktopHostWindowController(this);
         mSystemActions = new DesktopSystemActionsController(this);
+        registerExternalBackCallback();
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
@@ -254,7 +260,7 @@ public abstract class DesktopShellActivity extends Activity
         mNotifications.start();
         mDesktopControls.start();
         mDisplayProfiles.start();
-        MagicDeskRuntimeService.start(this);
+        MagicDeskRuntime.start(this);
         if (ShellAccess.isReady()) {
             ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
         }
@@ -322,6 +328,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        unregisterExternalBackCallback();
         if (mNotifications != null) {
             mNotifications.stop();
         }
@@ -334,7 +341,13 @@ public abstract class DesktopShellActivity extends Activity
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
         }
+        if (mDisplayDensityController != null) {
+            mDisplayDensityController.close();
+        }
         mLastApps = Collections.emptyList();
+        if (mStartMenuController != null) {
+            mStartMenuController.release();
+        }
         if (mHostWindowController != null) {
             mHostWindowController.release();
         }
@@ -378,6 +391,12 @@ public abstract class DesktopShellActivity extends Activity
         return mInputController != null
                 && mInputController.handleGenericMotionEvent(
                         event, useRawCoordinates);
+    }
+
+    boolean handleDesktopFileKey(final KeyEvent event) {
+        return mDesktopWorkspaceController != null
+                && mDesktopWorkspaceController.handleKeyboardCommand(
+                        FileKeyboardCommand.fromEvent(event));
     }
 
     @Override
@@ -486,7 +505,7 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
-        MagicDeskRuntimeService.refreshNotificationIfRunning();
+        MagicDeskRuntime.refreshNotification();
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
         setTaskbarVisible(true);
@@ -593,7 +612,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     public void onDesktopHostReady() {
-        DesktopTaskParkingController.onDesktopHostReady(
+        MagicDeskRuntime.onDesktopHostReadyForParkedTasks(
                 getCurrentDisplayId());
     }
 
@@ -606,6 +625,37 @@ public abstract class DesktopShellActivity extends Activity
             refreshDisplayProfile();
         }
         refreshTaskSnapshot();
+    }
+
+    private void registerExternalBackCallback() {
+        if (mExternalBackCallbackRegistered
+                || getCurrentDisplayId() <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                mExternalBackCallback);
+        mExternalBackCallbackRegistered = true;
+    }
+
+    private void unregisterExternalBackCallback() {
+        if (!mExternalBackCallbackRegistered) {
+            return;
+        }
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                mExternalBackCallback);
+        mExternalBackCallbackRegistered = false;
+    }
+
+    private void handleExternalBack() {
+        // Back may be routed to the external HOME host while no app owns
+        // focus. Finishing that Activity leaves the desktop display blank.
+        Log.i(TAG, "ignored Back on external desktop host display="
+                + getCurrentDisplayId());
+        if (hasVisiblePanel()) {
+            resetAltTabState();
+            hideAllPanels();
+        }
     }
 
     @Override
@@ -778,8 +828,8 @@ public abstract class DesktopShellActivity extends Activity
         mTaskOverviewController.populate(snapshot);
     }
 
-    boolean showTaskOverviewPanel() {
-        return mTaskOverviewController.showPanel();
+    boolean showAltTabPanel() {
+        return mTaskOverviewController.showAltTabPanel();
     }
 
     void registerContextTarget(final View view, final AppItem app,
@@ -827,7 +877,7 @@ public abstract class DesktopShellActivity extends Activity
         }
         mDisplayProfiles.reloadStoredProfile();
         refreshSettings();
-        MagicDeskRuntimeService.refreshSettingsIfRunning();
+        MagicDeskRuntime.refreshSettings();
         renderApps();
         updateDesktopControls();
     }
@@ -1284,6 +1334,14 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.focusTask(app, task);
     }
 
+    void focusTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final List<TaskRepository.TaskEntry> focusStack,
+            final Runnable completion) {
+        mAppTasks.focusTask(app, task, focusStack, completion);
+    }
+
     void toggleTaskbarTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
@@ -1397,6 +1455,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openConsole();
     }
 
+    void openTaskManager() {
+        mSystemActions.openTaskManager();
+    }
+
     void launchInternalWindow(
             final android.content.Intent intent,
             final AppLaunchTarget target,
@@ -1412,6 +1474,9 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void hideAllPanels() {
+        if (mTaskOverviewController != null) {
+            mTaskOverviewController.cancelPendingShow();
+        }
         if (mOverlayPanelController != null) {
             mOverlayPanelController.hideAll();
         }

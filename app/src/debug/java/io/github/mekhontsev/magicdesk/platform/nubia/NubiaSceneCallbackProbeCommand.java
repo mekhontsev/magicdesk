@@ -31,6 +31,7 @@ public final class NubiaSceneCallbackProbeCommand {
         final CountDownLatch callbackReceived = new CountDownLatch(1);
         final SceneCallback callback = new SceneCallback(callbackReceived);
         IBinder service = null;
+        int exitCode = 0;
         try {
             service = getService(SERVICE_NAME);
             if (service == null) {
@@ -52,7 +53,7 @@ public final class NubiaSceneCallbackProbeCommand {
                 Thread.currentThread().interrupt();
             }
             System.err.println("scene-callback failed: " + error);
-            System.exit(1);
+            exitCode = 1;
         } finally {
             if (service != null) {
                 try {
@@ -64,8 +65,12 @@ public final class NubiaSceneCallbackProbeCommand {
                 } catch (RemoteException | RuntimeException error) {
                     System.err.println(
                             "scene-callback unregister failed: " + error);
+                    exitCode = 1;
                 }
             }
+        }
+        if (exitCode != 0) {
+            System.exit(exitCode);
         }
     }
 

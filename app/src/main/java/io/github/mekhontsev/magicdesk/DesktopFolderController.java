@@ -42,6 +42,7 @@ final class DesktopFolderController {
     private boolean mLoaded;
     private volatile boolean mReleased;
     private ShellDesktopFolderHandle mObserverHandle;
+    private int mObserverGeneration;
     private boolean mObservedStateChanged;
     private boolean mObservedWallpaperChanged;
     private final IDesktopFolderObserverCallback mObserverCallback =
@@ -49,6 +50,9 @@ final class DesktopFolderController {
                 @Override
                 public void onDesktopFolderChanged(
                         final String relativePath) {
+                    if (mReleased) {
+                        return;
+                    }
                     if (relativePath != null
                             && (relativePath.equals(
                                     ShellDesktopDirectory.METADATA_DIRECTORY)
@@ -68,6 +72,9 @@ final class DesktopFolderController {
     private final Runnable mObservedRefresh =
             () -> refresh(true, mThumbnailLimit);
     private final Runnable mObservedMetadataRefresh = () -> {
+        if (mReleased) {
+            return;
+        }
         final boolean reloadState = mObservedStateChanged;
         final boolean wallpaperChanged = mObservedWallpaperChanged;
         mObservedStateChanged = false;
@@ -430,11 +437,13 @@ final class DesktopFolderController {
                 || !ShellAccess.isReady()) {
             return;
         }
+        final int generation = ++mObserverGeneration;
         try {
             mObserverHandle = ShellAccess.openDesktopFolderObserver(
                     mObserverCallback,
                     () -> mHandler.post(() -> {
-                        if (!mReleased) {
+                        if (!mReleased
+                                && generation == mObserverGeneration) {
                             mObserverHandle = null;
                         }
                     }));
@@ -444,6 +453,7 @@ final class DesktopFolderController {
     }
 
     private void closeObserver() {
+        mObserverGeneration++;
         final ShellDesktopFolderHandle handle = mObserverHandle;
         mObserverHandle = null;
         if (handle != null) {

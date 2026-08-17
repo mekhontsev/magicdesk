@@ -17,10 +17,30 @@ MagicDesk follows these constraints:
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
 6. Optional kernel code stays outside the main APK.
+7. Display transport, firmware integration, SoC services, and shell execution
+   remain independent boundaries.
+8. Interfaces represent external boundaries or multiple real implementations;
+   they are not introduced only to move code between files.
 
 MagicDesk does not register a competing task organizer, host applications in
 surrogate activities, draw replacement captions, patch SystemUI, invoke `su`,
 or require a Magisk module.
+
+Dependencies point in one direction:
+
+```text
+activities and desktop UI
+        |
+controllers and session orchestration
+        |
+task, display, input, storage, and capture contracts
+        |
+Android shell adapters + selected platform and SoC backends
+```
+
+UI code does not select firmware implementations. Platform and SoC adapters
+do not own desktop UI or session state. Runtime composition occurs only in the
+registries documented below.
 
 ## Architecture Guardrails
 
@@ -154,6 +174,20 @@ can destroy an Activity and its user session. Use same-display transactions
 and the client-preserving refresh described in
 [Fullscreen transitions](fullscreen-transitions.md).
 
+### Keep true-fullscreen tasks under one fullscreen parent
+
+The default desktop task area is freeform-oriented. Reordering independent
+fullscreen roots there can make a task inherit freeform mode during Alt+Tab,
+even when its final mode is repaired afterward. MagicDesk therefore reparents
+the complete true-fullscreen stack into one organizer-owned fullscreen
+`TaskDisplayArea` before switching focus.
+
+The long-lived shell task observer owns that area. Switching only reorders
+children inside the same parent; restoring a window releases that task to the
+default task area while it is still fullscreen. Closing the final member
+deletes the area. Platforms without this organizer capability use the ordinary
+focus path and never apply a delayed mode repair.
+
 ## Modules
 
 | Component | Path or package | Responsibility |
@@ -207,11 +241,28 @@ runtime integration and are not distributed through the same release path.
   Nubia ignores a Mirror-to-desktop command while Android Home is the sole
   foreground task. It never appears in Recents and is removed after the real
   desktop host task is ready.
-- `MagicDeskRuntimeService` owns the persistent notification and process-level
-  runtime. An optional non-reference-counted partial wake lock is held only
-  while both its setting and a MagicDesk desktop session are active, and is
-  released by the same service lifecycle. There is no boot receiver; the user
-  starts MagicDesk manually. The notification body is a stable display-0 entry
+- `MagicDeskRuntimeService` composes the persistent notification and
+  process-level runtime without duplicating subsystem state. Other components
+  use the process-local `MagicDeskRuntime` facade instead of depending on the
+  Android Service implementation. The service attaches a package-private
+  backend for its lifetime; absent-runtime calls have explicit safe defaults,
+  and a stale service cannot detach a newer backend instance.
+  `RuntimeDesktopSessionCoordinator` owns desktop-display identity, session
+  removal, and phone-Home recovery. It consumes one immutable
+  `DesktopSessionSnapshot` per decision, so the host display and the prepared
+  display target cannot come from different lifecycle transitions.
+  `RuntimeDesktopInputCoordinator` composes
+  input-device discovery, keyboard and mouse bridges, desktop text routing,
+  and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
+  process-level `DesktopTaskController`, keeps task observation available
+  while shell access is ready, and binds display-scoped task reconciliation to
+  the active session snapshot. It implements the narrow `DesktopTaskRuntime`
+  contract exposed through `MagicDeskRuntime`; callers do not locate a
+  process-global active task controller. The optional non-reference-counted partial
+  wake lock is held only while both its setting and a MagicDesk desktop
+  session are active. It is released by the same service lifecycle. There is
+  no boot receiver; the user starts MagicDesk manually. The notification body
+  is a stable display-0 entry
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Desktop Show/Restore remains a taskbar and `Win+D`
   command rather than a state-dependent notification action.
@@ -243,7 +294,10 @@ runtime integration and are not distributed through the same release path.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the keyboard bridge.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
-  which services reach the active desktop.
+  which services reach the active desktop. Host registration and display
+  target changes are serialized into one immutable `DesktopSessionSnapshot`;
+  the target may intentionally outlive an Activity during configuration
+  recreation or external-display teardown.
 - `DesktopLayoutController` owns WindowInsets, viewport, and taskbar geometry.
 - `DesktopTaskSnapshotController` serializes task refresh generations and
   filters the taskbar model.
@@ -267,7 +321,10 @@ runtime integration and are not distributed through the same release path.
   package, and display. This prevents Nubia Quickstep from crashing while
   binding a stale `DesktopTaskView` without persistent recovery state or
   changes to unrelated Recents entries.
-- `DesktopTaskController` orchestrates native task transitions.
+- `DesktopTaskController` orchestrates native task transitions as an instance
+  owned exclusively by `RuntimeDesktopTaskCoordinator`. It contains no static
+  active-controller reference; pure task classification helpers remain static.
+  Pre-focus host relayout is enabled only by the selected windowing driver.
 - `DesktopTaskParkingController` snapshots live managed tasks when an external
   desktop is closed, parks them on display 0 as fullscreen tasks, and restores
   only the same still-live task IDs when a later desktop host becomes ready.
@@ -281,13 +338,41 @@ runtime integration and are not distributed through the same release path.
   MagicDesk and third-party tasks alike, so Nubia Quickstep never receives
   phone-side freeform state from those transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive transitions.
-- `DesktopTaskStateStore` persists freeform bounds and visible Z-order.
+- `DesktopTaskRuntimeRegistry` owns one transient state object per Android task
+  ID. Bounds, maximize/restore, fullscreen, immersive, and startup-windowed
+  transitions share that object instead of maintaining parallel controller
+  maps. Removing a task invalidates late asynchronous callbacks atomically;
+  stopping the bounds controller clears only its bounds fields and preserves
+  live fullscreen/immersive ownership.
+- `DesktopDisplayTaskState` owns the active controller's visible workspace,
+  last visible Z-order, and fullscreen-transition freeze as one display-scoped
+  value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
 - `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
   coordinate task actions, Show Desktop, restoration, and exact-task
-  switching. `WindowedAppLauncher` delegates task placement to a short-lived
-  shell command without retaining another Activity.
+  switching. `AppTaskController` has one UI lifecycle for built-in and regular
+  window launches. `WindowedAppLauncher` owns fresh launch/reuse selection and
+  delegates task placement to a short-lived shell command without retaining
+  another Activity. `ExistingTaskController` performs only task discovery and
+  normalization. A single `WindowedTaskLaunchLease` spans each operation so
+  startup-window protection and phone-touchpad preservation cannot be entered
+  twice by the launcher and reuse path.
+- `ShellFullscreenTaskArea` owns the organizer-created fullscreen task area
+  used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
+  fullscreen parent avoids the transient freeform state caused by reordering
+  roots in the default desktop task area. A task is synchronously released to
+  the default task area while still fullscreen before any restore or snap
+  command changes its mode. The area closes after its final tracked task leaves.
+  Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
+  `FULLSCREEN-LIFECYCLE-001` through `003` verify both task modes, real input
+  focus, single-task restore and close, survivor visibility, and abrupt display
+  removal.
+- Shared fullscreen commands perform caption-source repair only when requested
+  by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
+  the same platform policy. Shell input recovery calls the selected
+  `PlatformPointerDriver`; the Nubia driver alone chooses its firmware-specific
+  finger-tool hover event.
 
 ### Platform services
 
@@ -326,20 +411,49 @@ isolated behind these boundaries.
 - Platform and display are independent axes. A platform declares which
   display kinds it supports, while the display driver owns the lifecycle of
   one session type. Do not create platform-by-display combination classes.
+- SoC display services are a third independent axis.
+  `SocDisplayModeBackends` is their sole composition point. The optional
+  Qualcomm `IDisplayConfig` implementation augments mode discovery and exact
+  timing selection when Android's public mode list is incomplete; its absence
+  is inert. Binder descriptors and transactions remain inside `soc.qualcomm`,
+  while platform projection code consumes only `SocDisplayModeBackend` data.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
+- `DesktopRuntimeBridge` is only the stable process-local facade.
+  `DesktopSessionRegistry` owns the immutable target/host snapshot, while
+  `DesktopUiGateway` alone owns weak references to the live desktop Activity
+  and dispatches UI commands. Session state therefore does not acquire UI
+  behavior, and UI liveness cannot become a second session-state authority.
 - `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
-  and simulated. A driver owns environment-specific start/close behavior,
-  launch-area policy, phone-screen and touchpad availability, and display
-  removal semantics. Shared task, window, input, and desktop UI code remains
-  transport-independent.
+  and simulated. A driver owns environment-specific activation, launch-area
+  policy, phone-screen and touchpad availability, capture support, and display
+  removal semantics. Closing and mirror transitions are deliberately absent
+  from the drivers: one session coordinator combines the selected display
+  target with the selected platform transport lifecycle.
 - `DesktopDisplayDrivers` is the only registry for resolving those drivers.
   `ConsoleModeSwitcher` serializes public session transitions and delegates
   the selected target to the registry.
 - `ConsoleSessionController` owns the optional RedMagic wired Console
   activation path. Standard Android displays bypass it and enter the common
   desktop session directly.
+- `ConsoleModeSwitcher` remains the compatibility facade used by activities
+  and shortcuts. `DesktopSessionTransitionCoordinator` owns activation,
+  close, and mirror sequencing; `SerializedDesktopOperationQueue` provides the
+  single ordered executor shared with shell settings and input policy. The
+  facade owns neither transition flags nor an executor. Platform projection
+  and feature contracts are injected into the coordinator, so a close cannot
+  re-enter `ConsoleModeSwitcher` through a display driver.
+- Desktop shortcut and panel commands enter through `MagicDeskRuntime`. The
+  runtime service is the availability and ownership boundary;
+  `DesktopRuntimeBridge` remains the lower-level gateway that dispatches a
+  command to the currently registered host on the main thread. Self-tests may
+  address that gateway directly when the gateway itself is the subject under
+  test.
+- Platform phone-UI adapters receive the active desktop display ID with a
+  phone-screen request. They do not discover session state through
+  `DesktopRuntimeBridge` and publish state changes through the runtime rather
+  than reaching a desktop Activity.
 - `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
@@ -484,24 +598,31 @@ caption source and geometry, display-targeted application input, native caption
 and resize input handles, true fullscreen, restore, minimize, and cleanup. It
 then opens two independent editor fixtures, uses the native caption menu to
 place them on the left and right halves, and verifies keyboard focus transfer
-through both the desktop task controller and mouse input. Input assertions wait
-for the current InputDispatcher focus state rather than a fixed transition
-delay. The test also requests the native horizontal resize cursor and verifies
-WMShell's transition trace when that firmware trace is available.
+through both the desktop task controller and mouse input. It also switches the
+pair twice as true-fullscreen tasks and verifies that neither task becomes
+freeform while the Alt+Tab panel is open or after focus changes. It restores and
+closes one task, then verifies that the fullscreen survivor still receives real
+injected text. Input assertions wait for the current InputDispatcher focus
+state rather than a fixed transition delay. The test also requests the native
+horizontal resize cursor and verifies WMShell's transition trace when that
+firmware trace is available.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
-restores the prior setting. The external target selects the existing wired or
-wireless transport automatically and never treats the physical display or its
-unrelated tasks as test-owned. If a wired test temporarily enters desktop mode
-from mirror mode, cleanup restores mirror mode. An existing Miracast transport
-remains connected. The phone target uses the normal local-desktop navigation
-and cleanup path. Each target closes only the MagicDesk host and test fixtures
-that it created. Cleanup closes the host before removing its fixture tasks so
-SystemUI can reconcile live task IDs instead of retaining references to tasks
-that the test already destroyed. The phone navigation guard is released even
-when task reconciliation reports a failure; the pending marker remains for a
-later recovery attempt.
+restores the prior setting. Its test deliberately closes that lease once while
+the desktop and a fullscreen fixture are still alive. It verifies that the
+runtime and organizer-owned task area stop and that a surviving fixture is
+never left freeform on display 0. The external target selects the existing
+wired or wireless transport automatically and never treats the physical
+display or its unrelated tasks as test-owned. If a wired test temporarily
+enters desktop mode from mirror mode, cleanup restores mirror mode. An existing
+Miracast transport remains connected. The phone target uses the normal local-
+desktop navigation and cleanup path. Each target closes only the MagicDesk host
+and test fixtures that it created. Cleanup closes the host before removing its
+fixture tasks so SystemUI can reconcile live task IDs instead of retaining
+references to tasks that the test already destroyed. The phone navigation
+guard is released even when task reconciliation reports a failure; the pending
+marker remains for a later recovery attempt.
 
 Phone and simulated-display cold launches create a short-lived shell-owned
 `TaskDisplayArea` beside the target display's default task area. The new
@@ -521,12 +642,19 @@ phone retains the ordinary fullscreen `move-stack` behavior. These paths use
 explicit display IDs and never depend on display names, package exceptions, or
 timing guesses.
 
-A one-shot shell-UID `TaskStackListener` is registered only around self-test
-fixture transitions. It captures the first `onTaskMovedToFront` configuration,
-so the test distinguishes a true initial freeform launch from a fullscreen task
-that is corrected after it becomes visible. The same probe verifies a direct
-fullscreen-phone to freeform-external move. It is inactive during normal
-desktop operation.
+The shell task observer exposes an optional self-test guard. While a test is
+active, every task callback captures a bounded `getAllTasks()` snapshot tagged
+with the current test stage. A pure analyzer checks the desktop host, fixture
+display and windowing mode, HOME visibility, one-way task transitions, and
+windowed/fullscreen visibility continuity. No snapshots are taken during
+normal desktop operation, and the guard uses neither polling nor timing
+guesses.
+
+A separate one-shot launch probe captures the first
+`onTaskMovedToFront` configuration, so the test distinguishes a true initial
+freeform launch from a fullscreen task that is corrected after it becomes
+visible. The same probe verifies a direct fullscreen-phone to
+freeform-external move.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external
@@ -535,6 +663,16 @@ no separate phone implementation of the desktop.
 
 The taskbar is a display-scoped application overlay. It remains above freeform
 tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
+Its shared controller measures the actual task viewport on every display and
+reserves one slot for an overflow menu when task or pin icons no longer fit.
+Overflow entries retain the same exact-task actions and context targets as
+their ordinary taskbar icons; screen drivers do not implement separate sizing
+or task-switching behavior.
+The phone desktop also exposes the hidden taskbar through a touch edge gesture.
+It uses Android's configured edge and touch slop, is scoped to display 0, and
+feeds an explicit reveal state into the shared controller. The taskbar is
+dismissed by the next taskbar action or outside touch rather than by a timeout;
+the blocked SystemUI Recents gesture is not intercepted or re-enabled.
 When automatic hiding is enabled, the same existing pointer-edge state machine
 reveals it without introducing a second overlay or polling loop, and window
 placement uses the full viewport. IME and other forced-visible policy still
@@ -650,6 +788,14 @@ suffix, so an interrupted copy never begins by deleting an existing target.
 If cross-filesystem move cleanup fails after a complete copy, the destination
 is retained rather than risking loss of both copies.
 
+`FileOperationCenter` owns copy, move, and delete at MagicDesk process scope.
+Files windows subscribe only to immutable progress snapshots, so closing the
+window does not cancel a remote operation. The process Binder remains the
+remote owner: process death still cancels work, and a disconnected shell turns
+the active snapshot into a bounded failure rather than leaving a permanently
+busy UI. Imports from external `content://` providers remain Activity-scoped
+because their temporary drag permission belongs to that UI interaction.
+
 `FileManagerActivity` maps the selection model to the same typed operations
 for toolbar commands, item context menus, and standard file-manager keyboard
 shortcuts. Metadata displayed by Properties comes from the same `stat` result
@@ -679,9 +825,15 @@ completed move clears only the buffer generation from which it started, so a
 new selection copied in another window cannot be discarded by an older
 operation.
 
-The current-folder name filter operates only on the already loaded page set.
-It performs no recursive traversal, UserService request, polling, or idle work;
-`Ctrl+F` changes only the local Files presentation.
+The current-folder name filter operates only on the already loaded page set;
+`Ctrl+F` changes only the local Files presentation. Recursive name search is a
+separate explicit action. `ShellFileSystem` walks without following symbolic
+links, returns bounded batches through a typed callback, and cancels on request
+or Binder-owner death. It creates no persistent index or idle scanner. Each
+Files window also owns a shell-side `FileObserver` for only its current
+directory. Callback bursts are coalesced into one posted reload without a
+polling interval or guessed delay; manual refresh remains available when a
+filesystem cannot be observed.
 
 Files opened or dragged into another application are exposed through the
 non-exported `ShellFileProvider` and a process-lifetime capability URI. A grant
@@ -706,7 +858,12 @@ typed path supports files and recursive folders without publishing privileged
 paths or inventing directory content URIs; the default action is move and
 holding `Ctrl` when the drag starts selects copy. Only ordinary files receive
 temporary URIs for drops into other Android applications. The built-in Console
-can be prefilled with the current directory. Optional Termux integration uses
+can be prefilled with the current directory. Process-local file drags dropped
+on its input insert normalized, shell-quoted paths but never run a command.
+Console can open its current directory in Files, and selected output is treated
+as a path only after `ShellFileSystem` verifies the resolved absolute target.
+File completion lists the exact parent directory through the typed filesystem
+API instead of parsing shell completion output. Optional Termux integration uses
 Termux's documented `RUN_COMMAND` intent and permission; it is not required by
 Files. The normalized directory path becomes a stable Termux shell name, and
 the `no-shell-with-name` creation mode atomically selects that session or
@@ -981,40 +1138,53 @@ for changes made outside MagicDesk.
 ## Desktop Display Recording
 
 MagicDesk resolves the active desktop's logical display to its physical display
-ID and records either the phone or external RedMagic output with Android's
-system `screenrecord --display-id` command. Internal audio uses the firmware's
-`AUDIO_SOURCE_SYSTEM_RECORD` value `80`, the same source used by the stock ZTE
-screen recorder and Game Highlights. The source is accepted by
-`MediaRecorder`, but the audio HAL rejects it through `AudioRecord`; these APIs
-are not interchangeable on the verified firmware.
+ID and records it with Android's system `screenrecord --display-id` command.
+Video capture is a platform-independent baseline and does not depend on an
+internal-audio backend. The Nubia driver can additionally use the firmware's
+`SYSTEM_RECORD_MODE` source `80`, the same source used by the stock ZTE screen
+recorder and Game Highlights. The source is accepted by `MediaRecorder`, but
+the audio HAL rejects it through `AudioRecord`; these APIs are not
+interchangeable on the verified firmware.
 
-Internal-audio recording is an explicit platform capability. The Standard
-Android driver leaves it disabled instead of probing source `80`; screenshots
-remain available independently. A future platform can expose recording only
-after supplying and verifying its own internal-audio backend.
+Internal audio is an optional platform capability. The Nubia driver passively
+asks the framework whether source `80` is valid and reads its diagnostic name;
+this check does not construct a recorder or capture sound. In `Auto`, audio is
+attempted only when the framework declares the source. The Standard Android
+driver and firmware without a declared backend make `Auto` record video without
+sound; the user-selected microphone remains platform-independent. A future
+platform can add internal audio by implementing the same driver contract
+without changing the display-recording session.
 
-The Capture panel stores a global resolution scale (`100%`, `75%`, or `50%`)
-and H.264 bitrate (`4`-`40 Mbps`). Native resolution omits `screenrecord`'s
-`--size` option; scaled output preserves the physical display aspect ratio and
-uses even dimensions for encoder compatibility. The default remains native
-resolution at `20 Mbps`.
+The Capture panel stores a global audio mode, resolution scale (`100%`, `75%`,
+or `50%`), and H.264 bitrate (`4`-`40 Mbps`). `Auto` permits the selected
+platform backend to record internal audio and falls back to video-only;
+`Microphone` uses Android's standard `MediaRecorder.AudioSource.MIC`; `No
+audio` never constructs an audio recorder. Native resolution omits
+`screenrecord`'s `--size` option; scaled output preserves the physical display
+aspect ratio and uses even dimensions for encoder compatibility. The defaults
+remain `Auto`, native resolution, and `20 Mbps`.
 
 A Shizuku UserService is an `app_process` with an Application context but no
 bound `ActivityThread.AppBindData`. Android 16's `MediaRecorder(Context)` passes
 `ActivityThread.currentPackageName()` into JNI, where a null value aborts the
-entire process. `InternalAudioRecorder` temporarily supplies the matching
+entire process. `MediaRecorderAudioRecorder` temporarily supplies the matching
 MagicDesk or `com.android.shell` application identity only while constructing
 the recorder, then immediately restores the prior ActivityThread state. This
-keeps the stock vendor audio path usable for both supported service identities.
+shared recorder supports both the standard microphone and platform-provided
+audio sources.
 
-Audio starts before video, so an unsupported audio source cannot leave an
-orphan screen recorder. The video shell wrapper also watches its UserService
-PID and sends `SIGINT` to `screenrecord` if that owner disappears. Temporary
-tracks live under `Movies/MagicDesk/.recording` with `.nomedia`; successful
-capture normalizes each track's timestamps against measured monotonic start
-times, muxes H.264 and AAC into one MP4, and indexes only the finished file.
-The video start time is measured when the encoder first writes output rather
-than when the process is forked, avoiding a firmware-observed startup error of
+When available, audio starts before video so their measured monotonic start
+times can be aligned. `Auto` treats internal audio as optional and falls back
+to video-only if its backend cannot start. An explicitly selected microphone
+must start successfully; later stop, validation, or mux failures still preserve
+the completed H.264 video rather than losing the entire recording.
+The video shell wrapper also watches its UserService PID and sends `SIGINT` to
+`screenrecord` if that owner disappears. Temporary tracks live under
+`Movies/MagicDesk/.recording` with `.nomedia`; successful audio capture is
+muxed with the video into one MP4, while video-only capture publishes the
+original screenrecord file directly. Only the finished file is indexed. The
+video start time is measured when the encoder first writes output rather than
+when the process is forked, avoiding a firmware-observed startup error of
 roughly 100 ms.
 
 ## Hardware Controls
@@ -1128,7 +1298,7 @@ the last valid cached system image, or MagicDesk's built-in background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
 
-`CommandConsoleActivity` is an unexported, multi-instance desktop task over the
+`CommandConsoleActivity` is a permission-protected, multi-instance desktop task over the
 existing `ShellAccess` connection. Each Activity owns one
 `ConsoleShellSession`, a process-local command history, current-directory
 state, and a selectable stdout/stderr transcript. The session uses one
@@ -1137,16 +1307,24 @@ the prompt without being shown to the user. Running `exit` or closing the
 Activity closes that shell. Initial commands supplied by Files are displayed
 for review and are never executed automatically.
 
-## Rejected Experiments Worth Remembering
+`TaskManagerActivity` consumes the existing `TaskRepository`; it does not own
+another task-stack parser or windowing policy. Focus, task close, and explicit
+force-stop therefore use the same validated operations as the taskbar. A log
+action launches `AppLogViewerActivity`, whose lifecycle-bound owned stream runs
+`logcat` with a numeric UID filter. The viewer keeps a bounded transcript and
+closing it closes the remote process. Arbitrary command entry remains exclusive
+to Console.
 
-These results explain otherwise tempting implementation choices:
+## Implementation Constraints
+
+These constraints define the supported implementation paths:
 
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
-- Creating a custom task display area on Nubia's `NubiaAppMirrorDisplay`
-  removes that vendor display; custom task areas remain limited to simulated
-  displays where the complete lifecycle is verified.
+- Custom launch task areas are limited to display drivers whose lifecycle
+  explicitly supports them. Nubia's managed mirror displays use their default
+  task area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
@@ -1161,13 +1339,23 @@ These results explain otherwise tempting implementation choices:
   forwarding the complete grabbed source does not.
 - Disabling or force-stopping Nubia's entire input package breaks Touch Panel;
   the DisplayManager phone-screen guard solves the wake problem at its source.
-- A persistent vendor freezer whitelist is unnecessary and harder to clean up;
-  the transient service-working heartbeat is sufficient.
+- Phone-screen-off process protection uses only the transient vendor
+  service-working heartbeat; no persistent freezer whitelist is installed.
 - ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
   `AudioRecord` fails in AudioFlinger even for a privileged UserService.
 
 Additional vendor-level evidence is preserved in
 [Nubia vendor interface audit](nubia-vendor-audit.md).
+
+Maintenance follows the same ownership rules. New external implementations
+belong in dedicated `platform/` or `soc/` packages; the broad root package is
+split only when a new independently owned subsystem provides a real boundary.
+Large shell, input, and Activity orchestration classes are divided by resource
+ownership rather than file size. Private Android APIs remain isolated behind
+capability-checked adapters and fail closed. Changes to task-display-area
+launching, shell task observation, input bridges, or the UserService require
+phone, simulated, and relevant physical-display self-tests because host-only
+tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 

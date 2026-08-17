@@ -47,6 +47,30 @@ final class DesktopSelfTestTasks {
                 + " did not receive front focus on display " + displayId);
     }
 
+    static void waitForTaskAbsent(final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            if (findTaskById(
+                    ShellAccess.run("/system/bin/cmd activity stack list"),
+                    taskId) == null) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + taskId + " remained after close");
+    }
+
+    static TaskStackParser.Entry findTaskById(
+            final String stack,
+            final int taskId) {
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
+            if (task.taskId == taskId) {
+                return task;
+            }
+        }
+        return null;
+    }
+
     static TaskStackParser.Entry findFrontTask(
             final String stack,
             final int displayId) {

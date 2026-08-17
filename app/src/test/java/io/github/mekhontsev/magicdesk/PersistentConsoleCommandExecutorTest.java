@@ -5,7 +5,10 @@ import static org.junit.Assert.assertEquals;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class PersistentConsoleCommandExecutorTest {
     private static final String MARKER = "__MAGICDESK_TEST__";
@@ -31,6 +34,51 @@ public final class PersistentConsoleCommandExecutorTest {
                 output + "\n" + MARKER + "0\t/sdcard\n");
 
         assertEquals(output, state.output());
+    }
+
+    @Test
+    public void streamsOnlyVisibleCommandOutput() throws Exception {
+        final List<String> streamed = new ArrayList<>();
+        final PersistentConsoleCommandExecutor.ReadState state =
+                new PersistentConsoleCommandExecutor.ReadState(
+                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
+                        streamed::add);
+
+        state.read(new ByteArrayInputStream(
+                ("one\ntwo\n\n" + MARKER + "0\t/tmp\n")
+                        .getBytes(StandardCharsets.UTF_8)));
+
+        assertEquals("one\ntwo\n", String.join("", streamed));
+        assertEquals("one\ntwo\n", state.output());
+    }
+
+    @Test
+    public void streamsTextBeforePossibleMarkerLineIsResolved()
+            throws Exception {
+        final StringBuilder streamed = new StringBuilder();
+        final byte[] encoded = ("ready\n\n" + MARKER + "0\t/tmp\n")
+                .getBytes(StandardCharsets.UTF_8);
+        final int boundary = "ready\n".getBytes(StandardCharsets.UTF_8).length;
+        final InputStream input = new InputStream() {
+            private int mOffset;
+
+            @Override
+            public int read() {
+                if (mOffset == boundary) {
+                    assertEquals("ready", streamed.toString());
+                }
+                return mOffset < encoded.length
+                        ? encoded[mOffset++] & 0xff : -1;
+            }
+        };
+        final PersistentConsoleCommandExecutor.ReadState state =
+                new PersistentConsoleCommandExecutor.ReadState(
+                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
+                        streamed::append);
+
+        state.read(input);
+
+        assertEquals("ready\n", streamed.toString());
     }
 
     private static PersistentConsoleCommandExecutor.ReadState read(

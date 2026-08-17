@@ -19,9 +19,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 
 final class StartMenuController {
     static final int MENU_RECENT = 0;
@@ -35,6 +33,7 @@ final class StartMenuController {
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
+    private final StartSearchController mSearchController;
 
     private LinearLayout mPanel;
     private LinearLayout mContent;
@@ -55,6 +54,9 @@ final class StartMenuController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
+        mSearchController = new StartSearchController(
+                activity,
+                this::onSearchResultsChanged);
     }
 
     // The touch observer only enables IME display; EditText retains click handling.
@@ -136,6 +138,9 @@ final class StartMenuController {
                     final int count) {
                 mSearchQuery = text == null ? "" : text.toString();
                 mSearchSelection = 0;
+                mSearchController.update(
+                        mSearchQuery,
+                        mActivity.getLauncherApps());
                 renderBody();
             }
 
@@ -219,6 +224,8 @@ final class StartMenuController {
         mSearchQuery = "";
         if (mSearch != null && mSearch.length() > 0) {
             mSearch.setText("");
+        } else {
+            mSearchController.update("", mActivity.getLauncherApps());
         }
         setVisible(true, focusable);
     }
@@ -256,8 +263,14 @@ final class StartMenuController {
         mSearchQuery = "";
         if (mSearch != null && mSearch.length() > 0) {
             mSearch.setText("");
+        } else {
+            mSearchController.update("", mActivity.getLauncherApps());
         }
         render();
+    }
+
+    void release() {
+        mSearchController.close();
     }
 
     void setVisible(final boolean visible) {
@@ -273,11 +286,15 @@ final class StartMenuController {
             if (mSearch != null) {
                 mSearch.setShowSoftInputOnFocus(false);
             }
+            mSearchController.pause();
             overlays.hide(mPanel);
             return;
         }
         mSearch.setShowSoftInputOnFocus(false);
         mFocusable = focusable;
+        mSearchController.update(
+                mSearchQuery,
+                mActivity.getLauncherApps());
         render();
         final int width = getWidth();
         final int height = getHeight();
@@ -547,23 +564,9 @@ final class StartMenuController {
         return result;
     }
 
-    private List<AppItem> getSearchApps() {
-        final String query = mSearchQuery.trim().toLowerCase(Locale.ROOT);
-        if (query.length() == 0) {
-            return Collections.emptyList();
-        }
-        final List<AppItem> result = new ArrayList<>();
-        for (final AppItem app : mActivity.getLauncherApps()) {
-            if (app.label.toLowerCase(Locale.ROOT).contains(query)
-                    || app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
-                result.add(app);
-            }
-        }
-        return result;
-    }
-
     private void renderSearchResults() {
-        final List<AppItem> matches = getSearchApps();
+        final List<StartSearchController.Result> matches =
+                mSearchController.results(getSearchResultLimit());
         if (matches.isEmpty()) {
             final TextView empty = new TextView(mActivity);
             empty.setText(R.string.search_no_results);
@@ -574,18 +577,27 @@ final class StartMenuController {
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
             return;
         }
-        final int visibleCount = Math.min(matches.size(), getPageSize());
+        final int visibleCount = matches.size();
         if (mSearchSelection >= visibleCount) {
             mSearchSelection = visibleCount - 1;
         }
-        final GridLayout grid = new GridLayout(mActivity);
-        grid.setColumnCount(getColumnCount());
+        final LinearLayout list = new LinearLayout(mActivity);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, dp(8), 0, 0);
         for (int index = 0; index < visibleCount; index++) {
-            grid.addView(
-                    createAppTile(matches.get(index), index == mSearchSelection),
-                    createTileParams());
+            list.addView(
+                    createSearchRow(
+                            matches.get(index),
+                            index == mSearchSelection),
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(58)));
         }
-        mBody.addView(grid, new LinearLayout.LayoutParams(
+        final ScrollView scroll = new ScrollView(mActivity);
+        scroll.addView(list, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        mBody.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
     }
 
@@ -595,8 +607,9 @@ final class StartMenuController {
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return false;
         }
-        final List<AppItem> matches = getSearchApps();
-        final int visibleCount = Math.min(matches.size(), getPageSize());
+        final List<StartSearchController.Result> matches =
+                mSearchController.results(getSearchResultLimit());
+        final int visibleCount = matches.size();
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !matches.isEmpty()) {
             mSearchSelection = Math.min(
                     visibleCount - 1, mSearchSelection + 1);
@@ -611,10 +624,9 @@ final class StartMenuController {
         if ((keyCode == KeyEvent.KEYCODE_ENTER
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
                 && !matches.isEmpty()) {
-            final AppItem app = matches.get(
+            final StartSearchController.Result result = matches.get(
                     Math.min(mSearchSelection, matches.size() - 1));
-            mActivity.hideAllPanels();
-            launchForCurrentMode(app);
+            openSearchResult(result);
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
@@ -622,6 +634,135 @@ final class StartMenuController {
             return true;
         }
         return false;
+    }
+
+    private View createSearchRow(
+            final StartSearchController.Result result,
+            final boolean selected) {
+        final LinearLayout row = new LinearLayout(mActivity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(8), dp(5), dp(8), dp(5));
+        row.setBackground(mUi.rounded(
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                dp(7),
+                selected
+                        ? DesktopUiFactory.COLOR_AMBER
+                        : DesktopUiFactory.COLOR_PANEL_ALT));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(view -> openSearchResult(result));
+
+        final ImageView icon = new ImageView(mActivity);
+        if (result.app != null) {
+            icon.setImageDrawable(result.app.icon);
+        } else {
+            icon.setImageResource(searchIcon(result));
+        }
+        row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
+        final LinearLayout labels = new LinearLayout(mActivity);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(10), 0, 0, 0);
+        final TextView name = new TextView(mActivity);
+        name.setText(result.label);
+        name.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        name.setTextSize(14);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView detail = new TextView(mActivity);
+        detail.setText(result.detail);
+        detail.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        detail.setTextSize(10);
+        detail.setSingleLine(true);
+        detail.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        labels.addView(name);
+        labels.addView(detail);
+        row.addView(labels, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return row;
+    }
+
+    private int searchIcon(final StartSearchController.Result result) {
+        if (result.file != null) {
+            return FileIconResolver.forFile(
+                    result.file.directory,
+                    result.file.mimeType);
+        }
+        if (result.builtIn != null) {
+            final AppLaunchTarget target = result.builtIn.launchTarget;
+            if (BuiltInDesktopAppCatalog.filesTarget().equals(target)) {
+                return R.drawable.ic_desktop_folder;
+            }
+            if (BuiltInDesktopAppCatalog.consoleTarget().equals(target)) {
+                return R.drawable.ic_file_console;
+            }
+            if (BuiltInDesktopAppCatalog.taskManagerTarget().equals(target)) {
+                return android.R.drawable.ic_menu_manage;
+            }
+            return android.R.drawable.ic_menu_preferences;
+        }
+        if (result.action == StartSearchController.Action.SCREENSHOT) {
+            return android.R.drawable.ic_menu_camera;
+        }
+        if (result.action == StartSearchController.Action.SCREEN_RECORDING) {
+            return android.R.drawable.presence_video_online;
+        }
+        return R.drawable.ic_show_desktop;
+    }
+
+    private void openSearchResult(final StartSearchController.Result result) {
+        mActivity.hideAllPanels();
+        if (result.app != null) {
+            launchForCurrentMode(result.app);
+            return;
+        }
+        if (result.file != null) {
+            final android.content.Intent intent = result.file.directory
+                    ? FileManagerActivity.createIntent(
+                            mActivity, result.file.absolutePath)
+                    : FileManagerActivity.createRevealIntent(
+                            mActivity, result.file);
+            mActivity.launchInternalWindow(
+                    intent,
+                    BuiltInDesktopAppCatalog.filesTarget(),
+                    mActivity.getString(R.string.file_manager_title));
+            return;
+        }
+        if (result.builtIn != null) {
+            final AppLaunchTarget target = result.builtIn.launchTarget;
+            if (BuiltInDesktopAppCatalog.filesTarget().equals(target)) {
+                mActivity.launchInternalWindow(
+                        FileManagerActivity.createIntent(mActivity),
+                        target,
+                        mActivity.getString(R.string.file_manager_title));
+            } else if (BuiltInDesktopAppCatalog.consoleTarget().equals(target)) {
+                mActivity.openConsole();
+            } else if (BuiltInDesktopAppCatalog.taskManagerTarget().equals(target)) {
+                mActivity.openTaskManager();
+            } else if (BuiltInDesktopAppCatalog.settingsTarget().equals(target)) {
+                mActivity.openSettings();
+            }
+            return;
+        }
+        if (result.action == StartSearchController.Action.SHOW_DESKTOP) {
+            mActivity.toggleDesktopWorkspace();
+        } else if (result.action == StartSearchController.Action.SCREENSHOT) {
+            mActivity.captureDesktopScreenshot();
+        } else if (result.action
+                == StartSearchController.Action.SCREEN_RECORDING) {
+            mActivity.toggleDesktopRecording();
+        }
+    }
+
+    private int getSearchResultLimit() {
+        return Math.max(4, getRowCount() * 3);
+    }
+
+    private void onSearchResultsChanged() {
+        if (mBody != null && !mSearchQuery.trim().isEmpty()) {
+            renderBody();
+        }
     }
 
     private void launchForCurrentMode(final AppItem app) {

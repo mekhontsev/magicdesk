@@ -61,6 +61,11 @@ final class ShellServiceConnection {
             }
             final long deadline = SystemClock.uptimeMillis() + BIND_TIMEOUT_MILLIS;
             while (mService == null) {
+                if (!mBinding) {
+                    // A disconnect wakes waiters and clears mBinding. Rebind
+                    // here instead of sleeping until the original timeout.
+                    bindLocked(argsSupplier);
+                }
                 final long remaining = deadline - SystemClock.uptimeMillis();
                 if (remaining <= 0) {
                     throw new IOException("timed out binding Shizuku command service");

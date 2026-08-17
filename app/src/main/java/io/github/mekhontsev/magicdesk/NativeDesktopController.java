@@ -35,11 +35,11 @@ final class NativeDesktopController {
         try {
             final String output = runCommand(HELP);
             sMoveAction = selectMoveAction(output);
+            sProbed = true;
         } catch (IOException e) {
             Log.w(TAG, "WMShell desktop-mode probe failed", e);
             sMoveAction = null;
         }
-        sProbed = true;
         return sMoveAction != null;
     }
 

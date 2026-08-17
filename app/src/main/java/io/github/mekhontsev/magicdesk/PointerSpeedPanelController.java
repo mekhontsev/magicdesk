@@ -154,6 +154,9 @@ final class PointerSpeedPanelController {
             final boolean applied = success;
             final String failureDetail = detail;
             mActivity.runOnUiThread(() -> {
+                if (mActivity.isActivityUnavailable()) {
+                    return;
+                }
                 mWritePending = false;
                 refresh();
                 if (!applied) {

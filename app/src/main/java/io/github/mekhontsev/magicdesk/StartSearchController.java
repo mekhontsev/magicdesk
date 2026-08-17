@@ -1,0 +1,322 @@
+package io.github.mekhontsev.magicdesk;
+
+import android.os.Handler;
+import android.os.Looper;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/** Owns the asynchronous, shell-backed part of Start search. */
+final class StartSearchController implements AutoCloseable {
+    enum Kind {
+        APP,
+        BUILT_IN,
+        ACTION,
+        FILE
+    }
+
+    enum Action {
+        SHOW_DESKTOP,
+        SCREENSHOT,
+        SCREEN_RECORDING
+    }
+
+    static final class Result {
+        final Kind kind;
+        final String label;
+        final String detail;
+        final AppItem app;
+        final BuiltInDesktopAppCatalog.Entry builtIn;
+        final Action action;
+        final ShellFileInfo file;
+
+        private Result(
+                final Kind kind,
+                final String label,
+                final String detail,
+                final AppItem app,
+                final BuiltInDesktopAppCatalog.Entry builtIn,
+                final Action action,
+                final ShellFileInfo file) {
+            this.kind = kind;
+            this.label = label;
+            this.detail = detail;
+            this.app = app;
+            this.builtIn = builtIn;
+            this.action = action;
+            this.file = file;
+        }
+
+        static Result app(final AppItem app) {
+            return new Result(
+                    Kind.APP,
+                    app.label,
+                    app.packageName,
+                    app,
+                    null,
+                    null,
+                    null);
+        }
+
+        static Result builtIn(
+                final String label,
+                final BuiltInDesktopAppCatalog.Entry entry) {
+            return new Result(
+                    Kind.BUILT_IN,
+                    label,
+                    "MagicDesk",
+                    null,
+                    entry,
+                    null,
+                    null);
+        }
+
+        static Result action(
+                final String label,
+                final Action action) {
+            return new Result(
+                    Kind.ACTION,
+                    label,
+                    "Action",
+                    null,
+                    null,
+                    action,
+                    null);
+        }
+
+        static Result file(final ShellFileInfo file) {
+            return new Result(
+                    Kind.FILE,
+                    file.name,
+                    file.absolutePath,
+                    null,
+                    null,
+                    null,
+                    file);
+        }
+    }
+
+    interface Listener {
+        void onResultsChanged();
+    }
+
+    private static final int MAX_FILE_RESULTS = 24;
+    private static final long FILE_SEARCH_DEBOUNCE_MILLIS = 180L;
+
+    private final DesktopShellActivity mActivity;
+    private final Listener mListener;
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService mWorker =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskStartSearch");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private final FileManagerSearchController mFileSearch;
+    private final List<Result> mLocalResults = new ArrayList<>();
+    private final List<Result> mFileResults = new ArrayList<>();
+    private final Runnable mStartFileSearch = this::startFileSearch;
+
+    private String mQuery = "";
+    private boolean mClosed;
+
+    StartSearchController(
+            final DesktopShellActivity activity,
+            final Listener listener) {
+        mActivity = activity;
+        mListener = listener;
+        mFileSearch = new FileManagerSearchController(
+                activity,
+                mWorker,
+                new FileManagerSearchController.Listener() {
+                    @Override
+                    public void onSearchBatch(
+                            final List<ShellFileInfo> matches) {
+                        if (mClosed || matches == null) {
+                            return;
+                        }
+                        for (final ShellFileInfo match : matches) {
+                            mFileResults.add(Result.file(match));
+                        }
+                        sortFileResults();
+                        mListener.onResultsChanged();
+                    }
+
+                    @Override
+                    public void onSearchFinished(
+                            final boolean successful,
+                            final boolean truncated,
+                            final String message) {
+                        if (!mClosed) {
+                            mListener.onResultsChanged();
+                        }
+                    }
+
+                    @Override
+                    public void onSearchStartFailed(
+                            final Throwable error) {
+                        if (!mClosed) {
+                            mListener.onResultsChanged();
+                        }
+                    }
+                });
+    }
+
+    void update(
+            final String query,
+            final List<AppItem> apps) {
+        if (mClosed) {
+            return;
+        }
+        mQuery = normalize(query);
+        mLocalResults.clear();
+        mFileResults.clear();
+        mHandler.removeCallbacks(mStartFileSearch);
+        mFileSearch.cancel();
+        if (mQuery.isEmpty()) {
+            mListener.onResultsChanged();
+            return;
+        }
+        collectApps(apps);
+        collectActions();
+        sortLocalResults();
+        mListener.onResultsChanged();
+        if (mQuery.length() >= 2 && ShellAccess.isReady()) {
+            mHandler.postDelayed(
+                    mStartFileSearch,
+                    FILE_SEARCH_DEBOUNCE_MILLIS);
+        }
+    }
+
+    List<Result> results(final int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+        final List<Result> result = new ArrayList<>(Math.min(
+                limit, mLocalResults.size() + mFileResults.size()));
+        for (final Result local : mLocalResults) {
+            if (result.size() >= limit) {
+                return result;
+            }
+            result.add(local);
+        }
+        for (final Result file : mFileResults) {
+            if (result.size() >= limit) {
+                break;
+            }
+            result.add(file);
+        }
+        return result;
+    }
+
+    void pause() {
+        mHandler.removeCallbacks(mStartFileSearch);
+        mFileSearch.cancel();
+    }
+
+    @Override
+    public void close() {
+        if (mClosed) {
+            return;
+        }
+        mClosed = true;
+        mHandler.removeCallbacks(mStartFileSearch);
+        mFileSearch.close();
+        mWorker.shutdownNow();
+    }
+
+    private void collectApps(final List<AppItem> apps) {
+        final Set<AppLaunchTarget> targets = new LinkedHashSet<>();
+        if (apps != null) {
+            for (final AppItem app : apps) {
+                if (matches(app.label, app.packageName)) {
+                    mLocalResults.add(Result.app(app));
+                    targets.add(app.launchTarget);
+                }
+            }
+        }
+        for (final BuiltInDesktopAppCatalog.Entry entry
+                : BuiltInDesktopAppCatalog.searchEntries()) {
+            if (targets.contains(entry.launchTarget)) {
+                continue;
+            }
+            final String label = mActivity.getString(entry.fallbackLabelResId);
+            if (matches(label, "magicdesk")) {
+                mLocalResults.add(Result.builtIn(label, entry));
+            }
+        }
+    }
+
+    private void collectActions() {
+        addAction(R.string.action_show_desktop, Action.SHOW_DESKTOP, "windows home");
+        addAction(R.string.action_screenshot, Action.SCREENSHOT, "capture print screen");
+        addAction(
+                R.string.action_record_screen,
+                Action.SCREEN_RECORDING,
+                "capture video stop recording");
+    }
+
+    private void addAction(
+            final int labelResId,
+            final Action action,
+            final String keywords) {
+        final String label = mActivity.getString(labelResId);
+        if (matches(label, keywords)) {
+            mLocalResults.add(Result.action(label, action));
+        }
+    }
+
+    private boolean matches(final String label, final String keywords) {
+        return normalize(label).contains(mQuery)
+                || normalize(keywords).contains(mQuery);
+    }
+
+    private void sortLocalResults() {
+        mLocalResults.sort(Comparator
+                .comparingInt((Result result) -> rank(result.label))
+                .thenComparingInt(result -> result.kind.ordinal())
+                .thenComparing(result -> result.label, String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private void sortFileResults() {
+        mFileResults.sort(Comparator
+                .comparingInt((Result result) -> rank(result.label))
+                .thenComparing(result -> result.label, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(result -> result.detail));
+    }
+
+    private int rank(final String label) {
+        final String normalized = normalize(label);
+        if (normalized.equals(mQuery)) {
+            return 0;
+        }
+        if (normalized.startsWith(mQuery)) {
+            return 1;
+        }
+        return 2;
+    }
+
+    private void startFileSearch() {
+        if (!mClosed && mQuery.length() >= 2 && ShellAccess.isReady()) {
+            mFileSearch.start(
+                    ShellDesktopDirectory.ABSOLUTE_PATH,
+                    mQuery,
+                    false,
+                    MAX_FILE_RESULTS);
+        }
+    }
+
+    private static String normalize(final String value) {
+        return value == null
+                ? ""
+                : value.trim().toLowerCase(Locale.ROOT);
+    }
+}

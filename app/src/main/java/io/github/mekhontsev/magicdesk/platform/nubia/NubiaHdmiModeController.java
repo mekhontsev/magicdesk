@@ -4,6 +4,8 @@ import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
+import io.github.mekhontsev.magicdesk.SocDisplayModeBackend;
+import io.github.mekhontsev.magicdesk.SocDisplayModeBackends;
 
 import android.content.Context;
 import android.hardware.display.DisplayManager;
@@ -51,7 +53,8 @@ final class NubiaHdmiModeController {
                 publicSelection(context, displayId, preferredTiming);
         final String cachedFailure = sPermanentReadFailure;
         if (cachedFailure != null) {
-            return fallbackSelection(publicSelection, cachedFailure);
+            return fallbackSelection(
+                    preferredTiming, publicSelection, cachedFailure);
         }
         try {
             final String output = ShellAccess.run(
@@ -61,7 +64,9 @@ final class NubiaHdmiModeController {
             return selection != null
                     ? selection
                     : fallbackSelection(
-                            publicSelection, "vendor mode list is empty");
+                            preferredTiming,
+                            publicSelection,
+                            "vendor mode list is empty");
         } catch (IOException | RuntimeException error) {
             final String detail = usefulMessage(error);
             if (isPermanentReadFailure(detail)) {
@@ -77,16 +82,112 @@ final class NubiaHdmiModeController {
                     "Could not read the external display mode list",
                     detail,
                     error);
-            return fallbackSelection(publicSelection, detail);
+            return fallbackSelection(
+                    preferredTiming, publicSelection, detail);
         }
     }
 
     private static Selection fallbackSelection(
+            final String preferredTiming,
             final Selection publicSelection,
             final String detail) {
+        try {
+            final Selection soc = readSocSelection(preferredTiming);
+            if (soc != null && addsTiming(soc, publicSelection)) {
+                return soc;
+            }
+        } catch (IOException | RuntimeException error) {
+            Log.i(TAG, "SoC display mode fallback is unavailable", error);
+        }
         return publicSelection != null
                 ? publicSelection
                 : systemSelection((Mode) null, detail);
+    }
+
+    static boolean addsTiming(
+            final Selection candidate,
+            final Selection baseline) {
+        if (candidate == null) {
+            return false;
+        }
+        if (baseline == null) {
+            return !candidate.availableModes.isEmpty();
+        }
+        for (Mode candidateMode : candidate.availableModes) {
+            if (findMode(
+                    baseline.availableModes,
+                    candidateMode.timingKey()) == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Selection readSocSelection(
+            final String preferredTiming) throws IOException {
+        final SocDisplayModeBackend.Snapshot snapshot =
+                SocDisplayModeBackends.queryExternal();
+        if (snapshot == null
+                || !snapshot.connected
+                || snapshot.modes.isEmpty()) {
+            return null;
+        }
+        final List<Mode> modes = new ArrayList<>();
+        for (final SocDisplayModeBackend.Mode config : snapshot.modes) {
+            final Mode mode = new Mode(
+                    config.width,
+                    config.height,
+                    config.refreshRate,
+                    0);
+            if (mode.isValid()) {
+                modes.add(mode);
+            }
+        }
+        final SocDisplayModeBackend.Mode activeConfig =
+                snapshot.active();
+        final Mode current = activeConfig == null
+                ? null : new Mode(
+                        activeConfig.width,
+                        activeConfig.height,
+                        activeConfig.refreshRate,
+                        0);
+        return socSelection(
+                snapshot.backendId,
+                snapshot.backendName,
+                current,
+                modes,
+                preferredTiming);
+    }
+
+    static Selection socSelection(
+            final String backendId,
+            final String backendName,
+            final Mode reportedCurrent,
+            final List<Mode> modes,
+            final String preferredTiming) {
+        final List<Mode> availableModes = normalizeModes(modes);
+        if (availableModes.isEmpty()) {
+            return null;
+        }
+        Mode current = reportedCurrent == null
+                ? null : findMode(
+                        availableModes, reportedCurrent.timingKey());
+        if (current == null) {
+            current = availableModes.get(0);
+        }
+        Mode target = findMode(availableModes, preferredTiming);
+        if (target == null) {
+            target = bestNativeResolution(availableModes);
+        }
+        return new Selection(
+                current,
+                target,
+                availableModes,
+                true,
+                backendName,
+                ControlPath.SOC,
+                false,
+                backendId);
     }
 
     static int applyIfNeeded(
@@ -122,6 +223,19 @@ final class NubiaHdmiModeController {
             return displayId;
         }
         final Mode target = selection.target;
+        if (selection.controlPath == ControlPath.SOC) {
+            SocDisplayModeBackends.applyExternalTiming(
+                    selection.socBackendId,
+                    target.timingKey());
+            final int settledDisplayId = waitForMode(context, target);
+            if (settledDisplayId <= Display.DEFAULT_DISPLAY) {
+                throw new IOException(
+                        "SoC display mode did not settle at " + target);
+            }
+            Log.i(TAG, "applied SoC display mode " + target
+                    + " display=" + displayId + "->" + settledDisplayId);
+            return settledDisplayId;
+        }
         if (selection.controlPath == ControlPath.SYSTEM) {
             try {
                 ShellAccess.run("/system/bin/cmd display "
@@ -515,6 +629,7 @@ final class NubiaHdmiModeController {
         final String detail;
         final ControlPath controlPath;
         final boolean systemDefaultRequested;
+        final String socBackendId;
 
         Selection(
                 final Mode current,
@@ -527,7 +642,8 @@ final class NubiaHdmiModeController {
                     true,
                     "",
                     ControlPath.VENDOR,
-                    false);
+                    false,
+                    "");
         }
 
         Selection(
@@ -543,7 +659,8 @@ final class NubiaHdmiModeController {
                     configurable,
                     detail,
                     ControlPath.NONE,
-                    false);
+                    false,
+                    "");
         }
 
         Selection(
@@ -554,6 +671,26 @@ final class NubiaHdmiModeController {
                 final String detail,
                 final ControlPath controlPath,
                 final boolean systemDefaultRequested) {
+            this(
+                    current,
+                    target,
+                    availableModes,
+                    configurable,
+                    detail,
+                    controlPath,
+                    systemDefaultRequested,
+                    "");
+        }
+
+        Selection(
+                final Mode current,
+                final Mode target,
+                final List<Mode> availableModes,
+                final boolean configurable,
+                final String detail,
+                final ControlPath controlPath,
+                final boolean systemDefaultRequested,
+                final String socBackendId) {
             this.current = current;
             this.target = target;
             this.availableModes = availableModes;
@@ -561,6 +698,7 @@ final class NubiaHdmiModeController {
             this.detail = detail == null ? "" : detail;
             this.controlPath = controlPath;
             this.systemDefaultRequested = systemDefaultRequested;
+            this.socBackendId = socBackendId == null ? "" : socBackendId;
         }
 
         int vendorSizeType() {
@@ -569,10 +707,12 @@ final class NubiaHdmiModeController {
                     : VENDOR_SIZE_UNCHANGED;
         }
 
-        boolean requiresDeferredVendorMode() {
-            return controlPath == ControlPath.VENDOR
+        boolean requiresDeferredMode() {
+            return (controlPath == ControlPath.VENDOR
+                    || controlPath == ControlPath.SOC)
                     && target != null
-                    && vendorSizeType() == VENDOR_SIZE_UNCHANGED;
+                    && (controlPath == ControlPath.SOC
+                            || vendorSizeType() == VENDOR_SIZE_UNCHANGED);
         }
 
         boolean supportsSystemDefault() {
@@ -601,13 +741,15 @@ final class NubiaHdmiModeController {
                     true,
                     detail,
                     controlPath,
-                    useSystemDefault);
+                    useSystemDefault,
+                    socBackendId);
         }
     }
 
     private enum ControlPath {
         SYSTEM,
         VENDOR,
+        SOC,
         NONE
     }
 

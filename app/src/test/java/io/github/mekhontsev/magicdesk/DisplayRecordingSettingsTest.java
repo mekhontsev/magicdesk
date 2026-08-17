@@ -50,5 +50,17 @@ public final class DisplayRecordingSettingsTest {
         assertEquals(
                 DisplayRecordingSettings.MAX_BITRATE_MBPS,
                 DisplayRecordingSettings.sanitizeBitrate(200));
+        assertEquals(
+                RecordingAudioMode.AUTO,
+                RecordingAudioMode.fromStoredValue(null));
+        assertEquals(
+                RecordingAudioMode.AUTO,
+                RecordingAudioMode.fromStoredValue("future"));
+        assertEquals(
+                RecordingAudioMode.MICROPHONE,
+                RecordingAudioMode.fromStoredValue("microphone"));
+        assertEquals(
+                RecordingAudioMode.NONE,
+                RecordingAudioMode.fromStoredValue("none"));
     }
 }

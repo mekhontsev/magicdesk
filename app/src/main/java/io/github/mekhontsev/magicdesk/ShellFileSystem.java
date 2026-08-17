@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.FileObserver;
 import android.provider.DocumentsContract;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -14,6 +15,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -23,6 +25,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -48,9 +51,23 @@ final class ShellFileSystem implements AutoCloseable {
     private static final int MAX_PAGE_SIZE = 500;
     private static final int COPY_BUFFER_SIZE = 64 * 1024;
     private static final long PROGRESS_BYTE_INTERVAL = 1024L * 1024L;
+    private static final int SEARCH_BATCH_SIZE = 40;
+    private static final int MAX_SEARCH_RESULTS = 2000;
+    private static final int DIRECTORY_EVENTS = FileObserver.CREATE
+            | FileObserver.DELETE
+            | FileObserver.MOVED_FROM
+            | FileObserver.MOVED_TO
+            | FileObserver.CLOSE_WRITE
+            | FileObserver.ATTRIB
+            | FileObserver.DELETE_SELF
+            | FileObserver.MOVE_SELF;
 
     private final AtomicLong mNextOperationId = new AtomicLong(1L);
     private final Map<Long, FileOperation> mOperations =
+            new ConcurrentHashMap<>();
+    private final Map<Long, FileSearch> mSearches =
+            new ConcurrentHashMap<>();
+    private final Map<IBinder, DirectoryObserver> mDirectoryObservers =
             new ConcurrentHashMap<>();
     private final ExecutorService mOperationExecutor =
             Executors.newSingleThreadExecutor(new ThreadFactory() {
@@ -61,6 +78,13 @@ final class ShellFileSystem implements AutoCloseable {
                     thread.setDaemon(true);
                     return thread;
                 }
+            });
+    private final ExecutorService mSearchExecutor =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskFileSearch");
+                thread.setDaemon(true);
+                return thread;
             });
 
     ShellFilePage list(
@@ -270,7 +294,13 @@ final class ShellFileSystem implements AutoCloseable {
             throw failure("file operation owner is unavailable", error);
         }
         mOperations.put(Long.valueOf(id), fileOperation);
-        mOperationExecutor.execute(fileOperation);
+        try {
+            mOperationExecutor.execute(fileOperation);
+        } catch (RuntimeException error) {
+            mOperations.remove(Long.valueOf(id), fileOperation);
+            ownerToken.unlinkToDeath(fileOperation, 0);
+            throw error;
+        }
         return id;
     }
 
@@ -282,6 +312,92 @@ final class ShellFileSystem implements AutoCloseable {
         }
     }
 
+    void startDirectoryObserver(
+            final String absolutePath,
+            final IShellDirectoryObserverCallback callback) {
+        if (callback == null) {
+            throw new IllegalArgumentException("missing directory callback");
+        }
+        final Path directory = ShellFilePathPolicy.existing(absolutePath);
+        if (!Files.isDirectory(directory)) {
+            throw new IllegalArgumentException("path is not a directory");
+        }
+        final IBinder binder = callback.asBinder();
+        final DirectoryObserver observer = new DirectoryObserver(
+                directory.toString(), callback);
+        try {
+            binder.linkToDeath(observer, 0);
+        } catch (RemoteException error) {
+            throw failure("directory observer owner is unavailable", error);
+        }
+        final DirectoryObserver previous = mDirectoryObservers.put(
+                binder, observer);
+        if (previous != null) {
+            previous.close();
+        }
+        observer.startWatching();
+    }
+
+    void stopDirectoryObserver(
+            final IShellDirectoryObserverCallback callback) {
+        if (callback == null) {
+            return;
+        }
+        final DirectoryObserver observer = mDirectoryObservers.remove(
+                callback.asBinder());
+        if (observer != null) {
+            observer.close();
+        }
+    }
+
+    long startSearch(
+            final String rootPath,
+            final String rawQuery,
+            final boolean showHidden,
+            final int requestedMaxResults,
+            final IFileSearchCallback callback,
+            final IBinder ownerToken) {
+        final Path root = ShellFilePathPolicy.existing(rootPath);
+        if (!Files.isDirectory(root)) {
+            throw new IllegalArgumentException("search root is not a directory");
+        }
+        final String query = rawQuery == null
+                ? "" : rawQuery.trim().toLowerCase(Locale.ROOT);
+        if (query.isEmpty()) {
+            throw new IllegalArgumentException("missing search query");
+        }
+        if (callback == null || ownerToken == null) {
+            throw new IllegalArgumentException("missing search owner");
+        }
+        final int maxResults = Math.max(1,
+                Math.min(MAX_SEARCH_RESULTS, requestedMaxResults));
+        final long id = mNextOperationId.getAndIncrement();
+        final FileSearch search = new FileSearch(
+                id, root, query, showHidden, maxResults,
+                callback, ownerToken);
+        try {
+            ownerToken.linkToDeath(search, 0);
+        } catch (RemoteException error) {
+            throw failure("file search owner is unavailable", error);
+        }
+        mSearches.put(Long.valueOf(id), search);
+        try {
+            mSearchExecutor.execute(search);
+        } catch (RuntimeException error) {
+            mSearches.remove(Long.valueOf(id), search);
+            ownerToken.unlinkToDeath(search, 0);
+            throw error;
+        }
+        return id;
+    }
+
+    void cancelSearch(final long searchId) {
+        final FileSearch search = mSearches.get(Long.valueOf(searchId));
+        if (search != null) {
+            search.cancel();
+        }
+    }
+
     @Override
     public void close() {
         for (final FileOperation operation : mOperations.values()) {
@@ -289,6 +405,204 @@ final class ShellFileSystem implements AutoCloseable {
         }
         mOperationExecutor.shutdownNow();
         mOperations.clear();
+        for (final FileSearch search : mSearches.values()) {
+            search.cancel();
+        }
+        mSearchExecutor.shutdownNow();
+        mSearches.clear();
+        for (final DirectoryObserver observer
+                : mDirectoryObservers.values()) {
+            observer.close();
+        }
+        mDirectoryObservers.clear();
+    }
+
+    private final class DirectoryObserver extends FileObserver
+            implements IBinder.DeathRecipient {
+        private final String path;
+        private final IShellDirectoryObserverCallback callback;
+        private final IBinder binder;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        DirectoryObserver(
+                final String path,
+                final IShellDirectoryObserverCallback callback) {
+            super(Path.of(path).toFile(), DIRECTORY_EVENTS);
+            this.path = path;
+            this.callback = callback;
+            binder = callback.asBinder();
+        }
+
+        @Override
+        public void onEvent(final int event, final String changedPath) {
+            if (closed.get()) {
+                return;
+            }
+            try {
+                callback.onDirectoryChanged(path);
+            } catch (RemoteException error) {
+                binderDied();
+            }
+        }
+
+        @Override
+        public void binderDied() {
+            mDirectoryObservers.remove(binder, this);
+            close();
+        }
+
+        void close() {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+            stopWatching();
+            binder.unlinkToDeath(this, 0);
+        }
+    }
+
+    private final class FileSearch
+            implements Runnable, IBinder.DeathRecipient {
+        final long id;
+        final Path root;
+        final String query;
+        final boolean showHidden;
+        final int maxResults;
+        final IFileSearchCallback callback;
+        final IBinder ownerToken;
+        final AtomicBoolean cancelled = new AtomicBoolean();
+        final List<ShellFileInfo> batch = new ArrayList<>(SEARCH_BATCH_SIZE);
+        int resultCount;
+        boolean truncated;
+
+        FileSearch(
+                final long id,
+                final Path root,
+                final String query,
+                final boolean showHidden,
+                final int maxResults,
+                final IFileSearchCallback callback,
+                final IBinder ownerToken) {
+            this.id = id;
+            this.root = root;
+            this.query = query;
+            this.showHidden = showHidden;
+            this.maxResults = maxResults;
+            this.callback = callback;
+            this.ownerToken = ownerToken;
+        }
+
+        @Override
+        public void run() {
+            boolean successful = false;
+            String message = "Completed";
+            try {
+                Files.walkFileTree(
+                        root,
+                        EnumSet.noneOf(FileVisitOption.class),
+                        Integer.MAX_VALUE,
+                        new SimpleFileVisitor<Path>() {
+                            @Override
+                            public FileVisitResult preVisitDirectory(
+                                    final Path directory,
+                                    final BasicFileAttributes attributes)
+                                    throws IOException {
+                                checkCancelled();
+                                if (!root.equals(directory)
+                                        && !showHidden
+                                        && hidden(directory,
+                                                directory.getFileName()
+                                                        .toString())) {
+                                    return FileVisitResult.SKIP_SUBTREE;
+                                }
+                                return root.equals(directory)
+                                        ? FileVisitResult.CONTINUE
+                                        : visit(directory);
+                            }
+
+                            @Override
+                            public FileVisitResult visitFile(
+                                    final Path file,
+                                    final BasicFileAttributes attributes)
+                                    throws IOException {
+                                checkCancelled();
+                                return visit(file);
+                            }
+
+                            @Override
+                            public FileVisitResult visitFileFailed(
+                                    final Path file,
+                                    final IOException error) {
+                                return cancelled.get()
+                                        ? FileVisitResult.TERMINATE
+                                        : FileVisitResult.CONTINUE;
+                            }
+                        });
+                checkCancelled();
+                sendBatch();
+                successful = true;
+            } catch (OperationCancelled error) {
+                message = "Cancelled";
+            } catch (IOException | RuntimeException error) {
+                message = usefulMessage(error);
+            } finally {
+                mSearches.remove(Long.valueOf(id), this);
+                ownerToken.unlinkToDeath(this, 0);
+                try {
+                    callback.onFinished(
+                            id, successful, truncated, message);
+                } catch (RemoteException ignored) {
+                    // The search owner has gone away.
+                }
+            }
+        }
+
+        private FileVisitResult visit(final Path path) throws IOException {
+            final String name = path.getFileName() == null
+                    ? path.toString() : path.getFileName().toString();
+            if ((showHidden || !hidden(path, name))
+                    && matchesSearchQuery(name, query)) {
+                batch.add(toInfo(path));
+                resultCount++;
+                if (batch.size() >= SEARCH_BATCH_SIZE) {
+                    sendBatch();
+                }
+                if (resultCount >= maxResults) {
+                    truncated = true;
+                    return FileVisitResult.TERMINATE;
+                }
+            }
+            return FileVisitResult.CONTINUE;
+        }
+
+        private void sendBatch() throws OperationCancelled {
+            if (batch.isEmpty()) {
+                return;
+            }
+            try {
+                callback.onBatch(
+                        id, batch.toArray(new ShellFileInfo[0]));
+                batch.clear();
+            } catch (RemoteException error) {
+                cancel();
+                throw new OperationCancelled();
+            }
+            checkCancelled();
+        }
+
+        private void checkCancelled() throws OperationCancelled {
+            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                throw new OperationCancelled();
+            }
+        }
+
+        @Override
+        public void binderDied() {
+            cancel();
+        }
+
+        void cancel() {
+            cancelled.set(true);
+        }
     }
 
     private final class FileOperation
@@ -609,6 +923,14 @@ final class ShellFileSystem implements AutoCloseable {
         } catch (IOException ignored) {
             return name.startsWith(".");
         }
+    }
+
+    static boolean matchesSearchQuery(
+            final String name, final String normalizedQuery) {
+        return name != null
+                && normalizedQuery != null
+                && !normalizedQuery.isEmpty()
+                && name.toLowerCase(Locale.ROOT).contains(normalizedQuery);
     }
 
     private static IllegalStateException failure(

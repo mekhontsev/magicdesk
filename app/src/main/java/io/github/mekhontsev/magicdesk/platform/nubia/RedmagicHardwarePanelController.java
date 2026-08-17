@@ -137,7 +137,9 @@ final class RedmagicHardwarePanelController
     @Override
     public void onHardwareStateChanged(
             final RedmagicHardwareSnapshot snapshot) {
-        update(snapshot);
+        if (!mActivity.isActivityUnavailable()) {
+            update(snapshot);
+        }
     }
 
     private void update(final RedmagicHardwareSnapshot snapshot) {
@@ -230,6 +232,9 @@ final class RedmagicHardwarePanelController
         RedmagicHardwareController.setFanMode(
                 mode,
                 success -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     if (!success) {
                         mActivity.setErrorStatus(
                                 "REDMAGIC-HW-FAN-001",
@@ -246,6 +251,9 @@ final class RedmagicHardwarePanelController
         RedmagicHardwareController.setPumpMode(
                 mode,
                 success -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     if (!success) {
                         mActivity.setErrorStatus(
                                 "REDMAGIC-HW-PUMP-001",

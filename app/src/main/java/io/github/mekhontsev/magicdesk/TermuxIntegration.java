@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.os.Build;
 
 import java.io.IOException;
 
@@ -83,11 +82,7 @@ final class TermuxIntegration {
                 .putExtra(EXTRA_COMMAND_LABEL, "MagicDesk Files");
         // RunCommandService promotes itself immediately. Starting it as a
         // background service is rejected by current Android releases.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            activity.startForegroundService(intent);
-        } else {
-            activity.startService(intent);
-        }
+        activity.startForegroundService(intent);
         return true;
     }
 

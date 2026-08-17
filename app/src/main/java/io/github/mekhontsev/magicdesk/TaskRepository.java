@@ -4,9 +4,7 @@ import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -184,7 +182,7 @@ public final class TaskRepository {
     static void closeTask(final TaskEntry task, final ActionCallback callback) {
         if (!isUsableTask(task)
                 || !DesktopManagedTaskPolicy
-                        .isManagedApplicationTask(task)) {
+                        .isControllableApplicationTask(task)) {
             complete(callback, false, "invalid task");
             return;
         }
@@ -212,7 +210,8 @@ public final class TaskRepository {
             return;
         }
         runAction(createTaskWindowingCommand(
-                "desktop-host " + task.displayId + " " + task.taskId),
+                "desktop-host " + task.displayId + " " + task.taskId
+                        + " " + captionRefreshArgument()),
                 callback);
     }
 
@@ -301,8 +300,11 @@ public final class TaskRepository {
                                     targetDisplayId,
                                     bounds);
                 } else {
-                    command = CMD + " activity display move-stack "
-                            + task.rootTaskId + " " + targetDisplayId;
+                    command = TaskFullscreenMoveCommand.createMoveCommand(
+                            task.taskId,
+                            task.rootTaskId,
+                            task.displayId,
+                            targetDisplayId);
                 }
                 result = runCommand(command);
             } catch (IOException | RuntimeException error) {
@@ -373,7 +375,13 @@ public final class TaskRepository {
             final int taskId) {
         return AppProcessCommand.run(
                 TASK_FULLSCREEN_TRANSITION_COMMAND,
-                displayId + " " + taskId);
+                displayId + " " + taskId
+                        + " " + captionRefreshArgument());
+    }
+
+    private static int captionRefreshArgument() {
+        return PlatformDrivers.current().windowing()
+                .requiresNativeFullscreenCaptionRefresh() ? 1 : 0;
     }
 
     static String createClientPreservingFullscreenTransitionCommand(
@@ -410,7 +418,7 @@ public final class TaskRepository {
         return task != null && task.taskId >= 0 && task.rootTaskId >= 0;
     }
 
-    private static boolean hasExplicitBounds(final Rect bounds) {
+    static boolean hasExplicitBounds(final Rect bounds) {
         return bounds != null
                 && bounds.right > bounds.left
                 && bounds.bottom > bounds.top;

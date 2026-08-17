@@ -16,7 +16,7 @@ final class ShellTaskObserverHandle implements Closeable {
     private final IBinder.DeathRecipient mServiceDeathRecipient;
     private final AtomicBoolean mClosed = new AtomicBoolean();
 
-    private volatile boolean mRegistered;
+    private boolean mRegistered;
     private boolean mServiceLinked;
 
     ShellTaskObserverHandle(
@@ -36,12 +36,15 @@ final class ShellTaskObserverHandle implements Closeable {
             mServiceLinked = true;
         }
         mService.startTaskObserver(mCallback);
-        if (mClosed.get()) {
-            stopRemoteObserver();
-            throw new RemoteException(
-                    "task observer disconnected during registration");
+        synchronized (this) {
+            if (!mClosed.get()) {
+                mRegistered = true;
+                return;
+            }
         }
-        mRegistered = true;
+        stopRemoteObserver();
+        throw new RemoteException(
+                "task observer disconnected during registration");
     }
 
     void configure(
@@ -70,6 +73,40 @@ final class ShellTaskObserverHandle implements Closeable {
             final int[] taskIds) throws IOException {
         callService(() -> mService.focusTaskStack(
                 mCallback, sequence, displayId, taskIds));
+    }
+
+    boolean releaseFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        return callServiceForResult(() -> mService.releaseFullscreenTask(
+                mCallback, displayId, taskId));
+    }
+
+    boolean closeFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        return callServiceForResult(() -> mService.closeFullscreenTask(
+                mCallback, displayId, taskId));
+    }
+
+    void startSelfTestTaskStackGuard(
+            final int displayId,
+            final int hostTaskId,
+            final String stage) throws IOException {
+        callService(() -> mService.startSelfTestTaskStackGuard(
+                mCallback, displayId, hostTaskId, stage));
+    }
+
+    void setSelfTestTaskStackGuardStage(final String stage)
+            throws IOException {
+        callService(() -> mService.setSelfTestTaskStackGuardStage(
+                mCallback, stage));
+    }
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard()
+            throws IOException {
+        return callServiceForResult(() ->
+                mService.stopSelfTestTaskStackGuard(mCallback));
     }
 
     void setPhoneTouchpadPreservation(final boolean enabled)
@@ -102,18 +139,20 @@ final class ShellTaskObserverHandle implements Closeable {
             return;
         }
         unlinkServiceDeath();
-        if (!mRegistered) {
-            return;
+        final boolean registered;
+        synchronized (this) {
+            registered = mRegistered;
+            mRegistered = false;
         }
-        mRegistered = false;
-        stopRemoteObserver();
+        if (registered) {
+            stopRemoteObserver();
+        }
     }
 
     void closeAfterStartFailure() {
         stopRemoteObserver();
-        if (mClosed.compareAndSet(false, true)) {
-            unlinkServiceDeath();
-        }
+        mClosed.set(true);
+        unlinkServiceDeath();
     }
 
     private void callService(final RemoteServiceCall call)
@@ -123,6 +162,29 @@ final class ShellTaskObserverHandle implements Closeable {
         }
         try {
             call.run();
+        } catch (RemoteException error) {
+            serviceDisconnected();
+            throw new IOException(
+                    "task observer call failed: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            stopRemoteObserver();
+            serviceDisconnected();
+            throw new IOException(
+                    "task observer call failed: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
+        }
+    }
+
+    private <T> T callServiceForResult(
+            final RemoteResultServiceCall<T> call) throws IOException {
+        if (mClosed.get()) {
+            throw new IOException("task observer is closed");
+        }
+        try {
+            return call.run();
         } catch (RemoteException error) {
             serviceDisconnected();
             throw new IOException(
@@ -151,7 +213,9 @@ final class ShellTaskObserverHandle implements Closeable {
         if (!mClosed.compareAndSet(false, true)) {
             return;
         }
-        mRegistered = false;
+        synchronized (this) {
+            mRegistered = false;
+        }
         unlinkServiceDeath();
         if (mDisconnected != null) {
             mDisconnected.run();
@@ -169,5 +233,10 @@ final class ShellTaskObserverHandle implements Closeable {
     @FunctionalInterface
     private interface RemoteServiceCall {
         void run() throws RemoteException;
+    }
+
+    @FunctionalInterface
+    private interface RemoteResultServiceCall<T> {
+        T run() throws RemoteException;
     }
 }

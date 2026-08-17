@@ -66,6 +66,7 @@ final class FileManagerView {
         void onSortDirectionChanged(boolean ascending);
         void onViewModeChanged(FileManagerLayoutMode layoutMode);
         void onFilterChanged(String query);
+        void onRecursiveSearchRequested();
     }
 
     private static final int COLOR_BACKGROUND = Color.rgb(9, 13, 20);
@@ -174,6 +175,10 @@ final class FileManagerView {
                 R.string.action_refresh,
                 view -> listener.onRefresh());
         navigation.addView(mRefresh, compactButton());
+        navigation.addView(iconCommand(
+                android.R.drawable.ic_menu_search,
+                R.string.file_manager_search,
+                view -> listener.onRecursiveSearchRequested()), compactButton());
         mRoot.addView(navigation, matchWrap());
 
         mFilterPanel = horizontal();
@@ -455,6 +460,10 @@ final class FileManagerView {
         mEmpty.setText(R.string.file_manager_empty);
         mEmpty.setVisibility(files.isEmpty() ? View.VISIBLE : View.GONE);
         updateItemVisibility();
+    }
+
+    void setSearchResults(final boolean searchResults) {
+        mAdapter.setShowLocation(searchResults);
     }
 
     void setLoading() {

@@ -9,6 +9,7 @@ import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Display;
 import android.view.InputDevice;
 
@@ -27,12 +28,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.TimeZone;
 
 public final class CompatibilityDiagnostics {
+    private static final String TAG = "MagicDeskDiagnostics";
     private static final Object LOCK = new Object();
     private static final String PREFS = "compatibility_diagnostics";
     private static final String PREF_EVENT_BUILD = "event_build";
@@ -42,9 +46,10 @@ public final class CompatibilityDiagnostics {
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
     private static final int MAX_REPORTED_EVENT_CHARS = 64_000;
     private static final int MAX_LOGCAT_CHARS = 48_000;
+    private static final int MAX_RECORDED_EVENT_SIGNATURES = 256;
     private static volatile Context sApplicationContext;
     private static final Set<String> RECORDED_EVENT_SIGNATURES =
-            new HashSet<>();
+            new LinkedHashSet<>();
 
     private CompatibilityDiagnostics() {
     }
@@ -119,7 +124,17 @@ public final class CompatibilityDiagnostics {
     }
 
     static boolean isDuplicate(final String signature) {
-        return !RECORDED_EVENT_SIGNATURES.add(signature);
+        if (!RECORDED_EVENT_SIGNATURES.add(signature)) {
+            return true;
+        }
+        if (RECORDED_EVENT_SIGNATURES.size()
+                > MAX_RECORDED_EVENT_SIGNATURES) {
+            final Iterator<String> oldest =
+                    RECORDED_EVENT_SIGNATURES.iterator();
+            oldest.next();
+            oldest.remove();
+        }
+        return false;
     }
 
     static String buildReport(final Context context) {
@@ -167,10 +182,12 @@ public final class CompatibilityDiagnostics {
             return;
         }
         clearEvents(context);
-        preferences.edit()
+        if (!preferences.edit()
                 .putString(PREF_EVENT_BUILD, build)
                 .remove(LEGACY_PREF_EVENT_VERSION)
-                .commit();
+                .commit()) {
+            Log.w(TAG, "could not persist compatibility event build");
+        }
     }
 
     private static void appendDevice(final StringBuilder report) {
@@ -327,8 +344,8 @@ public final class CompatibilityDiagnostics {
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
         report.append("Desktop wake lock held: ")
-                .append(MagicDeskRuntimeService
-                        .isSessionWakeLockHeldIfRunning())
+                .append(MagicDeskRuntime
+                        .isSessionWakeLockHeld())
                 .append('\n');
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
@@ -337,8 +354,8 @@ public final class CompatibilityDiagnostics {
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
-                MagicDeskRuntimeService
-                        .isDesktopMouseBridgeReadyIfRunning();
+                MagicDeskRuntime
+                        .isDesktopMouseBridgeReady();
         final String mouseBridgeDetail;
         if (!shellRightClick) {
             mouseBridgeDetail =

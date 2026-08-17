@@ -5,9 +5,13 @@ import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.DesktopFileInfo;
 import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.IFileOperationCallback;
+import io.github.mekhontsev.magicdesk.IFileSearchCallback;
+import io.github.mekhontsev.magicdesk.IShellDirectoryObserverCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
+import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
 import io.github.mekhontsev.magicdesk.ShellFilePage;
+import io.github.mekhontsev.magicdesk.SystemMonitorSnapshot;
 
 interface IShizukuCommandService {
     void destroy() = 16777114;
@@ -82,6 +86,7 @@ interface IShizukuCommandService {
         int width,
         int height,
         int bitrateMbps,
+        String audioMode,
         IBinder ownerToken) = 24;
 
     String stopDisplayRecording(IBinder ownerToken) = 25;
@@ -187,5 +192,50 @@ interface IShizukuCommandService {
 
     void setExternalTaskMigrationProtection(
         ITaskObserverCallback callback, boolean enabled) = 60;
+
+    boolean releaseFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 61;
+
+    void startSelfTestTaskStackGuard(
+        ITaskObserverCallback callback,
+        int displayId,
+        int hostTaskId,
+        String stage) = 62;
+
+    void setSelfTestTaskStackGuardStage(
+        ITaskObserverCallback callback,
+        String stage) = 63;
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+        ITaskObserverCallback callback) = 64;
+
+    boolean closeFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 65;
+
+    void startShellDirectoryObserver(
+        String absolutePath,
+        IShellDirectoryObserverCallback callback) = 66;
+
+    void stopShellDirectoryObserver(
+        IShellDirectoryObserverCallback callback) = 67;
+
+    long startShellFileSearch(
+        String rootPath,
+        String query,
+        boolean showHidden,
+        int maxResults,
+        IFileSearchCallback callback,
+        IBinder ownerToken) = 68;
+
+    void cancelShellFileSearch(long searchId) = 69;
+
+    SystemMonitorSnapshot readSystemMonitorSnapshot(
+        boolean includeProcessMemory) = 70;
+
+    void refreshPointerViewport() = 71;
 
 }

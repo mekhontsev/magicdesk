@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.view.KeyEvent;
 import android.view.View;
@@ -11,6 +12,7 @@ import android.view.inputmethod.InputConnection;
 import android.widget.EditText;
 
 /** Invisible IME target that writes into the focused mirrored window. */
+@SuppressLint("ViewConstructor")
 final class MirrorInputEditText extends EditText {
     interface Dispatcher {
         boolean dispatch(

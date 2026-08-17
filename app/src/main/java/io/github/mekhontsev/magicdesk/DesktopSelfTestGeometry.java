@@ -224,8 +224,29 @@ final class DesktopSelfTestGeometry {
         return bounds.bottom - bounds.top;
     }
 
-    private static String format(final Rect bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
+    static Rect toRect(final TaskStackParser.Bounds bounds) {
+        return bounds == null ? null : rect(
+                bounds.left, bounds.top, bounds.right, bounds.bottom);
+    }
+
+    static boolean matches(
+            final TaskStackParser.Bounds actual,
+            final Rect expected) {
+        return actual != null
+                && expected != null
+                && actual.left == expected.left
+                && actual.top == expected.top
+                && actual.right == expected.right
+                && actual.bottom == expected.bottom;
+    }
+
+    static String format(final TaskStackParser.Bounds bounds) {
+        return bounds == null ? "unavailable" : "[" + bounds.left + ","
+                + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]";
+    }
+
+    static String format(final Rect bounds) {
+        return bounds == null ? "unavailable" : "[" + bounds.left + ","
+                + bounds.top + "][" + bounds.right + "," + bounds.bottom + "]";
     }
 }

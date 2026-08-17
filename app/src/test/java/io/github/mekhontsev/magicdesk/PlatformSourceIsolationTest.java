@@ -1,0 +1,235 @@
+package io.github.mekhontsev.magicdesk;
+
+import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
+
+public final class PlatformSourceIsolationTest {
+    private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+    private static final String IMPLEMENTATION_REFERENCE =
+            "io.github.mekhontsev.magicdesk.platform.";
+    private static final String PLATFORM_SELECTOR =
+            "io/github/mekhontsev/magicdesk/PlatformDrivers.java";
+    private static final String SOC_IMPLEMENTATION_REFERENCE =
+            "io.github.mekhontsev.magicdesk.soc.";
+    private static final String SOC_SELECTOR =
+            "io/github/mekhontsev/magicdesk/SocDisplayModeBackends.java";
+    private static final String SOC_DIRECTORY =
+            "/io/github/mekhontsev/magicdesk/soc/";
+    private static final String VENDOR_DIRECTORY =
+            "/io/github/mekhontsev/magicdesk/platform/nubia/";
+    private static final String PLATFORM_DIRECTORY =
+            "/io/github/mekhontsev/magicdesk/platform/";
+    private static final String[] VENDOR_RUNTIME_IDENTIFIERS = {
+        "\"cn.nubia",
+        "\"com.zte",
+        "\"com.redmagic",
+        "\"redmagic.app.manager",
+        "\"nubia_screen_off_tp",
+        "\"app_mirror_displayid",
+        "\"NubiaAppMirrorDisplay",
+        "\"setCmdToDisplay",
+        "\"RedMagicAppManager",
+        "\"ColorfulLightService",
+        "\"/sys/kernel/lcd_enhance/"
+    };
+    private static final String[] SOC_RUNTIME_IDENTIFIERS = {
+        "vendor.qti.hardware.display.config",
+        "vendor.qti_display_config"
+    };
+
+    @Test
+    public void onlyCompositionRootImportsPlatformImplementations()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            final String rooted = "/" + relative;
+            if (!PLATFORM_SELECTOR.equals(relative)
+                    && !rooted.contains(PLATFORM_DIRECTORY)
+                    && read(source).contains(IMPLEMENTATION_REFERENCE)) {
+                violations.add(relative);
+            }
+        }
+        assertTrue(
+                "Platform implementation imports outside PlatformDrivers: "
+                        + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void platformImplementationsDoNotImportEachOther()
+            throws IOException {
+        assertImplementationsDoNotImportEachOther(
+                IMPLEMENTATION_REFERENCE,
+                PLATFORM_SELECTOR,
+                "Platform");
+    }
+
+    @Test
+    public void vendorRuntimeIdentifiersStayInVendorAdapter()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = "/" + relativePath(source);
+            if (relative.contains(VENDOR_DIRECTORY)) {
+                continue;
+            }
+            final String contents = read(source);
+            for (final String identifier : VENDOR_RUNTIME_IDENTIFIERS) {
+                if (contents.contains(identifier)) {
+                    violations.add(relative.substring(1) + ": " + identifier);
+                }
+            }
+        }
+        assertTrue(
+                "Vendor runtime identifiers outside platform adapter: "
+                        + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void onlySocCompositionRootImportsSocImplementations()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            final String rooted = "/" + relative;
+            if (!SOC_SELECTOR.equals(relative)
+                    && !rooted.contains(SOC_DIRECTORY)
+                    && read(source).contains(SOC_IMPLEMENTATION_REFERENCE)) {
+                violations.add(relative);
+            }
+        }
+        assertTrue(
+                "SoC implementation imports outside composition root: "
+                        + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void socImplementationsDoNotImportEachOther()
+            throws IOException {
+        assertImplementationsDoNotImportEachOther(
+                SOC_IMPLEMENTATION_REFERENCE,
+                SOC_SELECTOR,
+                "SoC");
+    }
+
+    @Test
+    public void socRuntimeIdentifiersStayInSocAdapter()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = "/" + relativePath(source);
+            if (relative.contains(SOC_DIRECTORY)) {
+                continue;
+            }
+            final String contents = read(source);
+            for (final String identifier : SOC_RUNTIME_IDENTIFIERS) {
+                if (contents.contains(identifier)) {
+                    violations.add(relative.substring(1) + ": " + identifier);
+                }
+            }
+        }
+        assertTrue(
+                "SoC runtime identifiers outside SoC adapter: " + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void platformAdaptersDoNotReachDesktopHostFacade()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = "/" + relativePath(source);
+            if (relative.contains(PLATFORM_DIRECTORY)
+                    && read(source).contains("DesktopRuntimeBridge")) {
+                violations.add(relative.substring(1));
+            }
+        }
+        assertTrue(
+                "Platform adapters reaching desktop host facade: "
+                        + violations,
+                violations.isEmpty());
+    }
+
+    private static List<Path> productionSources() throws IOException {
+        final List<Path> sources = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {
+            paths.filter(path -> path.toString().endsWith(".java"))
+                    .forEach(sources::add);
+        }
+        return sources;
+    }
+
+    private static String read(final Path source) throws IOException {
+        return Files.readString(source, StandardCharsets.UTF_8);
+    }
+
+    private static void assertImplementationsDoNotImportEachOther(
+            final String packagePrefix,
+            final String selector,
+            final String label) throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            if (selector.equals(relative)) {
+                continue;
+            }
+            final String ownImplementation = implementationName(
+                    relative, packagePrefix);
+            for (final String line : read(source).split("\\R")) {
+                final String importedImplementation = implementationName(
+                        line.trim(), packagePrefix);
+                if (importedImplementation != null
+                        && !importedImplementation.equals(ownImplementation)) {
+                    violations.add(relative + ": " + line.trim());
+                }
+            }
+        }
+        assertTrue(label + " implementations importing each other: "
+                + violations, violations.isEmpty());
+    }
+
+    private static String implementationName(
+            final String value, final String packagePrefix) {
+        final String pathPrefix = packagePrefix.replace('.', '/');
+        final int packageIndex = value.indexOf(packagePrefix);
+        final int pathIndex = value.indexOf(pathPrefix);
+        final int start;
+        if (packageIndex >= 0) {
+            start = packageIndex + packagePrefix.length();
+        } else if (pathIndex >= 0) {
+            start = pathIndex + pathPrefix.length();
+        } else {
+            return null;
+        }
+        int end = start;
+        while (end < value.length()) {
+            final char character = value.charAt(end);
+            if (character == '.' || character == '/'
+                    || Character.isJavaIdentifierPart(character)) {
+                if (character == '.' || character == '/') {
+                    break;
+                }
+                end++;
+                continue;
+            }
+            break;
+        }
+        return end == start ? null : value.substring(start, end);
+    }
+
+    private static String relativePath(final Path source) {
+        return MAIN_JAVA.relativize(source).toString().replace('\\', '/');
+    }
+}

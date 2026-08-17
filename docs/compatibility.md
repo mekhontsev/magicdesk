@@ -56,7 +56,7 @@ and retains its direct transaction fallback.
 | --- | --- | --- | --- | --- |
 | RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and launcher recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
 | RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, launcher recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
-| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, multiple freeform windows, window manipulation, and the v1.6 simulated desktop self-test with 54 checks passed and no failures | Occasional desktop latency was reported on v1.6; the earlier focus-transfer report is covered by the v1.7 self-test but still needs a community hardware retest; vendor HDMI timing node is unavailable to shell |
+| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, multiple freeform windows, focus and keyboard input, phone-screen-off operation, launcher protection, and simulated self-test cleanup | The vendor HDMI timing node is unavailable to shell UID 2000 and Android exposes only standard FHD modes; Qualcomm display-backend validation remains pending |
 
 Exact tested fingerprints:
 
@@ -160,9 +160,10 @@ include the keyboard or
 pointing-device model. For a window issue, include the affected Android package
 and whether the task was windowed, maximized, snapped, or true fullscreen.
 
-If the vendor HDMI-mode node is unavailable to shell UID 2000, MagicDesk shows
-Android's current physical mode as read-only and leaves timing selection to the
-system projection UI. This limits MagicDesk's output-mode selector but does not
-disable the desktop. If Android does not expose a static wallpaper image,
+If the vendor HDMI-mode node is unavailable to shell UID 2000, MagicDesk tries
+the selected SoC display backend before falling back to Android's public mode
+list. When neither source exposes alternate timings, the current physical mode
+is read-only and timing selection remains with the system projection UI. This
+does not disable the desktop. If Android does not expose a static wallpaper image,
 MagicDesk can use a custom desktop wallpaper, its cached system wallpaper, or
 the built-in background without failing the desktop session.

@@ -29,7 +29,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Map<Long, StreamSession> mStreams =
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
+    private final PlatformInputRoutingDriver mInputRoutingDriver;
     private final PlatformPointerDriver mPointerDriver;
+    private final PlatformProjectionDriver mProjectionDriver;
     private final PlatformTextInputDriver mTextInputDriver;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
@@ -49,12 +51,17 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     public ShizukuCommandService(final Context context) {
         mContext = context;
-        mPointerDriver = PlatformDrivers.current().pointer();
-        mTextInputDriver = PlatformDrivers.current().textInput();
-        mNavigationGuard = PlatformDrivers.current().phoneUi()
-                .createNavigationGuard();
+        final PlatformDriver platform = PlatformDrivers.current();
+        final PlatformPhoneUiDriver phoneUi = platform.phoneUi();
+        mInputRoutingDriver = platform.inputRouting();
+        mPointerDriver = platform.pointer();
+        mProjectionDriver = platform.projection();
+        mTextInputDriver = platform.textInput();
+        mNavigationGuard = phoneUi.createNavigationGuard();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
+                platform.windowing(),
+                phoneUi,
                 mNavigationGuard,
                 new PlatformPhoneUiDriver.InputOwner() {
                     @Override
@@ -83,6 +90,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public int uid() {
         return Os.getuid();
+    }
+
+    @Override
+    public SystemMonitorSnapshot readSystemMonitorSnapshot(
+            final boolean includeProcessMemory) {
+        return SystemMonitorReader.read(includeProcessMemory);
     }
 
     @Override
@@ -156,13 +169,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final String command =
                 "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_LABEL_STATE
-                        + " " + shellQuote(result.code) + "; "
+                        + " " + ShellCommandLine.quote(result.code) + "; "
                         + "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_NAME_STATE
-                        + " " + shellQuote(result.name) + "; "
+                        + " " + ShellCommandLine.quote(result.name) + "; "
                         + "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_STATE
-                        + " " + shellQuote(result.descriptor);
+                        + " " + ShellCommandLine.quote(result.descriptor);
         Process process = null;
         try {
             process = new ProcessBuilder(
@@ -186,10 +199,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 process.destroy();
             }
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     @Override
@@ -238,6 +247,47 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean releaseFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return mTaskObserverManager.releaseFullscreenTask(
+                callback, displayId, taskId);
+    }
+
+    @Override
+    public boolean closeFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return mTaskObserverManager.closeFullscreenTask(
+                callback, displayId, taskId);
+    }
+
+    @Override
+    public void startSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        mTaskObserverManager.startSelfTestTaskStackGuard(
+                callback, displayId, hostTaskId, stage);
+    }
+
+    @Override
+    public void setSelfTestTaskStackGuardStage(
+            final ITaskObserverCallback callback,
+            final String stage) {
+        mTaskObserverManager.setSelfTestTaskStackGuardStage(callback, stage);
+    }
+
+    @Override
+    public SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback) {
+        return mTaskObserverManager.stopSelfTestTaskStackGuard(callback);
+    }
+
+    @Override
     public void stopTaskObserver(final ITaskObserverCallback callback) {
         mTaskObserverManager.stop(callback);
     }
@@ -276,6 +326,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void restorePointerPositionIfDisplaced() {
         mPointerDriver.restorePositionIfDisplaced();
+    }
+
+    @Override
+    public void refreshPointerViewport() {
+        mPointerDriver.refreshViewport();
     }
 
     @Override
@@ -404,7 +459,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 session = DesktopInputRoutingSession.open(
                         mContext,
                         displayId,
-                        expectedVirtualKeyboardCount);
+                        expectedVirtualKeyboardCount,
+                        mInputRoutingDriver,
+                        mPointerDriver,
+                        mProjectionDriver);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -495,6 +553,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int width,
             final int height,
             final int bitrateMbps,
+            final String audioMode,
             final IBinder ownerToken) {
         return mDisplayRecording.start(
                 physicalDisplayId,
@@ -502,6 +561,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 width,
                 height,
                 bitrateMbps,
+                audioMode,
                 ownerToken);
     }
 
@@ -640,6 +700,41 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void cancelShellFileOperation(final long operationId) {
         mFileSystem.cancel(operationId);
+    }
+
+    @Override
+    public void startShellDirectoryObserver(
+            final String absolutePath,
+            final IShellDirectoryObserverCallback callback) {
+        mFileSystem.startDirectoryObserver(absolutePath, callback);
+    }
+
+    @Override
+    public void stopShellDirectoryObserver(
+            final IShellDirectoryObserverCallback callback) {
+        mFileSystem.stopDirectoryObserver(callback);
+    }
+
+    @Override
+    public long startShellFileSearch(
+            final String rootPath,
+            final String query,
+            final boolean showHidden,
+            final int maxResults,
+            final IFileSearchCallback callback,
+            final IBinder ownerToken) {
+        return mFileSystem.startSearch(
+                rootPath,
+                query,
+                showHidden,
+                maxResults,
+                callback,
+                ownerToken);
+    }
+
+    @Override
+    public void cancelShellFileSearch(final long searchId) {
+        mFileSystem.cancelSearch(searchId);
     }
 
     @Override
@@ -815,15 +910,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         try {
             final Point position =
                     mPointerDriver.restorePositionIfDisplaced();
-            if (position != null) {
-                DesktopPointerInjector.injectTouchpadMotion(
-                        displayId,
-                        position,
-                        DesktopPointerInjector.TOUCHPAD_HOVER,
-                        0L);
+            if (position != null
+                    && !mPointerDriver.updatePosition(
+                            displayId,
+                            position.x,
+                            position.y,
+                            DesktopPointerInjector.TOUCHPAD_HOVER,
+                            0L)) {
+                throw new IllegalStateException(
+                        "platform pointer restore failed");
             }
             Log.i(TAG, "input reclaimed after platform panel task removal");
-        } catch (ReflectiveOperationException | RuntimeException error) {
+        } catch (RuntimeException error) {
             Log.w(TAG,
                     "could not restore pointer after platform panel",
                     error);

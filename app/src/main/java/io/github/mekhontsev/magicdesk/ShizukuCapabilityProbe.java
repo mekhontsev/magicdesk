@@ -41,6 +41,7 @@ public final class ShizukuCapabilityProbe {
             "android.permission.STATUS_BAR",
             "android.permission.SET_ORIENTATION",
             "android.permission.CAPTURE_VIDEO_OUTPUT",
+            "android.permission.RECORD_AUDIO",
             "android.permission.READ_FRAME_BUFFER",
             "android.permission.REBOOT",
             "android.permission.CHANGE_COMPONENT_ENABLED_STATE"
@@ -75,6 +76,7 @@ public final class ShizukuCapabilityProbe {
         appendInputControlAccess(report);
         appendInputMonitor(report);
         appendTaskAccess(report);
+        SocDisplayModeBackends.appendCapabilityProbe(report);
         PlatformDrivers.current().diagnostics()
                 .appendCapabilityProbe(report, context);
         appendSystemWallpaper(report, context);
@@ -105,12 +107,13 @@ public final class ShizukuCapabilityProbe {
                 report, "capture.screencap", new File("/system/bin/screencap"));
         appendExecutable(
                 report, "capture.screenrecord", new File("/system/bin/screenrecord"));
+        final PlatformAudioCaptureDriver audioCapture =
+                PlatformDrivers.current().audioCapture();
         append(report,
-                "capture.internal_audio_backend",
-                PlatformDrivers.current().audioCapture().isAvailable()
-                        ? "configured" : "unsupported",
-                PlatformDrivers.current().audioCapture()
-                        .capabilityDescription());
+                "capture.internal_audio_source",
+                audioCapture.availability().name()
+                        .toLowerCase(Locale.ROOT),
+                audioCapture.capabilityDescription());
     }
 
     private static void appendExecutable(

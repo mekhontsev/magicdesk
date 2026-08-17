@@ -5,7 +5,7 @@ import android.graphics.Rect;
 
 import java.util.concurrent.TimeUnit;
 
-/** Establishes fullscreen geometry and clears Nubia's stale client caption inset. */
+/** Establishes fullscreen geometry and optionally refreshes a stale caption inset. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskFullscreenTransitionCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
@@ -17,9 +17,10 @@ public final class TaskFullscreenTransitionCommand {
     }
 
     public static void main(final String[] args) {
-        if (args.length != 2) {
+        if (args.length != 3) {
             System.err.println(
-                    "usage: TaskFullscreenTransitionCommand <display-id> <task-id>");
+                    "usage: TaskFullscreenTransitionCommand "
+                            + "<display-id> <task-id> <refresh-caption>");
             System.exit(64);
             return;
         }
@@ -27,10 +28,16 @@ public final class TaskFullscreenTransitionCommand {
         try {
             final int displayId = parseInt(args[0], "display id");
             final int taskId = parseInt(args[1], "task id");
+            final boolean refreshCaption = parseFlag(
+                    args[2], "refresh caption");
             final boolean captionRefreshed =
-                    applyFullscreen(displayId, taskId, false);
+                    applyFullscreen(
+                            displayId, taskId, false, refreshCaption);
             System.out.println("task-fullscreen=" + taskId + " display=" + displayId
-                    + " caption=" + (captionRefreshed ? "refreshed" : "not-present"));
+                    + " caption=" + (!refreshCaption
+                            ? "not-required"
+                            : (captionRefreshed
+                                    ? "refreshed" : "not-present")));
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
             while (cause.getCause() != null && cause.getCause() != cause) {
@@ -42,10 +49,12 @@ public final class TaskFullscreenTransitionCommand {
     }
 
     static boolean applyFullscreen(final int displayId, final int taskId,
-            final boolean forceTranslucent)
+            final boolean forceTranslucent,
+            final boolean refreshCaption)
             throws ReflectiveOperationException {
-        final int captionSourceId =
-                TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId);
+        final int captionSourceId = refreshCaption
+                ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
+                : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
         final Object service = HiddenTaskApi.getService();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
@@ -72,7 +81,9 @@ public final class TaskFullscreenTransitionCommand {
 
         startTransition(transactionClass, fullscreenTransaction);
         awaitFullscreen(service, displayId, taskId);
-        if (captionSourceId == TaskLocalInsetsSourceParser.NO_SOURCE_ID) {
+        if (!refreshCaption
+                || captionSourceId
+                        == TaskLocalInsetsSourceParser.NO_SOURCE_ID) {
             return false;
         }
         try {
@@ -129,5 +140,14 @@ public final class TaskFullscreenTransitionCommand {
             throw new IllegalArgumentException("invalid " + label);
         }
         return parsed;
+    }
+
+    private static boolean parseFlag(
+            final String value, final String label) {
+        final int parsed = parseInt(value, label);
+        if (parsed > 1) {
+            throw new IllegalArgumentException("invalid " + label);
+        }
+        return parsed == 1;
     }
 }

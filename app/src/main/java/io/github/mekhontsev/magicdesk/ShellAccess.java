@@ -66,11 +66,13 @@ public final class ShellAccess {
     private ShellAccess() {
     }
 
-    static synchronized void initialize() {
-        if (sInitialized) {
-            return;
+    static void initialize() {
+        synchronized (ShellAccess.class) {
+            if (sInitialized) {
+                return;
+            }
+            sInitialized = true;
         }
-        sInitialized = true;
         Shizuku.addBinderReceivedListenerSticky(BINDER_RECEIVED);
         Shizuku.addBinderDeadListener(BINDER_DEAD);
         Shizuku.addRequestPermissionResultListener(PERMISSION_RESULT);
@@ -101,7 +103,7 @@ public final class ShellAccess {
         STATE_LISTENERS.remove(listener);
     }
 
-    static synchronized Snapshot refresh() {
+    static Snapshot refresh() {
         final Snapshot snapshot = publish(inspectNow());
         SERVICE_CONNECTION.connect(snapshot, ShellAccess::userServiceArgs);
         return snapshot;
@@ -211,6 +213,23 @@ public final class ShellAccess {
         }
     }
 
+    static SystemMonitorSnapshot readSystemMonitorSnapshot(
+            final boolean includeProcessMemory) throws IOException {
+        try {
+            final SystemMonitorSnapshot snapshot = requireService()
+                    .readSystemMonitorSnapshot(includeProcessMemory);
+            if (snapshot == null) {
+                throw new IOException(
+                        "Shell service returned no system snapshot");
+            }
+            return snapshot;
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Shell system monitor failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     static String updateHardwareKeyboardLayout(
             final String mode,
             final String currentDescriptor)
@@ -261,6 +280,23 @@ public final class ShellAccess {
             service.restorePointerPositionIfDisplaced();
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
+        }
+    }
+
+    static boolean refreshPointerViewport() {
+        if (!isReady()) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            service.refreshPointerViewport();
+            return true;
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            return false;
         }
     }
 
@@ -727,10 +763,69 @@ public final class ShellAccess {
         }
     }
 
+    static ShellDirectoryObserverHandle openShellDirectoryObserver(
+            final String absolutePath,
+            final IShellDirectoryObserverCallback callback,
+            final Runnable disconnected) throws IOException {
+        if (callback == null) {
+            throw new IOException("missing directory observer callback");
+        }
+        final IShizukuCommandService service = requireService();
+        final ShellDirectoryObserverHandle handle =
+                new ShellDirectoryObserverHandle(
+                        service, absolutePath, callback, disconnected);
+        try {
+            handle.start();
+            return handle;
+        } catch (RemoteException error) {
+            handle.closeAfterStartFailure();
+            handleServiceFailure(error);
+            throw shellFileFailure("directory observer", error);
+        } catch (RuntimeException error) {
+            handle.closeAfterStartFailure();
+            throw shellFileFailure("directory observer", error);
+        }
+    }
+
+    static long startShellFileSearch(
+            final String rootPath,
+            final String query,
+            final boolean showHidden,
+            final int maxResults,
+            final IFileSearchCallback callback,
+            final IBinder ownerToken) throws IOException {
+        try {
+            return requireService().startShellFileSearch(
+                    rootPath,
+                    query,
+                    showHidden,
+                    maxResults,
+                    callback,
+                    ownerToken);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("search start", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("search start", error);
+        }
+    }
+
+    static void cancelShellFileSearch(final long searchId)
+            throws IOException {
+        try {
+            requireService().cancelShellFileSearch(searchId);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("search cancellation", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("search cancellation", error);
+        }
+    }
+
     private static IOException shellFileFailure(
             final String action, final Throwable error) {
         return new IOException(
-                "Shizuku filesystem " + action + " failed: "
+                "Shell filesystem " + action + " failed: "
                         + usefulMessage(error),
                 error);
     }
@@ -1010,6 +1105,7 @@ public final class ShellAccess {
             final int width,
             final int height,
             final int bitrateMbps,
+            final String audioMode,
             final IBinder ownerToken) throws IOException {
         try {
             return requireService().startDisplayRecording(
@@ -1018,6 +1114,7 @@ public final class ShellAccess {
                     width,
                     height,
                     bitrateMbps,
+                    audioMode,
                     ownerToken);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
@@ -1142,21 +1239,24 @@ public final class ShellAccess {
         refresh();
     }
 
-    private static synchronized Snapshot publish(final Snapshot snapshot) {
+    private static Snapshot publish(final Snapshot snapshot) {
         return publish(snapshot, false);
     }
 
-    private static synchronized Snapshot publish(
+    private static Snapshot publish(
             final Snapshot snapshot,
             final boolean notifyUnchanged) {
-        final Snapshot previous = sSnapshot;
-        sSnapshot = snapshot;
-        if (!shouldNotifyStateListeners(
-                previous, snapshot, notifyUnchanged)) {
-            return snapshot;
+        final boolean notify;
+        synchronized (ShellAccess.class) {
+            final Snapshot previous = sSnapshot;
+            sSnapshot = snapshot;
+            notify = shouldNotifyStateListeners(
+                    previous, snapshot, notifyUnchanged);
         }
-        for (final StateListener listener : STATE_LISTENERS) {
-            listener.onShellStateChanged(snapshot);
+        if (notify) {
+            for (final StateListener listener : STATE_LISTENERS) {
+                listener.onShellStateChanged(snapshot);
+            }
         }
         return snapshot;
     }

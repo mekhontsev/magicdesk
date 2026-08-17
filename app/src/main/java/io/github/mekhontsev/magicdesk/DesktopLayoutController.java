@@ -78,6 +78,7 @@ final class DesktopLayoutController {
                 bounds.top,
                 bounds.width(),
                 bounds.height(),
+                mRuntimeState.displayId() == Display.DEFAULT_DISPLAY,
                 title);
     }
 

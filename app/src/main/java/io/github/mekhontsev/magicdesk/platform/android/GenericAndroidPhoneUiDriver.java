@@ -63,11 +63,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean requiresPhoneFreeformCleanup() {
-        return false;
-    }
-
-    @Override
     public boolean requiresPhoneUiReconciliation() {
         return false;
     }
@@ -96,7 +91,9 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean setPhoneScreenOff(final boolean screenOff) {
+    public boolean setPhoneScreenOff(
+            final boolean screenOff,
+            final int desktopDisplayId) {
         return false;
     }
 

@@ -19,7 +19,6 @@ import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executor;
 
 /** Launches or moves a task directly into its requested freeform state. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -66,7 +65,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 TaskDisplayAreaLaunchCommand.class.getName(),
                 (temporaryArea ? "app-temporary " : "app-default ")
                         + displayId
-                        + " " + shellQuote(intent.toUri(
+                        + " " + ShellCommandLine.quote(intent.toUri(
                                 Intent.URI_INTENT_SCHEME))
                         + formatBounds(bounds));
     }
@@ -212,7 +211,7 @@ public final class TaskDisplayAreaLaunchCommand {
             return;
         }
 
-        Object organizer = null;
+        TaskDisplayAreaHandle taskDisplayArea = null;
         Object areaToken = null;
         try {
             final int taskIdArgument = taskMove || physicalMove
@@ -238,30 +237,10 @@ public final class TaskDisplayAreaLaunchCommand {
             final Class<?> containerTokenClass = temporaryApp
                     ? Class.forName("android.window.WindowContainerToken")
                     : null;
-            final Class<?> organizerClass;
-            if (defaultApp || taskMove || physicalMove) {
-                organizerClass = null;
-            } else {
-                organizerClass = Class.forName(
-                        "android.window.DisplayAreaOrganizer");
-                final Executor directExecutor = Runnable::run;
-                organizer = organizerClass.getConstructor(Executor.class)
-                        .newInstance(directExecutor);
-                final Object appeared = organizerClass.getMethod(
-                        "createTaskDisplayArea",
-                        Integer.TYPE,
-                        Integer.TYPE,
-                        String.class)
-                        .invoke(
-                                organizer,
-                                Integer.valueOf(displayId),
-                                Integer.valueOf(FEATURE_ROOT),
-                                "MagicDesk launch");
-                final Object areaInfo = appeared.getClass()
-                        .getMethod("getDisplayAreaInfo")
-                        .invoke(appeared);
-                areaToken = HiddenTaskApi.getField(areaInfo, "token");
-                closeLeash(appeared);
+            if (temporaryApp) {
+                taskDisplayArea = TaskDisplayAreaHandle.create(
+                        displayId, FEATURE_ROOT, "MagicDesk launch");
+                areaToken = taskDisplayArea.token();
             }
 
             final Object service = HiddenTaskApi.getService();
@@ -325,11 +304,8 @@ public final class TaskDisplayAreaLaunchCommand {
                         taskId,
                         null,
                         null);
-                deleteArea(
-                        organizerClass,
-                        organizer,
-                        containerTokenClass,
-                        areaToken);
+                taskDisplayArea.close();
+                taskDisplayArea = null;
                 areaToken = null;
                 waitForTask(
                         service,
@@ -357,16 +333,8 @@ public final class TaskDisplayAreaLaunchCommand {
                     + usefulMessage(error));
             System.exit(1);
         } finally {
-            if (organizer != null && areaToken != null) {
-                try {
-                    deleteArea(
-                            organizer.getClass(),
-                            organizer,
-                            areaToken.getClass(),
-                            areaToken);
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // Process death releases any remaining organizer-owned area.
-                }
+            if (taskDisplayArea != null) {
+                taskDisplayArea.close();
             }
         }
     }
@@ -566,7 +534,7 @@ public final class TaskDisplayAreaLaunchCommand {
                         + ", mode=" + windowingMode);
     }
 
-    private static void waitForTaskFreeformBounds(
+    static void waitForTaskFreeformBounds(
             final Object service,
             final int displayId,
             final int taskId,
@@ -897,28 +865,6 @@ public final class TaskDisplayAreaLaunchCommand {
                         + (visible ? "visible" : "hidden"));
     }
 
-    private static void deleteArea(
-            final Class<?> organizerClass,
-            final Object organizer,
-            final Class<?> tokenClass,
-            final Object token) throws ReflectiveOperationException {
-        organizerClass.getMethod("deleteTaskDisplayArea", tokenClass)
-                .invoke(organizer, token);
-    }
-
-    private static void closeLeash(final Object appeared) {
-        try {
-            final Object leash = appeared.getClass()
-                    .getMethod("getLeash")
-                    .invoke(appeared);
-            if (leash != null) {
-                leash.getClass().getMethod("release").invoke(leash);
-            }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            // The process owns no lasting SurfaceControl reference.
-        }
-    }
-
     private static Rect parseBounds(
             final String[] args,
             final int offset) {
@@ -955,10 +901,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 + " " + bounds.top
                 + " " + bounds.right
                 + " " + bounds.bottom;
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private static String usefulMessage(final Throwable error) {

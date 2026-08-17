@@ -10,6 +10,7 @@ final class AltTabController {
     private boolean mActive;
     private boolean mLoadInProgress;
     private boolean mCommitPending;
+    private int mGeneration;
     private int mPendingOffset;
     private int mSelectedIndex = -1;
     private int mStartingTaskId = -1;
@@ -54,9 +55,11 @@ final class AltTabController {
         mActivity.hideAllPanels();
 
         final int displayId = mActivity.getCurrentDisplayId();
+        final int generation = ++mGeneration;
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
-                    if (!mActive
+                    if (generation != mGeneration
+                            || !mActive
                             || mActivity.isActivityUnavailable()
                             || displayId
                                     != mActivity.getCurrentDisplayId()) {
@@ -108,8 +111,10 @@ final class AltTabController {
                     mActivity.populateTaskOverview(snapshot);
                     if (mCommitPending) {
                         finish();
-                    } else if (!mActivity.showTaskOverviewPanel()) {
+                    } else if (!mActivity.showAltTabPanel()) {
                         reset();
+                    } else {
+                        DesktopSelfTestHostObserver.noteAltTabPanelShown();
                     }
                 }));
     }
@@ -130,21 +135,41 @@ final class AltTabController {
 
         final TaskRepository.TaskEntry target =
                 mTasks.get(mSelectedIndex);
+        final List<TaskRepository.TaskEntry> fullscreenStack =
+                target.isFullscreen()
+                        ? selectFullscreenTasks(mTasks)
+                        : Collections.emptyList();
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(), target);
         reset();
-        mActivity.hideAllPanels();
         if (app == null) {
+            mActivity.hideAllPanels();
             mActivity.clearInteractionVisibleTasks();
             mActivity.setStatus(mActivity.getString(
                     R.string.status_switch_failed,
                     target.packageName));
             return;
         }
-        mActivity.focusTask(app, target);
+        mActivity.focusTask(
+                app,
+                target,
+                fullscreenStack.size() > 1 ? fullscreenStack : null,
+                mActivity::hideAllPanels);
+    }
+
+    private static List<TaskRepository.TaskEntry> selectFullscreenTasks(
+            final List<TaskRepository.TaskEntry> tasks) {
+        final List<TaskRepository.TaskEntry> fullscreen = new ArrayList<>();
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && task.isFullscreen()) {
+                fullscreen.add(task);
+            }
+        }
+        return fullscreen;
     }
 
     void reset() {
+        mGeneration++;
         mActive = false;
         mLoadInProgress = false;
         mCommitPending = false;

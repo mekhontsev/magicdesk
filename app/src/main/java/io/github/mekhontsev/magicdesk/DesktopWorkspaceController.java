@@ -414,6 +414,60 @@ final class DesktopWorkspaceController {
                 clipboard.move ? clipboard.generation : -1L);
     }
 
+    boolean handleKeyboardCommand(final FileKeyboardCommand command) {
+        final DesktopFile selected = selectedFile();
+        switch (command) {
+            case COPY:
+                if (selected != null) {
+                    copyFile(selected, false);
+                    return true;
+                }
+                break;
+            case CUT:
+                if (selected != null) {
+                    copyFile(selected, true);
+                    return true;
+                }
+                break;
+            case PASTE:
+                if (!FileManagerClipboard.snapshot().isEmpty()) {
+                    pasteFiles();
+                    return true;
+                }
+                break;
+            case OPEN:
+                if (selected != null) {
+                    openFile(selected);
+                    return true;
+                }
+                break;
+            case RENAME:
+                if (selected != null) {
+                    mActivity.renameDesktopFile(selected);
+                    return true;
+                }
+                break;
+            case DELETE:
+                if (selected != null) {
+                    mActivity.confirmDeleteDesktopFile(selected);
+                    return true;
+                }
+                break;
+            case CLEAR_SELECTION:
+                if (selected != null) {
+                    clearFileSelection();
+                    return true;
+                }
+                break;
+            case REFRESH:
+                mFolder.refresh(true, Math.max(1, mLastCapacity));
+                return true;
+            default:
+                break;
+        }
+        return false;
+    }
+
     void copyFilePath(final DesktopFile file) {
         final ClipboardManager clipboard = mActivity.getSystemService(
                 ClipboardManager.class);
@@ -720,6 +774,18 @@ final class DesktopWorkspaceController {
             mSelectedFileItemId = null;
             render(mApps);
         }
+    }
+
+    private DesktopFile selectedFile() {
+        if (mSelectedFileItemId == null) {
+            return null;
+        }
+        for (final DesktopFile file : mFiles) {
+            if (mSelectedFileItemId.equals(fileItemId(file.relativePath))) {
+                return file;
+            }
+        }
+        return null;
     }
 
     private void enableDrag(

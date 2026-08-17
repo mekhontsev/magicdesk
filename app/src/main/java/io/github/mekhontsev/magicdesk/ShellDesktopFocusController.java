@@ -64,8 +64,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return;
             }
             mDrainScheduled = true;
+            // Submit while holding the same lock used by close(), so the
+            // executor cannot be shut down between acceptance and enqueueing.
+            mExecutor.execute(this::drainFocusChanges);
         }
-        mExecutor.execute(this::drainFocusChanges);
     }
 
     @Override

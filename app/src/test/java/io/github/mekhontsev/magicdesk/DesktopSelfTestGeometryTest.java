@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
@@ -91,6 +93,22 @@ public final class DesktopSelfTestGeometryTest {
         assertFalse(geometry.isNativeSideBySide(
                 rect(0, 125, 715, 2623),
                 rect(760, 125, 1475, 2623)));
+    }
+
+    @Test
+    public void sharesParsedTaskBoundsAcrossSelfTestSuites() {
+        final TaskStackParser.Bounds parsed =
+                new TaskStackParser.Bounds(10, 20, 300, 400);
+
+        assertTrue(DesktopSelfTestGeometry.matches(
+                parsed, rect(10, 20, 300, 400)));
+        assertFalse(DesktopSelfTestGeometry.matches(
+                parsed, rect(10, 20, 301, 400)));
+        assertRect(DesktopSelfTestGeometry.toRect(parsed),
+                10, 20, 300, 400);
+        assertNull(DesktopSelfTestGeometry.toRect(null));
+        assertEquals("[10,20][300,400]",
+                DesktopSelfTestGeometry.format(parsed));
     }
 
     private static Rect rect(

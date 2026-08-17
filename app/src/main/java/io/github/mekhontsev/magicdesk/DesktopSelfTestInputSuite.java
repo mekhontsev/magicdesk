@@ -6,6 +6,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
 import android.content.Context;
 import android.graphics.Rect;
@@ -546,7 +547,7 @@ final class DesktopSelfTestInputSuite {
                         && entry.visible
                         && "freeform".equals(entry.windowingMode));
         waitForFrontTask(displayId, taskId);
-        final Rect bounds = toRect(task.bounds);
+        final Rect bounds = DesktopSelfTestGeometry.toRect(task.bounds);
         waitForCaptionInputFrame(displayId, taskId, bounds);
         final int x = bounds.right - geometry.scaleFrom160Dpi(
                 MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
@@ -560,7 +561,7 @@ final class DesktopSelfTestInputSuite {
                 entry -> entry.taskId == taskId
                         && entry.visible
                         && "freeform".equals(entry.windowingMode)
-                        && !equalsBounds(entry.bounds, bounds)
+                        && !DesktopSelfTestGeometry.matches(entry.bounds, bounds)
                         && isMaximizedBounds(
                                 entry.bounds, geometry));
     }
@@ -640,11 +641,11 @@ final class DesktopSelfTestInputSuite {
                     + target.windowingMode + ", other="
                     + other.windowingMode);
         }
-        if (!equalsBounds(target.bounds, targetBounds)
-                || !equalsBounds(other.bounds, otherBounds)) {
+        if (!DesktopSelfTestGeometry.matches(target.bounds, targetBounds)
+                || !DesktopSelfTestGeometry.matches(other.bounds, otherBounds)) {
             throw new IOException("maximized bounds changed: target="
-                    + formatBounds(target.bounds) + ", other="
-                    + formatBounds(other.bounds));
+                    + DesktopSelfTestGeometry.format(target.bounds) + ", other="
+                    + DesktopSelfTestGeometry.format(other.bounds));
         }
         if (!target.visible) {
             throw new IOException("maximized target is not visible");
@@ -679,7 +680,8 @@ final class DesktopSelfTestInputSuite {
             return null;
         }
         return new MaximizedTaskPair(
-                toRect(first.bounds), toRect(second.bounds));
+                DesktopSelfTestGeometry.toRect(first.bounds),
+                DesktopSelfTestGeometry.toRect(second.bounds));
     }
 
     private static boolean isMaximizedBounds(
@@ -751,6 +753,130 @@ final class DesktopSelfTestInputSuite {
                         secondToken,
                         firstTaskId,
                         "3"));
+        runFullscreenTaskAreaLifecycleTests(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                firstToken,
+                secondTaskId,
+                secondToken,
+                geometry);
+    }
+
+    private static void runFullscreenTaskAreaLifecycleTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken,
+            final int secondTaskId,
+            final String secondToken,
+            final DesktopSelfTestGeometry geometry) {
+        final String restoreCode = "FULLSCREEN-LIFECYCLE-001";
+        DesktopSelfTestHostObserver.stage(restoreCode);
+        try {
+            inspectFullscreenPair(displayId, secondTaskId, firstTaskId);
+            if (!MagicDeskRuntime.handleActiveTaskShortcut(
+                    DesktopTaskController.SHORTCUT_RESTORE)) {
+                throw new IOException(
+                        "MagicDesk fullscreen restore is unavailable");
+            }
+            final TaskStackParser.Entry restored = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == secondTaskId
+                            && "freeform".equals(task.windowingMode)
+                            && task.bounds != null
+                            && !task.bounds.isEmpty());
+            final TaskStackParser.Entry peer = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == firstTaskId
+                            && "fullscreen".equals(task.windowingMode));
+            result.add(DesktopSelfTestResult.State.PASS,
+                    restoreCode,
+                    "Restore one task without changing its fullscreen peer",
+                    "restored=" + secondTaskId + "/freeform/"
+                            + DesktopSelfTestGeometry.format(restored.bounds)
+                            + ", peer=" + peer.taskId + "/fullscreen");
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    restoreCode,
+                    "Restore one task without changing its fullscreen peer",
+                    usefulMessage(error));
+            addSkippedFullscreenLifecycleResults(
+                    result, "fullscreen restore failed");
+            return;
+        }
+
+        final String closeCode = "FULLSCREEN-LIFECYCLE-002";
+        DesktopSelfTestHostObserver.stage(closeCode);
+        try {
+            enterFullscreenThroughShortcut(displayId, secondTaskId);
+            focusFullscreenPairThroughAltTab(
+                    context,
+                    displayId,
+                    firstTaskId,
+                    firstToken,
+                    secondTaskId,
+                    "4");
+            if (!MagicDeskRuntime.handleActiveTaskShortcut(
+                    DesktopTaskController.SHORTCUT_CLOSE)) {
+                throw new IOException(
+                        "MagicDesk fullscreen close is unavailable");
+            }
+            waitForTaskAbsent(firstTaskId);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    closeCode,
+                    "Close the active task inside a fullscreen task area",
+                    "closed=" + firstTaskId);
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    closeCode,
+                    "Close the active task inside a fullscreen task area",
+                    usefulMessage(error));
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-003",
+                    "Keep the surviving fullscreen task focused",
+                    "fullscreen close failed");
+            return;
+        }
+
+        check(result,
+                "FULLSCREEN-LIFECYCLE-003",
+                "Keep the surviving fullscreen task focused",
+                () -> {
+                    waitForFrontTask(displayId, secondTaskId);
+                    waitForTaskInputFocus(displayId, secondTaskId);
+                    typeAndVerifyText(
+                            context,
+                            displayId,
+                            secondTaskId,
+                            secondToken,
+                            "5");
+                    final TaskStackParser.Entry survivor = waitForTask(
+                            displayId,
+                            FIXTURE_CLASS,
+                            task -> task.taskId == secondTaskId
+                                    && "fullscreen".equals(
+                                            task.windowingMode));
+                    return "task=" + survivor.taskId
+                            + "/fullscreen/visible";
+                });
+    }
+
+    private static void addSkippedFullscreenLifecycleResults(
+            final DesktopSelfTestResult result,
+            final String reason) {
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-002",
+                "Close the active task inside a fullscreen task area",
+                reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-003",
+                "Keep the surviving fullscreen task focused",
+                reason);
     }
 
     private static String prepareFullscreenPair(
@@ -788,7 +914,7 @@ final class DesktopSelfTestInputSuite {
                     FIXTURE_CLASS,
                     task -> task.taskId == taskId
                             && "freeform".equals(task.windowingMode)
-                            && equalsBounds(task.bounds, bounds));
+                            && DesktopSelfTestGeometry.matches(task.bounds, bounds));
         } catch (IOException error) {
             throw new IOException("could not establish windowed bounds for task "
                     + taskId + ": " + usefulMessage(error));
@@ -807,7 +933,7 @@ final class DesktopSelfTestInputSuite {
                         && "freeform".equals(entry.windowingMode));
         waitForFrontTask(displayId, taskId);
         waitForTaskInputFocus(displayId, taskId);
-        if (!DesktopTaskController.handleActiveTaskShortcut(
+        if (!MagicDeskRuntime.handleActiveTaskShortcut(
                 DesktopTaskController.SHORTCUT_FULLSCREEN)) {
             throw new IOException(
                     "MagicDesk fullscreen shortcut is unavailable");
@@ -831,14 +957,75 @@ final class DesktopSelfTestInputSuite {
             final String targetToken,
             final int otherTaskId,
             final String digit) throws IOException {
-        final String focus = focusFieldThroughAltTab(
-                context,
-                displayId,
-                targetTaskId,
-                targetToken,
-                digit);
+        DesktopSelfTestFixtureState.clearText(context);
+        final int panelGeneration =
+                DesktopSelfTestHostObserver.altTabPanelGeneration();
+        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+            throw new IOException("desktop Alt+Tab is unavailable");
+        }
+        waitForAltTabPanel(panelGeneration);
+        inspectFullscreenModes(
+                displayId, targetTaskId, otherTaskId, "while Alt+Tab is open");
+        if (!DesktopRuntimeBridge.finishAltTab()) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw new IOException("desktop Alt+Tab completion is unavailable");
+        }
+        final String focus;
+        try {
+            waitForFrontTask(displayId, targetTaskId);
+            typeAndVerifyText(
+                    context, displayId, targetTaskId, targetToken, digit);
+            focus = "task=" + targetTaskId + ", token=" + targetToken;
+        } catch (IOException error) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw error;
+        }
         return focus + ", " + inspectFullscreenPair(
                 displayId, targetTaskId, otherTaskId);
+    }
+
+    private static void waitForAltTabPanel(
+            final int previousGeneration) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopSelfTestHostObserver.altTabPanelGeneration()
+                    > previousGeneration) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        DesktopRuntimeBridge.cancelAltTab();
+        throw new IOException("Alt+Tab panel did not become visible");
+    }
+
+    private static void inspectFullscreenModes(
+            final int displayId,
+            final int targetTaskId,
+            final int otherTaskId,
+            final String stage) throws IOException {
+        TaskStackParser.Entry target = null;
+        TaskStackParser.Entry other = null;
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                ShellAccess.run("/system/bin/cmd activity stack list"))) {
+            if (task.displayId != displayId) {
+                continue;
+            }
+            if (task.taskId == targetTaskId) {
+                target = task;
+            } else if (task.taskId == otherTaskId) {
+                other = task;
+            }
+        }
+        if (target == null || other == null
+                || !"fullscreen".equals(target.windowingMode)
+                || !"fullscreen".equals(other.windowingMode)) {
+            throw new IOException("fullscreen modes changed " + stage
+                    + ": target="
+                    + (target == null ? "missing" : target.windowingMode)
+                    + ", other="
+                    + (other == null ? "missing" : other.windowingMode));
+        }
     }
 
     private static String inspectFullscreenPair(
@@ -911,8 +1098,8 @@ final class DesktopSelfTestInputSuite {
                     "native caption placement was unavailable");
             return;
         }
-        final Rect leftBounds = toRect(left.bounds);
-        final Rect rightBounds = toRect(right.bounds);
+        final Rect leftBounds = DesktopSelfTestGeometry.toRect(left.bounds);
+        final Rect rightBounds = DesktopSelfTestGeometry.toRect(right.bounds);
         check(result,
                 "NATIVE-SNAP-003",
                 "Verify native side-by-side placement",
@@ -955,7 +1142,7 @@ final class DesktopSelfTestInputSuite {
                             && "freeform".equals(task.windowingMode)
                             && task.visible);
             final Rect captionBounds = geometry.captionControlsWindow(!left);
-            if (!equalsBounds(before.bounds, captionBounds)) {
+            if (!DesktopSelfTestGeometry.matches(before.bounds, captionBounds)) {
                 ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
                         displayId, taskId, captionBounds));
                 before = waitForTask(
@@ -964,12 +1151,14 @@ final class DesktopSelfTestInputSuite {
                         task -> task.taskId == taskId
                                 && "freeform".equals(task.windowingMode)
                                 && task.visible
-                                && equalsBounds(task.bounds, captionBounds));
+                                && DesktopSelfTestGeometry.matches(
+                                        task.bounds, captionBounds));
             }
             focusTaskThroughDesktop(displayId, taskId);
             waitForFrontTask(displayId, taskId);
             waitForCaptionInputFrame(displayId, taskId, captionBounds);
-            final Rect beforeBounds = toRect(before.bounds);
+            final Rect beforeBounds = DesktopSelfTestGeometry.toRect(
+                    before.bounds);
             openNativeMaximizeMenu(
                     displayId, before.bounds, geometry);
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
@@ -992,9 +1181,11 @@ final class DesktopSelfTestInputSuite {
                         task -> task.taskId == taskId
                                 && "freeform".equals(task.windowingMode)
                                 && task.visible
-                                && !equalsBounds(task.bounds, beforeBounds)
+                                && !DesktopSelfTestGeometry.matches(
+                                        task.bounds, beforeBounds)
                                 && geometry.isSnapped(
-                                        toRect(task.bounds), left));
+                                        DesktopSelfTestGeometry.toRect(
+                                                task.bounds), left));
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
@@ -1004,7 +1195,7 @@ final class DesktopSelfTestInputSuite {
                     code,
                     label,
                     "task=" + taskId + ", bounds="
-                            + formatBounds(placed.bounds));
+                            + DesktopSelfTestGeometry.format(placed.bounds));
             return placed;
         } catch (Exception error) {
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -1238,7 +1429,7 @@ final class DesktopSelfTestInputSuite {
         // The fixture shares MagicDesk's package, which focusStack excludes
         // along with the desktop host. Exercise the same display-targeted
         // focus transaction without the user-app filter.
-        DesktopTaskController.focusDesktopTask(
+        MagicDeskRuntime.focusDesktopTask(
                 displayId,
                 targetTask.taskId,
                 action -> {
@@ -1382,25 +1573,6 @@ final class DesktopSelfTestInputSuite {
         return AppProcessCommand.run(
                 "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
                 arguments);
-    }
-
-    private static boolean equalsBounds(
-            final TaskStackParser.Bounds actual, final Rect expected) {
-        return actual != null
-                && actual.left == expected.left
-                && actual.top == expected.top
-                && actual.right == expected.right
-                && actual.bottom == expected.bottom;
-    }
-
-    private static Rect toRect(final TaskStackParser.Bounds bounds) {
-        return bounds == null ? null : new Rect(
-                bounds.left, bounds.top, bounds.right, bounds.bottom);
-    }
-
-    private static String formatBounds(final TaskStackParser.Bounds bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
     }
 
     private static final class MaximizedTaskPair {

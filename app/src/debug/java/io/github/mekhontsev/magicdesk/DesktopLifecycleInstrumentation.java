@@ -20,14 +20,20 @@ public final class DesktopLifecycleInstrumentation extends Instrumentation {
 
     private void runLifecycle() {
         final Bundle output = new Bundle();
-        waitForShellAccess();
-        final DesktopSelfTestResult result =
-                DesktopSelfTestController.run(getTargetContext());
-        output.putString("summary", result.summary());
-        output.putString("report", result.format());
-        finish(result.hasFailures()
-                        ? Activity.RESULT_CANCELED : Activity.RESULT_OK,
-                output);
+        try {
+            waitForShellAccess();
+            final DesktopSelfTestResult result =
+                    DesktopSelfTestController.run(getTargetContext());
+            output.putString("summary", result.summary());
+            output.putString("report", result.format());
+            finish(result.hasFailures()
+                            ? Activity.RESULT_CANCELED : Activity.RESULT_OK,
+                    output);
+        } catch (RuntimeException error) {
+            output.putString("summary", "self-test crashed");
+            output.putString("report", error.toString());
+            finish(Activity.RESULT_CANCELED, output);
+        }
     }
 
     private static void waitForShellAccess() {

@@ -6,15 +6,27 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-final class DisplayDensityController {
+final class DisplayDensityController implements AutoCloseable {
     private static final String TAG = "MagicDesk";
     private static final String WM = "/system/bin/wm";
     private static final Set<String> APPLY_KEYS =
             Collections.synchronizedSet(new HashSet<String>());
+    // Density overrides are global display operations and must remain ordered
+    // across Activity replacement during a configuration change.
+    private static final ExecutorService OPERATIONS =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskDisplayDensity");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private final DesktopShellActivity mActivity;
     private boolean mApplyStarted;
+    private volatile boolean mClosed;
 
     DisplayDensityController(final DesktopShellActivity activity) {
         mActivity = activity;
@@ -25,7 +37,7 @@ final class DisplayDensityController {
     }
 
     void apply(final int dpi) {
-        if (!ShellAccess.isReady()) {
+        if (mClosed || !ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -52,7 +64,7 @@ final class DisplayDensityController {
     }
 
     void reset() {
-        if (!ShellAccess.isReady()) {
+        if (mClosed || !ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -69,7 +81,7 @@ final class DisplayDensityController {
     }
 
     void ensurePreferred() {
-        if (!ShellAccess.isReady()) {
+        if (mClosed || !ShellAccess.isReady()) {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
@@ -90,7 +102,7 @@ final class DisplayDensityController {
             return;
         }
         mApplyStarted = true;
-        new Thread(() -> {
+        OPERATIONS.execute(() -> {
             try {
                 final int mirrorDisplayId = PlatformDrivers.current()
                         .projection().activeDesktopDisplayId(mActivity);
@@ -108,8 +120,8 @@ final class DisplayDensityController {
                                     + displayId + " dpi=" + targetDpi);
                     return;
                 }
-                mActivity.runOnUiThread(() ->
-                        mActivity.setStatus(mActivity.getString(
+                postToActivity(() -> mActivity.setStatus(
+                        mActivity.getString(
                                 R.string.status_dpi_desktop_applying,
                                 Integer.valueOf(targetDpi),
                                 Integer.valueOf(displayId),
@@ -119,15 +131,14 @@ final class DisplayDensityController {
                 runCommand(
                         WM + " density " + targetDpi
                                 + " -d " + displayId);
-                mActivity.runOnUiThread(() ->
-                        mActivity.setStatus(mActivity.getString(
+                postToActivity(() -> mActivity.setStatus(
+                        mActivity.getString(
                                 R.string.status_dpi_desktop_applied,
                                 Integer.valueOf(targetDpi),
                                 Integer.valueOf(displayId))));
             } catch (IOException e) {
                 Log.w(TAG, "desktop DPI failed", e);
-                mActivity.runOnUiThread(() ->
-                        mActivity.setErrorStatus(
+                postToActivity(() -> mActivity.setErrorStatus(
                                 "DISPLAY-DPI-001",
                                 mActivity.getString(
                                         R.string.status_dpi_desktop_failed,
@@ -137,9 +148,11 @@ final class DisplayDensityController {
                                 e));
             } finally {
                 APPLY_KEYS.remove(applyKey);
-                mApplyStarted = false;
+                postToActivity(() -> {
+                    mApplyStarted = false;
+                });
             }
-        }, "MagicDeskDesktopDpi").start();
+        });
     }
 
     String getStatus() {
@@ -153,16 +166,18 @@ final class DisplayDensityController {
     private void runDisplayAction(
             final String command,
             final String successStatus) {
-        new Thread(() -> {
+        if (mClosed) {
+            return;
+        }
+        OPERATIONS.execute(() -> {
             try {
                 runCommand(command);
-                mActivity.runOnUiThread(() -> {
+                postToActivity(() -> {
                     mActivity.renderApps();
                     mActivity.setStatus(successStatus);
                 });
             } catch (IOException e) {
-                mActivity.runOnUiThread(() ->
-                        mActivity.setErrorStatus(
+                postToActivity(() -> mActivity.setErrorStatus(
                                 "DISPLAY-DPI-002",
                                 mActivity.getString(
                                         R.string.status_dpi_desktop_failed,
@@ -170,7 +185,24 @@ final class DisplayDensityController {
                                 "",
                                 e));
             }
-        }, "MagicDeskDisplayAction").start();
+        });
+    }
+
+    private void postToActivity(final Runnable action) {
+        mActivity.runOnUiThread(() -> {
+            if (!mClosed && !mActivity.isActivityUnavailable()) {
+                action.run();
+            }
+        });
+    }
+
+    @Override
+    public void close() {
+        if (mClosed) {
+            return;
+        }
+        mClosed = true;
+        mApplyStarted = false;
     }
 
     private static int getConfiguredDisplayDensity(final int displayId)

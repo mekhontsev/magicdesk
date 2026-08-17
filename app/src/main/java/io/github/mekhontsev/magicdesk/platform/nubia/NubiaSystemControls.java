@@ -136,6 +136,9 @@ final class NubiaSystemControls implements PlatformSystemControls {
 
     private void updateChargeSeparation(
             final ChargeSeparationController.State state) {
+        if (mActivity.isActivityUnavailable()) {
+            return;
+        }
         mActivity.updatePlatformChargeSeparation(state.enabled);
         updateBatteryStatus(mLastBatteryIntent);
         if (mChargeSeparationSwitch == null) {
@@ -173,6 +176,9 @@ final class NubiaSystemControls implements PlatformSystemControls {
         mChargeSeparation.setEnabled(
                 enabled,
                 (success, message) -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     updateChargeSeparation(mChargeSeparation.state());
                     if (success) {
                         mActivity.setStatus(enabled

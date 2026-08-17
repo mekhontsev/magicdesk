@@ -41,7 +41,7 @@ final class DeviceSetupRuntimeController {
         }
         if (sRuntimeAuthorized
                 && ShellAccess.isReady()) {
-            MagicDeskRuntimeService.start(context.getApplicationContext());
+            MagicDeskRuntime.start(context.getApplicationContext());
         } else {
             stopServices(context);
         }
@@ -51,7 +51,7 @@ final class DeviceSetupRuntimeController {
         KeyboardShortcutWatcher.stop();
         PlatformDrivers.current().phoneUi().requestPhoneScreenRestore();
         if (context != null) {
-            MagicDeskRuntimeService.stop(context.getApplicationContext());
+            MagicDeskRuntime.stop(context.getApplicationContext());
         }
     }
 }

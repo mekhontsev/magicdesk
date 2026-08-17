@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -70,6 +72,16 @@ public final class ShellFileSystemTest {
         entries.sort(ShellFileSystem.comparator(
                 ShellFileSystem.SORT_SIZE, false));
         assertEquals(newerLarge, entries.get(0));
+    }
+
+    @Test
+    public void searchMatchesNamesCaseInsensitively() {
+        assertTrue(ShellFileSystem.matchesSearchQuery(
+                "MagicDesk Report.txt", "desk"));
+        assertFalse(ShellFileSystem.matchesSearchQuery(
+                "MagicDesk Report.txt", "video"));
+        assertFalse(ShellFileSystem.matchesSearchQuery(
+                "MagicDesk Report.txt", ""));
     }
 
     private static ShellFileInfo entry(

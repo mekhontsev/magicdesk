@@ -93,19 +93,27 @@ final class DesktopWallpaperController {
         mExecutor.execute(() -> {
             try {
                 ShellAccess.deleteDesktopWallpaper();
-                mMainHandler.post(() -> {
+                postToActivity(() -> {
                     mActivity.setStatus(mActivity.getString(
                             R.string.status_system_wallpaper_restored));
                     reload();
                 });
             } catch (IOException | RuntimeException error) {
-                mMainHandler.post(() -> mActivity.setErrorStatus(
+                postToActivity(() -> mActivity.setErrorStatus(
                         "WALLPAPER-003",
                         mActivity.getString(
                                 R.string.status_desktop_wallpaper_failed,
                                 usefulMessage(error)),
                         ShellDesktopDirectory.WALLPAPER_RELATIVE_PATH,
                         error));
+            }
+        });
+    }
+
+    private void postToActivity(final Runnable action) {
+        mMainHandler.post(() -> {
+            if (mStarted && !mActivity.isActivityUnavailable()) {
+                action.run();
             }
         });
     }

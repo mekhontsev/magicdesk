@@ -62,7 +62,8 @@ final class WindowedAppLauncher {
                     preservedTaskIds,
                     false,
                     explicitWindowed,
-                    bounds);
+                    bounds,
+                    null);
             if (existing.found) {
                 return;
             }
@@ -75,13 +76,8 @@ final class WindowedAppLauncher {
         if (component == null) {
             throw new IOException("launcher activity is not explicit");
         }
-        final boolean restoreTouchpad =
-                ConsoleModeSwitcher.isTouchpadVisible();
-        if (restoreTouchpad) {
-            DesktopTaskController.expectTouchpadDisplacement();
-        }
-        int taskId = -1;
-        try {
+        try (WindowedTaskLaunchLease launchLease =
+                WindowedTaskLaunchLease.acquire()) {
             final String launchCommand =
                     DesktopDisplayDrivers.forActiveDisplay(displayId)
                             .features().temporaryLaunchArea
@@ -97,12 +93,12 @@ final class WindowedAppLauncher {
                                             bounds);
             final String output = ShellAccess.run(
                     launchCommand);
-            taskId = parseTaskId(output);
+            final int taskId = parseTaskId(output);
             if (taskReadyCallback != null) {
                 taskReadyCallback.onTaskReady();
             }
             if (explicitWindowed) {
-                DesktopTaskController.beginExplicitWindowedLaunch(taskId);
+                launchLease.protectStartupTask(taskId);
             }
             if (createNew) {
                 ExistingTaskController.confirmLaunchedWindow(
@@ -115,18 +111,11 @@ final class WindowedAppLauncher {
                         preservedTaskIds,
                         true,
                         false,
-                        bounds);
+                        bounds,
+                        launchLease);
                 if (!launched.found) {
                     throw new IOException("launched task not found");
                 }
-            }
-        } finally {
-            if (explicitWindowed && taskId >= 0) {
-                DesktopTaskController.finishExplicitWindowedLaunch(taskId);
-            }
-            if (restoreTouchpad) {
-                DesktopTaskController.finishTouchpadPreservation();
-                ConsoleModeSwitcher.restoreTouchpadIfMissing();
             }
         }
     }
@@ -138,7 +127,8 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease launchLease) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
                         launchTarget,
@@ -146,14 +136,16 @@ final class WindowedAppLauncher {
                         preservedTaskIds,
                         waitForTask,
                         explicitWindowed,
-                        targetBounds)
+                        targetBounds,
+                        launchLease)
                 : ExistingTaskController.reuseFreeformIfExists(
                         launchTarget,
                         displayId,
                         preservedTaskIds,
                         waitForTask,
                         explicitWindowed,
-                        targetBounds);
+                        targetBounds,
+                        launchLease);
     }
 
     private static int parseTaskId(final String output) throws IOException {

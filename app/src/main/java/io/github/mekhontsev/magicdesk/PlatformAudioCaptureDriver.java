@@ -6,6 +6,13 @@ import java.io.IOException;
 
 /** Optional internal-audio backend used alongside Android screenrecord. */
 public interface PlatformAudioCaptureDriver {
+    enum Availability {
+        DECLARED,
+        MISSING,
+        UNKNOWN,
+        UNSUPPORTED
+    }
+
     interface Recorder extends AutoCloseable {
         void start() throws IOException;
 
@@ -15,7 +22,11 @@ public interface PlatformAudioCaptureDriver {
         void close();
     }
 
-    boolean isAvailable();
+    Availability availability();
+
+    default boolean isAvailable() {
+        return availability() == Availability.DECLARED;
+    }
 
     String capabilityDescription();
 

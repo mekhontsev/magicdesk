@@ -24,6 +24,7 @@ import android.window.OnBackInvokedDispatcher;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +40,8 @@ public final class FileManagerActivity extends Activity
         ShellAccess.StateListener {
     static final String EXTRA_PATH =
             "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_PATH";
+    private static final String EXTRA_REVEAL_PATH =
+            "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_REVEAL_PATH";
     static final String DEFAULT_PATH = "/storage/emulated/0";
 
     private static final String PREFERENCES = "file_manager";
@@ -48,6 +51,7 @@ public final class FileManagerActivity extends Activity
     private static final String STATE_HISTORY = "history";
     private static final String STATE_HISTORY_INDEX = "history_index";
     private static final int PAGE_SIZE = 500;
+    private static final int MAX_SEARCH_RESULTS = 1000;
     private final ExecutorService mWorker =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -63,10 +67,20 @@ public final class FileManagerActivity extends Activity
     private final Map<String, DesktopFolderShortcut> mFolderShortcuts =
             new LinkedHashMap<>();
     private final Set<Integer> mHeldModifierKeys = new HashSet<>();
+    private final IShellDirectoryObserverCallback mDirectoryCallback =
+            new IShellDirectoryObserverCallback.Stub() {
+                @Override
+                public void onDirectoryChanged(final String absolutePath) {
+                    runOnUiThread(() -> scheduleObservedRefresh(absolutePath));
+                }
+            };
 
     private FileManagerView mView;
     private FileManagerOperationController mOperations;
     private FileManagerImportController mImporter;
+    private FileManagerSearchController mSearch;
+    private ShellDirectoryObserverHandle mDirectoryObserver;
+    private int mDirectoryObserverGeneration;
     private FileOpenWithController mOpenWith;
     private PopupWindow mItemMenu;
     private OnBackInvokedCallback mBackCallback;
@@ -80,7 +94,10 @@ public final class FileManagerActivity extends Activity
     private FileManagerLayoutMode mLayoutMode =
             FileManagerLayoutMode.LIST;
     private String mFilterQuery = "";
-    private long mPendingClipboardGeneration = -1L;
+    private String mPendingRevealPath;
+    private boolean mSearchMode;
+    private String mSearchQuery = "";
+    private boolean mDirectoryRefreshScheduled;
     private volatile boolean mDestroyed;
 
     static Intent createIntent(final Context context, final String path) {
@@ -88,6 +105,15 @@ public final class FileManagerActivity extends Activity
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra(EXTRA_PATH,
                         path == null ? DEFAULT_PATH : path);
+    }
+
+    static Intent createRevealIntent(
+            final Context context, final ShellFileInfo file) {
+        final String directory = file.directory
+                ? file.absolutePath
+                : ShellFilePathPolicy.shellParent(file.absolutePath);
+        return createIntent(context, directory).putExtra(
+                EXTRA_REVEAL_PATH, file.absolutePath);
     }
 
     static Intent createIntent(final Context context) {
@@ -123,23 +149,12 @@ public final class FileManagerActivity extends Activity
         mOpenWith = new FileOpenWithController(this);
         mOperations = new FileManagerOperationController(
                 this,
-                mWorker,
                 new FileManagerOperationController.Listener() {
                     @Override
                     public void onOperationFinished(
                             final boolean successful,
-                            final String message,
-                            final boolean movedClipboard) {
-                        finishOperation(successful, message, movedClipboard);
-                    }
-
-                    @Override
-                    public void onOperationStartFailed(
-                            final Throwable error) {
-                        mPendingClipboardGeneration = -1L;
-                        mView.setStatus(getString(
-                                R.string.file_manager_operation_failed,
-                                ShellAccess.usefulMessage(error)));
+                            final String message) {
+                        finishOperation(successful, message);
                     }
                 });
         mImporter = new FileManagerImportController(
@@ -161,6 +176,37 @@ public final class FileManagerActivity extends Activity
                     }
                     onRefresh();
                 });
+        mSearch = new FileManagerSearchController(
+                this,
+                mWorker,
+                new FileManagerSearchController.Listener() {
+                    @Override
+                    public void onSearchBatch(
+                            final List<ShellFileInfo> matches) {
+                        if (!mSearchMode || mDestroyed) {
+                            return;
+                        }
+                        mFiles.addAll(matches);
+                        renderFiles();
+                    }
+
+                    @Override
+                    public void onSearchFinished(
+                            final boolean successful,
+                            final boolean truncated,
+                            final String message) {
+                        finishSearch(successful, truncated, message);
+                    }
+
+                    @Override
+                    public void onSearchStartFailed(
+                            final Throwable error) {
+                        finishSearch(
+                                false,
+                                false,
+                                ShellAccess.usefulMessage(error));
+                    }
+                });
         setContentView(mView.root());
         mView.setTerminalVisible(TermuxIntegration.isInstalled(this));
         if (savedInstanceState != null
@@ -181,6 +227,7 @@ public final class FileManagerActivity extends Activity
                     PREF_LAST_PATH, DEFAULT_PATH);
             mCurrentPath = requested == null ? stored : requested;
         }
+        mPendingRevealPath = getIntent().getStringExtra(EXTRA_REVEAL_PATH);
         mBackCallback = this::onBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -193,7 +240,9 @@ public final class FileManagerActivity extends Activity
         super.onNewIntent(intent);
         setIntent(intent);
         final String requested = intent.getStringExtra(EXTRA_PATH);
+        mPendingRevealPath = intent.getStringExtra(EXTRA_REVEAL_PATH);
         if (requested != null) {
+            stopSearchMode();
             loadDirectory(requested, true, -1);
         }
     }
@@ -207,6 +256,10 @@ public final class FileManagerActivity extends Activity
         if (mOperations != null) {
             mOperations.close();
         }
+        if (mSearch != null) {
+            mSearch.close();
+        }
+        closeDirectoryObserver();
         if (mOpenWith != null) {
             mOpenWith.close();
         }
@@ -269,11 +322,19 @@ public final class FileManagerActivity extends Activity
             final boolean ready = snapshot != null && snapshot.isReady();
             mView.setShellReady(ready);
             if (ready) {
-                loadDirectory(
-                        mCurrentPath,
-                        mHistory.isEmpty(),
-                        mHistoryIndex);
+                if (mSearchMode) {
+                    startSearch(mSearchQuery);
+                } else {
+                    loadDirectory(
+                            mCurrentPath,
+                            mHistory.isEmpty(),
+                            mHistoryIndex);
+                }
             } else {
+                closeDirectoryObserver();
+                if (mSearch != null) {
+                    mSearch.cancel();
+                }
                 mView.setStatus(getString(
                         R.string.file_manager_access_unavailable,
                         snapshot == null ? "unknown" : snapshot.error));
@@ -283,6 +344,10 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onBack() {
+        if (mSearchMode) {
+            exitSearch();
+            return;
+        }
         if (!mSelected.isEmpty()) {
             clearSelection();
             return;
@@ -319,11 +384,16 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onRefresh() {
+        if (mSearchMode) {
+            startSearch(mSearchQuery);
+            return;
+        }
         loadDirectory(mCurrentPath, false, mHistoryIndex);
     }
 
     @Override
     public void onNavigate(final String path) {
+        stopSearchMode();
         loadDirectory(path, true, -1);
     }
 
@@ -396,6 +466,7 @@ public final class FileManagerActivity extends Activity
 
     private void onOpen(final ShellFileInfo file) {
         if (file.directory) {
+            stopSearchMode();
             loadDirectory(file.absolutePath, true, -1);
         } else if (file.name.toLowerCase(Locale.ROOT).endsWith(".desktop")) {
             openDesktopEntry(file);
@@ -876,6 +947,32 @@ public final class FileManagerActivity extends Activity
     }
 
     @Override
+    public void onRecursiveSearchRequested() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint(R.string.file_manager_search_hint);
+        input.setText(mSearchQuery);
+        input.setSelection(input.length());
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.file_manager_search_title)
+                .setView(input)
+                .setPositiveButton(R.string.file_manager_search, null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(
+                AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            final String query = input.getText().toString().trim();
+            if (query.isEmpty()) {
+                input.setError(getString(R.string.file_manager_search_hint));
+                return;
+            }
+            dialog.dismiss();
+            startSearch(query);
+        }));
+        dialog.show();
+    }
+
+    @Override
     public void onRequestPermissionsResult(
             final int requestCode,
             final String[] permissions,
@@ -891,49 +988,42 @@ public final class FileManagerActivity extends Activity
     @Override
     public boolean onKeyShortcut(
             final int keyCode, final KeyEvent event) {
-        if (event.isCtrlPressed() && keyCode == KeyEvent.KEYCODE_F) {
+        final FileKeyboardCommand command =
+                FileKeyboardCommand.fromShortcut(keyCode, event);
+        if (command == FileKeyboardCommand.FIND) {
             mView.focusFilter();
             return true;
         }
-        if (event.isCtrlPressed()
-                && !event.isShiftPressed()
-                && keyCode == KeyEvent.KEYCODE_N) {
+        if (command == FileKeyboardCommand.NEW_WINDOW) {
             onNewWindow();
             return true;
         }
         if (getCurrentFocus() instanceof EditText) {
             return super.onKeyShortcut(keyCode, event);
         }
-        if (event.isCtrlPressed() && keyCode == KeyEvent.KEYCODE_L) {
-            mView.focusPath();
-            return true;
-        }
-        if (!event.isCtrlPressed()) {
-            return super.onKeyShortcut(keyCode, event);
-        }
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_A:
+        switch (command) {
+            case FOCUS_LOCATION:
+                mView.focusPath();
+                return true;
+            case SELECT_ALL:
                 selectAll();
                 return true;
-            case KeyEvent.KEYCODE_C:
+            case COPY:
                 onCopy();
                 return true;
-            case KeyEvent.KEYCODE_X:
+            case CUT:
                 onCut();
                 return true;
-            case KeyEvent.KEYCODE_V:
+            case PASTE:
                 onPaste();
                 return true;
-            case KeyEvent.KEYCODE_H:
+            case TOGGLE_HIDDEN:
                 onShowHiddenChanged(!mShowHidden);
                 mView.setShowHidden(mShowHidden);
                 return true;
-            case KeyEvent.KEYCODE_N:
-                if (event.isShiftPressed()) {
-                    onNewFolder();
-                    return true;
-                }
-                break;
+            case NEW_FOLDER:
+                onNewFolder();
+                return true;
             default:
                 break;
         }
@@ -945,38 +1035,34 @@ public final class FileManagerActivity extends Activity
         if (getCurrentFocus() instanceof EditText) {
             return super.onKeyDown(keyCode, event);
         }
-        if (event.isAltPressed() && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            onUp();
-            return true;
-        }
-        if (event.getRepeatCount() == 0) {
-            switch (keyCode) {
-                case KeyEvent.KEYCODE_F2:
-                    onRename();
+        switch (FileKeyboardCommand.fromKeyDown(keyCode, event)) {
+            case RENAME:
+                onRename();
+                return true;
+            case DELETE:
+                onDelete();
+                return true;
+            case REFRESH:
+                onRefresh();
+                return true;
+            case OPEN:
+                final ShellFileInfo selected = singleSelection();
+                if (selected != null) {
+                    onOpen(selected);
                     return true;
-                case KeyEvent.KEYCODE_FORWARD_DEL:
-                    onDelete();
+                }
+                break;
+            case CLEAR_SELECTION:
+                if (!mSelected.isEmpty()) {
+                    clearSelection();
                     return true;
-                case KeyEvent.KEYCODE_F5:
-                    onRefresh();
-                    return true;
-                case KeyEvent.KEYCODE_ENTER:
-                case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                    final ShellFileInfo selected = singleSelection();
-                    if (selected != null) {
-                        onOpen(selected);
-                        return true;
-                    }
-                    break;
-                case KeyEvent.KEYCODE_ESCAPE:
-                    if (!mSelected.isEmpty()) {
-                        clearSelection();
-                        return true;
-                    }
-                    break;
-                default:
-                    break;
-            }
+                }
+                break;
+            case UP:
+                onUp();
+                return true;
+            default:
+                break;
         }
         return super.onKeyDown(keyCode, event);
     }
@@ -1096,6 +1182,9 @@ public final class FileManagerActivity extends Activity
                     snapshot.error));
             return;
         }
+        // Do not let a late event from the previous directory supersede the
+        // navigation request while the new directory is being loaded.
+        closeDirectoryObserver();
         final String path = normalizeInputPath(requestedPath);
         if (!path.equals(mCurrentPath) && !mFilterQuery.isEmpty()) {
             mFilterQuery = "";
@@ -1141,6 +1230,16 @@ public final class FileManagerActivity extends Activity
                     mFolderShortcuts.putAll(shortcuts);
                     mSelected.clear();
                     mSelectionAnchorPath = null;
+                    if (mPendingRevealPath != null) {
+                        for (final ShellFileInfo entry : loaded) {
+                            if (mPendingRevealPath.equals(entry.absolutePath)) {
+                                mSelected.put(entry.absolutePath, entry);
+                                mSelectionAnchorPath = entry.absolutePath;
+                                break;
+                            }
+                        }
+                        mPendingRevealPath = null;
+                    }
                     if (addHistory) {
                         while (mHistory.size() > mHistoryIndex + 1) {
                             mHistory.remove(mHistory.size() - 1);
@@ -1159,6 +1258,7 @@ public final class FileManagerActivity extends Activity
                             .edit()
                             .putString(PREF_LAST_PATH, canonicalPath)
                             .apply();
+                    observeDirectory(canonicalPath);
                     renderFiles();
                 });
             } catch (IOException | RuntimeException error) {
@@ -1184,15 +1284,19 @@ public final class FileManagerActivity extends Activity
         mView.setFiles(
                 visible, mSelected.keySet(), mFolderShortcuts);
         mView.setNavigationEnabled(
-                mHistoryIndex > 0,
-                mHistoryIndex + 1 < mHistory.size(),
-                !"/".equals(mCurrentPath));
+                mSearchMode || mHistoryIndex > 0,
+                !mSearchMode && mHistoryIndex + 1 < mHistory.size(),
+                !mSearchMode && !"/".equals(mCurrentPath));
         updateActionState();
         if (!mSelected.isEmpty()) {
             mView.setStatus(getString(
                     R.string.file_manager_selected,
                     mSelected.size(),
                     FileSizeFormatter.format(selectedFileSize())));
+        } else if (mSearchMode) {
+            mView.setStatus(getString(
+                    R.string.file_manager_search_results,
+                    visible.size(), mSearchQuery));
         } else if (!mFilterQuery.isEmpty()) {
             mView.setStatus(getString(
                     R.string.file_manager_filtered,
@@ -1200,6 +1304,117 @@ public final class FileManagerActivity extends Activity
         } else {
             mView.setStatus(getString(
                     R.string.file_manager_items, mFiles.size()));
+        }
+    }
+
+    private void startSearch(final String query) {
+        if (mSearch == null || query == null || query.trim().isEmpty()) {
+            return;
+        }
+        closeDirectoryObserver();
+        mSearchMode = true;
+        mSearchQuery = query.trim();
+        mLoadGeneration.incrementAndGet();
+        mFiles.clear();
+        mSelected.clear();
+        mSelectionAnchorPath = null;
+        mFolderShortcuts.clear();
+        mView.setSearchResults(true);
+        mView.setLoading();
+        mView.setStatus(getString(
+                R.string.file_manager_searching,
+                mSearchQuery,
+                mCurrentPath));
+        if (!mSearch.start(
+                mCurrentPath,
+                mSearchQuery,
+                mShowHidden,
+                MAX_SEARCH_RESULTS)) {
+            finishSearch(false, false, "search unavailable");
+        }
+    }
+
+    private void finishSearch(
+            final boolean successful,
+            final boolean truncated,
+            final String message) {
+        if (!mSearchMode || mDestroyed) {
+            return;
+        }
+        mFiles.sort(Comparator.comparing(file -> file.absolutePath));
+        renderFiles();
+        if (!successful) {
+            mView.setStatus(getString(
+                    R.string.file_manager_search_failed, message));
+        } else if (truncated) {
+            mView.setStatus(getString(
+                    R.string.file_manager_search_truncated,
+                    mFiles.size(), MAX_SEARCH_RESULTS));
+        }
+    }
+
+    private void exitSearch() {
+        stopSearchMode();
+        loadDirectory(mCurrentPath, false, mHistoryIndex);
+    }
+
+    private void stopSearchMode() {
+        if (!mSearchMode) {
+            return;
+        }
+        mSearchMode = false;
+        mSearchQuery = "";
+        if (mSearch != null) {
+            mSearch.cancel();
+        }
+        mView.setSearchResults(false);
+    }
+
+    private void observeDirectory(final String path) {
+        closeDirectoryObserver();
+        if (mDestroyed || mSearchMode || !ShellAccess.isReady()) {
+            return;
+        }
+        final int observerGeneration = mDirectoryObserverGeneration;
+        try {
+            mDirectoryObserver = ShellAccess.openShellDirectoryObserver(
+                    path,
+                    mDirectoryCallback,
+                    () -> runOnUiThread(() -> {
+                        if (!mDestroyed
+                                && observerGeneration
+                                == mDirectoryObserverGeneration) {
+                            mDirectoryObserver = null;
+                        }
+                    }));
+        } catch (IOException | RuntimeException ignored) {
+            // Manual refresh remains available on filesystems without inotify.
+        }
+    }
+
+    private void scheduleObservedRefresh(final String path) {
+        if (mDestroyed
+                || mSearchMode
+                || !mCurrentPath.equals(path)
+                || mDirectoryRefreshScheduled) {
+            return;
+        }
+        mDirectoryRefreshScheduled = true;
+        mView.root().post(() -> {
+            mDirectoryRefreshScheduled = false;
+            if (!mDestroyed
+                    && !mSearchMode
+                    && mCurrentPath.equals(path)) {
+                loadDirectory(mCurrentPath, false, mHistoryIndex);
+            }
+        });
+    }
+
+    private void closeDirectoryObserver() {
+        mDirectoryObserverGeneration++;
+        if (mDirectoryObserver != null) {
+            mDirectoryObserver.close();
+            mDirectoryObserver = null;
         }
     }
 
@@ -1343,31 +1558,24 @@ public final class FileManagerActivity extends Activity
             final List<String> paths,
             final String destination,
             final long clipboardGeneration) {
-        mPendingClipboardGeneration = clipboardGeneration;
         if (!mOperations.startRemote(
                 operation,
                 paths,
                 destination,
-                clipboardGeneration >= 0L)) {
-            mPendingClipboardGeneration = -1L;
+                clipboardGeneration)) {
+            mView.setStatus(getString(
+                    R.string.file_manager_operation_busy));
         }
     }
 
     private void finishOperation(
             final boolean successful,
-            final String message,
-            final boolean movedClipboard) {
+            final String message) {
         if (successful) {
-            if (movedClipboard) {
-                FileManagerClipboard.clearIfGeneration(
-                        mPendingClipboardGeneration);
-            }
-            mPendingClipboardGeneration = -1L;
             mSelected.clear();
             mSelectionAnchorPath = null;
             onRefresh();
         } else {
-            mPendingClipboardGeneration = -1L;
             mView.setStatus(getString(
                     R.string.file_manager_operation_failed, message));
         }
@@ -1508,61 +1716,25 @@ public final class FileManagerActivity extends Activity
     }
 
     private void startConsoleWindow(final Intent intent) {
-        final int displayId = getDisplay() == null
-                ? 0 : getDisplay().getDisplayId();
         mView.setStatus(getString(
                 R.string.status_launching_window,
                 getString(R.string.console_title)));
-        if (!ShellAccess.isReady()) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
-                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-            startOnCurrentDisplay(intent);
-            return;
-        }
-        TaskCommandQueue.execute(() -> {
-            try {
-                List<TaskRepository.TaskEntry> visibleTasks =
-                        DesktopTaskController.getVisibleFreeformTasks(displayId);
-                if (visibleTasks == null || visibleTasks.isEmpty()) {
-                    visibleTasks = DesktopTaskController
-                            .selectVisibleFreeformTasks(
-                                    TaskRepository.loadNow(displayId));
-                }
-                WindowedAppLauncher.launchBuiltInWindow(
-                        intent,
-                        CommandConsoleActivity.launchTarget(),
-                        displayId,
-                        taskIds(visibleTasks),
-                        () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
-                                displayId,
-                                TaskRepository.loadNow(displayId)));
-                runOnUiThread(() -> {
-                    if (!mDestroyed) {
-                        mView.setStatus(getString(
-                                R.string.status_switch_done,
-                                getString(R.string.console_title)));
+        BuiltInWindowLauncher.launch(
+                this,
+                intent,
+                CommandConsoleActivity.launchTarget(),
+                error -> {
+                    if (mDestroyed) {
+                        return;
                     }
+                    mView.setStatus(error == null
+                            ? getString(
+                                    R.string.status_switch_done,
+                                    getString(R.string.console_title))
+                            : getString(
+                                    R.string.file_manager_open_failed,
+                                    ShellAccess.usefulMessage(error)));
                 });
-            } catch (IOException | RuntimeException error) {
-                runOnUiThread(() -> {
-                    if (!mDestroyed) {
-                        mView.setStatus(getString(
-                                R.string.file_manager_open_failed,
-                                ShellAccess.usefulMessage(error)));
-                    }
-                });
-            }
-        });
-    }
-
-    private static int[] taskIds(
-            final List<TaskRepository.TaskEntry> tasks) {
-        final int[] ids = new int[tasks == null ? 0 : tasks.size()];
-        for (int index = 0; index < ids.length; index++) {
-            ids[index] = tasks.get(index).taskId;
-        }
-        return ids;
     }
 
     private void runAsync(

@@ -51,7 +51,7 @@ final class DesktopSessionController {
         try {
             prepareDisplayWindowing(preparedTarget);
             final Boolean visibleTaskSnapshot =
-                    DesktopTaskController.hasVisibleAppTaskSnapshot(
+                    MagicDeskRuntime.hasVisibleAppTaskSnapshot(
                             preparedTarget.displayId);
             final boolean restoreWindows = visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
@@ -67,9 +67,10 @@ final class DesktopSessionController {
                         + " task=" + desktopTaskId
                         + " output=" + focusOutput.replace('\n', ' '));
                 if (restoreWindows) {
-                    DesktopRuntimeBridge.restoreLastVisibleWindows();
+                    MagicDeskRuntime.restoreLastVisibleWindows();
                 }
-                DesktopTaskParkingController.restoreWhenReady(preparedTarget);
+                MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
+                        preparedTarget);
                 return new ShowResult(true, false);
             }
 
@@ -88,7 +89,8 @@ final class DesktopSessionController {
                             + " " + preparedTarget.profileDisplayId
                             + " --es "
                             + DesktopShellActivity.EXTRA_PROFILE_KEY
-                            + " " + shellQuote(preparedTarget.profileKey)
+                            + " "
+                            + ShellCommandLine.quote(preparedTarget.profileKey)
                             + " --es "
                             + DesktopShellActivity.EXTRA_TARGET_KIND
                             + " " + preparedTarget.kind.name()
@@ -111,23 +113,20 @@ final class DesktopSessionController {
             final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
-                MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+                MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.displayId);
             }
             if (ready) {
-                DesktopTaskParkingController.restoreWhenReady(preparedTarget);
+                MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
+                        preparedTarget);
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
             DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
-            MagicDeskRuntimeService.reconcileFailedDesktopLaunchIfRunning(
+            MagicDeskRuntime.reconcileFailedDesktopLaunch(
                     preparedTarget.displayId);
             throw error;
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private static void prepareDisplayWindowing(

@@ -43,7 +43,7 @@ final class NubiaExternalDisplayModeController {
         final NubiaHdmiModeController.Mode requestedMode =
                 selection == null ? null : selection.target;
         final boolean deferExactMode = selection != null
-                && selection.requiresDeferredVendorMode();
+                && selection.requiresDeferredMode();
         final int preparedDisplayId = deferExactMode
                 ? physicalDisplayId
                 : NubiaHdmiModeController.applyIfNeeded(

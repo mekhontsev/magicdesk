@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Set;
 
 final class TaskbarController {
-    interface EdgeHoverListener {
-        void onHoverEvent(MotionEvent event);
+    interface EdgeInputListener {
+        void onEdgeInput(MotionEvent event);
     }
 
     private final DesktopShellActivity mActivity;
@@ -33,15 +33,19 @@ final class TaskbarController {
 
     private LinearLayout mTaskbar;
     private LinearLayout mPins;
+    private HorizontalScrollView mTaskViewport;
     private TextView mKeyboardLayout;
     private final InputMethodMenuController mInputMethodMenu;
+    private final TaskbarOverflowController mOverflow;
     private TextView mBatteryStatus;
     private ImageButton mSystemButton;
     private ImageButton mPhoneScreenButton;
     private Intent mLastBatteryIntent;
     private boolean mChargeSeparationEnabled;
     private final List<Integer> mTaskOrder = new ArrayList<>();
-    private EdgeHoverListener mEdgeHoverListener;
+    private EdgeInputListener mEdgeInputListener;
+    private boolean mEdgeHidden;
+    private boolean mHiddenEdgeTouchSequence;
 
     TaskbarController(
             final DesktopShellActivity activity,
@@ -49,6 +53,8 @@ final class TaskbarController {
         mActivity = activity;
         mUi = ui;
         mInputMethodMenu = new InputMethodMenuController(activity, ui);
+        mOverflow = new TaskbarOverflowController(
+                activity, ui, this::activate);
     }
 
     LinearLayout create() {
@@ -69,12 +75,25 @@ final class TaskbarController {
 
             @Override
             public boolean dispatchTouchEvent(final MotionEvent event) {
-                notifyEdgeHover(event);
+                final int action = event.getActionMasked();
+                boolean consumeHiddenSequence = mHiddenEdgeTouchSequence;
+                if (action == MotionEvent.ACTION_DOWN && mEdgeHidden) {
+                    mHiddenEdgeTouchSequence = true;
+                    consumeHiddenSequence = true;
+                }
+                notifyEdgeInput(event);
+                if (consumeHiddenSequence) {
+                    cancelBlankLongPress();
+                    if (action == MotionEvent.ACTION_UP
+                            || action == MotionEvent.ACTION_CANCEL) {
+                        mHiddenEdgeTouchSequence = false;
+                    }
+                    return true;
+                }
                 if (mActivity.handleDesktopMouseTouchEvent(event, true)) {
                     cancelBlankLongPress();
                     return true;
                 }
-                final int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_DOWN) {
                     cancelBlankLongPress();
                     if (!isActionAt(event.getX(), event.getY())) {
@@ -111,14 +130,20 @@ final class TaskbarController {
 
             @Override
             public boolean dispatchHoverEvent(final MotionEvent event) {
-                notifyEdgeHover(event);
+                notifyEdgeInput(event);
                 return super.dispatchHoverEvent(event);
             }
 
-            private void notifyEdgeHover(final MotionEvent event) {
-                final EdgeHoverListener listener = mEdgeHoverListener;
+            @Override
+            protected void onDetachedFromWindow() {
+                cancelBlankLongPress();
+                super.onDetachedFromWindow();
+            }
+
+            private void notifyEdgeInput(final MotionEvent event) {
+                final EdgeInputListener listener = mEdgeInputListener;
                 if (listener != null) {
-                    listener.onHoverEvent(event);
+                    listener.onEdgeInput(event);
                 }
             }
 
@@ -153,6 +178,14 @@ final class TaskbarController {
                 new HorizontalScrollView(mActivity);
         taskScroll.setHorizontalScrollBarEnabled(false);
         taskScroll.setFillViewport(true);
+        taskScroll.addOnLayoutChangeListener((view,
+                left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (right - left != oldRight - oldLeft && mPins != null) {
+                renderPins(mActivity.getLauncherApps());
+            }
+        });
+        mTaskViewport = taskScroll;
         mPins = new LinearLayout(mActivity);
         mPins.setOrientation(LinearLayout.HORIZONTAL);
         mPins.setGravity(Gravity.CENTER_VERTICAL);
@@ -272,9 +305,13 @@ final class TaskbarController {
     }
 
     void release() {
-        mEdgeHoverListener = null;
+        mEdgeInputListener = null;
+        mEdgeHidden = false;
+        mHiddenEdgeTouchSequence = false;
         mTaskbar = null;
         mPins = null;
+        mTaskViewport = null;
+        mOverflow.release();
         mKeyboardLayout = null;
         mInputMethodMenu.release();
         mBatteryStatus = null;
@@ -289,11 +326,12 @@ final class TaskbarController {
         }
     }
 
-    void setEdgeHoverListener(final EdgeHoverListener listener) {
-        mEdgeHoverListener = listener;
+    void setEdgeInputListener(final EdgeInputListener listener) {
+        mEdgeInputListener = listener;
     }
 
     void setEdgeHidden(final boolean hidden) {
+        mEdgeHidden = hidden;
         if (mTaskbar != null) {
             mTaskbar.setAlpha(hidden ? 0f : 1f);
         }
@@ -309,7 +347,28 @@ final class TaskbarController {
         if (mPins == null) {
             return;
         }
+        mOverflow.clear();
         mPins.removeAllViews();
+        final List<TaskbarOverflowController.Entry> items =
+                collectTaskbarItems(apps);
+        final int itemWidth = desktopDp(48, 36);
+        final int availableWidth = mTaskViewport == null
+                ? 0 : mTaskViewport.getWidth();
+        final int visibleCount = TaskbarOverflowPolicy.visibleItemCount(
+                items.size(), availableWidth, itemWidth);
+        for (int index = 0; index < visibleCount; index++) {
+            addPin(items.get(index));
+        }
+        if (visibleCount < items.size()) {
+            addOverflowButton(items.subList(visibleCount, items.size()));
+        }
+    }
+
+    private List<TaskbarOverflowController.Entry> collectTaskbarItems(
+            final List<AppItem> apps) {
+        final List<TaskbarOverflowController.Entry> items = new ArrayList<>();
+        final List<AppItem> availableApps = apps == null
+                ? new ArrayList<>() : apps;
         final List<String> pinnedPackages = mActivity.getPinnedPackages();
         final String workspacePackage = mActivity.getWorkspacePackage();
         if (workspacePackage != null
@@ -321,18 +380,19 @@ final class TaskbarController {
                 getOrderedTaskbarTasks();
 
         for (final String packageName : pinnedPackages) {
-            final AppItem app = LauncherAppRepository.find(apps, packageName);
+            final AppItem app = LauncherAppRepository.find(
+                    availableApps, packageName);
             if (app == null) {
                 continue;
             }
             final List<TaskRepository.TaskEntry> packageTasks =
                     findTasks(orderedTasks, app.launchTarget);
             if (packageTasks.isEmpty()) {
-                addPin(app, null);
+                items.add(new TaskbarOverflowController.Entry(app, null));
                 continue;
             }
             for (final TaskRepository.TaskEntry task : packageTasks) {
-                addPin(app, task);
+                items.add(new TaskbarOverflowController.Entry(app, task));
                 renderedTaskIds.add(Integer.valueOf(task.taskId));
             }
         }
@@ -342,11 +402,13 @@ final class TaskbarController {
                     Integer.valueOf(task.taskId))) {
                 continue;
             }
-            final AppItem app = mActivity.findOrLoadApp(apps, task);
+            final AppItem app = mActivity.findOrLoadApp(
+                    availableApps, task);
             if (app != null) {
-                addPin(app, task);
+                items.add(new TaskbarOverflowController.Entry(app, task));
             }
         }
+        return items;
     }
 
     List<String> getPinnedPackages() {
@@ -558,19 +620,18 @@ final class TaskbarController {
         }
     }
 
-    private void addPin(
-            final AppItem app,
-            final TaskRepository.TaskEntry task) {
+    private void addPin(final TaskbarOverflowController.Entry taskbarItem) {
         mPins.addView(
-                createPin(app, task),
+                createPin(taskbarItem),
                 new LinearLayout.LayoutParams(
                         desktopDp(48, 36),
                         LinearLayout.LayoutParams.MATCH_PARENT));
     }
 
     private View createPin(
-            final AppItem app,
-            final TaskRepository.TaskEntry task) {
+            final TaskbarOverflowController.Entry taskbarItem) {
+        final AppItem app = taskbarItem.app;
+        final TaskRepository.TaskEntry task = taskbarItem.task;
         final FrameLayout item = new FrameLayout(mActivity);
         final boolean workspaceApp =
                 mActivity.isWorkspaceApp(app.packageName);
@@ -621,16 +682,28 @@ final class TaskbarController {
                         Integer.valueOf(task.taskId));
         item.setContentDescription(description);
         item.setTooltipText(description);
-        item.setOnClickListener(view -> {
-            mActivity.hideAllPanels();
-            if (task == null) {
-                mActivity.launchDefault(app);
-            } else {
-                mActivity.toggleTaskbarTask(app, task);
-            }
-        });
+        item.setOnClickListener(view -> activate(taskbarItem));
         mActivity.registerContextTarget(item, app, task);
         return item;
+    }
+
+    private void addOverflowButton(
+            final List<TaskbarOverflowController.Entry> hiddenItems) {
+        mPins.addView(mOverflow.createButton(hiddenItems),
+                new LinearLayout.LayoutParams(
+                desktopDp(48, 36),
+                LinearLayout.LayoutParams.MATCH_PARENT));
+    }
+
+    private void activate(final TaskbarOverflowController.Entry taskbarItem) {
+        mActivity.hideAllPanels();
+        if (taskbarItem.task == null) {
+            mActivity.launchDefault(taskbarItem.app);
+        } else {
+            mActivity.toggleTaskbarTask(
+                    taskbarItem.app,
+                    taskbarItem.task);
+        }
     }
 
     private void addButton(
@@ -715,4 +788,5 @@ final class TaskbarController {
                 compactValue,
                 mActivity.isCompactDesktopPreview());
     }
+
 }

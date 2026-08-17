@@ -334,11 +334,11 @@ final class KeyboardShortcutWatcher {
         }
         final StringBuilder command =
                 new StringBuilder("exec ")
-                        .append(shellQuote(helper.getAbsolutePath()))
+                        .append(ShellCommandLine.quote(helper.getAbsolutePath()))
                         .append(" --layouts ")
                         .append(layoutCount);
         for (final DesktopKeyboardDevice keyboard : keyboards) {
-            command.append(' ').append(shellQuote(keyboard.path));
+            command.append(' ').append(ShellCommandLine.quote(keyboard.path));
         }
         return command.toString();
     }
@@ -392,8 +392,7 @@ final class KeyboardShortcutWatcher {
             final ShellStreamHandle keyboardStream,
             final long generation) {
         if ("MAGICDESK_KEYBOARD_ACTIVITY".equals(line)) {
-            MagicDeskRuntimeService
-                    .reactivatePointerOnNextMotionIfRunning();
+            MagicDeskRuntime.reactivatePointerOnNextMotion();
             return;
         }
         if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")
@@ -421,7 +420,7 @@ final class KeyboardShortcutWatcher {
             return;
         }
         if ("ESCAPE".equals(action)) {
-            DesktopTaskController.dismissTransientActivity();
+            MagicDeskRuntime.dismissTransientActivity();
             return;
         }
         if ("ALT_F4".equals(action)) {
@@ -522,7 +521,7 @@ final class KeyboardShortcutWatcher {
                 ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
                 break;
             case DISMISS:
-                DesktopTaskController.dismissTransientActivity();
+                MagicDeskRuntime.dismissTransientActivity();
                 break;
             case CLOSE:
                 ConsoleModeSwitcher.manageActiveWindow(
@@ -664,7 +663,4 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
-    }
 }

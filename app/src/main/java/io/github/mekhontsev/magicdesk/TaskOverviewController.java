@@ -21,6 +21,7 @@ final class TaskOverviewController {
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
     private LinearLayout mPanel;
+    private int mLoadGeneration;
 
     TaskOverviewController(
             final DesktopShellActivity activity,
@@ -63,9 +64,11 @@ final class TaskOverviewController {
         mActivity.captureInteractionStackForPanel();
         mActivity.hideAllPanels();
         final int displayId = mActivity.getCurrentDisplayId();
+        final int generation = ++mLoadGeneration;
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()
+                    if (generation != mLoadGeneration
+                            || mActivity.isActivityUnavailable()
                             || displayId != mActivity.getCurrentDisplayId()) {
                         return;
                     }
@@ -73,6 +76,10 @@ final class TaskOverviewController {
                     populate(snapshot);
                     showPanel();
                 }));
+    }
+
+    void cancelPendingShow() {
+        mLoadGeneration++;
     }
 
     void populate(final TaskRepository.Snapshot snapshot) {
@@ -163,6 +170,18 @@ final class TaskOverviewController {
     }
 
     boolean showPanel() {
+        return showPanel(true);
+    }
+
+    boolean showAltTabPanel() {
+        // Alt+Tab is driven by the global keyboard bridge. Keeping its overlay
+        // non-focusable avoids activating the desktop host behind a fullscreen
+        // application while still allowing the normal mouse-driven overview
+        // to remain interactive.
+        return showPanel(false);
+    }
+
+    private boolean showPanel(final boolean focusable) {
         final int areaWidth = mActivity.getDesktopAreaWidth();
         final int areaHeight = mActivity.getDesktopAreaHeight();
         final int width = Math.min(dp(760), areaWidth - dp(32));
@@ -181,7 +200,7 @@ final class TaskOverviewController {
                 top,
                 width,
                 height,
-                true,
+                focusable,
                 "MagicDesk open tasks")) {
             return true;
         }

@@ -51,8 +51,6 @@ public interface PlatformPhoneUiDriver {
 
     boolean isInputPanelTask(TaskRepository.TaskEntry task);
 
-    boolean requiresPhoneFreeformCleanup();
-
     boolean requiresPhoneUiReconciliation();
 
     boolean shouldRestoreLocalDesktopHost(
@@ -66,7 +64,7 @@ public interface PlatformPhoneUiDriver {
 
     boolean isPhoneScreenControlActive();
 
-    boolean setPhoneScreenOff(boolean screenOff);
+    boolean setPhoneScreenOff(boolean screenOff, int desktopDisplayId);
 
     void requestPhoneScreenRestore();
 

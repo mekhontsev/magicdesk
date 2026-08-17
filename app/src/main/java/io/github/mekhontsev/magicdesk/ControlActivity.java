@@ -79,13 +79,13 @@ public final class ControlActivity extends Activity
         }
         mStartupAuditRunning = true;
         new Thread(() -> {
-            final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
-                    getApplicationContext(), mSessionProfile);
-            if (!audit.canEnterMagicDesk()) {
-                runOnUiThread(this::openDeviceSetupAfterFailedAudit);
-                return;
-            }
             try {
+                final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
+                        getApplicationContext(), mSessionProfile);
+                if (!audit.canEnterMagicDesk()) {
+                    runOnUiThread(this::openDeviceSetupAfterFailedAudit);
+                    return;
+                }
                 DeviceSetupManager.ensureOverlayPermission(
                         getApplicationContext());
                 runOnUiThread(() -> {
@@ -96,10 +96,10 @@ public final class ControlActivity extends Activity
                     mStartupPrepared = true;
                     continueStartup();
                 });
-            } catch (java.io.IOException error) {
+            } catch (java.io.IOException | RuntimeException error) {
                 CompatibilityDiagnostics.record(
-                        "OVERLAY-002",
-                        "Desktop overlay permission provisioning failed",
+                        "SETUP-002",
+                        "MagicDesk startup audit failed",
                         error.getMessage() == null
                                 ? error.getClass().getSimpleName()
                                 : error.getMessage(),
@@ -172,7 +172,7 @@ public final class ControlActivity extends Activity
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             registerDisplayListener();
         }
-        MagicDeskRuntimeService.start(this);
+        MagicDeskRuntime.start(this);
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             scheduleExternalDisplayProbe(false, 0L);
         } else {
@@ -191,7 +191,7 @@ public final class ControlActivity extends Activity
         super.onResume();
         // Returning from a cancelled picker already leaves the panel visible.
         mReturnToPanelAfterWirelessConnection = false;
-        MagicDeskRuntimeService.refreshNotificationIfRunning();
+        MagicDeskRuntime.refreshNotification();
         mStatus = getString(isExternalDesktopActive()
                 ? R.string.control_status_console_active
                 : R.string.control_status_ready);
@@ -428,6 +428,9 @@ public final class ControlActivity extends Activity
         ConsoleModeSwitcher.setPhoneScreenOff(
                 screenOff,
                 success -> runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
                     final int result;
                     if (!success) {
                         result = R.string.status_phone_screen_failed;

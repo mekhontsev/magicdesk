@@ -6,10 +6,6 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ConsoleModeSwitcher {
     private static final String TAG = "MagicDeskConsoleSwitcher";
@@ -19,18 +15,18 @@ public final class ConsoleModeSwitcher {
             "io.github.mekhontsev.magicdesk.DeviceLockCommand";
     private static final String SCREENSHOT_DIRECTORY =
             "/storage/emulated/0/Pictures/Screenshots";
-    private static final AtomicBoolean DESKTOP_START_IN_PROGRESS = new AtomicBoolean();
-    private static final AtomicBoolean DESKTOP_CLOSE_IN_PROGRESS = new AtomicBoolean();
-
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(
-            new ThreadFactory() {
-                @Override
-                public Thread newThread(final Runnable runnable) {
-                    final Thread thread = new Thread(runnable, "MagicDeskConsoleSwitcher");
-                    thread.setDaemon(true);
-                    return thread;
-                }
-            });
+    private static final SerializedDesktopOperationQueue OPERATIONS =
+            new SerializedDesktopOperationQueue();
+    private static final PlatformDriver PLATFORM = PlatformDrivers.current();
+    private static final PlatformProjectionDriver PROJECTION =
+            PLATFORM.projection();
+    private static final PlatformPhoneUiDriver PHONE_UI = PLATFORM.phoneUi();
+    private static final DesktopSessionTransitionCoordinator TRANSITIONS =
+            new DesktopSessionTransitionCoordinator(
+                    OPERATIONS,
+                    MagicDeskApplication.applicationContext(),
+                    PLATFORM.features(),
+                    PROJECTION);
 
     private ConsoleModeSwitcher() {
     }
@@ -53,19 +49,22 @@ public final class ConsoleModeSwitcher {
 
     static void setPhoneScreenOff(final boolean screenOff,
             final ResultCallback callback) {
-        EXECUTOR.execute(new Runnable() {
+        OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
                 boolean success = false;
-                final boolean pointerCaptured = MagicDeskRuntimeService
-                        .capturePointerPositionIfRunning();
+                final boolean pointerCaptured = MagicDeskRuntime
+                        .capturePointerPosition();
                 if (pointerCaptured) {
-                    MagicDeskRuntimeService
-                            .restorePointerPositionOnNextMotionIfRunning();
+                    MagicDeskRuntime
+                            .restorePointerPositionOnNextMotion();
                 }
                 try {
-                    success = PlatformDrivers.current().phoneUi()
-                            .setPhoneScreenOff(screenOff);
+                    final int desktopDisplayId = screenOff
+                            ? TRANSITIONS.activeDesktopDisplayId()
+                            : android.view.Display.INVALID_DISPLAY;
+                    success = PHONE_UI.setPhoneScreenOff(
+                            screenOff, desktopDisplayId);
                     Log.i(TAG, "Shell phone display off="
                             + screenOff + " success=" + success);
                     if (!success) {
@@ -89,148 +88,32 @@ public final class ConsoleModeSwitcher {
     }
 
     static void showMagicDesk(final int knownConsoleDisplayId) {
-        if (DESKTOP_CLOSE_IN_PROGRESS.get()) {
-            Log.i(TAG, "Desktop close is already in progress");
-            return;
-        }
-        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
-            Log.i(TAG, "MagicDesk activation is already in progress");
-            return;
-        }
-        EXECUTOR.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    showPreferredDesktop(knownConsoleDisplayId);
-                } finally {
-                    DESKTOP_START_IN_PROGRESS.set(false);
-                }
-            }
-        });
+        TRANSITIONS.showPreferredDesktop(knownConsoleDisplayId);
     }
 
     static void showDesktop(final DesktopDisplayTarget target) {
-        if (target == null
-                || target.displayId <= android.view.Display.DEFAULT_DISPLAY) {
-            throw new IllegalArgumentException(
-                    "a prepared external display target is required");
-        }
-        if (!DesktopDisplayDrivers.isSupported(target.kind)) {
-            throw new IllegalStateException(
-                    "display target is unsupported by the current platform");
-        }
-        if (DESKTOP_CLOSE_IN_PROGRESS.get()
-                || !DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
-            Log.i(TAG, "MagicDesk activation is already in progress");
-            return;
-        }
-        EXECUTOR.execute(() -> {
-            try {
-                DesktopDisplayDrivers.forTarget(target)
-                        .show(null, target.displayId);
-            } finally {
-                DESKTOP_START_IN_PROGRESS.set(false);
-            }
-        });
+        TRANSITIONS.showDesktop(target);
     }
 
     static void closeDesktop(
             final DesktopDisplayTarget target,
             final boolean restorePhonePanel,
             final ResultCallback callback) {
-        if (target == null) {
-            complete(callback, false);
-            return;
-        }
-        if (!DESKTOP_CLOSE_IN_PROGRESS.compareAndSet(false, true)) {
-            Log.i(TAG, "Desktop close is already in progress");
-            complete(callback, false);
-            return;
-        }
-        DesktopTaskController.disableExternalTaskMigrationProtection();
-        final Runnable close = () -> {
-            try {
-                DesktopDisplayDrivers.forTarget(target).close(
-                        target,
-                        restorePhonePanel,
-                        success -> finishDesktopClose(
-                                callback, success));
-            } catch (RuntimeException error) {
-                Log.w(TAG, "Desktop close failed", error);
-                finishDesktopClose(callback, false);
-            }
-        };
-        if (restorePhonePanel
-                && target.displayId > android.view.Display.DEFAULT_DISPLAY) {
-            DesktopTaskParkingController.park(target, parked -> {
-                if (!parked) {
-                    Log.w(TAG, "Desktop close continues after partial task parking");
-                }
-                close.run();
-            });
-        } else {
-            close.run();
-        }
-    }
-
-    private static void finishDesktopClose(
-            final ResultCallback callback,
-            final boolean success) {
-        DESKTOP_CLOSE_IN_PROGRESS.set(false);
-        if (!success) {
-            DesktopTaskController.restoreExternalTaskMigrationProtection();
-        }
-        complete(callback, success);
-    }
-
-    private static void complete(
-            final ResultCallback callback,
-            final boolean success) {
-        if (callback != null) {
-            callback.onComplete(success);
-        }
-    }
-
-    private static void showPreferredDesktop(
-            final int knownConsoleDisplayId) {
-        final boolean wiredSupported = DesktopDisplayDrivers.isSupported(
-                DesktopDisplayTarget.Kind.WIRED);
-        final boolean wirelessSupported = DesktopDisplayDrivers.isSupported(
-                DesktopDisplayTarget.Kind.WIRELESS);
-        if (wiredSupported
-                && (knownConsoleDisplayId > android.view.Display.DEFAULT_DISPLAY
-                || PlatformDrivers.current().projection()
-                        .activeDesktopDisplayId(
-                                MagicDeskApplication.applicationContext())
-                        > android.view.Display.DEFAULT_DISPLAY
-                || ConsoleDisplayController.findExternalDisplayId()
-                        > android.view.Display.DEFAULT_DISPLAY)) {
-            DesktopDisplayDrivers
-                    .forKind(DesktopDisplayTarget.Kind.WIRED)
-                    .show(null, knownConsoleDisplayId);
-            return;
-        }
-        final int wirelessDisplayId =
-                ConsoleDisplayController.findWirelessDisplayId();
-        if (wirelessSupported
-                && wirelessDisplayId > android.view.Display.DEFAULT_DISPLAY) {
-            DesktopDisplayDrivers
-                    .forKind(DesktopDisplayTarget.Kind.WIRELESS)
-                    .show(null, wirelessDisplayId);
-            return;
-        }
-        Log.i(TAG, "No connected external display is available");
+        TRANSITIONS.closeDesktop(
+                target,
+                restorePhonePanel,
+                callback == null ? null : callback::onComplete);
     }
 
     static void toggleDesktopWorkspace() {
-        if (!DesktopRuntimeBridge.toggleDesktopWorkspace()) {
+        if (!MagicDeskRuntime.toggleDesktopWorkspace()) {
             showMagicDesk();
         }
     }
 
     static void probeExternalDisplay(
             final ExternalDisplayProbeCallback callback) {
-        EXECUTOR.execute(() -> {
+        OPERATIONS.execute(() -> {
             final int wiredDisplayId =
                     ConsoleDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
@@ -242,8 +125,7 @@ public final class ConsoleModeSwitcher {
                         MagicDeskApplication.applicationContext();
                 displayProfile = DisplayProfileController
                         .prepareExternalProfile(context, wiredDisplayId);
-                selection = PlatformDrivers.current().projection()
-                        .readExternalDisplayModes(
+                selection = PROJECTION.readExternalDisplayModes(
                         context,
                         wiredDisplayId,
                         displayProfile == null
@@ -277,95 +159,42 @@ public final class ConsoleModeSwitcher {
     }
 
     static void restorePhoneAfterExternalDesktop() {
-        EXECUTOR.execute(() -> {
-            PlatformDrivers.current().phoneUi().setPhoneScreenOff(false);
+        OPERATIONS.execute(() -> {
+            PHONE_UI.setPhoneScreenOff(
+                    false, android.view.Display.INVALID_DISPLAY);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
     }
 
     static void restorePrimaryPhoneHome() {
-        EXECUTOR.execute(() -> runConsoleCommand(
+        OPERATIONS.execute(() -> runConsoleCommand(
                 PhoneHomeRecoveryController.primaryHomeCommand()));
     }
 
     static void updateExternalTaskCaptionTarget(
             final int displayId,
             final boolean wiredDesktop) {
-        EXECUTOR.execute(new Runnable() {
-            @Override
-            public void run() {
-                final PlatformProjectionDriver.Transport transport;
-                if (displayId <= android.view.Display.DEFAULT_DISPLAY) {
-                    transport = PlatformProjectionDriver.Transport.NONE;
-                } else if (wiredDesktop) {
-                    transport = PlatformProjectionDriver.Transport.WIRED;
-                } else if (ConsoleDisplayController.findWirelessDisplayId()
-                        == displayId) {
-                    transport = PlatformProjectionDriver.Transport.WIRELESS;
-                } else {
-                    transport = PlatformProjectionDriver.Transport.NONE;
-                }
-                PlatformDrivers.current().projection()
-                        .setCaptionTransport(transport);
-            }
-        });
+        TRANSITIONS.updateCaptionTransport(displayId, wiredDesktop);
     }
 
     static void switchToMirror(final ResultCallback callback) {
-        if (!DESKTOP_START_IN_PROGRESS.compareAndSet(false, true)) {
-            Log.i(TAG, "Console mode transition is already in progress");
-            if (callback != null) {
-                callback.onComplete(false);
-            }
-            return;
-        }
-        EXECUTOR.execute(() -> {
-                    boolean success = false;
-                    try {
-                        if (getActiveConsoleDisplayId() <= 0) {
-                            success = true;
-                        } else if (PlatformDrivers.current().projection()
-                                .requestMirrorMode()) {
-                            success = PlatformDrivers.current().projection()
-                                    .waitForDesktopStop(
-                                            MagicDeskApplication
-                                                    .applicationContext());
-                            if (!success) {
-                                Log.w(TAG,
-                                        "Console display remained active after Mirror request");
-                            }
-                        }
-                        if (success && ShellAccess.isReady()) {
-                            PlatformDrivers.current().projection()
-                                    .setCaptionTransport(
-                                            PlatformProjectionDriver
-                                                    .Transport.NONE);
-                        }
-                    } finally {
-                        DESKTOP_START_IN_PROGRESS.set(false);
-                        if (callback != null) {
-                            callback.onComplete(success);
-                        }
-                    }
-                });
+        TRANSITIONS.switchToMirror(
+                false,
+                callback == null ? null : callback::onComplete);
     }
 
     static void switchToMirrorWithControlPanel(
             final ResultCallback callback) {
-        ControlActivity.finishActiveForMirrorTransition();
-        switchToMirror(success -> {
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
-            if (callback != null) {
-                callback.onComplete(success);
-            }
-        });
+        TRANSITIONS.switchToMirror(
+                true,
+                callback == null ? null : callback::onComplete);
     }
 
     static void returnConsoleTasksToPhone(
             final DesktopDisplayTarget target,
             final ResultCallback callback) {
-        DesktopTaskController.disableExternalTaskMigrationProtection();
-        EXECUTOR.execute(new Runnable() {
+        MagicDeskRuntime.disableExternalTaskMigrationProtection();
+        OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
                 boolean success = false;
@@ -389,7 +218,7 @@ public final class ConsoleModeSwitcher {
                     Log.w(TAG, "Console task return failed", error);
                 } finally {
                     if (!success) {
-                        DesktopTaskController
+                        MagicDeskRuntime
                                 .restoreExternalTaskMigrationProtection();
                     }
                     if (callback != null) {
@@ -402,30 +231,29 @@ public final class ConsoleModeSwitcher {
 
     static void showMagicDeskStart() {
         Log.i(TAG, "show MagicDesk Start overlay");
-        if (!DesktopRuntimeBridge.showStart()
-                && !MagicDeskRuntimeService.showStartIfRunning()) {
+        if (!MagicDeskRuntime.showStart()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Start");
         }
     }
 
     static void advanceAltTab(final boolean reverse) {
-        if (!DesktopRuntimeBridge.advanceAltTab(reverse)) {
+        if (!MagicDeskRuntime.advanceAltTab(reverse)) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab");
         }
     }
 
     static void finishAltTab() {
-        if (!DesktopRuntimeBridge.finishAltTab()) {
+        if (!MagicDeskRuntime.finishAltTab()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab completion");
         }
     }
 
     static void cancelAltTab() {
-        DesktopRuntimeBridge.cancelAltTab();
+        MagicDeskRuntime.cancelAltTab();
     }
 
     static void sendSystemBack() {
-        if (!DesktopTaskController.sendSystemBack()) {
+        if (!MagicDeskRuntime.sendSystemBack()) {
             Log.w(TAG, "system Back shortcut unavailable");
         }
     }
@@ -436,7 +264,7 @@ public final class ConsoleModeSwitcher {
                     + ShellAccess.statusLabel());
             return;
         }
-        EXECUTOR.execute(new Runnable() {
+        OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
                 final String output = runConsoleCommand(
@@ -451,31 +279,31 @@ public final class ConsoleModeSwitcher {
     }
 
     static void manageActiveWindow(final int shortcut) {
-        if (!DesktopTaskController.handleActiveTaskShortcut(shortcut)) {
+        if (!MagicDeskRuntime.handleActiveTaskShortcut(shortcut)) {
             Log.w(TAG, "window shortcut unavailable action=" + shortcut);
         }
     }
 
     static void showShortcutHelp() {
-        if (!DesktopRuntimeBridge.toggleShortcutHelp()) {
+        if (!MagicDeskRuntime.toggleShortcutHelp()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for shortcut help");
         }
     }
 
     static void toggleNotificationCenter() {
-        if (!DesktopRuntimeBridge.toggleNotificationCenter()) {
+        if (!MagicDeskRuntime.toggleNotificationCenter()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for notifications");
         }
     }
 
     static void toggleSystemPanel() {
-        if (!DesktopRuntimeBridge.toggleSystemPanel()) {
+        if (!MagicDeskRuntime.toggleSystemPanel()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for system controls");
         }
     }
 
     static void openSettings() {
-        if (!DesktopRuntimeBridge.openSettings()) {
+        if (!MagicDeskRuntime.openSettings()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for settings");
         }
     }
@@ -489,7 +317,7 @@ public final class ConsoleModeSwitcher {
                     "Shizuku unavailable: " + ShellAccess.statusLabel());
             return;
         }
-        EXECUTOR.execute(new Runnable() {
+        OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
                 captureScreenshotInternal();
@@ -506,17 +334,11 @@ public final class ConsoleModeSwitcher {
     }
 
     public static void executeSerialized(final Runnable action) {
-        EXECUTOR.execute(action);
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
+        OPERATIONS.execute(action);
     }
 
     static int getActiveConsoleDisplayId() {
-        return PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(
-                        MagicDeskApplication.applicationContext());
+        return TRANSITIONS.activeDesktopDisplayId();
     }
 
     private static void captureScreenshotInternal() {
@@ -536,16 +358,18 @@ public final class ConsoleModeSwitcher {
             Log.i(TAG, "screenshot capture starting path=" + path
                     + " " + capture.diagnosticDetail());
             final String command = "umask 002; "
-                    + "/system/bin/mkdir -p " + shellQuote(SCREENSHOT_DIRECTORY)
+                    + "/system/bin/mkdir -p "
+                    + ShellCommandLine.quote(SCREENSHOT_DIRECTORY)
                     + " && /system/bin/screencap " + displayArgument
-                    + "-p " + shellQuote(path)
-                    + " && /system/bin/test -s " + shellQuote(path)
-                    + " && /system/bin/chmod 0664 " + shellQuote(path)
+                    + "-p " + ShellCommandLine.quote(path)
+                    + " && /system/bin/test -s " + ShellCommandLine.quote(path)
+                    + " && /system/bin/chmod 0664 " + ShellCommandLine.quote(path)
                     + " && /system/bin/am broadcast --user 0"
                     + " -a android.intent.action.MEDIA_SCANNER_SCAN_FILE"
-                    + " -d " + shellQuote("file://" + path)
+                    + " -d " + ShellCommandLine.quote("file://" + path)
                     + " >/dev/null"
-                    + " && echo " + shellQuote("screenshot-saved=" + path);
+                    + " && echo "
+                    + ShellCommandLine.quote("screenshot-saved=" + path);
             final String output = ShellAccess.run(command).trim();
             if (!output.contains("screenshot-saved=" + path)) {
                 throw new IOException(

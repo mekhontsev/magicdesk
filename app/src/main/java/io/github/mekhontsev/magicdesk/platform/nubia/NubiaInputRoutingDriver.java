@@ -33,7 +33,12 @@ final class NubiaInputRoutingDriver implements PlatformInputRoutingDriver {
             panelToken = null;
         }
         if (nativeConsoleTarget) {
-            setMouseInputSourceOverride(true);
+            try {
+                setMouseInputSourceOverride(true);
+            } catch (IOException | InterruptedException error) {
+                clearPanelRegistration(displayManager, notePanelStatus);
+                throw error;
+            }
         }
         return new NubiaSession(
                 displayManager,
@@ -64,6 +69,20 @@ final class NubiaInputRoutingDriver implements PlatformInputRoutingDriver {
             throws ReflectiveOperationException {
         return Class.forName("android.hardware.display.IDisplayManager")
                 .getMethod("noteMirrorInputPanelStatus", IBinder.class);
+    }
+
+    private static void clearPanelRegistration(
+            final Object displayManager,
+            final Method notePanelStatus) {
+        if (displayManager == null || notePanelStatus == null) {
+            return;
+        }
+        try {
+            notePanelStatus.invoke(displayManager, new Object[] {null});
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            System.err.println(
+                    "MAGICDESK_INPUT_ROUTING_CLEANUP panel=" + error);
+        }
     }
 
     private static void setMouseInputSourceOverride(final boolean enabled)
@@ -135,15 +154,7 @@ final class NubiaInputRoutingDriver implements PlatformInputRoutingDriver {
                                     + error);
                 }
             }
-            if (mNotePanelStatus != null && mDisplayManager != null) {
-                try {
-                    mNotePanelStatus.invoke(
-                            mDisplayManager, new Object[] {null});
-                } catch (ReflectiveOperationException | RuntimeException error) {
-                    System.err.println(
-                            "MAGICDESK_INPUT_ROUTING_CLEANUP panel=" + error);
-                }
-            }
+            clearPanelRegistration(mDisplayManager, mNotePanelStatus);
         }
     }
 }

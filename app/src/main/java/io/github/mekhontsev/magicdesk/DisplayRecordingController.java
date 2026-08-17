@@ -16,7 +16,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-final class DisplayRecordingController {
+final class DisplayRecordingController implements ShellAccess.StateListener {
     private static final String TAG = "MagicDeskRecording";
     private static final String OUTPUT_DIRECTORY =
             "/storage/emulated/0/Movies/MagicDesk";
@@ -57,8 +57,10 @@ final class DisplayRecordingController {
 
     private Snapshot mSnapshot = new Snapshot(State.IDLE, "");
     private String mCaptureDetail;
+    private long mOperationGeneration;
 
     private DisplayRecordingController() {
+        ShellAccess.addStateListener(this);
     }
 
     static DisplayRecordingController get() {
@@ -75,28 +77,48 @@ final class DisplayRecordingController {
         }
         mListeners.add(listener);
         final Snapshot snapshot = snapshot();
-        mMainHandler.post(() -> listener.onRecordingStateChanged(snapshot));
+        mMainHandler.post(() -> {
+            if (mListeners.contains(listener) && snapshot == snapshot()) {
+                listener.onRecordingStateChanged(snapshot);
+            }
+        });
     }
 
     void removeListener(final Listener listener) {
         mListeners.remove(listener);
     }
 
-    synchronized void toggle() {
-        if (mSnapshot.state == State.IDLE
-                && !PlatformDrivers.current().audioCapture().isAvailable()) {
-            final String message =
-                    "Screen recording is unavailable on this device";
-            publish(State.IDLE, message);
-            showStatus(message, false);
-            return;
+    void toggle() {
+        final State operation;
+        final Snapshot snapshot;
+        final long generation;
+        synchronized (this) {
+            operation = mSnapshot.state;
+            switch (operation) {
+                case IDLE:
+                    snapshot = setSnapshotLocked(
+                            State.STARTING,
+                            "Starting screen recording...");
+                    break;
+                case RECORDING:
+                    snapshot = setSnapshotLocked(
+                            State.FINALIZING,
+                            "Finalizing recording...");
+                    break;
+                case STARTING:
+                case FINALIZING:
+                default:
+                    return;
+            }
+            generation = ++mOperationGeneration;
         }
-        switch (mSnapshot.state) {
+        dispatchSnapshot(snapshot);
+        switch (operation) {
             case IDLE:
-                start();
+                start(generation);
                 break;
             case RECORDING:
-                stop();
+                stop(generation);
                 break;
             case STARTING:
             case FINALIZING:
@@ -105,8 +127,31 @@ final class DisplayRecordingController {
         }
     }
 
-    private void start() {
-        publish(State.STARTING, "Starting screen recording...");
+    @Override
+    public void onShellStateChanged(final ShellAccess.Snapshot shell) {
+        if (shell != null && shell.isReady()) {
+            return;
+        }
+        final Snapshot snapshot;
+        final String detail;
+        synchronized (this) {
+            if (mSnapshot.state == State.IDLE) {
+                return;
+            }
+            ++mOperationGeneration;
+            detail = (mCaptureDetail == null || mCaptureDetail.isEmpty())
+                    ? "shell access disconnected"
+                    : mCaptureDetail + ", shell access disconnected";
+            mCaptureDetail = null;
+            snapshot = setSnapshotLocked(
+                    State.IDLE,
+                    "Screen recording stopped because shell access disconnected");
+        }
+        CaptureDiagnostics.recordRecordingFailed(detail);
+        dispatchSnapshot(snapshot);
+    }
+
+    private void start(final long generation) {
         mExecutor.execute(() -> {
             String outputPath = null;
             DesktopCaptureTarget capture = null;
@@ -133,21 +178,31 @@ final class DisplayRecordingController {
                 Log.i(TAG, "recording start requested path=" + outputPath
                         + " " + capture.diagnosticDetail()
                         + " size=" + width + "x" + height
-                        + " bitrateMbps=" + settings.bitrateMbps);
+                        + " bitrateMbps=" + settings.bitrateMbps
+                        + " audioMode=" + settings.audioMode.storedValue());
                 final String startedPath = ShellAccess.startDisplayRecording(
                         capture.physicalDisplayId,
                         outputPath,
                         width,
                         height,
                         settings.bitrateMbps,
+                        settings.audioMode.storedValue(),
                         mOwnerToken);
                 if (!outputPath.equals(startedPath)) {
                     throw new IOException(
                             "unexpected recording response: " + startedPath);
                 }
-                mCaptureDetail = capture.diagnosticDetail();
-                CaptureDiagnostics.recordRecordingStarted(mCaptureDetail);
-                publish(State.RECORDING, "Recording desktop display");
+                final String captureDetail = capture.diagnosticDetail()
+                        + ", audioMode=" + settings.audioMode.storedValue();
+                if (!publishIfCurrent(
+                        generation,
+                        State.STARTING,
+                        State.RECORDING,
+                        "Recording desktop display",
+                        captureDetail)) {
+                    return;
+                }
+                CaptureDiagnostics.recordRecordingStarted(captureDetail);
                 showStatus("Screen recording started", false);
             } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "recording start failed path=" + outputPath, error);
@@ -155,7 +210,14 @@ final class DisplayRecordingController {
                         ? "capture target unavailable"
                         : capture.diagnosticDetail())
                         + ", error=" + usefulMessage(error);
-                mCaptureDetail = null;
+                if (!publishIfCurrent(
+                        generation,
+                        State.STARTING,
+                        State.IDLE,
+                        "Screen recording could not start",
+                        null)) {
+                    return;
+                }
                 CaptureDiagnostics.recordRecordingFailed(detail);
                 CompatibilityDiagnostics.record(
                         "RECORDING-001",
@@ -165,14 +227,12 @@ final class DisplayRecordingController {
                                 + ", path=" + outputPath
                                 + ", error=" + usefulMessage(error),
                         error);
-                publish(State.IDLE, "Screen recording could not start");
                 showStatus("Screen recording could not start", true);
             }
         });
     }
 
-    private void stop() {
-        publish(State.FINALIZING, "Finalizing recording...");
+    private void stop(final long generation) {
         showStatus("Finalizing recording...", true);
         mExecutor.execute(() -> {
             try {
@@ -184,35 +244,84 @@ final class DisplayRecordingController {
                         new String[] {"video/mp4"},
                         null);
                 final String message = "Saved to " + outputPath;
-                CaptureDiagnostics.recordRecordingCompleted(mCaptureDetail);
-                mCaptureDetail = null;
-                publish(State.IDLE, message);
+                final String captureDetail;
+                synchronized (this) {
+                    captureDetail = mCaptureDetail;
+                }
+                if (!publishIfCurrent(
+                        generation,
+                        State.FINALIZING,
+                        State.IDLE,
+                        message,
+                        null)) {
+                    return;
+                }
+                CaptureDiagnostics.recordRecordingCompleted(captureDetail);
                 showStatus(message, true);
             } catch (IOException | RuntimeException error) {
                 Log.w(TAG, "recording finalization failed", error);
+                final String captureDetail;
+                synchronized (this) {
+                    captureDetail = mCaptureDetail;
+                }
+                if (!publishIfCurrent(
+                        generation,
+                        State.FINALIZING,
+                        State.IDLE,
+                        "Screen recording could not be saved",
+                        null)) {
+                    return;
+                }
                 CaptureDiagnostics.recordRecordingFailed(
-                        (mCaptureDetail == null ? "" : mCaptureDetail + ", ")
+                        (captureDetail == null ? "" : captureDetail + ", ")
                                 + "error=" + usefulMessage(error));
-                mCaptureDetail = null;
                 CompatibilityDiagnostics.record(
                         "RECORDING-002",
                         "Could not finalize desktop display recording",
                         usefulMessage(error),
                         error);
-                publish(State.IDLE, "Screen recording could not be saved");
                 showStatus("Screen recording could not be saved", true);
             }
         });
     }
 
-    private synchronized void publish(
+    private boolean publishIfCurrent(
+            final long generation,
+            final State expectedState,
+            final State state,
+            final String message,
+            final String captureDetail) {
+        final Snapshot snapshot;
+        synchronized (this) {
+            if (generation != mOperationGeneration
+                    || mSnapshot.state != expectedState) {
+                return false;
+            }
+            mCaptureDetail = captureDetail;
+            snapshot = setSnapshotLocked(state, message);
+        }
+        dispatchSnapshot(snapshot);
+        return true;
+    }
+
+    private Snapshot setSnapshotLocked(
             final State state,
             final String message) {
         final Snapshot snapshot = new Snapshot(state, message);
         mSnapshot = snapshot;
-        MagicDeskRuntimeService.setOperationStatusIfRunning(
-                state == State.IDLE ? null : message);
+        return snapshot;
+    }
+
+    private void dispatchSnapshot(final Snapshot snapshot) {
+        if (snapshot != snapshot()) {
+            return;
+        }
+        MagicDeskRuntime.setOperationStatus(
+                snapshot.state == State.IDLE ? null : snapshot.message);
         mMainHandler.post(() -> {
+            if (snapshot != snapshot()) {
+                return;
+            }
             for (final Listener listener : mListeners) {
                 listener.onRecordingStateChanged(snapshot);
             }

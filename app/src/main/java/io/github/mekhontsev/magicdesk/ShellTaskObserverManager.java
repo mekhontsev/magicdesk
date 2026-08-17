@@ -13,6 +13,8 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
+    private final PlatformWindowingDriver mWindowing;
+    private final PlatformPhoneUiDriver mPhoneUi;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final PlatformPhoneUiDriver.InputOwner mInputOwner;
 
@@ -20,9 +22,13 @@ final class ShellTaskObserverManager implements Closeable {
 
     ShellTaskObserverManager(
             final Context context,
+            final PlatformWindowingDriver windowing,
+            final PlatformPhoneUiDriver phoneUi,
             final PlatformPhoneUiDriver.NavigationGuard navigationGuard,
             final PlatformPhoneUiDriver.InputOwner inputOwner) {
         mContext = context;
+        mWindowing = windowing;
+        mPhoneUi = phoneUi;
         mNavigationGuard = navigationGuard;
         mInputOwner = inputOwner;
     }
@@ -76,6 +82,42 @@ final class ShellTaskObserverManager implements Closeable {
             final int[] taskIds) {
         requireSession(callback).observer.focusStack(
                 sequence, displayId, taskIds);
+    }
+
+    boolean releaseFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return requireSession(callback).observer.releaseFullscreenTask(
+                displayId, taskId);
+    }
+
+    boolean closeFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return requireSession(callback).observer.closeFullscreenTask(
+                displayId, taskId);
+    }
+
+    void startSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int hostTaskId,
+            final String stage) {
+        requireSession(callback).observer.startSelfTestTaskStackGuard(
+                displayId, hostTaskId, stage);
+    }
+
+    void setSelfTestTaskStackGuardStage(
+            final ITaskObserverCallback callback,
+            final String stage) {
+        requireSession(callback).observer.setSelfTestTaskStackGuardStage(stage);
+    }
+
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard(
+            final ITaskObserverCallback callback) {
+        return requireSession(callback).observer.stopSelfTestTaskStackGuard();
     }
 
     void setPhoneTouchpadPreservation(
@@ -186,6 +228,8 @@ final class ShellTaskObserverManager implements Closeable {
                     callback,
                     this::ownerDisconnected,
                     ownerToken,
+                    mWindowing,
+                    mPhoneUi,
                     mNavigationGuard,
                     mInputOwner);
         }

@@ -58,22 +58,4 @@ final class DesktopDisplayDriverSupport {
         }
     }
 
-    static void complete(
-            final DesktopDisplayDriver.CompletionCallback callback,
-            final boolean success) {
-        if (callback != null) {
-            callback.onComplete(success);
-        }
-    }
-
-    static void closeDirectExternal(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final DesktopDisplayDriver.CompletionCallback callback) {
-        DesktopRuntimeBridge.closeDesktopSession(target.displayId);
-        if (restorePhonePanel) {
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
-        }
-        complete(callback, true);
-    }
 }

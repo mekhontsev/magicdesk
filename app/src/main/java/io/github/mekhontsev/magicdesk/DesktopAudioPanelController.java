@@ -36,7 +36,10 @@ final class DesktopAudioPanelController {
     }
 
     void start() {
-        mVolumeReceiver = new BroadcastReceiver() {
+        if (mVolumeReceiver != null) {
+            return;
+        }
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(
                     final Context context, final Intent intent) {
@@ -44,8 +47,9 @@ final class DesktopAudioPanelController {
             }
         };
         mActivity.registerReceiver(
-                mVolumeReceiver,
+                receiver,
                 new IntentFilter(VOLUME_CHANGED_ACTION));
+        mVolumeReceiver = receiver;
     }
 
     void stop() {

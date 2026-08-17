@@ -337,14 +337,12 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         try {
             HiddenTaskApi.requireTask(
                     mService, sourceDisplayId, state.taskId);
-            mService.getClass().getMethod(
-                    "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                    .invoke(
-                            mService,
-                            Integer.valueOf(state.taskId),
-                            Integer.valueOf(Display.DEFAULT_DISPLAY));
-            TaskWindowingCommand.focusFullscreenTask(
-                    mService, Display.DEFAULT_DISPLAY, state.taskId);
+            TaskFullscreenMoveCommand.moveTask(
+                    mService,
+                    state.taskId,
+                    state.taskId,
+                    sourceDisplayId,
+                    Display.DEFAULT_DISPLAY);
             migrated = true;
             Log.i(TAG, "migrated launcher task to phone task="
                     + state.taskId);
@@ -412,6 +410,8 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
             // Alt+Tab and other system task switches bypass activityStarting.
             // No task may remain freeform on display 0 during an external
             // session: Nubia Quickstep can crash and erase launcher state.
+            // The observer callback can outlive the phone state it reported;
+            // a restore may already have moved the task back to the desktop.
             final Object task = HiddenTaskApi.findTask(
                     mService, Display.DEFAULT_DISPLAY, taskId);
             if (task == null) {

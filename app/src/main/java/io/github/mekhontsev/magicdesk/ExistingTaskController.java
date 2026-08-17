@@ -26,13 +26,13 @@ final class ExistingTaskController {
             final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
         return reuseIfExists(target, targetDisplayId, targetFreeform,
-                null, false, false, false, null);
+                null, false, false, false, null, null);
     }
 
     static ReuseResult normalizeLaunchedFullscreen(
             final AppLaunchTarget target,
             final int targetDisplayId) throws IOException {
-        final TaskInfo task = waitForBestTask(
+        TaskInfo task = waitForBestTask(
                 target, targetDisplayId, false);
         if (task == null) {
             throw new IOException(
@@ -46,12 +46,22 @@ final class ExistingTaskController {
                 + " mode=" + task.windowingMode
                 + " targetDisplay=" + targetDisplayId);
         if (task.displayId != targetDisplayId) {
-            final String command = CMD + " activity display move-stack "
-                    + task.rootTaskId + " " + targetDisplayId;
+            final String command = TaskFullscreenMoveCommand.createMoveCommand(
+                    task.taskId,
+                    task.rootTaskId,
+                    task.displayId,
+                    targetDisplayId);
             runCommand(command);
             waitForTaskDisplay(task.taskId, targetDisplayId);
+            final TaskInfo movedTask = findTask(task.taskId);
+            if (movedTask == null) {
+                throw new IOException(
+                        "moved task " + task.taskId + " is unavailable");
+            }
+            task = movedTask;
+        } else {
+            setFullscreen(task, targetDisplayId);
         }
-        setFullscreen(task, targetDisplayId);
         bringTaskStackToFrontBestEffort(task, null);
         return ReuseResult.reused(task.packageName);
     }
@@ -61,10 +71,11 @@ final class ExistingTaskController {
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
-                explicitWindowed, targetBounds);
+                explicitWindowed, targetBounds, launchLease);
     }
 
     static ReuseResult reuseFreeformIfExists(
@@ -72,10 +83,11 @@ final class ExistingTaskController {
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
-                explicitWindowed, targetBounds);
+                explicitWindowed, targetBounds, launchLease);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -110,7 +122,8 @@ final class ExistingTaskController {
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
             final boolean waitForTask,
             final boolean explicitWindowed,
-            final Rect targetBounds) throws IOException {
+            final Rect targetBounds,
+            final WindowedTaskLaunchLease outerLaunchLease) throws IOException {
         TaskInfo task = waitForTask
                 ? waitForBestTask(target, targetDisplayId, targetFreeform)
                 : findBestTask(target, targetDisplayId, targetFreeform);
@@ -119,16 +132,16 @@ final class ExistingTaskController {
             return ReuseResult.notFound();
         }
 
-        final boolean protectStartupWindowing = targetFreeform
-                && waitForTask
-                && explicitWindowed;
-        if (protectStartupWindowing) {
-            DesktopTaskController.beginExplicitWindowedLaunch(task.taskId);
-        } else if (targetFreeform) {
-            DesktopTaskController.noteManualFreeformTransition(task.taskId);
-        }
-        boolean restoreTouchpad = false;
+        final WindowedTaskLaunchLease launchLease =
+                outerLaunchLease == null
+                        ? WindowedTaskLaunchLease.acquire()
+                        : outerLaunchLease;
         try {
+            if (targetFreeform && waitForTask && explicitWindowed) {
+                launchLease.protectStartupTask(task.taskId);
+            } else if (targetFreeform) {
+                launchLease.noteFreeformTask(task.taskId);
+            }
             Log.i(TAG, "found package=" + target.packageName
                     + " rootTask=" + task.rootTaskId
                     + " task=" + task.taskId
@@ -139,10 +152,6 @@ final class ExistingTaskController {
                     + " nativeDesktop=" + nativeDesktop);
             if (nativeDesktop) {
                 NativeDesktopController.requireAvailable();
-            }
-            restoreTouchpad = ConsoleModeSwitcher.isTouchpadVisible();
-            if (restoreTouchpad) {
-                DesktopTaskController.expectTouchpadDisplacement();
             }
             boolean taskIsFreeform =
                     MODE_FREEFORM.equals(task.windowingMode);
@@ -173,10 +182,11 @@ final class ExistingTaskController {
                                     bounds);
                     movedAsFreeform = true;
                 } else {
-                    // Physical projection owns cross-display task transfer.
-                    // Starting its task through a WCT can terminate the session.
-                    command = CMD + " activity display move-stack "
-                            + task.rootTaskId + " " + targetDisplayId;
+                    command = TaskFullscreenMoveCommand.createMoveCommand(
+                            task.taskId,
+                            task.rootTaskId,
+                            task.displayId,
+                            targetDisplayId);
                 }
                 Log.i(TAG, "move display: " + command);
                 final String output = runCommand(command);
@@ -228,13 +238,8 @@ final class ExistingTaskController {
             bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
             return ReuseResult.reused(task.packageName);
         } finally {
-            if (protectStartupWindowing) {
-                DesktopTaskController.finishExplicitWindowedLaunch(
-                        task.taskId);
-            }
-            if (restoreTouchpad) {
-                DesktopTaskController.finishTouchpadPreservation();
-                ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            if (outerLaunchLease == null) {
+                launchLease.close();
             }
         }
     }

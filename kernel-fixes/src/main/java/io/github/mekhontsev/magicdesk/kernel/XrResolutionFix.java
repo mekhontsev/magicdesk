@@ -64,8 +64,12 @@ final class XrResolutionFix {
                 try {
                     final File module = extractModule(appContext);
                     result = runCheckedLoad(module);
-                } catch (IOException e) {
-                    result = new Result(Code.FAILED, e.getMessage());
+                } catch (IOException | RuntimeException error) {
+                    final String message = error.getMessage();
+                    result = new Result(Code.FAILED,
+                            message == null || message.isEmpty()
+                                    ? error.getClass().getSimpleName()
+                                    : message);
                 }
                 callback.onComplete(result);
             }

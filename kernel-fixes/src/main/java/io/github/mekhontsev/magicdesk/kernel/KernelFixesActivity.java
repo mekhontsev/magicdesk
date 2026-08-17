@@ -25,6 +25,7 @@ public final class KernelFixesActivity extends Activity {
 
     private TextView mXrStatus;
     private Button mXrAction;
+    private int mActivationGeneration;
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -37,6 +38,12 @@ public final class KernelFixesActivity extends Activity {
     protected void onResume() {
         super.onResume();
         updateActiveState();
+    }
+
+    @Override
+    protected void onDestroy() {
+        mActivationGeneration++;
+        super.onDestroy();
     }
 
     private View createContent() {
@@ -111,11 +118,15 @@ public final class KernelFixesActivity extends Activity {
     }
 
     private void activateFix() {
+        final int generation = ++mActivationGeneration;
         mXrAction.setEnabled(false);
         mXrAction.setText(R.string.xr_fix_working);
         mXrStatus.setText(R.string.xr_fix_working);
         mXrStatus.setTextColor(COLOR_AMBER);
         XrResolutionFix.activate(this, result -> runOnUiThread(() -> {
+            if (generation != mActivationGeneration || isDestroyed()) {
+                return;
+            }
             mXrAction.setEnabled(true);
             switch (result.code) {
                 case ACTIVE:

@@ -9,13 +9,19 @@ public final class DesktopSelfTestCleanupTest {
     @Test
     public void leavesPhoneDeskBeforeRemovingOnlyPhoneFreeformFixture() {
         assertTrue(DesktopSelfTestCleanup
-                .requiresPhoneDesktopExitBeforeRemoval(task(0, "freeform")));
+                .requiresPhoneDesktopExitBeforeRemoval(
+                        task(0, "freeform"), true));
         assertFalse(DesktopSelfTestCleanup
-                .requiresPhoneDesktopExitBeforeRemoval(task(0, "fullscreen")));
+                .requiresPhoneDesktopExitBeforeRemoval(
+                        task(0, "fullscreen"), true));
         assertFalse(DesktopSelfTestCleanup
-                .requiresPhoneDesktopExitBeforeRemoval(task(95, "freeform")));
+                .requiresPhoneDesktopExitBeforeRemoval(
+                        task(95, "freeform"), true));
         assertFalse(DesktopSelfTestCleanup
-                .requiresPhoneDesktopExitBeforeRemoval(null));
+                .requiresPhoneDesktopExitBeforeRemoval(null, true));
+        assertFalse(DesktopSelfTestCleanup
+                .requiresPhoneDesktopExitBeforeRemoval(
+                        task(0, "freeform"), false));
     }
 
     private static TaskStackParser.Entry task(

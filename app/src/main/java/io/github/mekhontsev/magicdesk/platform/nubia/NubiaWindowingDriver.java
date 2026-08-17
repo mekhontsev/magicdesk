@@ -30,6 +30,20 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean requiresPhoneTaskRecovery() {
+        // Nubia can retain moved or removed tasks in WMShell's desktop
+        // repository, which destabilizes Quickstep after returning to Home.
+        return true;
+    }
+
+    @Override
+    public boolean requiresStalePhoneFreeformTaskCleanup() {
+        // Nubia Quickstep can bind a stale DesktopTaskView after a phone-side
+        // freeform task has already disappeared.
+        return true;
+    }
+
+    @Override
     public String restrictionsPropertyKey() {
         return NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
     }

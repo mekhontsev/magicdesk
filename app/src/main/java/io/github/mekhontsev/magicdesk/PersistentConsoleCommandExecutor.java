@@ -16,6 +16,8 @@ final class PersistentConsoleCommandExecutor
     private final byte[] mDelimiter;
     private ShellStreamHandle mStream;
     private boolean mClosed;
+    private boolean mCommandActive;
+    private boolean mCancelNextCommand;
 
     PersistentConsoleCommandExecutor(final String marker) {
         mMarker = marker;
@@ -25,9 +27,18 @@ final class PersistentConsoleCommandExecutor
     @Override
     public ShellAccess.CommandResult execute(final String command)
             throws IOException {
+        return execute(command, null);
+    }
+
+    @Override
+    public ShellAccess.CommandResult execute(
+            final String command,
+            final ConsoleShellSession.OutputListener outputListener)
+            throws IOException {
         synchronized (mCommandLock) {
-            final ShellStreamHandle stream = requireStream();
-            final ReadState readState = new ReadState(mDelimiter);
+            final ShellStreamHandle stream = beginCommand();
+            final ReadState readState = new ReadState(
+                    mDelimiter, outputListener);
             try {
                 stream.writeLine(command);
                 final Completion completion = readState.read(
@@ -38,10 +49,31 @@ final class PersistentConsoleCommandExecutor
                                 + "\n" + mMarker
                                 + completion.exitCode + "\t"
                                 + completion.workingDirectory + "\n");
-            } catch (IOException error) {
+            } catch (IOException | RuntimeException error) {
                 reset(stream);
                 throw error;
+            } finally {
+                endCommand();
             }
+        }
+    }
+
+    @Override
+    public void cancelCurrent() {
+        final ShellStreamHandle stream;
+        synchronized (mStateLock) {
+            if (mClosed) {
+                return;
+            }
+            if (!mCommandActive) {
+                mCancelNextCommand = true;
+                return;
+            }
+            stream = mStream;
+            mStream = null;
+        }
+        if (stream != null) {
+            stream.close();
         }
     }
 
@@ -58,16 +90,27 @@ final class PersistentConsoleCommandExecutor
         }
     }
 
-    private ShellStreamHandle requireStream() throws IOException {
+    private ShellStreamHandle beginCommand() throws IOException {
         synchronized (mStateLock) {
             if (mClosed) {
                 throw new IOException("console shell is closed");
+            }
+            if (mCancelNextCommand) {
+                mCancelNextCommand = false;
+                throw new IOException("console command was stopped");
             }
             if (mStream == null) {
                 mStream = ShellAccess.openOwnedStream(
                         "exec /system/bin/sh");
             }
+            mCommandActive = true;
             return mStream;
+        }
+    }
+
+    private void endCommand() {
+        synchronized (mStateLock) {
+            mCommandActive = false;
         }
     }
 
@@ -87,31 +130,51 @@ final class PersistentConsoleCommandExecutor
         private final byte[] mDelimiter;
         private final ByteArrayOutputStream mOutput =
                 new ByteArrayOutputStream();
+        private final ByteArrayOutputStream mPendingOutput =
+                new ByteArrayOutputStream();
+        private final ConsoleShellSession.OutputListener mOutputListener;
         private int mMatched;
         private boolean mTruncated;
+        private boolean mStreamingFinished;
 
         ReadState(final byte[] delimiter) {
+            this(delimiter, null);
+        }
+
+        ReadState(
+                final byte[] delimiter,
+                final ConsoleShellSession.OutputListener outputListener) {
             mDelimiter = delimiter;
+            mOutputListener = outputListener;
         }
 
         Completion read(final InputStream input) throws IOException {
-            int value;
-            while ((value = input.read()) >= 0) {
-                if (consume(value)) {
-                    mMatched = 0;
-                    final byte[] candidate = readCompletionLine(input);
-                    final Completion completion = parseCompletion(candidate);
-                    if (completion != null) {
-                        return completion;
+            try {
+                int value;
+                while ((value = input.read()) >= 0) {
+                    if (consume(value)) {
+                        mMatched = 0;
+                        final byte[] candidate = readCompletionLine(input);
+                        final Completion completion = parseCompletion(candidate);
+                        if (completion != null) {
+                            finishStreaming();
+                            return completion;
+                        }
+                        append(mDelimiter, 0, mDelimiter.length);
+                        append(candidate, 0, candidate.length);
+                        append('\n');
                     }
-                    append(mDelimiter, 0, mDelimiter.length);
-                    append(candidate, 0, candidate.length);
-                    append('\n');
                 }
+                flushMatched();
+                finishStreaming();
+                throw new IOException(
+                        "console shell exited before command completion"
+                                + outputSuffix());
+            } catch (IOException error) {
+                flushMatched();
+                finishStreaming();
+                throw error;
             }
-            flushMatched();
-            throw new IOException("console shell exited before command completion"
-                    + outputSuffix());
         }
 
         String output() {
@@ -125,6 +188,12 @@ final class PersistentConsoleCommandExecutor
         private boolean consume(final int value) {
             while (true) {
                 if (value == (mDelimiter[mMatched] & 0xff)) {
+                    if (mMatched == 0) {
+                        // A line-ending also starts the service marker. Show
+                        // the completed text now instead of waiting for the
+                        // first byte produced after a long-running command.
+                        flushPendingOutput();
+                    }
                     mMatched++;
                     return mMatched == mDelimiter.length;
                 }
@@ -186,6 +255,14 @@ final class PersistentConsoleCommandExecutor
             if (mOutput.size()
                     < BoundedProcessRunner.DEFAULT_MAX_OUTPUT_BYTES) {
                 mOutput.write(value);
+                if (mOutputListener != null) {
+                    mPendingOutput.write(value);
+                    if (value == '\n'
+                            || (mPendingOutput.size() >= 4096
+                                    && value < 0x80)) {
+                        flushPendingOutput();
+                    }
+                }
             } else {
                 mTruncated = true;
             }
@@ -196,6 +273,27 @@ final class PersistentConsoleCommandExecutor
             for (int index = 0; index < count; index++) {
                 append(bytes[offset + index] & 0xff);
             }
+        }
+
+        private void finishStreaming() {
+            if (mStreamingFinished) {
+                return;
+            }
+            mStreamingFinished = true;
+            flushPendingOutput();
+            if (mTruncated && mOutputListener != null) {
+                mOutputListener.onOutput(
+                        "\n[MagicDesk: command output truncated]");
+            }
+        }
+
+        private void flushPendingOutput() {
+            if (mOutputListener == null || mPendingOutput.size() == 0) {
+                return;
+            }
+            mOutputListener.onOutput(new String(
+                    mPendingOutput.toByteArray(), StandardCharsets.UTF_8));
+            mPendingOutput.reset();
         }
 
         private String outputSuffix() {

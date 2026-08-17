@@ -8,6 +8,14 @@ import java.io.IOException;
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(false, true, true, true);
+    private final PlatformProjectionDriver mProjection;
+
+    WiredDisplayDriver(final PlatformProjectionDriver projection) {
+        if (projection == null) {
+            throw new IllegalArgumentException("projection driver is required");
+        }
+        mProjection = projection;
+    }
 
     @Override
     public DesktopDisplayTarget.Kind kind() {
@@ -55,8 +63,9 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        if (ownsTransportLifecycle()) {
-            ConsoleSessionController.show(displayId);
+        if (mProjection.ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRED)) {
+            ConsoleSessionController.show(displayId, mProjection);
             return;
         }
         final int connectedDisplayId = displayId > 0
@@ -70,32 +79,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         }
         DesktopDisplayDriverSupport.showConnectedExternal(
                 this, connectedDisplayId);
-    }
-
-    @Override
-    public void close(
-            final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
-            final CompletionCallback callback) {
-        requireTarget(target);
-        if (!ownsTransportLifecycle()) {
-            DesktopDisplayDriverSupport.closeDirectExternal(
-                    target, restorePhonePanel, callback);
-        } else if (restorePhonePanel) {
-            ConsoleModeSwitcher.switchToMirrorWithControlPanel(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        } else {
-            ConsoleModeSwitcher.switchToMirror(
-                    success -> DesktopDisplayDriverSupport.complete(
-                            callback, success));
-        }
-    }
-
-    private static boolean ownsTransportLifecycle() {
-        return PlatformDrivers.current().projection()
-                .ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRED);
     }
 
     private static boolean isBackedBySeparateOutput(

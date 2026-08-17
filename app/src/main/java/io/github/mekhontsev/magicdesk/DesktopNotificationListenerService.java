@@ -60,6 +60,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
             new WeakReference<>(null);
     private static boolean sConnected;
     private static boolean sRebindRecoveryScheduled;
+    private static long sRebindRecoveryGeneration;
     private static long sLastRebindRecoveryTime;
     private static String sConnectionIssueCode = "";
 
@@ -175,6 +176,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
             sInstance = new WeakReference<>(this);
             sConnected = true;
             sRebindRecoveryScheduled = false;
+            sRebindRecoveryGeneration++;
             sConnectionIssueCode = "";
         }
         refreshActiveNotifications(getCurrentRanking());
@@ -263,6 +265,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
         }
         final boolean connected;
         final boolean scheduleRecovery;
+        final long recoveryGeneration;
         synchronized (LOCK) {
             connected = sConnected;
             final long now = SystemClock.elapsedRealtime();
@@ -273,9 +276,11 @@ public final class DesktopNotificationListenerService extends NotificationListen
                                     >= REBIND_RECOVERY_COOLDOWN_MS);
             if (scheduleRecovery) {
                 sRebindRecoveryScheduled = true;
+                sRebindRecoveryGeneration++;
                 sLastRebindRecoveryTime = now;
                 sConnectionIssueCode = "";
             }
+            recoveryGeneration = sRebindRecoveryGeneration;
         }
         if (!connected) {
             try {
@@ -286,7 +291,8 @@ public final class DesktopNotificationListenerService extends NotificationListen
             if (scheduleRecovery) {
                 final Context applicationContext = context.getApplicationContext();
                 MAIN_HANDLER.postDelayed(
-                        () -> recoverNotificationListenerBinding(applicationContext),
+                        () -> recoverNotificationListenerBinding(
+                                applicationContext, recoveryGeneration),
                         REBIND_RECOVERY_DELAY_MS);
             }
         }
@@ -565,8 +571,13 @@ public final class DesktopNotificationListenerService extends NotificationListen
                 sConnectionIssueCode);
     }
 
-    private static void recoverNotificationListenerBinding(final Context context) {
+    private static void recoverNotificationListenerBinding(
+            final Context context,
+            final long generation) {
         synchronized (LOCK) {
+            if (generation != sRebindRecoveryGeneration) {
+                return;
+            }
             if (sConnected || !sRebindRecoveryScheduled) {
                 sRebindRecoveryScheduled = false;
                 return;
@@ -574,7 +585,9 @@ public final class DesktopNotificationListenerService extends NotificationListen
         }
         if (!isAccessGranted(context)) {
             synchronized (LOCK) {
-                sRebindRecoveryScheduled = false;
+                if (generation == sRebindRecoveryGeneration) {
+                    sRebindRecoveryScheduled = false;
+                }
             }
             return;
         }
@@ -585,20 +598,31 @@ public final class DesktopNotificationListenerService extends NotificationListen
         } catch (RuntimeException e) {
             Log.w(TAG, "public notification-listener unbind failed", e);
             finishNotificationListenerRecovery(
+                    generation,
                     "Public notification-listener unbind failed: "
                             + describeFailure(e));
             return;
         }
 
         MAIN_HANDLER.postDelayed(
-                () -> requestNotificationListenerRebind(context),
+                () -> requestNotificationListenerRebind(
+                        context, generation),
                 REBIND_RETRY_DELAY_MS);
     }
 
-    private static void requestNotificationListenerRebind(final Context context) {
+    private static void requestNotificationListenerRebind(
+            final Context context,
+            final long generation) {
+        synchronized (LOCK) {
+            if (generation != sRebindRecoveryGeneration) {
+                return;
+            }
+        }
         if (!isAccessGranted(context)) {
             synchronized (LOCK) {
-                sRebindRecoveryScheduled = false;
+                if (generation == sRebindRecoveryGeneration) {
+                    sRebindRecoveryScheduled = false;
+                }
             }
             return;
         }
@@ -613,6 +637,9 @@ public final class DesktopNotificationListenerService extends NotificationListen
             Log.w(TAG, "public notification-listener recovery rebind failed", e);
         }
         synchronized (LOCK) {
+            if (generation != sRebindRecoveryGeneration) {
+                return;
+            }
             if (sConnected) {
                 sRebindRecoveryScheduled = false;
                 return;
@@ -620,13 +647,19 @@ public final class DesktopNotificationListenerService extends NotificationListen
         }
         final String finalFailure = failure;
         MAIN_HANDLER.postDelayed(
-                () -> finishNotificationListenerRecovery(finalFailure),
+                () -> finishNotificationListenerRecovery(
+                        generation, finalFailure),
                 REBIND_VERIFY_DELAY_MS);
     }
 
-    private static void finishNotificationListenerRecovery(final String failureDetail) {
+    private static void finishNotificationListenerRecovery(
+            final long generation,
+            final String failureDetail) {
         final Snapshot snapshot;
         synchronized (LOCK) {
+            if (generation != sRebindRecoveryGeneration) {
+                return;
+            }
             sRebindRecoveryScheduled = false;
             if (sConnected) {
                 return;

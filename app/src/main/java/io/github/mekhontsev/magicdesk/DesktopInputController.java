@@ -89,6 +89,11 @@ final class DesktopInputController {
     boolean handleKeyEvent(final KeyEvent event) {
         final int keyCode = event.getKeyCode();
         if (mActivity.isDesktopShell()
+                && !mActivity.hasVisiblePanel()
+                && mActivity.handleDesktopFileKey(event)) {
+            return true;
+        }
+        if (mActivity.isDesktopShell()
                 && (keyCode == KeyEvent.KEYCODE_META_LEFT
                         || keyCode == KeyEvent.KEYCODE_META_RIGHT)) {
             if (event.getAction() == KeyEvent.ACTION_UP

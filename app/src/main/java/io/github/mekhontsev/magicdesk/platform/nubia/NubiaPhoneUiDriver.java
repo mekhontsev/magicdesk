@@ -37,11 +37,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean requiresPhoneFreeformCleanup() {
-        return true;
-    }
-
-    @Override
     public boolean requiresPhoneUiReconciliation() {
         return true;
     }
@@ -71,9 +66,12 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean setPhoneScreenOff(final boolean screenOff) {
+    public boolean setPhoneScreenOff(
+            final boolean screenOff,
+            final int desktopDisplayId) {
         return screenOff
-                ? PhoneDisplayGuard.enable() : PhoneDisplayGuard.disable();
+                ? PhoneDisplayGuard.enable(desktopDisplayId)
+                : PhoneDisplayGuard.disable();
     }
 
     @Override
