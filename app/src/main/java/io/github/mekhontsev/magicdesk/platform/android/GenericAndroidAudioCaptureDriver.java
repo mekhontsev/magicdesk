@@ -10,8 +10,8 @@ import java.io.IOException;
 final class GenericAndroidAudioCaptureDriver
         implements PlatformAudioCaptureDriver {
     @Override
-    public boolean isAvailable() {
-        return false;
+    public Availability availability() {
+        return Availability.UNSUPPORTED;
     }
 
     @Override

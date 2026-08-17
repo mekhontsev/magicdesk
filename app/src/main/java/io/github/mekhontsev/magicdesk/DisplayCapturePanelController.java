@@ -18,7 +18,6 @@ final class DisplayCapturePanelController {
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
-    private final boolean mRecordingSupported;
     private final Map<Integer, Button> mScaleButtons = new LinkedHashMap<>();
     private final DisplayRecordingController.Listener mRecordingListener =
             this::updateRecordingState;
@@ -37,8 +36,6 @@ final class DisplayCapturePanelController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
-        mRecordingSupported = PlatformDrivers.current().audioCapture()
-                .isAvailable();
         mSettings = DisplayRecordingSettings.load(activity);
     }
 
@@ -332,13 +329,12 @@ final class DisplayCapturePanelController {
         }
         mRecordAction.setText(label);
         mRecordAction.setEnabled(
-                mRecordingSupported
-                        && ShellAccess.isReady()
+                ShellAccess.isReady()
                         && (snapshot.state == DisplayRecordingController.State.IDLE
                         || snapshot.state
                                 == DisplayRecordingController.State.RECORDING));
         final boolean settingsEnabled =
-                mRecordingSupported
+                ShellAccess.isReady()
                         && snapshot.state
                                 == DisplayRecordingController.State.IDLE;
         if (mScreenshotAction != null) {
@@ -354,10 +350,7 @@ final class DisplayCapturePanelController {
             button.setEnabled(settingsEnabled);
         }
         if (mStatus != null) {
-            mStatus.setText(mRecordingSupported
-                    ? snapshot.message
-                    : mActivity.getString(
-                            R.string.recording_platform_unavailable));
+            mStatus.setText(snapshot.message);
         }
     }
 

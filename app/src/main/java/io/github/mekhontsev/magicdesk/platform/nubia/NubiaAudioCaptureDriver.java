@@ -7,13 +7,13 @@ import android.content.Context;
 /** Internal-audio backend exposed by compatible Nubia firmware. */
 final class NubiaAudioCaptureDriver implements PlatformAudioCaptureDriver {
     @Override
-    public boolean isAvailable() {
-        return true;
+    public Availability availability() {
+        return InternalAudioSourceCapability.current().availability;
     }
 
     @Override
     public String capabilityDescription() {
-        return InternalAudioRecorder.capabilityDescription();
+        return InternalAudioSourceCapability.current().description;
     }
 
     @Override

@@ -46,7 +46,7 @@ final class CaptureDiagnostics {
         report.append("## Capture workflows\n");
         if (context == null) {
             report.append("Screenshot: NOT_TESTED | diagnostics unavailable\n")
-                    .append("Screen recording with internal audio: NOT_TESTED"
+                    .append("Screen recording: NOT_TESTED"
                             + " | diagnostics unavailable\n\n");
             return;
         }
@@ -55,15 +55,9 @@ final class CaptureDiagnostics {
         final boolean currentBuild = buildId().equals(
                 preferences.getString(KEY_BUILD, null));
         appendEntry(report, "Screenshot", preferences, SCREENSHOT, currentBuild);
-        if (!PlatformDrivers.current().audioCapture().isAvailable()) {
-            report.append("Screen recording with internal audio: "
-                            + "NOT_SUPPORTED | not provided by the selected "
-                            + "platform\n\n");
-            return;
-        }
         appendEntry(
                 report,
-                "Screen recording with internal audio",
+                "Screen recording",
                 preferences,
                 RECORDING,
                 currentBuild);

@@ -441,7 +441,6 @@
     <string name="recording_scale_value">%1$d%%</string>
     <string name="recording_output_size">%1$d x %2$d</string>
     <string name="recording_display_unavailable">Desktop display unavailable</string>
-    <string name="recording_platform_unavailable">Internal-audio recording is unavailable on this device</string>
     <string name="recording_bitrate">Video bitrate</string>
     <string name="recording_bitrate_value">%1$d Mbps</string>
     <string name="action_bitrate_decrease">Decrease recording bitrate</string>

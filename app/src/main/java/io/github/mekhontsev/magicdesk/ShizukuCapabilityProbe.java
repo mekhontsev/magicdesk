@@ -106,12 +106,13 @@ public final class ShizukuCapabilityProbe {
                 report, "capture.screencap", new File("/system/bin/screencap"));
         appendExecutable(
                 report, "capture.screenrecord", new File("/system/bin/screenrecord"));
+        final PlatformAudioCaptureDriver audioCapture =
+                PlatformDrivers.current().audioCapture();
         append(report,
-                "capture.internal_audio_backend",
-                PlatformDrivers.current().audioCapture().isAvailable()
-                        ? "configured" : "unsupported",
-                PlatformDrivers.current().audioCapture()
-                        .capabilityDescription());
+                "capture.internal_audio_source",
+                audioCapture.availability().name()
+                        .toLowerCase(Locale.ROOT),
+                audioCapture.capabilityDescription());
     }
 
     private static void appendExecutable(

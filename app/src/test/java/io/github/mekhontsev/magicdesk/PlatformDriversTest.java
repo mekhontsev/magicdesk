@@ -17,7 +17,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
         assertTrue(driver.features().externalInputBridge);
-        assertTrue(driver.audioCapture().isAvailable());
+        assertFalse(driver.audioCapture().availability()
+                == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.textInput().isAvailable());
         assertTrue(driver.pointer().isAvailable());
         assertTrue(driver.projection().supportsOutputConfiguration());

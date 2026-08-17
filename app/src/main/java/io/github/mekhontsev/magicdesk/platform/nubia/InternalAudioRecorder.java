@@ -19,7 +19,6 @@ final class InternalAudioRecorder
         implements PlatformAudioCaptureDriver.Recorder {
     private static final String TAG = "MagicDeskRecording";
     // RedMagic's stock screen recorder and Game Highlights use this vendor source.
-    private static final int AUDIO_SOURCE_INTERNAL = 80;
     private static final int SAMPLE_RATE_HZ = 48_000;
     private static final int BIT_RATE = 96_000;
     private static final int SHELL_UID = 2_000;
@@ -35,11 +34,6 @@ final class InternalAudioRecorder
         mOutputPath = outputPath;
     }
 
-    static String capabilityDescription() {
-        return "vendor MediaRecorder source=" + AUDIO_SOURCE_INTERNAL
-                + "; verified by a completed recording";
-    }
-
     @SuppressLint({"MissingPermission", "WrongConstant"})
     public void start() throws IOException {
         if (mRecorder != null) {
@@ -47,7 +41,7 @@ final class InternalAudioRecorder
         }
         final MediaRecorder recorder = createRecorder(attributionContext());
         try {
-            recorder.setAudioSource(AUDIO_SOURCE_INTERNAL);
+            recorder.setAudioSource(InternalAudioSourceCapability.SOURCE);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
             recorder.setAudioChannels(1);
