@@ -736,6 +736,14 @@ suffix, so an interrupted copy never begins by deleting an existing target.
 If cross-filesystem move cleanup fails after a complete copy, the destination
 is retained rather than risking loss of both copies.
 
+`FileOperationCenter` owns copy, move, and delete at MagicDesk process scope.
+Files windows subscribe only to immutable progress snapshots, so closing the
+window does not cancel a remote operation. The process Binder remains the
+remote owner: process death still cancels work, and a disconnected shell turns
+the active snapshot into a bounded failure rather than leaving a permanently
+busy UI. Imports from external `content://` providers remain Activity-scoped
+because their temporary drag permission belongs to that UI interaction.
+
 `FileManagerActivity` maps the selection model to the same typed operations
 for toolbar commands, item context menus, and standard file-manager keyboard
 shortcuts. Metadata displayed by Properties comes from the same `stat` result
@@ -765,9 +773,15 @@ completed move clears only the buffer generation from which it started, so a
 new selection copied in another window cannot be discarded by an older
 operation.
 
-The current-folder name filter operates only on the already loaded page set.
-It performs no recursive traversal, UserService request, polling, or idle work;
-`Ctrl+F` changes only the local Files presentation.
+The current-folder name filter operates only on the already loaded page set;
+`Ctrl+F` changes only the local Files presentation. Recursive name search is a
+separate explicit action. `ShellFileSystem` walks without following symbolic
+links, returns bounded batches through a typed callback, and cancels on request
+or Binder-owner death. It creates no persistent index or idle scanner. Each
+Files window also owns a shell-side `FileObserver` for only its current
+directory. Callback bursts are coalesced into one posted reload without a
+polling interval or guessed delay; manual refresh remains available when a
+filesystem cannot be observed.
 
 Files opened or dragged into another application are exposed through the
 non-exported `ShellFileProvider` and a process-lifetime capability URI. A grant
@@ -792,7 +806,12 @@ typed path supports files and recursive folders without publishing privileged
 paths or inventing directory content URIs; the default action is move and
 holding `Ctrl` when the drag starts selects copy. Only ordinary files receive
 temporary URIs for drops into other Android applications. The built-in Console
-can be prefilled with the current directory. Optional Termux integration uses
+can be prefilled with the current directory. Process-local file drags dropped
+on its input insert normalized, shell-quoted paths but never run a command.
+Console can open its current directory in Files, and selected output is treated
+as a path only after `ShellFileSystem` verifies the resolved absolute target.
+File completion lists the exact parent directory through the typed filesystem
+API instead of parsing shell completion output. Optional Termux integration uses
 Termux's documented `RUN_COMMAND` intent and permission; it is not required by
 Files. The normalized directory path becomes a stable Termux shell name, and
 the `no-shell-with-name` creation mode atomically selects that session or
@@ -1227,7 +1246,7 @@ the last valid cached system image, or MagicDesk's built-in background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
 
-`CommandConsoleActivity` is an unexported, multi-instance desktop task over the
+`CommandConsoleActivity` is a permission-protected, multi-instance desktop task over the
 existing `ShellAccess` connection. Each Activity owns one
 `ConsoleShellSession`, a process-local command history, current-directory
 state, and a selectable stdout/stderr transcript. The session uses one
@@ -1235,6 +1254,14 @@ long-lived `/system/bin/sh`; private marker records delimit commands and update
 the prompt without being shown to the user. Running `exit` or closing the
 Activity closes that shell. Initial commands supplied by Files are displayed
 for review and are never executed automatically.
+
+`TaskManagerActivity` consumes the existing `TaskRepository`; it does not own
+another task-stack parser or windowing policy. Focus, task close, and explicit
+force-stop therefore use the same validated operations as the taskbar. A log
+action launches `AppLogViewerActivity`, whose lifecycle-bound owned stream runs
+`logcat` with a numeric UID filter. The viewer keeps a bounded transcript and
+closing it closes the remote process. Arbitrary command entry remains exclusive
+to Console.
 
 ## Rejected Experiments Worth Remembering
 

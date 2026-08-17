@@ -120,7 +120,8 @@ and selected-display recording.
 - Open the built-in **Files** window for the complete filesystem visible to
   the authorized Android shell identity. It supports path navigation, hidden
   files, sorting, selection, create, rename, permanent
-  delete, copy, cut, paste, current-folder name filtering, properties,
+  delete, copy, cut, paste, current-folder name filtering, recursive name
+  search, live directory updates, properties,
   external editors, and global file
   drag-and-drop. Conflicting copies receive a numeric suffix instead of
   silently replacing data. Desktop and Files items use the same context menu,
@@ -129,6 +130,8 @@ and selected-display recording.
   when one exists, and its in-window **Open with** dialog can set the same
   system-wide default.
   Multiple Files windows can use the same process-local copy/cut buffer.
+  Shell copy, move, and delete operations continue if their initiating Files
+  window is closed; reopening Files reconnects to progress and cancellation.
   An APK can be installed or updated only after an explicit confirmation.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
@@ -136,6 +139,10 @@ and selected-display recording.
   Termux session without resetting that session's current state.
 - Prepare a selected `.sh` file in Console from its context menu. The command
   is quoted and shown for review; it is never executed automatically.
+- Drop Files or Desktop items onto Console to insert safely quoted paths at the
+  command cursor. Console can open its current directory in Files, reveal a
+  selected output path after shell-side validation, and complete paths with
+  `Tab`.
 - Request another task for a compatible application through **New window**.
   MagicDesk Files supports this directly; Android applications may reject the
   request through their own activity launch mode.
@@ -168,6 +175,9 @@ and Android user; neither kind of state is written into the desktop folder.
 
 - Start menu with application search and keyboard navigation.
 - Open Tasks view with exact-task focus and close controls.
+- Open **Task Manager** for running application tasks, per-task focus and
+  close, explicit force-stop, and a lifecycle-bound application log viewer
+  filtered by Android UID.
 - Right-click context menus in MagicDesk and ordinary applications.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.
@@ -416,6 +426,10 @@ The trust boundaries are deliberately narrow:
   identity. Applications opened from Files receive only a temporary URI for
   the selected file; they do not inherit the shell identity or its filesystem
   access.
+- Task Manager uses the existing task repository rather than a second task
+  parser. Application log streams are explicitly opened by the user, filtered
+  to the selected application UID, bounded in memory, and closed with their
+  viewer window.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
   settings; supported Nubia/REDMAGIC firmware additionally uses two documented

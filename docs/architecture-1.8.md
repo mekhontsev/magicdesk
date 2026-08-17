@@ -173,4 +173,12 @@ not reference `DesktopRuntimeBridge`, console commands may not bypass the
 runtime, and the session coordinator may not re-enter its facade or resolve a
 new platform dependency.
 
+Shell-backed workspace features follow the same rule. Files uses typed,
+owner-bound directory observation, search, and file-operation contracts;
+Console remains the only UI that accepts arbitrary commands. Process-local
+drag payloads and explicit window intents connect Files, Desktop, and Console
+without introducing global current-directory state. Task Manager reuses
+`TaskRepository`, while application log viewers own independent bounded stream
+lifecycles.
+
 Each step must leave the branch buildable and independently reviewable.
