@@ -593,9 +593,8 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Architecture](docs/architecture.md)
 - [Shell access and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
-- [Fullscreen Alt+Tab](docs/fullscreen-alt-tab.md)
 - [Compatibility and issue reports](docs/compatibility.md)
-- [Deferred validation backlog](docs/testing-backlog.md)
+- [Validation matrix](docs/testing-backlog.md)
 - [Contributing and IDE setup](CONTRIBUTING.md)
 
 ## Project

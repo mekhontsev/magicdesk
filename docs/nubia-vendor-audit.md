@@ -14,13 +14,10 @@ a recovery path.
 - Fingerprint:
   `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
 
-The ordinary-UID tests ran from MagicDesk's real application UID in the
-`u:r:untrusted_app:s0` SELinux domain. Root was used only by the research
-harness to install debug builds, start instrumentation, and inspect firmware.
-Unless noted otherwise, the vendor calls themselves ran without elevated
-runtime access. The production application performs privileged work only
-through its Shizuku UserService; ordinary-UID results below explain why that
-boundary exists.
+The **Ordinary app access** column describes calls available from MagicDesk's
+application UID in the `u:r:untrusted_app:s0` SELinux domain. Production
+privileged work runs through the authorized shell UserService; the distinction
+keeps app-accessible vendor APIs from becoming a generic privileged surface.
 
 ## Community-Tested Firmware
 
@@ -30,13 +27,11 @@ boundary exists.
 - Fingerprint:
   `REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys`
 
-The user diagnostics report confirms the required windowing configuration,
-shell UID 2000, task APIs, WMShell passthrough, and the relevant Nubia packages
-and display signatures. Follow-up testing confirmed desktop startup,
-external-display sizing without the reported black bars, launcher recovery,
-Mora discovery, output-mode selection, and external-display recording. This is
-a compatibility result, not a substitute for the maintainer's complete vendor
-interface audit below.
+The confirmed scope includes the required windowing configuration, shell UID
+2000, task APIs, WMShell passthrough, relevant Nubia packages and display
+signatures, desktop startup, external sizing, launcher recovery, Mora
+discovery, output-mode selection, and external-display recording. This is a
+community compatibility result, not the complete maintainer interface matrix.
 
 ## Confirmed Interfaces
 
@@ -49,7 +44,6 @@ interface audit below.
 | `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
 | `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons; its `MirrorInputActivity` can automatically replace another phone input panel. | MagicDesk does not disable the package. While its own touchpad is active, it removes only the automatically created activity task and reclaims its existing panel. |
-| `scenedecision` | Read and callback | Foreground, visible-task, small-window, temperature, media-scene, and game-classification data are exposed. | Retained as research and possible diagnostics, not a task source of truth. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply RedMagic lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
@@ -81,9 +75,8 @@ MagicDesk uses this to remove the clean-Shizuku setup gap:
 The production wrapper accepts enum-like properties rather than caller-provided
 keys, permits only boolean/absent values, and verifies every write. Setup writes
 `false`; **Restore defaults** clears both persistent overrides so firmware
-defaults apply. Earlier ordinary-UID experiments showed that this property path
-alone is insufficient: exact task, input, and display ownership still requires
-shell access.
+defaults apply. This property path provisions WMShell but does not provide
+exact task, input, or display ownership; those operations require shell access.
 
 The unrestricted vendor setter is a firmware security weakness. MagicDesk
 must not turn it into a general-purpose command, exported component, intent
@@ -100,13 +93,11 @@ Binder to MiFavor Quickstep in the initialization bundle delivered to
 calls `enforceCallingPermission(android.permission.MANAGE_ACTIVITY_TASKS)`,
 including task conversion, showing desktop apps, and launch transitions.
 
-A controlled ordinary-app cold-launch probe ran from MagicDesk UID 10615 after
-a resizable test application had been force-stopped. It requested a new task,
-explicit bounds, and `windowingMode=freeform`. ActivityTaskManager accepted the
-launch without a `SecurityException`, but normalized the new task to
-fullscreen. It retained the requested rectangle only as
-`mLastNonFullscreenBounds`. This confirms that provisioning the desktop
-properties is not enough to give an ordinary app native desktop task control.
+An ordinary app-UID launch with explicit bounds and
+`windowingMode=freeform` is accepted without a `SecurityException` but
+normalized to fullscreen; Android retains the rectangle only as
+`mLastNonFullscreenBounds`. Provisioning desktop properties therefore does not
+give an ordinary application native desktop task control.
 
 The firmware also contains the older Nubia `WindowReply` path. An intent
 identifier ending in `_WindowReply` selects that policy, but support is
@@ -146,9 +137,8 @@ The Nubia `IDisplayManager` additions have no local permission checks for:
 - `noteMirrorInputPanelStatus`
 - `requestInputMethodChange`
 
-The app UID successfully executed a no-op read transaction and the Console
-command helper. The firmware command values observed in
-`DisplayMirrorCtrl` are:
+The app UID can execute the no-op read transaction and Console command helper.
+`DisplayMirrorCtrl` defines these command values:
 
 | Value | Observed purpose |
 | --- | --- |
@@ -187,32 +177,6 @@ preferences through `CALL_4_KEY12` (`CALL_4`, wireless) and `CALL_5_KEY3`
 change, mirror transition, normal teardown, or interrupted-session recovery.
 It does not read another package's private files.
 
-## Task-State Hints
-
-`scenedecision` transaction 39 returned the foreground package, transaction 41
-returned visible-task bundles, and transaction 42 returned the small-window
-list. Callback flag `1` registered successfully from the untrusted app process
-and immediately delivered event `2000` with:
-
-- `stackId`
-- `displayId`
-- package and activity names
-- UID and PID
-- windowing mode
-
-This was useful for evaluating a lower-privilege task catalog. It is not
-authoritative:
-after the external display was disconnected, the initial callback still
-contained old tasks for removed display ids 14 and 15. Any consumer must:
-
-1. filter entries against current public `DisplayManager` displays;
-2. tolerate duplicate packages and stale stack ids;
-3. treat callbacks as invalidatable hints;
-4. fall back to public launch behavior rather than claiming exact task control.
-
-Shizuku's `TaskStackListener` remains the correct source for exact task
-observation and control.
-
 ## Stock Cooling Policy
 
 The system application `/system/priv-app/NBFan/NBFan.apk` runs as
@@ -242,8 +206,8 @@ main/manual value. Every command uses only the hardcoded keys above, validates
 the read-back, and retains its ownership marker if restoration fails.
 
 This path preserves Nubia's own thermal and safety policy and is the only
-MagicDesk cooling-control backend. The discarded direct-node prototype is not
-present in the main application.
+MagicDesk cooling-control backend. The main application does not write cooling
+nodes directly.
 
 ## Phone Input-Panel Wake
 
@@ -290,18 +254,17 @@ for the screen-off interval because a briefly absent task must not freeze
 shared desktop input, and refreshes the firmware mouse viewport after the
 display power transition. All entries are cleared after `power-reset`. If
 cleanup cannot run, `cfreezer` expires an unrefreshed working state internally.
-A dynamic `setFrozenWhiteList` entry was also tested
-successfully but rejected for production because abrupt helper termination
-could leave that persistent entry behind.
+MagicDesk never writes the persistent freezer whitelist because such an entry
+could outlive an interrupted helper.
 
 Two apparent event sources are not sufficient by themselves. Nubia's
 `zte_backlight` callback reports only calls to `setNit`, `setBacklight`, and
 `setHbmMsg`; it is not a callback for physical display power. Likewise,
 `DisplayManagerService.requestDisplayPower()` drives the primary display
 device without replacing its logical power state, so a public
-`DisplayListener` is not an authoritative ownership signal. The final Shizuku
-guard was validated with real text focus, physical wake, process death,
-UserService death, Console exit, and cable removal. Its heartbeat stream, not a
+`DisplayListener` is not an authoritative ownership signal. Self-test and
+device coverage include real text focus, physical wake, process death,
+UserService death, Console exit, and cable removal. The heartbeat stream, not a
 poll-only listener, owns restoration.
 
 ## Physical Input Findings

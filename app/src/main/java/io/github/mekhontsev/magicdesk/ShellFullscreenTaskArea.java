@@ -14,7 +14,7 @@ import java.util.Set;
  * <p>The dedicated parent is the invariant: reordering the same tasks in the
  * default desktop task area lets some firmware resolve them as freeform. Do
  * not replace this with a delayed fullscreen repair. See
- * {@code docs/fullscreen-alt-tab.md}.
+ * {@code docs/architecture.md#keep-true-fullscreen-tasks-under-one-fullscreen-parent}.
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellFullscreenTaskArea implements AutoCloseable {

@@ -17,10 +17,30 @@ MagicDesk follows these constraints:
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
 6. Optional kernel code stays outside the main APK.
+7. Display transport, firmware integration, SoC services, and shell execution
+   remain independent boundaries.
+8. Interfaces represent external boundaries or multiple real implementations;
+   they are not introduced only to move code between files.
 
 MagicDesk does not register a competing task organizer, host applications in
 surrogate activities, draw replacement captions, patch SystemUI, invoke `su`,
 or require a Magisk module.
+
+Dependencies point in one direction:
+
+```text
+activities and desktop UI
+        |
+controllers and session orchestration
+        |
+task, display, input, storage, and capture contracts
+        |
+Android shell adapters + selected platform and SoC backends
+```
+
+UI code does not select firmware implementations. Platform and SoC adapters
+do not own desktop UI or session state. Runtime composition occurs only in the
+registries documented below.
 
 ## Architecture Guardrails
 
@@ -153,6 +173,20 @@ application, or add guessed sleeps to refresh fullscreen geometry. Those paths
 can destroy an Activity and its user session. Use same-display transactions
 and the client-preserving refresh described in
 [Fullscreen transitions](fullscreen-transitions.md).
+
+### Keep true-fullscreen tasks under one fullscreen parent
+
+The default desktop task area is freeform-oriented. Reordering independent
+fullscreen roots there can make a task inherit freeform mode during Alt+Tab,
+even when its final mode is repaired afterward. MagicDesk therefore reparents
+the complete true-fullscreen stack into one organizer-owned fullscreen
+`TaskDisplayArea` before switching focus.
+
+The long-lived shell task observer owns that area. Switching only reorders
+children inside the same parent; restoring a window releases that task to the
+default task area while it is still fullscreen. Closing the final member
+deletes the area. Platforms without this organizer capability use the ordinary
+focus path and never apply a delayed mode repair.
 
 ## Modules
 
@@ -330,8 +364,10 @@ runtime integration and are not distributed through the same release path.
   roots in the default desktop task area. A task is synchronously released to
   the default task area while still fullscreen before any restore or snap
   command changes its mode. The area closes after its final tracked task leaves.
-  Its rationale, rejected alternatives, and regression contract are documented
-  in [Fullscreen Alt+Tab](fullscreen-alt-tab.md).
+  Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
+  `FULLSCREEN-LIFECYCLE-001` through `003` verify both task modes, real input
+  focus, single-task restore and close, survivor visibility, and abrupt display
+  removal.
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -375,6 +411,12 @@ isolated behind these boundaries.
 - Platform and display are independent axes. A platform declares which
   display kinds it supports, while the display driver owns the lifecycle of
   one session type. Do not create platform-by-display combination classes.
+- SoC display services are a third independent axis.
+  `SocDisplayModeBackends` is their sole composition point. The optional
+  Qualcomm `IDisplayConfig` implementation augments mode discovery and exact
+  timing selection when Android's public mode list is incomplete; its absence
+  is inert. Binder descriptors and transactions remain inside `soc.qualcomm`,
+  while platform projection code consumes only `SocDisplayModeBackend` data.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
@@ -1273,16 +1315,16 @@ action launches `AppLogViewerActivity`, whose lifecycle-bound owned stream runs
 closing it closes the remote process. Arbitrary command entry remains exclusive
 to Console.
 
-## Rejected Experiments Worth Remembering
+## Implementation Constraints
 
-These results explain otherwise tempting implementation choices:
+These constraints define the supported implementation paths:
 
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
-- Creating a custom task display area on Nubia's `NubiaAppMirrorDisplay`
-  removes that vendor display; custom task areas remain limited to simulated
-  displays where the complete lifecycle is verified.
+- Custom launch task areas are limited to display drivers whose lifecycle
+  explicitly supports them. Nubia's managed mirror displays use their default
+  task area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
@@ -1297,13 +1339,23 @@ These results explain otherwise tempting implementation choices:
   forwarding the complete grabbed source does not.
 - Disabling or force-stopping Nubia's entire input package breaks Touch Panel;
   the DisplayManager phone-screen guard solves the wake problem at its source.
-- A persistent vendor freezer whitelist is unnecessary and harder to clean up;
-  the transient service-working heartbeat is sufficient.
+- Phone-screen-off process protection uses only the transient vendor
+  service-working heartbeat; no persistent freezer whitelist is installed.
 - ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
   `AudioRecord` fails in AudioFlinger even for a privileged UserService.
 
 Additional vendor-level evidence is preserved in
 [Nubia vendor interface audit](nubia-vendor-audit.md).
+
+Maintenance follows the same ownership rules. New external implementations
+belong in dedicated `platform/` or `soc/` packages; the broad root package is
+split only when a new independently owned subsystem provides a real boundary.
+Large shell, input, and Activity orchestration classes are divided by resource
+ownership rather than file size. Private Android APIs remain isolated behind
+capability-checked adapters and fail closed. Changes to task-display-area
+launching, shell task observation, input bridges, or the UserService require
+phone, simulated, and relevant physical-display self-tests because host-only
+tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 

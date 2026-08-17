@@ -4,9 +4,9 @@
 
 On the RedMagic 11 Pro (`NX809J`), VITURE glasses can change their EDID through
 an HPD-low/HPD-high transition when changing refresh rate or entering
-side-by-side 3D. The original failure was reproduced with a `1920x1080` to
-`3840x1080@60` transition. VITURE Beast exposes `1920x1200` at both 60 and
-120 Hz, and can use a corresponding wider 1200-line mode in 3D. Nubia's
+side-by-side 3D. The affected transitions include `1920x1080` to
+`3840x1080@60`; VITURE Beast exposes `1920x1200` at both 60 and 120 Hz and can
+use a corresponding wider 1200-line mode in 3D. Nubia's
 DisplayPort driver keeps a user-selected mode and a `mode_override` flag in the
 DP panel state.
 
@@ -99,9 +99,9 @@ They are large upstream build inputs and must match the identifiers above.
 
 ## Rebuild in Termux
 
-The Android kernel build expects a normal glibc Linux host. On this device it
-was built inside Ubuntu from `proot-distro`, while the MagicDesk project stays
-in the Termux home directory.
+The Android kernel build expects a normal glibc Linux host. On-device builds
+use Ubuntu from `proot-distro`, while the MagicDesk project remains in the
+Termux home directory.
 
 Install the container:
 
