@@ -1,17 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ContentResolver;
 import android.content.Context;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
-import android.provider.OpenableColumns;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -22,7 +17,6 @@ import java.util.Set;
 
 final class DesktopFileRepository {
     private static final int THUMBNAIL_SIZE = 192;
-    private static final int COPY_BUFFER_SIZE = 32 * 1024;
     private static final String FALLBACK_IMPORT_NAME = "Dropped file";
 
     private final Context mContext;
@@ -96,12 +90,20 @@ final class DesktopFileRepository {
             String createdPath = null;
             try {
                 final String name = uniqueImportName(
-                        displayName(uri), occupiedNames);
+                        ContentUriTransfer.displayName(
+                                mContext.getContentResolver(),
+                                uri,
+                                FALLBACK_IMPORT_NAME),
+                        occupiedNames);
                 final ShellFileInfo created =
                         ShellAccess.createAvailableShellEntry(
                                 destinationPath, name, false);
                 createdPath = created.absolutePath;
-                copy(uri, created);
+                ContentUriTransfer.copyToShellFile(
+                        mContext.getContentResolver(),
+                        uri,
+                        created,
+                        null);
                 occupiedNames.add(created.name);
                 copied++;
             } catch (IOException | RuntimeException error) {
@@ -140,49 +142,6 @@ final class DesktopFileRepository {
             if (!containsIgnoreCase(occupiedNames, candidate)) {
                 return candidate;
             }
-        }
-    }
-
-    private String displayName(final Uri uri) {
-        final ContentResolver resolver = mContext.getContentResolver();
-        try (Cursor cursor = resolver.query(
-                uri,
-                new String[]{OpenableColumns.DISPLAY_NAME},
-                null,
-                null,
-                null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                final int column = cursor.getColumnIndex(
-                        OpenableColumns.DISPLAY_NAME);
-                if (column >= 0 && !cursor.isNull(column)) {
-                    return cursor.getString(column);
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // Providers are not required to expose OpenableColumns.
-        }
-        return FALLBACK_IMPORT_NAME;
-    }
-
-    private void copy(final Uri source, final ShellFileInfo target)
-            throws IOException {
-        try (InputStream input = mContext.getContentResolver()
-                     .openInputStream(source)) {
-            if (input == null) {
-                throw new IOException("cannot open dropped file");
-            }
-            try (OutputStream output =
-                         new ParcelFileDescriptor.AutoCloseOutputStream(
-                                 ShellAccess.openVerifiedShellFile(
-                                         target, "w"))) {
-                final byte[] buffer = new byte[COPY_BUFFER_SIZE];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, count);
-                }
-            }
-        } catch (RuntimeException error) {
-            throw new IOException("cannot read dropped file", error);
         }
     }
 

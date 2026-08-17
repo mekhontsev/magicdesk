@@ -1,15 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.database.Cursor;
 import android.net.Uri;
-import android.os.ParcelFileDescriptor;
-import android.provider.OpenableColumns;
 import android.view.DragAndDropPermissions;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
@@ -17,8 +12,6 @@ final class FileManagerImportController {
     interface Listener {
         void onImportFinished(int copied, Throwable firstFailure);
     }
-
-    private static final int COPY_BUFFER_SIZE = 64 * 1024;
 
     private final Activity mActivity;
     private final ExecutorService mWorker;
@@ -54,12 +47,20 @@ final class FileManagerImportController {
                     }
                     String createdPath = null;
                     try {
-                        final String name = safeName(displayName(uri));
+                        final String name = safeName(
+                                ContentUriTransfer.displayName(
+                                        mActivity.getContentResolver(),
+                                        uri,
+                                        "Dropped file"));
                         final ShellFileInfo created =
                                 ShellAccess.createAvailableShellEntry(
                                         destination, name, false);
                         createdPath = created.absolutePath;
-                        copyUri(uri, created.absolutePath);
+                        ContentUriTransfer.copyToShellFile(
+                                mActivity.getContentResolver(),
+                                uri,
+                                created,
+                                mOperations::isImportCancelled);
                         imported++;
                         mOperations.updateImportProgress(
                                 imported, uris.size());
@@ -89,47 +90,6 @@ final class FileManagerImportController {
             return ShellFileNamePolicy.validate(requested);
         } catch (IllegalArgumentException error) {
             return "Dropped file";
-        }
-    }
-
-    private String displayName(final Uri uri) {
-        try (Cursor cursor = mActivity.getContentResolver().query(
-                uri,
-                new String[]{OpenableColumns.DISPLAY_NAME},
-                null,
-                null,
-                null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                final int column = cursor.getColumnIndex(
-                        OpenableColumns.DISPLAY_NAME);
-                if (column >= 0 && !cursor.isNull(column)) {
-                    return cursor.getString(column);
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // A provider does not have to expose OpenableColumns.
-        }
-        return "Dropped file";
-    }
-
-    private void copyUri(final Uri source, final String target)
-            throws IOException {
-        try (InputStream input = mActivity.getContentResolver()
-                     .openInputStream(source);
-                OutputStream output = new ParcelFileDescriptor
-                        .AutoCloseOutputStream(
-                                ShellAccess.openShellFile(target, "w"))) {
-            if (input == null) {
-                throw new IOException("source provider returned no data");
-            }
-            final byte[] buffer = new byte[COPY_BUFFER_SIZE];
-            int count;
-            while ((count = input.read(buffer)) >= 0) {
-                if (mOperations.isImportCancelled()) {
-                    throw new IOException("import cancelled");
-                }
-                output.write(buffer, 0, count);
-            }
         }
     }
 
