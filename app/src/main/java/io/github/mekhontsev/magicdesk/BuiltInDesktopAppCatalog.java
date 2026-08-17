@@ -133,6 +133,16 @@ final class BuiltInDesktopAppCatalog {
         return Collections.unmodifiableList(result);
     }
 
+    static List<Entry> searchEntries() {
+        final List<Entry> result = new ArrayList<>();
+        for (final Entry entry : ENTRIES) {
+            if (entry != LOG_VIEWER) {
+                result.add(entry);
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
+
     static Entry find(final AppLaunchTarget target) {
         if (target == null) {
             return null;

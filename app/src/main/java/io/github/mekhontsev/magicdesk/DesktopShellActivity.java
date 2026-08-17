@@ -335,6 +335,9 @@ public abstract class DesktopShellActivity extends Activity
             mDisplayProfiles.stop();
         }
         mLastApps = Collections.emptyList();
+        if (mStartMenuController != null) {
+            mStartMenuController.release();
+        }
         if (mHostWindowController != null) {
             mHostWindowController.release();
         }
@@ -378,6 +381,12 @@ public abstract class DesktopShellActivity extends Activity
         return mInputController != null
                 && mInputController.handleGenericMotionEvent(
                         event, useRawCoordinates);
+    }
+
+    boolean handleDesktopFileKey(final KeyEvent event) {
+        return mDesktopWorkspaceController != null
+                && mDesktopWorkspaceController.handleKeyboardCommand(
+                        FileKeyboardCommand.fromEvent(event));
     }
 
     @Override

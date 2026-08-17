@@ -26,35 +26,6 @@ final class FileManagerSearchController implements AutoCloseable {
     private final ExecutorService mWorker;
     private final Listener mListener;
     private final IBinder mOwnerToken = new Binder();
-    private final IFileSearchCallback mCallback =
-            new IFileSearchCallback.Stub() {
-                @Override
-                public void onBatch(
-                        final long searchId,
-                        final ShellFileInfo[] matches) {
-                    mActivity.runOnUiThread(() -> {
-                        if (accepts(searchId) && matches != null) {
-                            mListener.onSearchBatch(Arrays.asList(matches));
-                        }
-                    });
-                }
-
-                @Override
-                public void onFinished(
-                        final long searchId,
-                        final boolean successful,
-                        final boolean truncated,
-                        final String message) {
-                    mActivity.runOnUiThread(() -> {
-                        if (!accepts(searchId)) {
-                            return;
-                        }
-                        mActiveSearchId = NO_SEARCH;
-                        mListener.onSearchFinished(
-                                successful, truncated, message);
-                    });
-                }
-            };
 
     private volatile long mActiveSearchId = NO_SEARCH;
     private volatile long mGeneration;
@@ -80,6 +51,7 @@ final class FileManagerSearchController implements AutoCloseable {
         cancel();
         final long generation = ++mGeneration;
         mActiveSearchId = PENDING_SEARCH;
+        final IFileSearchCallback callback = callbackFor(generation);
         mWorker.execute(() -> {
             try {
                 final long searchId = ShellAccess.startShellFileSearch(
@@ -87,7 +59,7 @@ final class FileManagerSearchController implements AutoCloseable {
                         query,
                         showHidden,
                         maxResults,
-                        mCallback,
+                        callback,
                         mOwnerToken);
                 if (mClosed || generation != mGeneration) {
                     ShellAccess.cancelShellFileSearch(searchId);
@@ -138,8 +110,42 @@ final class FileManagerSearchController implements AutoCloseable {
         cancel();
     }
 
-    private boolean accepts(final long searchId) {
+    private IFileSearchCallback callbackFor(final long generation) {
+        return new IFileSearchCallback.Stub() {
+            @Override
+            public void onBatch(
+                    final long searchId,
+                    final ShellFileInfo[] matches) {
+                mActivity.runOnUiThread(() -> {
+                    if (accepts(searchId, generation) && matches != null) {
+                        mListener.onSearchBatch(Arrays.asList(matches));
+                    }
+                });
+            }
+
+            @Override
+            public void onFinished(
+                    final long searchId,
+                    final boolean successful,
+                    final boolean truncated,
+                    final String message) {
+                mActivity.runOnUiThread(() -> {
+                    if (!accepts(searchId, generation)) {
+                        return;
+                    }
+                    mActiveSearchId = NO_SEARCH;
+                    mListener.onSearchFinished(
+                            successful, truncated, message);
+                });
+            }
+        };
+    }
+
+    private boolean accepts(
+            final long searchId,
+            final long generation) {
         return !mClosed
+                && generation == mGeneration
                 && searchId > 0L
                 && (mActiveSearchId == PENDING_SEARCH
                         || mActiveSearchId == searchId);

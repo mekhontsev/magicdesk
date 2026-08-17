@@ -987,49 +987,42 @@ public final class FileManagerActivity extends Activity
     @Override
     public boolean onKeyShortcut(
             final int keyCode, final KeyEvent event) {
-        if (event.isCtrlPressed() && keyCode == KeyEvent.KEYCODE_F) {
+        final FileKeyboardCommand command =
+                FileKeyboardCommand.fromShortcut(keyCode, event);
+        if (command == FileKeyboardCommand.FIND) {
             mView.focusFilter();
             return true;
         }
-        if (event.isCtrlPressed()
-                && !event.isShiftPressed()
-                && keyCode == KeyEvent.KEYCODE_N) {
+        if (command == FileKeyboardCommand.NEW_WINDOW) {
             onNewWindow();
             return true;
         }
         if (getCurrentFocus() instanceof EditText) {
             return super.onKeyShortcut(keyCode, event);
         }
-        if (event.isCtrlPressed() && keyCode == KeyEvent.KEYCODE_L) {
-            mView.focusPath();
-            return true;
-        }
-        if (!event.isCtrlPressed()) {
-            return super.onKeyShortcut(keyCode, event);
-        }
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_A:
+        switch (command) {
+            case FOCUS_LOCATION:
+                mView.focusPath();
+                return true;
+            case SELECT_ALL:
                 selectAll();
                 return true;
-            case KeyEvent.KEYCODE_C:
+            case COPY:
                 onCopy();
                 return true;
-            case KeyEvent.KEYCODE_X:
+            case CUT:
                 onCut();
                 return true;
-            case KeyEvent.KEYCODE_V:
+            case PASTE:
                 onPaste();
                 return true;
-            case KeyEvent.KEYCODE_H:
+            case TOGGLE_HIDDEN:
                 onShowHiddenChanged(!mShowHidden);
                 mView.setShowHidden(mShowHidden);
                 return true;
-            case KeyEvent.KEYCODE_N:
-                if (event.isShiftPressed()) {
-                    onNewFolder();
-                    return true;
-                }
-                break;
+            case NEW_FOLDER:
+                onNewFolder();
+                return true;
             default:
                 break;
         }
@@ -1041,38 +1034,34 @@ public final class FileManagerActivity extends Activity
         if (getCurrentFocus() instanceof EditText) {
             return super.onKeyDown(keyCode, event);
         }
-        if (event.isAltPressed() && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            onUp();
-            return true;
-        }
-        if (event.getRepeatCount() == 0) {
-            switch (keyCode) {
-                case KeyEvent.KEYCODE_F2:
-                    onRename();
+        switch (FileKeyboardCommand.fromKeyDown(keyCode, event)) {
+            case RENAME:
+                onRename();
+                return true;
+            case DELETE:
+                onDelete();
+                return true;
+            case REFRESH:
+                onRefresh();
+                return true;
+            case OPEN:
+                final ShellFileInfo selected = singleSelection();
+                if (selected != null) {
+                    onOpen(selected);
                     return true;
-                case KeyEvent.KEYCODE_FORWARD_DEL:
-                    onDelete();
+                }
+                break;
+            case CLEAR_SELECTION:
+                if (!mSelected.isEmpty()) {
+                    clearSelection();
                     return true;
-                case KeyEvent.KEYCODE_F5:
-                    onRefresh();
-                    return true;
-                case KeyEvent.KEYCODE_ENTER:
-                case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                    final ShellFileInfo selected = singleSelection();
-                    if (selected != null) {
-                        onOpen(selected);
-                        return true;
-                    }
-                    break;
-                case KeyEvent.KEYCODE_ESCAPE:
-                    if (!mSelected.isEmpty()) {
-                        clearSelection();
-                        return true;
-                    }
-                    break;
-                default:
-                    break;
-            }
+                }
+                break;
+            case UP:
+                onUp();
+                return true;
+            default:
+                break;
         }
         return super.onKeyDown(keyCode, event);
     }
