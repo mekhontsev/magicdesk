@@ -8,8 +8,16 @@ import java.util.UUID;
 
 final class ShellFileGrantStore {
     private static final String PATH_GRANTS = "grants";
+    private static final int MAX_GRANTS = 256;
     private static final Map<String, Entry> ENTRIES =
-            new LinkedHashMap<>();
+            new LinkedHashMap<String, Entry>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        final Map.Entry<String, ShellFileGrantStore.Entry>
+                                eldest) {
+                    return size() > MAX_GRANTS;
+                }
+            };
 
     private ShellFileGrantStore() {
     }

@@ -55,7 +55,7 @@ public final class ShellFileProvider extends ContentProvider {
             }
             cursor.addRow(row);
         } catch (RuntimeException ignored) {
-            // Empty cursor means that the process-lifetime grant has expired.
+            // Empty cursor means that the temporary grant has expired.
         }
         return cursor;
     }
