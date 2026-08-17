@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
 /** Converts raw shell counters into UI-ready resource snapshots. */
@@ -96,24 +97,31 @@ final class SystemMonitorRepository implements AutoCloseable {
 
     private long mPreviousCpuTotal = -1L;
     private long mPreviousCpuIdle = -1L;
-    private boolean mClosed;
+    private volatile boolean mClosed;
 
     void load(
             final boolean includeProcessMemory,
             final Consumer<Snapshot> callback) {
-        mWorker.execute(() -> {
-            Snapshot snapshot;
-            try {
-                snapshot = convert(ShellAccess.readSystemMonitorSnapshot(
-                        includeProcessMemory));
-            } catch (IOException | RuntimeException error) {
-                snapshot = Snapshot.unavailable(
-                        ShellAccess.usefulMessage(error));
-            }
-            if (!mClosed) {
-                callback.accept(snapshot);
-            }
-        });
+        if (mClosed) {
+            return;
+        }
+        try {
+            mWorker.execute(() -> {
+                Snapshot snapshot;
+                try {
+                    snapshot = convert(ShellAccess.readSystemMonitorSnapshot(
+                            includeProcessMemory));
+                } catch (IOException | RuntimeException error) {
+                    snapshot = Snapshot.unavailable(
+                            ShellAccess.usefulMessage(error));
+                }
+                if (!mClosed) {
+                    callback.accept(snapshot);
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // close() won the scheduling race.
+        }
     }
 
     private Snapshot convert(final SystemMonitorSnapshot raw) {

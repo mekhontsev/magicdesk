@@ -224,7 +224,9 @@ public final class AppLogViewerActivity extends Activity
                 mStream = stream;
                 mStarting = false;
                 runOnUiThread(() -> {
-                    if (mDestroyed) {
+                    if (mDestroyed
+                            || generation != mStreamGeneration.get()
+                            || mStream != stream) {
                         stream.close();
                         return;
                     }

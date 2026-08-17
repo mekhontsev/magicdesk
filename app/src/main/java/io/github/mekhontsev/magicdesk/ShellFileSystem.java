@@ -294,7 +294,13 @@ final class ShellFileSystem implements AutoCloseable {
             throw failure("file operation owner is unavailable", error);
         }
         mOperations.put(Long.valueOf(id), fileOperation);
-        mOperationExecutor.execute(fileOperation);
+        try {
+            mOperationExecutor.execute(fileOperation);
+        } catch (RuntimeException error) {
+            mOperations.remove(Long.valueOf(id), fileOperation);
+            ownerToken.unlinkToDeath(fileOperation, 0);
+            throw error;
+        }
         return id;
     }
 
@@ -375,7 +381,13 @@ final class ShellFileSystem implements AutoCloseable {
             throw failure("file search owner is unavailable", error);
         }
         mSearches.put(Long.valueOf(id), search);
-        mSearchExecutor.execute(search);
+        try {
+            mSearchExecutor.execute(search);
+        } catch (RuntimeException error) {
+            mSearches.remove(Long.valueOf(id), search);
+            ownerToken.unlinkToDeath(search, 0);
+            throw error;
+        }
         return id;
     }
 

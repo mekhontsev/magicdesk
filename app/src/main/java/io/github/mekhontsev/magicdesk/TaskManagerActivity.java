@@ -100,7 +100,7 @@ public final class TaskManagerActivity extends Activity
     @Override
     public void onShellStateChanged(final ShellAccess.Snapshot snapshot) {
         runOnUiThread(() -> {
-            if (mDestroyed) {
+            if (mDestroyed || !mStarted) {
                 return;
             }
             if (snapshot != null && snapshot.isReady()) {
@@ -158,6 +158,9 @@ public final class TaskManagerActivity extends Activity
 
     private void refresh() {
         mHandler.removeCallbacks(mScheduledRefresh);
+        if (!mStarted || mDestroyed) {
+            return;
+        }
         if (!ShellAccess.isReady()) {
             mStatus.setText(R.string.task_manager_waiting);
             return;

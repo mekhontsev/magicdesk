@@ -134,6 +134,12 @@ final class TaskbarController {
                 return super.dispatchHoverEvent(event);
             }
 
+            @Override
+            protected void onDetachedFromWindow() {
+                cancelBlankLongPress();
+                super.onDetachedFromWindow();
+            }
+
             private void notifyEdgeInput(final MotionEvent event) {
                 final EdgeInputListener listener = mEdgeInputListener;
                 if (listener != null) {

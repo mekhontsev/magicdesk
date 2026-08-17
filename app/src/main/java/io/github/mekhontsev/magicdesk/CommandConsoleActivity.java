@@ -516,12 +516,10 @@ public final class CommandConsoleActivity extends Activity
         updateActions();
         final long started = SystemClock.elapsedRealtime();
         mWorker.execute(() -> {
-            if (mStopRequested) {
-                final long duration = SystemClock.elapsedRealtime() - started;
-                runOnUiThread(() -> showStopped(duration));
-                return;
-            }
             try {
+                // Execute even when Stop won the scheduling race. The shell
+                // executor consumes its pending cancellation atomically;
+                // returning here would incorrectly cancel the next command.
                 final ConsoleShellSession.ExecutionResult result =
                         mSession.execute(
                                 command,

@@ -95,7 +95,7 @@ final class OverlayPanelController {
     boolean show(final View panel, final int left, final int top,
             final int width, final int height, final boolean focusable,
             final boolean inputMethodTarget, final String title) {
-        if (panel == null || mWindowManager == null
+        if (mReleased || panel == null || mWindowManager == null
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }
@@ -174,7 +174,7 @@ final class OverlayPanelController {
             final int width, final int height,
             final boolean watchOutsideTouches,
             final String title) {
-        if (view == null || mWindowManager == null
+        if (mReleased || view == null || mWindowManager == null
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }
@@ -225,7 +225,7 @@ final class OverlayPanelController {
     boolean showTransient(final View view, final int left, final int top,
             final int width, final int height, final long durationMillis,
             final String title) {
-        if (view == null || mWindowManager == null
+        if (mReleased || view == null || mWindowManager == null
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }

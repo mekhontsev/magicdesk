@@ -107,7 +107,18 @@ final class FileManagerSearchController implements AutoCloseable {
             return;
         }
         mClosed = true;
-        cancel();
+        mGeneration++;
+        final long searchId = mActiveSearchId;
+        mActiveSearchId = NO_SEARCH;
+        if (searchId > 0L) {
+            try {
+                // FileManager shuts down its worker immediately after this
+                // method, so lifecycle cleanup must not be queued there.
+                ShellAccess.cancelShellFileSearch(searchId);
+            } catch (IOException ignored) {
+                // A disconnected UserService no longer owns the search.
+            }
+        }
     }
 
     private IFileSearchCallback callbackFor(final long generation) {

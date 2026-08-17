@@ -16,7 +16,7 @@ final class ShellTaskObserverHandle implements Closeable {
     private final IBinder.DeathRecipient mServiceDeathRecipient;
     private final AtomicBoolean mClosed = new AtomicBoolean();
 
-    private volatile boolean mRegistered;
+    private boolean mRegistered;
     private boolean mServiceLinked;
 
     ShellTaskObserverHandle(
@@ -36,12 +36,15 @@ final class ShellTaskObserverHandle implements Closeable {
             mServiceLinked = true;
         }
         mService.startTaskObserver(mCallback);
-        if (mClosed.get()) {
-            stopRemoteObserver();
-            throw new RemoteException(
-                    "task observer disconnected during registration");
+        synchronized (this) {
+            if (!mClosed.get()) {
+                mRegistered = true;
+                return;
+            }
         }
-        mRegistered = true;
+        stopRemoteObserver();
+        throw new RemoteException(
+                "task observer disconnected during registration");
     }
 
     void configure(
@@ -136,18 +139,20 @@ final class ShellTaskObserverHandle implements Closeable {
             return;
         }
         unlinkServiceDeath();
-        if (!mRegistered) {
-            return;
+        final boolean registered;
+        synchronized (this) {
+            registered = mRegistered;
+            mRegistered = false;
         }
-        mRegistered = false;
-        stopRemoteObserver();
+        if (registered) {
+            stopRemoteObserver();
+        }
     }
 
     void closeAfterStartFailure() {
         stopRemoteObserver();
-        if (mClosed.compareAndSet(false, true)) {
-            unlinkServiceDeath();
-        }
+        mClosed.set(true);
+        unlinkServiceDeath();
     }
 
     private void callService(final RemoteServiceCall call)
@@ -208,7 +213,9 @@ final class ShellTaskObserverHandle implements Closeable {
         if (!mClosed.compareAndSet(false, true)) {
             return;
         }
-        mRegistered = false;
+        synchronized (this) {
+            mRegistered = false;
+        }
         unlinkServiceDeath();
         if (mDisconnected != null) {
             mDisconnected.run();

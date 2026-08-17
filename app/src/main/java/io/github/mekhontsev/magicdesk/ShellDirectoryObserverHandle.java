@@ -65,9 +65,8 @@ final class ShellDirectoryObserverHandle implements Closeable {
 
     void closeAfterStartFailure() {
         stopRemote();
-        if (mClosed.compareAndSet(false, true)) {
-            unlinkServiceDeath();
-        }
+        mClosed.set(true);
+        unlinkServiceDeath();
     }
 
     private void stopRemote() {
