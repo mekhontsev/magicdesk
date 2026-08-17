@@ -36,6 +36,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
+    private final ShellFullscreenTaskArea mFullscreenTaskArea =
+            new ShellFullscreenTaskArea();
 
     private volatile boolean mClosed;
     private boolean mRegistered;
@@ -124,6 +126,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int previousMode,
                             final int currentMode,
                             final int previousCaptionSourceId) {
+                        mFullscreenTaskArea.onWindowingModeChanged(
+                                displayId, taskId, currentMode);
                         callCallback(() -> mCallback.onWindowingModeChanged(
                                 taskId,
                                 previousMode,
@@ -178,6 +182,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
+        mFullscreenTaskArea.configure(displayId);
         if (displayId < 0) {
             updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
@@ -238,10 +243,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             if (appliedTaskCount == 0) {
                 throw new IllegalStateException("no live tasks to focus");
             }
-            TaskWindowingCommand.focusTasks(
-                    mService,
-                    displayId,
-                    Arrays.copyOf(liveTaskIds, appliedTaskCount));
+            final int[] focusTaskIds =
+                    Arrays.copyOf(liveTaskIds, appliedTaskCount);
+            if (!mFullscreenTaskArea.focusStack(
+                    mService, displayId, focusTaskIds)) {
+                TaskWindowingCommand.focusTasks(
+                        mService, displayId, focusTaskIds);
+            }
             signalFocusStackResult(
                     sequence, true, appliedTaskCount, "");
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -290,6 +298,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mInputPanelGuard.onTaskRemoved(taskId);
             mMigrationGuard.forget(taskId);
             mTransientBounds.forget(taskId);
+            mFullscreenTaskArea.onTaskRemoved(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange();
         }
@@ -324,6 +333,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskDisplayChanged(
             final int taskId,
             final int newDisplayId) {
+        mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange();
     }
@@ -352,6 +362,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFreeformCleanup.close();
         mTransientBounds.close();
         mStateMonitor.close();
+        mFullscreenTaskArea.close();
         if (!mRegistered) {
             return;
         }

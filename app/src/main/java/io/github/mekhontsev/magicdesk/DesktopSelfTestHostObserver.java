@@ -19,6 +19,7 @@ final class DesktopSelfTestHostObserver {
     private static int sFirstFrameCount;
     private static boolean sReady;
     private static boolean sLostReadyUi;
+    private static int sAltTabPanelGeneration;
     private static final List<String> EVENTS = new ArrayList<>();
 
     private DesktopSelfTestHostObserver() {
@@ -33,6 +34,7 @@ final class DesktopSelfTestHostObserver {
         sFirstFrameCount = 0;
         sReady = false;
         sLostReadyUi = false;
+        sAltTabPanelGeneration = 0;
         EVENTS.clear();
     }
 
@@ -49,6 +51,16 @@ final class DesktopSelfTestHostObserver {
     static synchronized void markReady() {
         if (sActive) {
             sReady = true;
+        }
+    }
+
+    static synchronized int altTabPanelGeneration() {
+        return sAltTabPanelGeneration;
+    }
+
+    static synchronized void noteAltTabPanelShown() {
+        if (sActive) {
+            sAltTabPanelGeneration++;
         }
     }
 
@@ -96,6 +108,7 @@ final class DesktopSelfTestHostObserver {
         sFirstFrameCount = 0;
         sReady = false;
         sLostReadyUi = false;
+        sAltTabPanelGeneration = 0;
         EVENTS.clear();
     }
 

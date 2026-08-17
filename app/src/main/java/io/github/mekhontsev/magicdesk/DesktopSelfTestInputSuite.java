@@ -830,15 +830,76 @@ final class DesktopSelfTestInputSuite {
             final int targetTaskId,
             final String targetToken,
             final int otherTaskId,
-            final String digit) throws IOException {
-        final String focus = focusFieldThroughAltTab(
-                context,
-                displayId,
-                targetTaskId,
-                targetToken,
-                digit);
+        final String digit) throws IOException {
+        DesktopSelfTestFixtureState.clearText(context);
+        final int panelGeneration =
+                DesktopSelfTestHostObserver.altTabPanelGeneration();
+        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+            throw new IOException("desktop Alt+Tab is unavailable");
+        }
+        waitForAltTabPanel(panelGeneration);
+        inspectFullscreenModes(
+                displayId, targetTaskId, otherTaskId, "while Alt+Tab is open");
+        if (!DesktopRuntimeBridge.finishAltTab()) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw new IOException("desktop Alt+Tab completion is unavailable");
+        }
+        final String focus;
+        try {
+            waitForFrontTask(displayId, targetTaskId);
+            typeAndVerifyText(
+                    context, displayId, targetTaskId, targetToken, digit);
+            focus = "task=" + targetTaskId + ", token=" + targetToken;
+        } catch (IOException error) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw error;
+        }
         return focus + ", " + inspectFullscreenPair(
                 displayId, targetTaskId, otherTaskId);
+    }
+
+    private static void waitForAltTabPanel(
+            final int previousGeneration) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopSelfTestHostObserver.altTabPanelGeneration()
+                    > previousGeneration) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        DesktopRuntimeBridge.cancelAltTab();
+        throw new IOException("Alt+Tab panel did not become visible");
+    }
+
+    private static void inspectFullscreenModes(
+            final int displayId,
+            final int targetTaskId,
+            final int otherTaskId,
+            final String stage) throws IOException {
+        TaskStackParser.Entry target = null;
+        TaskStackParser.Entry other = null;
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(
+                ShellAccess.run("/system/bin/cmd activity stack list"))) {
+            if (task.displayId != displayId) {
+                continue;
+            }
+            if (task.taskId == targetTaskId) {
+                target = task;
+            } else if (task.taskId == otherTaskId) {
+                other = task;
+            }
+        }
+        if (target == null || other == null
+                || !"fullscreen".equals(target.windowingMode)
+                || !"fullscreen".equals(other.windowingMode)) {
+            throw new IOException("fullscreen modes changed " + stage
+                    + ": target="
+                    + (target == null ? "missing" : target.windowingMode)
+                    + ", other="
+                    + (other == null ? "missing" : other.windowingMode));
+        }
     }
 
     private static String inspectFullscreenPair(

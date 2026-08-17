@@ -341,16 +341,30 @@ final class AppTaskController {
     void focusTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
+        focusTask(app, task, null, null);
+    }
+
+    void focusTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final List<TaskRepository.TaskEntry> focusStack,
+            final Runnable completion) {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_switching_to, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
+        final List<TaskRepository.TaskEntry> visibleTasks;
+        if (focusStack == null) {
+            visibleTasks = takeInteractionVisibleTasks();
+        } else {
+            visibleTasks = new ArrayList<>(focusStack);
+            mInteractionVisibleTasks = Collections.emptyList();
+        }
         final int displayId = mActivity.getCurrentDisplayId();
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()
                             || displayId
                                     != mActivity.getCurrentDisplayId()) {
+                        runCompletion(completion);
                         return;
                     }
                     if (!snapshot.available) {
@@ -359,6 +373,7 @@ final class AppTaskController {
                                 snapshot.error.length() == 0
                                         ? app.label
                                         : snapshot.error));
+                        runCompletion(completion);
                         return;
                     }
                     mActivity.setTaskSnapshot(snapshot);
@@ -370,6 +385,7 @@ final class AppTaskController {
                                 R.string.status_switch_failed,
                                 app.label));
                         mActivity.refreshTaskSnapshot();
+                        runCompletion(completion);
                         return;
                     }
                     MagicDeskRuntime.focusStack(
@@ -383,13 +399,21 @@ final class AppTaskController {
                                                     result.message.length() == 0
                                                             ? app.label
                                                             : result.message));
+                                    runCompletion(completion);
                                     return;
                                 }
                                 mActivity.setTaskbarVisible(
                                         currentTask.isFreeform());
                                 mActivity.refreshTaskSnapshot();
+                                runCompletion(completion);
                             }));
                 }));
+    }
+
+    private static void runCompletion(final Runnable completion) {
+        if (completion != null) {
+            completion.run();
+        }
     }
 
     void toggleTaskbarTask(

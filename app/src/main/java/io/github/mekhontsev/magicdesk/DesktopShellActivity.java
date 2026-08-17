@@ -778,8 +778,8 @@ public abstract class DesktopShellActivity extends Activity
         mTaskOverviewController.populate(snapshot);
     }
 
-    boolean showTaskOverviewPanel() {
-        return mTaskOverviewController.showPanel();
+    boolean showAltTabPanel() {
+        return mTaskOverviewController.showAltTabPanel();
     }
 
     void registerContextTarget(final View view, final AppItem app,
@@ -1282,6 +1282,14 @@ public abstract class DesktopShellActivity extends Activity
 
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
         mAppTasks.focusTask(app, task);
+    }
+
+    void focusTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final List<TaskRepository.TaskEntry> focusStack,
+            final Runnable completion) {
+        mAppTasks.focusTask(app, task, focusStack, completion);
     }
 
     void toggleTaskbarTask(

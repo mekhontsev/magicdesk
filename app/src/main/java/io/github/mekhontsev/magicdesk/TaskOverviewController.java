@@ -163,6 +163,18 @@ final class TaskOverviewController {
     }
 
     boolean showPanel() {
+        return showPanel(true);
+    }
+
+    boolean showAltTabPanel() {
+        // Alt+Tab is driven by the global keyboard bridge. Keeping its overlay
+        // non-focusable avoids activating the desktop host behind a fullscreen
+        // application while still allowing the normal mouse-driven overview
+        // to remain interactive.
+        return showPanel(false);
+    }
+
+    private boolean showPanel(final boolean focusable) {
         final int areaWidth = mActivity.getDesktopAreaWidth();
         final int areaHeight = mActivity.getDesktopAreaHeight();
         final int width = Math.min(dp(760), areaWidth - dp(32));
@@ -181,7 +193,7 @@ final class TaskOverviewController {
                 top,
                 width,
                 height,
-                true,
+                focusable,
                 "MagicDesk open tasks")) {
             return true;
         }
