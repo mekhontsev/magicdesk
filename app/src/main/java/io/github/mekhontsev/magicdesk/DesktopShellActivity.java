@@ -26,6 +26,8 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -97,7 +99,10 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopInputController mInputController;
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
+    private final OnBackInvokedCallback mExternalBackCallback =
+            this::handleExternalBack;
     private boolean mDesktopWindowFocusable = true;
+    private boolean mExternalBackCallbackRegistered;
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
     private boolean mTaskbarAutoHide;
@@ -245,6 +250,7 @@ public abstract class DesktopShellActivity extends Activity
         mInputController = new DesktopInputController(this);
         mHostWindowController = new DesktopHostWindowController(this);
         mSystemActions = new DesktopSystemActionsController(this);
+        registerExternalBackCallback();
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
@@ -322,6 +328,7 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        unregisterExternalBackCallback();
         if (mNotifications != null) {
             mNotifications.stop();
         }
@@ -618,6 +625,37 @@ public abstract class DesktopShellActivity extends Activity
             refreshDisplayProfile();
         }
         refreshTaskSnapshot();
+    }
+
+    private void registerExternalBackCallback() {
+        if (mExternalBackCallbackRegistered
+                || getCurrentDisplayId() <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                mExternalBackCallback);
+        mExternalBackCallbackRegistered = true;
+    }
+
+    private void unregisterExternalBackCallback() {
+        if (!mExternalBackCallbackRegistered) {
+            return;
+        }
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
+                mExternalBackCallback);
+        mExternalBackCallbackRegistered = false;
+    }
+
+    private void handleExternalBack() {
+        // Back may be routed to the external HOME host while no app owns
+        // focus. Finishing that Activity leaves the desktop display blank.
+        Log.i(TAG, "ignored Back on external desktop host display="
+                + getCurrentDisplayId());
+        if (hasVisiblePanel()) {
+            resetAltTabState();
+            hideAllPanels();
+        }
     }
 
     @Override
