@@ -46,6 +46,8 @@ The result is a familiar desktop model:
 - A persistent taskbar tracks real Android tasks and pinned applications,
   collecting items that do not fit into an explicit icon-and-name overflow
   menu instead of leaving them off-screen.
+- On the phone desktop, an upward swipe from the bottom content edge reveals
+  the taskbar over a fullscreen application without opening Android Recents.
 - Start, freely positioned desktop shortcuts, a global desktop folder, Android
   widgets, task switching, and Show Desktop provide normal mouse-driven
   navigation.

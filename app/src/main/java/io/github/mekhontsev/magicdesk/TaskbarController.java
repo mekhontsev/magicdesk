@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Set;
 
 final class TaskbarController {
-    interface EdgeHoverListener {
-        void onHoverEvent(MotionEvent event);
+    interface EdgeInputListener {
+        void onEdgeInput(MotionEvent event);
     }
 
     private final DesktopShellActivity mActivity;
@@ -43,7 +43,9 @@ final class TaskbarController {
     private Intent mLastBatteryIntent;
     private boolean mChargeSeparationEnabled;
     private final List<Integer> mTaskOrder = new ArrayList<>();
-    private EdgeHoverListener mEdgeHoverListener;
+    private EdgeInputListener mEdgeInputListener;
+    private boolean mEdgeHidden;
+    private boolean mHiddenEdgeTouchSequence;
 
     TaskbarController(
             final DesktopShellActivity activity,
@@ -73,12 +75,25 @@ final class TaskbarController {
 
             @Override
             public boolean dispatchTouchEvent(final MotionEvent event) {
-                notifyEdgeHover(event);
+                final int action = event.getActionMasked();
+                boolean consumeHiddenSequence = mHiddenEdgeTouchSequence;
+                if (action == MotionEvent.ACTION_DOWN && mEdgeHidden) {
+                    mHiddenEdgeTouchSequence = true;
+                    consumeHiddenSequence = true;
+                }
+                notifyEdgeInput(event);
+                if (consumeHiddenSequence) {
+                    cancelBlankLongPress();
+                    if (action == MotionEvent.ACTION_UP
+                            || action == MotionEvent.ACTION_CANCEL) {
+                        mHiddenEdgeTouchSequence = false;
+                    }
+                    return true;
+                }
                 if (mActivity.handleDesktopMouseTouchEvent(event, true)) {
                     cancelBlankLongPress();
                     return true;
                 }
-                final int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_DOWN) {
                     cancelBlankLongPress();
                     if (!isActionAt(event.getX(), event.getY())) {
@@ -115,14 +130,14 @@ final class TaskbarController {
 
             @Override
             public boolean dispatchHoverEvent(final MotionEvent event) {
-                notifyEdgeHover(event);
+                notifyEdgeInput(event);
                 return super.dispatchHoverEvent(event);
             }
 
-            private void notifyEdgeHover(final MotionEvent event) {
-                final EdgeHoverListener listener = mEdgeHoverListener;
+            private void notifyEdgeInput(final MotionEvent event) {
+                final EdgeInputListener listener = mEdgeInputListener;
                 if (listener != null) {
-                    listener.onHoverEvent(event);
+                    listener.onEdgeInput(event);
                 }
             }
 
@@ -284,7 +299,9 @@ final class TaskbarController {
     }
 
     void release() {
-        mEdgeHoverListener = null;
+        mEdgeInputListener = null;
+        mEdgeHidden = false;
+        mHiddenEdgeTouchSequence = false;
         mTaskbar = null;
         mPins = null;
         mTaskViewport = null;
@@ -303,11 +320,12 @@ final class TaskbarController {
         }
     }
 
-    void setEdgeHoverListener(final EdgeHoverListener listener) {
-        mEdgeHoverListener = listener;
+    void setEdgeInputListener(final EdgeInputListener listener) {
+        mEdgeInputListener = listener;
     }
 
     void setEdgeHidden(final boolean hidden) {
+        mEdgeHidden = hidden;
         if (mTaskbar != null) {
             mTaskbar.setAlpha(hidden ? 0f : 1f);
         }

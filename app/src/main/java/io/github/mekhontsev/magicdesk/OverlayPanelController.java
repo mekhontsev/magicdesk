@@ -171,17 +171,22 @@ final class OverlayPanelController {
     }
 
     boolean attachPersistent(final View view, final int left, final int top,
-            final int width, final int height, final String title) {
+            final int width, final int height,
+            final boolean watchOutsideTouches,
+            final String title) {
         if (view == null || mWindowManager == null
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }
         detachPersistent();
 
-        final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        if (watchOutsideTouches) {
+            flags |= WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
+        }
         final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 width,
                 height,

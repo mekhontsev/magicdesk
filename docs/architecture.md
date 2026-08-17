@@ -626,6 +626,11 @@ reserves one slot for an overflow menu when task or pin icons no longer fit.
 Overflow entries retain the same exact-task actions and context targets as
 their ordinary taskbar icons; screen drivers do not implement separate sizing
 or task-switching behavior.
+The phone desktop also exposes the hidden taskbar through a touch edge gesture.
+It uses Android's configured edge and touch slop, is scoped to display 0, and
+feeds an explicit reveal state into the shared controller. The taskbar is
+dismissed by the next taskbar action or outside touch rather than by a timeout;
+the blocked SystemUI Recents gesture is not intercepted or re-enabled.
 When automatic hiding is enabled, the same existing pointer-edge state machine
 reveals it without introducing a second overlay or polling loop, and window
 placement uses the full viewport. IME and other forced-visible policy still

@@ -3,7 +3,10 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Display;
+import android.view.InputDevice;
 import android.view.MotionEvent;
+import android.view.ViewConfiguration;
 
 /** Keeps a hidden taskbar reachable from a passive strip at the screen edge. */
 final class DesktopTaskbarRevealController {
@@ -13,8 +16,13 @@ final class DesktopTaskbarRevealController {
 
     private final DesktopShellActivity mActivity;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
-    private final PointerEdgeRevealState mState =
+    private final PointerEdgeRevealState mPointerState =
             new PointerEdgeRevealState();
+    private final TouchEdgeRevealState mTouchState =
+            new TouchEdgeRevealState();
+    private final boolean mTouchEdgeEnabled;
+    private final int mTouchSlop;
+    private final int mTouchEdgeHeight;
 
     private boolean mPolicyVisible = true;
     private boolean mAutoHide;
@@ -23,19 +31,24 @@ final class DesktopTaskbarRevealController {
     private boolean mReleased;
 
     private final Runnable mRevealTimeout = () -> {
-        if (!mReleased && mState.onRevealTimeout()) {
+        if (!mReleased && mPointerState.onRevealTimeout()) {
             applyPresentation();
         }
     };
 
     private final Runnable mHideTimeout = () -> {
-        if (!mReleased && mState.onHideTimeout()) {
+        if (!mReleased && mPointerState.onHideTimeout()) {
             applyPresentation();
         }
     };
 
     DesktopTaskbarRevealController(final DesktopShellActivity activity) {
         mActivity = activity;
+        mTouchEdgeEnabled = activity.getCurrentDisplayId()
+                == Display.DEFAULT_DISPLAY;
+        final ViewConfiguration configuration = ViewConfiguration.get(activity);
+        mTouchSlop = configuration.getScaledTouchSlop();
+        mTouchEdgeHeight = configuration.getScaledEdgeSlop();
     }
 
     void start() {
@@ -43,8 +56,8 @@ final class DesktopTaskbarRevealController {
             return;
         }
         mStarted = true;
-        mActivity.taskbar().setEdgeHoverListener(this::onHoverEvent);
-        mState.setArmed(shouldArm());
+        mActivity.taskbar().setEdgeInputListener(this::onEdgeInput);
+        updateArmedState();
         applyPresentation();
     }
 
@@ -57,7 +70,7 @@ final class DesktopTaskbarRevealController {
         }
         mPolicyVisible = visible;
         cancelTimers();
-        mState.setArmed(shouldArm());
+        updateArmedState();
         if (mStarted) {
             applyPresentation();
         }
@@ -69,7 +82,7 @@ final class DesktopTaskbarRevealController {
         }
         mAutoHide = enabled;
         cancelTimers();
-        mState.setArmed(shouldArm());
+        updateArmedState();
         if (mStarted) {
             applyPresentation();
         }
@@ -81,7 +94,7 @@ final class DesktopTaskbarRevealController {
         }
         mForcedVisible = visible;
         cancelTimers();
-        mState.setArmed(shouldArm());
+        updateArmedState();
         if (mStarted) {
             applyPresentation();
         }
@@ -99,12 +112,17 @@ final class DesktopTaskbarRevealController {
         }
         mReleased = true;
         cancelTimers();
-        mActivity.taskbar().setEdgeHoverListener(null);
+        mActivity.taskbar().setEdgeInputListener(null);
     }
 
-    private void onHoverEvent(final MotionEvent event) {
-        if (mReleased || isPinnedVisible() || mForcedVisible
-                || event == null) {
+    private void onEdgeInput(final MotionEvent event) {
+        if (mReleased || event == null) {
+            return;
+        }
+        if (handleTouchEdgeInput(event)) {
+            return;
+        }
+        if (isPinnedVisible() || mForcedVisible) {
             return;
         }
         switch (event.getActionMasked()) {
@@ -113,21 +131,21 @@ final class DesktopTaskbarRevealController {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_MOVE:
             case MotionEvent.ACTION_UP:
-                applyTimerAction(mState.onPointerEntered());
+                applyTimerAction(mPointerState.onPointerEntered());
                 break;
             case MotionEvent.ACTION_HOVER_EXIT:
                 if (isRelayoutExit(event)) {
                     // Nubia's touch panel ends the old hover stream when the
                     // taskbar window moves up, although the pointer remains
                     // inside the newly exposed taskbar.
-                    applyTimerAction(mState.onPointerEntered());
+                    applyTimerAction(mPointerState.onPointerEntered());
                     break;
                 }
-                applyTimerAction(mState.onPointerExited());
+                applyTimerAction(mPointerState.onPointerExited());
                 break;
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_OUTSIDE:
-                applyTimerAction(mState.onPointerExited());
+                applyTimerAction(mPointerState.onPointerExited());
                 break;
             default:
                 break;
@@ -135,7 +153,7 @@ final class DesktopTaskbarRevealController {
     }
 
     private boolean isRelayoutExit(final MotionEvent event) {
-        if (!mState.isRevealed()) {
+        if (!mPointerState.isRevealed()) {
             return false;
         }
         final Rect bounds = mActivity.getTaskbarBounds();
@@ -185,7 +203,8 @@ final class DesktopTaskbarRevealController {
         }
         final boolean visible = mForcedVisible
                 || isPinnedVisible()
-                || mState.isRevealed();
+                || mPointerState.isRevealed()
+                || mTouchState.isRevealed();
         final Rect normalBounds = mActivity.getTaskbarBounds();
         if (visible) {
             overlays.updatePersistentBounds(
@@ -196,9 +215,13 @@ final class DesktopTaskbarRevealController {
             taskbar.setEdgeHidden(false);
         } else {
             taskbar.setEdgeHidden(true);
+            final int hiddenEdgeHeight = mTouchEdgeEnabled
+                    ? Math.max(1, Math.min(
+                            normalBounds.height(), mTouchEdgeHeight))
+                    : EDGE_STRIP_HEIGHT_PX;
             overlays.updatePersistentBounds(
                     normalBounds.left,
-                    normalBounds.bottom - EDGE_STRIP_HEIGHT_PX,
+                    normalBounds.bottom - hiddenEdgeHeight,
                     normalBounds.width(),
                     normalBounds.height());
         }
@@ -216,5 +239,63 @@ final class DesktopTaskbarRevealController {
 
     private boolean shouldArm() {
         return !mForcedVisible && !isPinnedVisible();
+    }
+
+    private void updateArmedState() {
+        final boolean armed = shouldArm();
+        mPointerState.setArmed(armed);
+        mTouchState.setArmed(mTouchEdgeEnabled && armed);
+    }
+
+    private boolean handleTouchEdgeInput(final MotionEvent event) {
+        final int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_OUTSIDE) {
+            final TouchEdgeRevealState.Action result =
+                    mTouchState.onOutside();
+            applyTouchAction(result, false);
+            // Let the pointer state observe the same outside event so a
+            // preceding mouse reveal cannot keep the taskbar open.
+            return false;
+        }
+        if (!mTouchEdgeEnabled
+                || !event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+            return false;
+        }
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+                applyTouchAction(mTouchState.onDown(
+                        event.getRawX(), event.getRawY()), false);
+                break;
+            case MotionEvent.ACTION_MOVE:
+                applyTouchAction(mTouchState.onMove(
+                        event.getRawX(), event.getRawY(), mTouchSlop), false);
+                break;
+            case MotionEvent.ACTION_UP:
+                applyTouchAction(mTouchState.onUp(), true);
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                applyTouchAction(mTouchState.onCancel(), false);
+                break;
+            default:
+                break;
+        }
+        return true;
+    }
+
+    private void applyTouchAction(
+            final TouchEdgeRevealState.Action action,
+            final boolean afterDispatch) {
+        if (action == TouchEdgeRevealState.Action.NONE) {
+            return;
+        }
+        if (afterDispatch) {
+            mHandler.post(() -> {
+                if (!mReleased) {
+                    applyPresentation();
+                }
+            });
+        } else {
+            applyPresentation();
+        }
     }
 }
