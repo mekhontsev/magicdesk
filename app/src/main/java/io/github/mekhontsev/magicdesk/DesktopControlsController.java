@@ -184,6 +184,13 @@ final class DesktopControlsController {
                 mActivity.openConsole());
         addActionButton(actionGrid, console);
 
+        final Button taskManager = mUi.actionButton(
+                R.string.task_manager_title,
+                DesktopUiFactory.COLOR_CYAN);
+        taskManager.setOnClickListener(view ->
+                mActivity.openTaskManager());
+        addActionButton(actionGrid, taskManager);
+
         final Button settings = mUi.actionButton(
                 R.string.action_settings,
                 DesktopUiFactory.COLOR_CYAN);

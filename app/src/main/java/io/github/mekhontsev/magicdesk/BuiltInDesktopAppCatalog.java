@@ -70,8 +70,35 @@ final class BuiltInDesktopAppCatalog {
             false,
             false,
             new RelativeWindowBounds(5000, 5000, 4800, 7600));
+    private static final Entry TASK_MANAGER = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    TaskManagerActivity.class.getName(),
+                    ""),
+            R.string.task_manager_title,
+            false,
+            false,
+            false,
+            false,
+            new RelativeWindowBounds(5000, 5000, 6200, 7600));
+    private static final Entry LOG_VIEWER = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    AppLogViewerActivity.class.getName(),
+                    ""),
+            R.string.app_logs_fallback_title,
+            false,
+            true,
+            false,
+            false,
+            new RelativeWindowBounds(5000, 5000, 6200, 7600));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
-            Arrays.asList(FILES, SETTINGS, CONSOLE));
+            Arrays.asList(
+                    FILES,
+                    SETTINGS,
+                    CONSOLE,
+                    TASK_MANAGER,
+                    LOG_VIEWER));
 
     private BuiltInDesktopAppCatalog() {
     }
@@ -86,6 +113,14 @@ final class BuiltInDesktopAppCatalog {
 
     static AppLaunchTarget consoleTarget() {
         return CONSOLE.launchTarget;
+    }
+
+    static AppLaunchTarget taskManagerTarget() {
+        return TASK_MANAGER.launchTarget;
+    }
+
+    static AppLaunchTarget logViewerTarget() {
+        return LOG_VIEWER.launchTarget;
     }
 
     static List<Entry> launcherEntries() {

@@ -48,8 +48,34 @@ public final class FileManagerContractTest {
         assertTrue(aidl.contains("createAvailableShellEntry("));
         assertTrue(aidl.contains("boolean directory) = 57;"));
         assertTrue(aidl.contains("long inode) = 56;"));
+        assertTrue(aidl.contains("IShellDirectoryObserverCallback callback) = 66;"));
+        assertTrue(aidl.contains("IShellDirectoryObserverCallback callback) = 67;"));
+        assertTrue(aidl.contains("long startShellFileSearch("));
+        assertTrue(aidl.contains("IBinder ownerToken) = 68;"));
+        assertTrue(aidl.contains("cancelShellFileSearch(long searchId) = 69;"));
         assertFalse(aidl.substring(
                 aidl.indexOf("long startShellFileOperation("),
                 aidl.indexOf(") = 54;")).contains("boolean replace"));
+    }
+
+    @Test
+    public void shellWorkspaceActivitiesRequireTaskPermission()
+            throws IOException {
+        final String manifest = Files.readString(
+                Path.of("src/main/AndroidManifest.xml"),
+                StandardCharsets.UTF_8);
+        assertProtectedActivity(manifest, ".TaskManagerActivity");
+        assertProtectedActivity(manifest, ".AppLogViewerActivity");
+    }
+
+    private static void assertProtectedActivity(
+            final String manifest, final String className) {
+        final int activity = manifest.indexOf(
+                "android:name=\"" + className + "\"");
+        final int activityEnd = manifest.indexOf("/>", activity);
+        final String declaration = manifest.substring(activity, activityEnd);
+        assertTrue(declaration.contains("android:exported=\"true\""));
+        assertTrue(declaration.contains(
+                "android:permission=\"android.permission.MANAGE_ACTIVITY_TASKS\""));
     }
 }

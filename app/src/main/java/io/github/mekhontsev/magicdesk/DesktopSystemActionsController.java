@@ -88,6 +88,22 @@ final class DesktopSystemActionsController {
         }
     }
 
+    void openTaskManager() {
+        mActivity.hideAllPanels();
+        try {
+            mActivity.launchInternalWindow(
+                    TaskManagerActivity.createIntent(mActivity),
+                    TaskManagerActivity.launchTarget(),
+                    mActivity.getString(R.string.task_manager_title));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "TASK-MANAGER-001",
+                    "Cannot open Task Manager",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     void openSettings() {
         mActivity.hideAllPanels();
         try {

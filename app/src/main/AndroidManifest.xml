@@ -166,6 +166,24 @@
             android:taskAffinity="${applicationId}.console" />
 
         <activity
+            android:name=".TaskManagerActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_magicdesk"
+            android:label="@string/task_manager_title"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.tasks" />
+
+        <activity
+            android:name=".AppLogViewerActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_magicdesk"
+            android:label="@string/app_logs_fallback_title"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.logs" />
+
+        <activity
             android:name=".MagicDeskTouchpadActivity"
             android:configChanges="keyboard|keyboardHidden|navigation"
             android:excludeFromRecents="true"
