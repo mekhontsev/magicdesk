@@ -160,9 +160,10 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
                 + " --display-id " + physicalDisplayId
                 + (width == 0 ? "" : " --size " + width + "x" + height)
                 + " --bit-rate " + bitrateMbps + "M"
-                + " --time-limit 0 " + shellQuote(mVideoPath)
+                + " --time-limit 0 " + ShellCommandLine.quote(mVideoPath)
                 + " & recording_pid=$!"
-                + "; echo $recording_pid > " + shellQuote(mVideoPidPath)
+                + "; echo $recording_pid > "
+                + ShellCommandLine.quote(mVideoPidPath)
                 + "; while kill -0 $recording_pid 2>/dev/null; do"
                 + " if ! kill -0 " + servicePid + " 2>/dev/null; then"
                 + " kill -2 $recording_pid 2>/dev/null"
@@ -501,10 +502,6 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         } catch (ErrnoException | RuntimeException ignored) {
             // The child may already have exited between the liveness checks.
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private static String validateOutputPath(final String outputPath) {

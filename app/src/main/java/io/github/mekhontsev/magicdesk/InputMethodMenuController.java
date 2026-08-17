@@ -117,16 +117,13 @@ final class InputMethodMenuController {
         }
         new Thread(() -> {
             try {
-                ShellAccess.run("/system/bin/ime set " + shellQuote(id));
+                ShellAccess.run("/system/bin/ime set "
+                        + ShellCommandLine.quote(id));
                 HardwareKeyboardLayoutController.configureVirtualLayouts(null);
             } catch (Exception error) {
                 Log.w(TAG, "Could not select input method", error);
             }
         }, TAG).start();
-    }
-
-    static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private int dp(final int normal, final int compact) {

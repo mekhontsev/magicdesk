@@ -334,11 +334,11 @@ final class KeyboardShortcutWatcher {
         }
         final StringBuilder command =
                 new StringBuilder("exec ")
-                        .append(shellQuote(helper.getAbsolutePath()))
+                        .append(ShellCommandLine.quote(helper.getAbsolutePath()))
                         .append(" --layouts ")
                         .append(layoutCount);
         for (final DesktopKeyboardDevice keyboard : keyboards) {
-            command.append(' ').append(shellQuote(keyboard.path));
+            command.append(' ').append(ShellCommandLine.quote(keyboard.path));
         }
         return command.toString();
     }
@@ -663,7 +663,4 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
-    }
 }

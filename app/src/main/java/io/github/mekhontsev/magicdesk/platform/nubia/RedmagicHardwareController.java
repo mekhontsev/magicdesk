@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.ShellAccess;
+import io.github.mekhontsev.magicdesk.ShellCommandLine;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -723,7 +724,7 @@ final class RedmagicHardwareController {
         }
         return "/system/bin/settings put " + namespace.shellName
                 + " " + key + " "
-                + shellQuote(value) + " && ";
+                + ShellCommandLine.quote(value) + " && ";
     }
 
     private static String restoreSetting(
@@ -749,7 +750,7 @@ final class RedmagicHardwareController {
         }
         return "[ \"$(/system/bin/settings get " + namespace.shellName
                 + " " + key
-                + ")\" = " + shellQuote(value) + " ] && ";
+                + ")\" = " + ShellCommandLine.quote(value) + " ] && ";
     }
 
     private static String expectedSetting(final String value) {
@@ -761,10 +762,6 @@ final class RedmagicHardwareController {
                 || VENDOR_FAN_MODE.equals(key)
                 || VENDOR_PUMP_MAIN.equals(key)
                 || VENDOR_PUMP_FLOW.equals(key);
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private static void recordVendorRestoreFailure(final String component) {

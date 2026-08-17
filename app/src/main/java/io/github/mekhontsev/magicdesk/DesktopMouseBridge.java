@@ -210,10 +210,10 @@ final class DesktopMouseBridge {
         }
 
         final StringBuilder command =
-                new StringBuilder("exec ").append(shellQuote(
+                new StringBuilder("exec ").append(ShellCommandLine.quote(
                         helper.getAbsolutePath()));
         for (final DesktopMouseDevice mouse : mice) {
-            command.append(' ').append(shellQuote(mouse.path));
+            command.append(' ').append(ShellCommandLine.quote(mouse.path));
         }
 
         final ShellStreamHandle stream =
@@ -319,10 +319,6 @@ final class DesktopMouseBridge {
 
     private boolean isActiveLocked(final int generation) {
         return mRequested && mGeneration == generation;
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private static void writeControl(

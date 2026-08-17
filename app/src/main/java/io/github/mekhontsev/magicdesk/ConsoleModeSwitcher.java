@@ -337,10 +337,6 @@ public final class ConsoleModeSwitcher {
         OPERATIONS.execute(action);
     }
 
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
-    }
-
     static int getActiveConsoleDisplayId() {
         return TRANSITIONS.activeDesktopDisplayId();
     }
@@ -362,16 +358,18 @@ public final class ConsoleModeSwitcher {
             Log.i(TAG, "screenshot capture starting path=" + path
                     + " " + capture.diagnosticDetail());
             final String command = "umask 002; "
-                    + "/system/bin/mkdir -p " + shellQuote(SCREENSHOT_DIRECTORY)
+                    + "/system/bin/mkdir -p "
+                    + ShellCommandLine.quote(SCREENSHOT_DIRECTORY)
                     + " && /system/bin/screencap " + displayArgument
-                    + "-p " + shellQuote(path)
-                    + " && /system/bin/test -s " + shellQuote(path)
-                    + " && /system/bin/chmod 0664 " + shellQuote(path)
+                    + "-p " + ShellCommandLine.quote(path)
+                    + " && /system/bin/test -s " + ShellCommandLine.quote(path)
+                    + " && /system/bin/chmod 0664 " + ShellCommandLine.quote(path)
                     + " && /system/bin/am broadcast --user 0"
                     + " -a android.intent.action.MEDIA_SCANNER_SCAN_FILE"
-                    + " -d " + shellQuote("file://" + path)
+                    + " -d " + ShellCommandLine.quote("file://" + path)
                     + " >/dev/null"
-                    + " && echo " + shellQuote("screenshot-saved=" + path);
+                    + " && echo "
+                    + ShellCommandLine.quote("screenshot-saved=" + path);
             final String output = ShellAccess.run(command).trim();
             if (!output.contains("screenshot-saved=" + path)) {
                 throw new IOException(

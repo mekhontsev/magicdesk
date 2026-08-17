@@ -89,7 +89,8 @@ final class DesktopSessionController {
                             + " " + preparedTarget.profileDisplayId
                             + " --es "
                             + DesktopShellActivity.EXTRA_PROFILE_KEY
-                            + " " + shellQuote(preparedTarget.profileKey)
+                            + " "
+                            + ShellCommandLine.quote(preparedTarget.profileKey)
                             + " --es "
                             + DesktopShellActivity.EXTRA_TARGET_KIND
                             + " " + preparedTarget.kind.name()
@@ -126,10 +127,6 @@ final class DesktopSessionController {
                     preparedTarget.displayId);
             throw error;
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\\''") + "'";
     }
 
     private static void prepareDisplayWindowing(

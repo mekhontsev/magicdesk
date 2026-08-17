@@ -65,7 +65,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 TaskDisplayAreaLaunchCommand.class.getName(),
                 (temporaryArea ? "app-temporary " : "app-default ")
                         + displayId
-                        + " " + shellQuote(intent.toUri(
+                        + " " + ShellCommandLine.quote(intent.toUri(
                                 Intent.URI_INTENT_SCHEME))
                         + formatBounds(bounds));
     }
@@ -901,10 +901,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 + " " + bounds.top
                 + " " + bounds.right
                 + " " + bounds.bottom;
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private static String usefulMessage(final Throwable error) {

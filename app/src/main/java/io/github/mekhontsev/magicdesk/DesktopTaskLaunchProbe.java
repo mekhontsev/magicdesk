@@ -43,8 +43,8 @@ final class DesktopTaskLaunchProbe implements Closeable {
             throw new IOException("invalid task launch component");
         }
         final String arguments = expectedTaskId
-                + " " + shellQuote(packageName)
-                + " " + shellQuote(className)
+                + " " + ShellCommandLine.quote(packageName)
+                + " " + ShellCommandLine.quote(className)
                 + " " + expectedDisplayId;
         final ShellStreamHandle stream = ShellAccess.openOwnedStream(
                 AppProcessCommand.run(
@@ -113,10 +113,6 @@ final class DesktopTaskLaunchProbe implements Closeable {
             throw new IOException("invalid task launch observation: " + line,
                     error);
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private static void closeQuietly(final Closeable closeable) {

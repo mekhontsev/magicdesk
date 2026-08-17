@@ -169,13 +169,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final String command =
                 "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_LABEL_STATE
-                        + " " + shellQuote(result.code) + "; "
+                        + " " + ShellCommandLine.quote(result.code) + "; "
                         + "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_NAME_STATE
-                        + " " + shellQuote(result.name) + "; "
+                        + " " + ShellCommandLine.quote(result.name) + "; "
                         + "/system/bin/settings put global "
                         + HardwareKeyboardLayoutController.LAYOUT_STATE
-                        + " " + shellQuote(result.descriptor);
+                        + " " + ShellCommandLine.quote(result.descriptor);
         Process process = null;
         try {
             process = new ProcessBuilder(
@@ -199,10 +199,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 process.destroy();
             }
         }
-    }
-
-    private static String shellQuote(final String value) {
-        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     @Override
