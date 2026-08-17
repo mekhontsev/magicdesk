@@ -29,6 +29,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -38,6 +39,7 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -72,6 +74,8 @@ public final class CommandConsoleActivity extends Activity
                 return thread;
             });
     private final AtomicInteger mCompletionGeneration = new AtomicInteger();
+    private final Object mStreamOutputLock = new Object();
+    private final StringBuilder mPendingStreamOutput = new StringBuilder();
 
     private EditText mCommand;
     private TextView mWorkingDirectory;
@@ -88,7 +92,10 @@ public final class CommandConsoleActivity extends Activity
     private String mPendingAutoRunCommand;
     private String mExecutionStatus = "";
     private int mExecutionStatusColor = COLOR_CYAN;
+    private volatile int mExecutionGeneration;
     private boolean mRunning;
+    private boolean mStreamOutputPosted;
+    private volatile boolean mStopRequested;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, CommandConsoleActivity.class).putExtra(
@@ -392,7 +399,7 @@ public final class CommandConsoleActivity extends Activity
         mRun = createIconButton(
                 android.R.drawable.ic_media_play,
                 R.string.console_run,
-                view -> requestRun());
+                view -> requestRunOrStop());
         mCommandLine.addView(
                 mRun, new LinearLayout.LayoutParams(dp(44), dp(44)));
         mCommandArea.addView(
@@ -422,6 +429,26 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         execute(command);
+    }
+
+    private void requestRunOrStop() {
+        if (mRunning) {
+            requestStop();
+        } else {
+            requestRun();
+        }
+    }
+
+    private void requestStop() {
+        if (!mRunning || mStopRequested) {
+            return;
+        }
+        mStopRequested = true;
+        mExecutionStatus = getString(R.string.console_stopping);
+        mExecutionStatusColor = COLOR_AMBER;
+        updateShellStatus();
+        updateActions();
+        mSession.cancelCurrentCommand();
     }
 
     private static String initialDirectory(final Intent intent) {
@@ -470,24 +497,53 @@ public final class CommandConsoleActivity extends Activity
             finish();
             return;
         }
+        mCompletionGeneration.incrementAndGet();
+        final int executionGeneration = ++mExecutionGeneration;
+        mStopRequested = false;
         mRunning = true;
         mHistory.record(command);
         appendCommand(command);
         mCommand.setText("");
+        final InputMethodManager inputMethod =
+                getSystemService(InputMethodManager.class);
+        if (inputMethod != null) {
+            inputMethod.hideSoftInputFromWindow(
+                    mCommand.getWindowToken(), 0);
+        }
         mExecutionStatus = getString(R.string.console_running);
         mExecutionStatusColor = COLOR_CYAN;
         updateShellStatus();
         updateActions();
         final long started = SystemClock.elapsedRealtime();
         mWorker.execute(() -> {
+            if (mStopRequested) {
+                final long duration = SystemClock.elapsedRealtime() - started;
+                runOnUiThread(() -> showStopped(duration));
+                return;
+            }
             try {
                 final ConsoleShellSession.ExecutionResult result =
-                        mSession.execute(command);
+                        mSession.execute(
+                                command,
+                                output -> queueStreamOutput(
+                                        executionGeneration, output));
                 final long duration = SystemClock.elapsedRealtime() - started;
-                runOnUiThread(() -> showResult(result, duration));
+                runOnUiThread(() -> {
+                    if (mStopRequested) {
+                        showStopped(duration);
+                    } else {
+                        showResult(result, duration);
+                    }
+                });
             } catch (IOException | RuntimeException error) {
                 final long duration = SystemClock.elapsedRealtime() - started;
-                runOnUiThread(() -> showFailure(error, duration));
+                runOnUiThread(() -> {
+                    if (mStopRequested) {
+                        showStopped(duration);
+                    } else {
+                        showFailure(error, duration);
+                    }
+                });
             }
         });
     }
@@ -502,12 +558,26 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_result,
                 Integer.valueOf(result.exitCode),
                 formatDuration(durationMillis));
-        final String output = result.output.isEmpty()
-                ? "" : result.output;
-        appendResult(output, result.exitCode == 0 ? COLOR_TEXT : COLOR_AMBER);
         mExecutionStatus = status;
         mExecutionStatusColor = result.exitCode == 0 ? COLOR_CYAN : COLOR_AMBER;
         mRunning = false;
+        updateWorkingDirectory();
+        updateShellStatus();
+        updateActions();
+        mCommand.requestFocus();
+        maybeRunPendingCommand();
+    }
+
+    private void showStopped(final long durationMillis) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        mExecutionStatus = getString(
+                R.string.console_stopped,
+                formatDuration(durationMillis));
+        mExecutionStatusColor = COLOR_AMBER;
+        mRunning = false;
+        mStopRequested = false;
         updateWorkingDirectory();
         updateShellStatus();
         updateActions();
@@ -591,12 +661,20 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         final boolean ready = mSnapshot != null && mSnapshot.isReady();
-        mRun.setEnabled(!mRunning
-                && ready
-                && !mCommand.getText().toString().trim().isEmpty());
+        mRun.setImageResource(mRunning
+                ? android.R.drawable.ic_media_pause
+                : android.R.drawable.ic_media_play);
+        final int runAction = mRunning
+                ? R.string.console_stop : R.string.console_run;
+        mRun.setContentDescription(getString(runAction));
+        mRun.setTooltipText(getString(runAction));
+        mRun.setEnabled(mRunning
+                ? !mStopRequested
+                : ready
+                        && !mCommand.getText().toString().trim().isEmpty());
         mClear.setEnabled(!mRunning);
         mCopy.setEnabled(!mRunning && mTranscript.length() > 0);
-        mCommand.setEnabled(ready);
+        mCommand.setEnabled(ready && !mRunning);
     }
 
     private boolean handleCommandKey(
@@ -614,7 +692,7 @@ public final class CommandConsoleActivity extends Activity
         if (keyCode == KeyEvent.KEYCODE_TAB) {
             if (event.getAction() == KeyEvent.ACTION_DOWN
                     && event.getRepeatCount() == 0) {
-                requestPathCompletion();
+                requestCompletion();
             }
             return true;
         }
@@ -665,7 +743,7 @@ public final class CommandConsoleActivity extends Activity
         mCommand.requestFocus();
     }
 
-    private void requestPathCompletion() {
+    private void requestCompletion() {
         if (mRunning || !ShellAccess.isReady()) {
             return;
         }
@@ -684,22 +762,23 @@ public final class CommandConsoleActivity extends Activity
         mWorker.execute(() -> {
             try {
                 final List<ShellFileInfo> entries = new ArrayList<>();
-                int offset = 0;
-                ShellFilePage page;
-                do {
-                    page = ShellAccess.listShellDirectory(
-                            request.parentPath,
-                            offset,
-                            COMPLETION_PAGE_SIZE,
-                            true,
-                            ShellFileSystem.SORT_NAME,
-                            true);
-                    for (final ShellFileInfo entry : page.entries) {
-                        entries.add(entry);
+                final List<String> parentPaths = request.commandName
+                        ? mSession.commandSearchPath()
+                        : Collections.singletonList(request.parentPath);
+                for (final String parentPath : parentPaths) {
+                    try {
+                        addCompletionEntries(
+                                generation, parentPath, entries);
+                    } catch (IOException error) {
+                        if (!request.commandName) {
+                            throw error;
+                        }
+                        // One inaccessible PATH directory must not disable Tab.
                     }
-                    offset = page.nextOffset;
-                } while (!page.complete
-                        && generation == mCompletionGeneration.get());
+                    if (generation != mCompletionGeneration.get()) {
+                        return;
+                    }
+                }
                 final ConsolePathText.CompletionResult result =
                         ConsolePathText.complete(request, entries);
                 runOnUiThread(() -> applyCompletion(
@@ -717,6 +796,26 @@ public final class CommandConsoleActivity extends Activity
                 });
             }
         });
+    }
+
+    private void addCompletionEntries(
+            final int generation,
+            final String parentPath,
+            final List<ShellFileInfo> entries) throws IOException {
+        int offset = 0;
+        ShellFilePage page;
+        do {
+            page = ShellAccess.listShellDirectory(
+                    parentPath,
+                    offset,
+                    COMPLETION_PAGE_SIZE,
+                    true,
+                    ShellFileSystem.SORT_NAME,
+                    true);
+            Collections.addAll(entries, page.entries);
+            offset = page.nextOffset;
+        } while (!page.complete
+                && generation == mCompletionGeneration.get());
     }
 
     private void applyCompletion(
@@ -880,6 +979,42 @@ public final class CommandConsoleActivity extends Activity
                     mTranscript.length(),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        showTranscript();
+    }
+
+    private void queueStreamOutput(
+            final int executionGeneration, final String output) {
+        if (output == null || output.isEmpty()
+                || executionGeneration != mExecutionGeneration) {
+            return;
+        }
+        synchronized (mStreamOutputLock) {
+            mPendingStreamOutput.append(output);
+            if (mStreamOutputPosted) {
+                return;
+            }
+            mStreamOutputPosted = true;
+        }
+        mOutput.post(this::drainStreamOutput);
+    }
+
+    private void drainStreamOutput() {
+        final String output;
+        synchronized (mStreamOutputLock) {
+            output = mPendingStreamOutput.toString();
+            mPendingStreamOutput.setLength(0);
+            mStreamOutputPosted = false;
+        }
+        if (output.isEmpty() || isFinishing() || isDestroyed()) {
+            return;
+        }
+        final int start = mTranscript.length();
+        mTranscript.append(output);
+        mTranscript.setSpan(
+                new ForegroundColorSpan(COLOR_TEXT),
+                start,
+                mTranscript.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         showTranscript();
     }
 

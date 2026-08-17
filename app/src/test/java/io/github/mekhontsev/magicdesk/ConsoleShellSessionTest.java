@@ -6,6 +6,9 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 public final class ConsoleShellSessionTest {
     private static final String MARKER = "__MAGICDESK_CWD_test__0\t";
 
@@ -159,6 +162,69 @@ public final class ConsoleShellSessionTest {
         final String output = session.execute("pwd").output;
 
         assertFalse(output.contains("MAGICDESK_CWD"));
+    }
+
+    @Test
+    public void fallsBackToCompletedOutputWhenExecutorCannotStream()
+            throws Exception {
+        final ConsoleShellSession session = sessionReturning(
+                result(0, "/tmp"));
+        final StringBuilder streamed = new StringBuilder();
+
+        session.execute("pwd", streamed::append);
+
+        assertEquals("/tmp\n", streamed.toString());
+    }
+
+    @Test
+    public void readsAndNormalizesThePersistentShellPath() throws Exception {
+        final ConsoleShellSession session = new ConsoleShellSession(
+                "/tmp",
+                command -> {
+                    assertTrue(command.contains("\"$PATH\""));
+                    return new ShellAccess.CommandResult(
+                            0,
+                            "/system/bin:/vendor/bin:."
+                                    + "\n" + MARKER + "/tmp\n");
+                },
+                "test");
+
+        final List<String> paths = session.commandSearchPath();
+
+        assertEquals(Arrays.asList(
+                "/system/bin", "/vendor/bin", "/tmp"), paths);
+    }
+
+    @Test
+    public void cancelIsDelegatedAndReappliesTheWorkingDirectory()
+            throws Exception {
+        final boolean[] cancelled = { false };
+        final int[] execution = { 0 };
+        final ConsoleShellSession.CommandExecutor executor =
+                new ConsoleShellSession.CommandExecutor() {
+                    @Override
+                    public ShellAccess.CommandResult execute(
+                            final String command) {
+                        execution[0]++;
+                        if (execution[0] == 2) {
+                            assertTrue(command.contains("cd -- '/tmp'"));
+                        }
+                        return result(0, "/tmp");
+                    }
+
+                    @Override
+                    public void cancelCurrent() {
+                        cancelled[0] = true;
+                    }
+                };
+        final ConsoleShellSession session = new ConsoleShellSession(
+                "/tmp", executor, "test");
+        session.execute("pwd");
+
+        session.cancelCurrentCommand();
+        session.execute("pwd");
+
+        assertTrue(cancelled[0]);
     }
 
     private static ConsoleShellSession sessionReturning(

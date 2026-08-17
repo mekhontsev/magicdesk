@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import android.provider.DocumentsContract;
 
@@ -45,9 +45,16 @@ public final class ConsolePathTextTest {
     }
 
     @Test
-    public void firstCommandWordIsNotPathCompleted() {
-        assertNull(ConsolePathText.completionRequest(
-                "prin", 4, "/storage/emulated/0"));
+    public void completesExecutableFromFirstCommandWord() {
+        final ConsolePathText.CompletionRequest request =
+                ConsolePathText.completionRequest(
+                        "prin", 4, "/storage/emulated/0");
+        assertTrue(request.commandName);
+        final ConsolePathText.CompletionResult result =
+                ConsolePathText.complete(request, Arrays.asList(
+                        info("printenv", false, true),
+                        info("private", false, false)));
+        assertEquals("printenv ", result.replacement);
     }
 
     @Test
@@ -62,6 +69,13 @@ public final class ConsolePathTextTest {
 
     private static ShellFileInfo info(
             final String name, final boolean directory) {
+        return info(name, directory, false);
+    }
+
+    private static ShellFileInfo info(
+            final String name,
+            final boolean directory,
+            final boolean executable) {
         return new ShellFileInfo(
                 "/storage/emulated/0/" + name,
                 name,
@@ -80,7 +94,7 @@ public final class ConsolePathTextTest {
                 false,
                 true,
                 true,
-                false,
+                executable,
                 false);
     }
 }

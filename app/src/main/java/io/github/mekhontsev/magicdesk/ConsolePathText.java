@@ -3,7 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Pure text handling for shell paths shown by the Console UI. */
 final class ConsolePathText {
@@ -85,8 +87,12 @@ final class ConsolePathText {
         final int end = wordEnd(command, start, cursor);
         final String encoded = command.substring(start, cursor);
         String token = unwrapIncompleteQuote(encoded);
-        if (token.isEmpty() || (start == 0 && token.indexOf('/') < 0)) {
+        if (token.isEmpty()) {
             return null;
+        }
+        if (start == 0 && token.indexOf('/') < 0) {
+            return new CompletionRequest(
+                    start, end, null, "", token, true);
         }
         final int separator = token.lastIndexOf('/');
         final String parent;
@@ -109,7 +115,7 @@ final class ConsolePathText {
             namePrefix = token;
         }
         return new CompletionRequest(
-                start, end, parent, replacementPrefix, namePrefix);
+                start, end, parent, replacementPrefix, namePrefix, false);
     }
 
     static CompletionResult complete(
@@ -119,8 +125,12 @@ final class ConsolePathText {
             return null;
         }
         final List<ShellFileInfo> matches = new ArrayList<>();
+        final Set<String> seenNames = new HashSet<>();
         for (final ShellFileInfo entry : entries) {
-            if (entry.name.startsWith(request.namePrefix)) {
+            if (entry.name.startsWith(request.namePrefix)
+                    && (!request.commandName
+                            || (!entry.directory && entry.executable))
+                    && seenNames.add(entry.name)) {
                 matches.add(entry);
             }
         }
@@ -142,7 +152,22 @@ final class ConsolePathText {
                 + completedName
                 + (only != null && only.directory ? "/" : "");
         return new CompletionResult(
-                ShellCommandLine.quote(completedPath), Collections.emptyList());
+                request.commandName
+                        ? encodeCommandName(completedPath)
+                                + (only == null ? "" : " ")
+                        : ShellCommandLine.quote(completedPath),
+                Collections.emptyList());
+    }
+
+    private static String encodeCommandName(final String name) {
+        for (int index = 0; index < name.length(); index++) {
+            final char value = name.charAt(index);
+            if (!Character.isLetterOrDigit(value)
+                    && "_+.,:@%-".indexOf(value) < 0) {
+                return ShellCommandLine.quote(name);
+            }
+        }
+        return name;
     }
 
     private static String unwrapIncompleteQuote(final String encoded) {
@@ -225,18 +250,21 @@ final class ConsolePathText {
         final String parentPath;
         final String replacementPrefix;
         final String namePrefix;
+        final boolean commandName;
 
         CompletionRequest(
                 final int tokenStart,
                 final int tokenEnd,
                 final String parentPath,
                 final String replacementPrefix,
-                final String namePrefix) {
+                final String namePrefix,
+                final boolean commandName) {
             this.tokenStart = tokenStart;
             this.tokenEnd = tokenEnd;
             this.parentPath = parentPath;
             this.replacementPrefix = replacementPrefix;
             this.namePrefix = namePrefix;
+            this.commandName = commandName;
         }
     }
 

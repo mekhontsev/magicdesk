@@ -1,6 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -12,8 +15,9 @@ final class ConsoleShellSession {
 
     private final CommandExecutor mExecutor;
     private final String mMarker;
-    private String mWorkingDirectory;
-    private boolean mDirectoryChangePending = true;
+    private final AtomicLong mShellResetGeneration = new AtomicLong();
+    private volatile String mWorkingDirectory;
+    private volatile boolean mDirectoryChangePending = true;
 
     ConsoleShellSession(final String initialDirectory) {
         mWorkingDirectory = requireAbsoluteDirectory(initialDirectory);
@@ -49,13 +53,29 @@ final class ConsoleShellSession {
     }
 
     ExecutionResult execute(final String command) throws IOException {
+        return execute(command, null);
+    }
+
+    ExecutionResult execute(
+            final String command,
+            final OutputListener outputListener) throws IOException {
         if (command == null || command.trim().isEmpty()) {
             throw new IllegalArgumentException("missing console command");
         }
+        final long resetGeneration = mShellResetGeneration.get();
+        final StringBuilder streamed = outputListener == null
+                ? null : new StringBuilder();
         final ShellAccess.CommandResult raw;
         try {
             raw = mExecutor.execute(
-                    wrap(command, mDirectoryChangePending));
+                    wrap(command, mDirectoryChangePending),
+                    output -> {
+                        if (streamed != null && output != null
+                                && !output.isEmpty()) {
+                            streamed.append(output);
+                            outputListener.onOutput(output);
+                        }
+                    });
         } catch (IOException | RuntimeException error) {
             // The executor discards a failed shell; its replacement must
             // resume in the requested or last confirmed directory.
@@ -63,14 +83,48 @@ final class ConsoleShellSession {
             throw error;
         }
         final ParsedOutput parsed = parseOutput(raw.output);
+        if (outputListener != null
+                && parsed.output.startsWith(streamed.toString())
+                && streamed.length() < parsed.output.length()) {
+            outputListener.onOutput(
+                    parsed.output.substring(streamed.length()));
+        }
         if (parsed.workingDirectory != null) {
             mWorkingDirectory = parsed.workingDirectory;
-            mDirectoryChangePending = false;
+            mDirectoryChangePending = resetGeneration
+                    != mShellResetGeneration.get();
         }
         return new ExecutionResult(
                 raw.exitCode,
                 parsed.output,
                 mWorkingDirectory);
+    }
+
+    List<String> commandSearchPath() throws IOException {
+        final ExecutionResult result = execute(
+                "command printf '%s' \"$PATH\"");
+        if (result.exitCode != 0) {
+            throw new IOException("could not read the shell PATH");
+        }
+        final LinkedHashSet<String> paths = new LinkedHashSet<>();
+        for (final String entry : result.output.split(":", -1)) {
+            final String candidate = entry.isEmpty()
+                    ? mWorkingDirectory
+                    : entry.startsWith("/")
+                            ? entry : mWorkingDirectory + "/" + entry;
+            try {
+                paths.add(ShellFilePathPolicy.normalizeShellAbsolute(candidate));
+            } catch (IllegalArgumentException ignored) {
+                // Ignore malformed PATH entries without disabling completion.
+            }
+        }
+        return new ArrayList<>(paths);
+    }
+
+    void cancelCurrentCommand() {
+        mShellResetGeneration.incrementAndGet();
+        mDirectoryChangePending = true;
+        mExecutor.cancelCurrent();
     }
 
     void close() {
@@ -156,8 +210,21 @@ final class ConsoleShellSession {
     interface CommandExecutor {
         ShellAccess.CommandResult execute(String command) throws IOException;
 
+        default ShellAccess.CommandResult execute(
+                final String command,
+                final OutputListener outputListener) throws IOException {
+            return execute(command);
+        }
+
+        default void cancelCurrent() {
+        }
+
         default void close() {
         }
+    }
+
+    interface OutputListener {
+        void onOutput(String output);
     }
 
     static final class ExecutionResult {
