@@ -143,6 +143,20 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean releaseFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            return mHandle.releaseFullscreenTask(displayId, taskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
+            return false;
+        }
+    }
+
     synchronized boolean setPhoneTouchpadPreservation(
             final boolean enabled) {
         if (mHandle == null) {

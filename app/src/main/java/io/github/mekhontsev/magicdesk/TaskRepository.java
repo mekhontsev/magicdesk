@@ -184,7 +184,7 @@ public final class TaskRepository {
     static void closeTask(final TaskEntry task, final ActionCallback callback) {
         if (!isUsableTask(task)
                 || !DesktopManagedTaskPolicy
-                        .isManagedApplicationTask(task)) {
+                        .isControllableApplicationTask(task)) {
             complete(callback, false, "invalid task");
             return;
         }

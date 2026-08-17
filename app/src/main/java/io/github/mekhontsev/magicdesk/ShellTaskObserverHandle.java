@@ -72,6 +72,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, sequence, displayId, taskIds));
     }
 
+    boolean releaseFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        return callServiceForBoolean(() -> mService.releaseFullscreenTask(
+                mCallback, displayId, taskId));
+    }
+
     void setPhoneTouchpadPreservation(final boolean enabled)
             throws IOException {
         callService(() -> mService.setPhoneTouchpadPreservation(
@@ -139,6 +146,29 @@ final class ShellTaskObserverHandle implements Closeable {
         }
     }
 
+    private boolean callServiceForBoolean(final RemoteBooleanServiceCall call)
+            throws IOException {
+        if (mClosed.get()) {
+            throw new IOException("task observer is closed");
+        }
+        try {
+            return call.run();
+        } catch (RemoteException error) {
+            serviceDisconnected();
+            throw new IOException(
+                    "task observer call failed: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            stopRemoteObserver();
+            serviceDisconnected();
+            throw new IOException(
+                    "task observer call failed: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
+        }
+    }
+
     private void stopRemoteObserver() {
         try {
             mService.stopTaskObserver(mCallback);
@@ -169,5 +199,10 @@ final class ShellTaskObserverHandle implements Closeable {
     @FunctionalInterface
     private interface RemoteServiceCall {
         void run() throws RemoteException;
+    }
+
+    @FunctionalInterface
+    private interface RemoteBooleanServiceCall {
+        boolean run() throws RemoteException;
     }
 }

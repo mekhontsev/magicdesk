@@ -32,9 +32,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int[] taskIds) {
         try {
             if (!isFullscreenStack(service, displayId, taskIds)) {
-                if (!mTaskIds.isEmpty()) {
-                    close();
-                }
+                // A freeform task may be focused while another task remains
+                // in this area. Its own mode/display/removal events own the
+                // area's lifetime; unrelated focus requests do not.
                 return false;
             }
             ensureArea(service, displayId);
@@ -78,6 +78,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
+        // The synchronous hierarchy update does not always move
+        // InputDispatcher focus. Once every task has the fullscreen parent,
+        // a normal TO_FRONT activation can synchronize input without letting
+        // the default freeform task area change either task's mode.
+        TaskWindowingCommand.focusTasks(service, displayId, taskIds);
     }
 
     private boolean isFullscreenStack(
@@ -98,6 +103,50 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             }
         }
         return true;
+    }
+
+    synchronized boolean releaseTask(
+            final Object service,
+            final int displayId,
+            final int taskId) {
+        if (mArea == null || mDisplayId != displayId
+                || !mTaskIds.contains(Integer.valueOf(taskId))) {
+            return true;
+        }
+        try {
+            final Class<?> tokenClass =
+                    Class.forName("android.window.WindowContainerToken");
+            final Class<?> transactionClass =
+                    Class.forName("android.window.WindowContainerTransaction");
+            final Object transaction =
+                    transactionClass.getConstructor().newInstance();
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            // A null parent returns the task to the display's default task
+            // area before the caller changes it from fullscreen to freeform.
+            transactionClass.getMethod(
+                    "setWindowingMode", tokenClass, Integer.TYPE)
+                    .invoke(transaction, taskToken,
+                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                    .invoke(transaction, taskToken, new Rect());
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, new Object[]{
+                            taskToken, null, Boolean.TRUE});
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+            mTaskIds.remove(Integer.valueOf(taskId));
+            if (mTaskIds.isEmpty()) {
+                close();
+            }
+            Log.i(TAG, "released fullscreen task=" + taskId
+                    + " display=" + displayId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
+            return false;
+        }
     }
 
     private void ensureArea(

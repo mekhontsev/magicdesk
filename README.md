@@ -458,9 +458,10 @@ display's WMShell implementation. It exercises the production desktop,
 freeform, fullscreen, minimize/restore, taskbar geometry, native
 caption and resize input, native left/right placement, and keyboard focus
 switching between two windows. It verifies that Alt+Tab between two true
-fullscreen tasks never converts either task to freeform. It also recreates the
-desktop Activity and checks hidden Android and RedMagic APIs that can be
-inspected safely.
+fullscreen tasks never converts either task to freeform, then restores and
+closes one task while checking the fullscreen survivor's real input focus. It
+also recreates the desktop Activity and checks hidden Android and RedMagic APIs
+that can be inspected safely.
 
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified
@@ -476,7 +477,9 @@ The simulated target owns a temporary 1920x1080 display through a
 lifecycle-bound shell-service stream. Its setting is restored when the test
 finishes or its process disconnects. A one-shot shell task observer records
 each test window's first front-state and reports transient fullscreen launches
-instead of mistaking a later corrected state for the initial one.
+instead of mistaking a later corrected state for the initial one. The test also
+removes the simulated display once while its desktop is live and verifies
+runtime, task-area, and migrated-task cleanup.
 
 Debug builds expose the same lifecycle check as an instrumentation regression:
 

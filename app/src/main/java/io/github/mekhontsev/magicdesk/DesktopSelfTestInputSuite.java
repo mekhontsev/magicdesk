@@ -6,6 +6,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
 import android.content.Context;
 import android.graphics.Rect;
@@ -751,6 +752,130 @@ final class DesktopSelfTestInputSuite {
                         secondToken,
                         firstTaskId,
                         "3"));
+        runFullscreenTaskAreaLifecycleTests(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                firstToken,
+                secondTaskId,
+                secondToken,
+                geometry);
+    }
+
+    private static void runFullscreenTaskAreaLifecycleTests(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final String firstToken,
+            final int secondTaskId,
+            final String secondToken,
+            final DesktopSelfTestGeometry geometry) {
+        final String restoreCode = "FULLSCREEN-LIFECYCLE-001";
+        DesktopSelfTestHostObserver.stage(restoreCode);
+        try {
+            inspectFullscreenPair(displayId, secondTaskId, firstTaskId);
+            if (!MagicDeskRuntime.handleActiveTaskShortcut(
+                    DesktopTaskController.SHORTCUT_RESTORE)) {
+                throw new IOException(
+                        "MagicDesk fullscreen restore is unavailable");
+            }
+            final TaskStackParser.Entry restored = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == secondTaskId
+                            && "freeform".equals(task.windowingMode)
+                            && task.bounds != null
+                            && !task.bounds.isEmpty());
+            final TaskStackParser.Entry peer = waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == firstTaskId
+                            && "fullscreen".equals(task.windowingMode));
+            result.add(DesktopSelfTestResult.State.PASS,
+                    restoreCode,
+                    "Restore one task without changing its fullscreen peer",
+                    "restored=" + secondTaskId + "/freeform/"
+                            + formatBounds(restored.bounds)
+                            + ", peer=" + peer.taskId + "/fullscreen");
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    restoreCode,
+                    "Restore one task without changing its fullscreen peer",
+                    usefulMessage(error));
+            addSkippedFullscreenLifecycleResults(
+                    result, "fullscreen restore failed");
+            return;
+        }
+
+        final String closeCode = "FULLSCREEN-LIFECYCLE-002";
+        DesktopSelfTestHostObserver.stage(closeCode);
+        try {
+            enterFullscreenThroughShortcut(displayId, secondTaskId);
+            focusFullscreenPairThroughAltTab(
+                    context,
+                    displayId,
+                    firstTaskId,
+                    firstToken,
+                    secondTaskId,
+                    "4");
+            if (!MagicDeskRuntime.handleActiveTaskShortcut(
+                    DesktopTaskController.SHORTCUT_CLOSE)) {
+                throw new IOException(
+                        "MagicDesk fullscreen close is unavailable");
+            }
+            waitForTaskAbsent(firstTaskId);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    closeCode,
+                    "Close the active task inside a fullscreen task area",
+                    "closed=" + firstTaskId);
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    closeCode,
+                    "Close the active task inside a fullscreen task area",
+                    usefulMessage(error));
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-003",
+                    "Keep the surviving fullscreen task focused",
+                    "fullscreen close failed");
+            return;
+        }
+
+        check(result,
+                "FULLSCREEN-LIFECYCLE-003",
+                "Keep the surviving fullscreen task focused",
+                () -> {
+                    waitForFrontTask(displayId, secondTaskId);
+                    waitForTaskInputFocus(displayId, secondTaskId);
+                    typeAndVerifyText(
+                            context,
+                            displayId,
+                            secondTaskId,
+                            secondToken,
+                            "5");
+                    final TaskStackParser.Entry survivor = waitForTask(
+                            displayId,
+                            FIXTURE_CLASS,
+                            task -> task.taskId == secondTaskId
+                                    && "fullscreen".equals(
+                                            task.windowingMode));
+                    return "task=" + survivor.taskId
+                            + "/fullscreen/visible";
+                });
+    }
+
+    private static void addSkippedFullscreenLifecycleResults(
+            final DesktopSelfTestResult result,
+            final String reason) {
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-002",
+                "Close the active task inside a fullscreen task area",
+                reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-003",
+                "Keep the surviving fullscreen task focused",
+                reason);
     }
 
     private static String prepareFullscreenPair(
@@ -830,7 +955,7 @@ final class DesktopSelfTestInputSuite {
             final int targetTaskId,
             final String targetToken,
             final int otherTaskId,
-        final String digit) throws IOException {
+            final String digit) throws IOException {
         DesktopSelfTestFixtureState.clearText(context);
         final int panelGeneration =
                 DesktopSelfTestHostObserver.altTabPanelGeneration();

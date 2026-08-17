@@ -16,4 +16,11 @@ final class DesktopManagedTaskPolicy {
         return !MAGICDESK_PACKAGE.equals(task.packageName)
                 || BuiltInDesktopAppCatalog.isManagedTask(task);
     }
+
+    static boolean isControllableApplicationTask(
+            final TaskRepository.TaskEntry task) {
+        return isManagedApplicationTask(task)
+                || (DesktopSelfTestController.isRunning()
+                        && DesktopSelfTestComponents.isFixtureTask(task));
+    }
 }

@@ -84,6 +84,14 @@ final class ShellTaskObserverManager implements Closeable {
                 sequence, displayId, taskIds);
     }
 
+    boolean releaseFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return requireSession(callback).observer.releaseFullscreenTask(
+                displayId, taskId);
+    }
+
     void setPhoneTouchpadPreservation(
             final ITaskObserverCallback callback,
             final boolean enabled) {

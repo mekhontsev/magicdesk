@@ -260,6 +260,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    boolean releaseFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        return mFullscreenTaskArea.releaseTask(
+                mService, displayId, taskId);
+    }
+
     synchronized void setPhoneTouchpadPreservation(
             final boolean enabled) {
         mPreservePhoneTouchpad = enabled;

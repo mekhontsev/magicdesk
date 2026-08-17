@@ -81,6 +81,8 @@ final class DesktopSelfTestController {
         }
         int displayId = Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
+        boolean observationsRecorded = false;
+        boolean displayRemovalRecorded = false;
         try {
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-TARGET-001",
@@ -122,6 +124,20 @@ final class DesktopSelfTestController {
             }
             DesktopSelfTestWindowSuite.run(
                     appContext, target, displayId, result);
+            if (target == DesktopSelfTestTarget.SIMULATED) {
+                // Expected display destruction must not be classified as host
+                // or phone-UI instability by the lifecycle observers.
+                recordDesktopHostObservation(result, displayId);
+                recordPhoneUiObservation(result, displayId);
+                observationsRecorded = true;
+                DesktopSelfTestDisplayRemovalSuite.run(
+                        result, displayId, lease);
+            } else {
+                DesktopSelfTestDisplayRemovalSuite.addNotTested(
+                        result,
+                        "the selected display is not owned by the self-test");
+            }
+            displayRemovalRecorded = true;
         } catch (AbortSelfTest ignored) {
             // The failing required step has already been added to the result.
         } catch (RuntimeException error) {
@@ -129,8 +145,15 @@ final class DesktopSelfTestController {
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
-            recordDesktopHostObservation(result, displayId);
-            recordPhoneUiObservation(result, displayId);
+            if (!observationsRecorded) {
+                recordDesktopHostObservation(result, displayId);
+                recordPhoneUiObservation(result, displayId);
+            }
+            if (!displayRemovalRecorded) {
+                DesktopSelfTestDisplayRemovalSuite.addNotTested(
+                        result,
+                        "window workflow did not reach display removal");
+            }
             DesktopSelfTestCleanup.run(result,
                     target,
                     displayId,

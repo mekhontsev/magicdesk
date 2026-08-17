@@ -15,9 +15,11 @@ parent. Unsupported platforms fall back to the ordinary focus path without a
 post-transition repair.
 
 The permanent regression contract is `FULLSCREEN-ALT-TAB-001` through
-`FULLSCREEN-ALT-TAB-003` in the desktop self-test. It verifies both task modes
-while the Alt+Tab panel is open, after each switch, and through real injected
-text focus.
+`FULLSCREEN-ALT-TAB-003` and `FULLSCREEN-LIFECYCLE-001` through
+`FULLSCREEN-LIFECYCLE-003` in the desktop self-test. It verifies both task
+modes while the Alt+Tab panel is open, after each switch, and through real
+injected text focus. It then restores one task to a window, closes it, and
+proves that the surviving task remains fullscreen and accepts input.
 
 ## Goal
 
@@ -160,6 +162,15 @@ result.
   is reparented into that area. Later switches only reorder tasks inside the
   same fullscreen parent, so no task inherits freeform mode from the default
   display area.
+- The hierarchy transaction is applied synchronously. Only after the tasks are
+  under the fullscreen parent does MagicDesk use the normal task-focus path to
+  synchronize Activity and InputDispatcher focus. The same focus operation is
+  unsafe while the tasks are still roots of the freeform-oriented default task
+  area.
+- Restoring or snapping a task first reparents that task to the display's
+  default task area while it is still fullscreen. The ordinary window command
+  runs only after that release. Closing and task removal use the same tracked
+  lifetime, and the organizer-owned area is deleted when its last task leaves.
 - A complete simulated self-test switched two true fullscreen tasks in both
   directions. Both remained `mode=fullscreen` while the Alt+Tab panel was
   visible, after each switch, and while real injected typing verified that
@@ -169,6 +180,11 @@ result.
   and left no fullscreen task area behind.
 - Self-test cleanup deleted the area and its simulated display without leaving
   a `MagicDesk fullscreen stack` container or stale task behind.
+- The lifecycle self-test restored and closed one task while its peer remained
+  in the fullscreen area, then injected text into the survivor. A separate
+  simulated-display test removed the live display without normal session
+  cleanup and verified that the runtime stopped, the fullscreen area vanished,
+  and the fixture was either removed or migrated to display 0 as fullscreen.
 - If task-display-area creation is unavailable on another platform, MagicDesk
   falls back to its previous stack-focus path instead of attempting a delayed
   fullscreen repair.
@@ -177,5 +193,3 @@ result.
 
 - Repeat the fullscreen Alt+Tab regression test on a wireless physical
   display.
-- Exercise task close, fullscreen-to-windowed conversion, and abrupt display
-  removal while the dedicated area owns tasks.

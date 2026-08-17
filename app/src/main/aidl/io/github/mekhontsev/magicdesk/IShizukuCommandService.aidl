@@ -188,4 +188,9 @@ interface IShizukuCommandService {
     void setExternalTaskMigrationProtection(
         ITaskObserverCallback callback, boolean enabled) = 60;
 
+    boolean releaseFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 61;
+
 }

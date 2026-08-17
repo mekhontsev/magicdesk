@@ -327,9 +327,11 @@ runtime integration and are not distributed through the same release path.
 - `ShellFullscreenTaskArea` owns the organizer-created fullscreen task area
   used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
   fullscreen parent avoids the transient freeform state caused by reordering
-  roots in the default desktop task area. Its rationale, rejected alternatives,
-  and regression contract are documented in
-  [Fullscreen Alt+Tab](fullscreen-alt-tab.md).
+  roots in the default desktop task area. A task is synchronously released to
+  the default task area while still fullscreen before any restore or snap
+  command changes its mode. The area closes after its final tracked task leaves.
+  Its rationale, rejected alternatives, and regression contract are documented
+  in [Fullscreen Alt+Tab](fullscreen-alt-tab.md).
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -556,24 +558,29 @@ then opens two independent editor fixtures, uses the native caption menu to
 place them on the left and right halves, and verifies keyboard focus transfer
 through both the desktop task controller and mouse input. It also switches the
 pair twice as true-fullscreen tasks and verifies that neither task becomes
-freeform while the Alt+Tab panel is open or after focus changes. Input assertions wait
-for the current InputDispatcher focus state rather than a fixed transition
-delay. The test also requests the native horizontal resize cursor and verifies
-WMShell's transition trace when that firmware trace is available.
+freeform while the Alt+Tab panel is open or after focus changes. It restores and
+closes one task, then verifies that the fullscreen survivor still receives real
+injected text. Input assertions wait for the current InputDispatcher focus
+state rather than a fixed transition delay. The test also requests the native
+horizontal resize cursor and verifies WMShell's transition trace when that
+firmware trace is available.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
-restores the prior setting. The external target selects the existing wired or
-wireless transport automatically and never treats the physical display or its
-unrelated tasks as test-owned. If a wired test temporarily enters desktop mode
-from mirror mode, cleanup restores mirror mode. An existing Miracast transport
-remains connected. The phone target uses the normal local-desktop navigation
-and cleanup path. Each target closes only the MagicDesk host and test fixtures
-that it created. Cleanup closes the host before removing its fixture tasks so
-SystemUI can reconcile live task IDs instead of retaining references to tasks
-that the test already destroyed. The phone navigation guard is released even
-when task reconciliation reports a failure; the pending marker remains for a
-later recovery attempt.
+restores the prior setting. Its test deliberately closes that lease once while
+the desktop and a fullscreen fixture are still alive. It verifies that the
+runtime and organizer-owned task area stop and that a surviving fixture is
+never left freeform on display 0. The external target selects the existing
+wired or wireless transport automatically and never treats the physical
+display or its unrelated tasks as test-owned. If a wired test temporarily
+enters desktop mode from mirror mode, cleanup restores mirror mode. An existing
+Miracast transport remains connected. The phone target uses the normal local-
+desktop navigation and cleanup path. Each target closes only the MagicDesk host
+and test fixtures that it created. Cleanup closes the host before removing its
+fixture tasks so SystemUI can reconcile live task IDs instead of retaining
+references to tasks that the test already destroyed. The phone navigation
+guard is released even when task reconciliation reports a failure; the pending
+marker remains for a later recovery attempt.
 
 Phone and simulated-display cold launches create a short-lived shell-owned
 `TaskDisplayArea` beside the target display's default task area. The new

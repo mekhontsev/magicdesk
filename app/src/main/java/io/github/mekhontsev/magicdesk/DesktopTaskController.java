@@ -122,6 +122,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public boolean releaseFullscreenTask(final int taskId) {
+                        return !mTaskWatcherReady
+                                || mTaskWatcher.releaseFullscreenTask(
+                                        mDisplayId, taskId);
+                    }
+
+                    @Override
+                    public void focusTask(final int taskId) {
+                        if (!mRunning || taskId < 0) {
+                            return;
+                        }
+                        if (mTaskWatcherReady) {
+                            sendFocusTasks(
+                                    mDisplayId,
+                                    Collections.singletonList(
+                                            Integer.valueOf(taskId)),
+                                    null);
+                        } else {
+                            TaskRepository.bringTaskToFront(
+                                    mDisplayId, taskId, null);
+                        }
+                    }
+
+                    @Override
                     public void scheduleRefresh() {
                         DesktopTaskController.this.scheduleRefresh(0);
                     }
@@ -633,41 +657,44 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     private static TaskRepository.TaskEntry findTopVisibleAppTask(
             final List<TaskRepository.TaskEntry> tasks) {
-        if (tasks == null) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.visible && task.active
-                    && isFocusableTask(task)) {
-                return task;
-            }
-        }
-        return null;
+        return selectTopVisibleTask(tasks, false);
     }
 
     private static TaskRepository.TaskEntry findTopVisibleFreeformTask(
             final List<TaskRepository.TaskEntry> tasks) {
+        return selectTopVisibleTask(tasks, true);
+    }
+
+    static TaskRepository.TaskEntry selectTopVisibleTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final boolean requireBoundedFreeform) {
         if (tasks == null) {
             return null;
         }
+        TaskRepository.TaskEntry visibleFallback = null;
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null
                     && task.visible
-                    && task.active
-                    && task.isBoundedFreeform()
+                    && (!requireBoundedFreeform
+                            || task.isBoundedFreeform())
                     && isFocusableTask(task)) {
-                return task;
+                if (task.active) {
+                    return task;
+                }
+                if (visibleFallback == null) {
+                    // Some firmware leaves the top task visible and focused
+                    // while reporting active=false. The snapshot is top-first.
+                    visibleFallback = task;
+                }
             }
         }
-        return null;
+        return visibleFallback;
     }
 
     private static boolean isFocusableTask(final TaskRepository.TaskEntry task) {
         return task != null && task.taskId >= 0
-                && (DesktopManagedTaskPolicy.isManagedApplicationTask(task)
-                        || (DesktopSelfTestController.isRunning()
-                                && DesktopSelfTestComponents
-                                        .isFixtureTask(task)));
+                && DesktopManagedTaskPolicy
+                        .isControllableApplicationTask(task);
     }
 
     private static void completeFocusCallback(final TaskRepository.ActionCallback callback,

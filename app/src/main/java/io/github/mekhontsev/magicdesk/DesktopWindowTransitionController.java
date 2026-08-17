@@ -13,6 +13,8 @@ final class DesktopWindowTransitionController {
     interface RuntimeState {
         int displayId();
         boolean isRunning();
+        boolean releaseFullscreenTask(int taskId);
+        void focusTask(int taskId);
         void scheduleRefresh();
     }
 
@@ -277,6 +279,7 @@ final class DesktopWindowTransitionController {
         state.setManualImmersiveOverride(true);
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
+        releaseFullscreenParent(taskId);
         TaskRepository.setFreeform(
                 task, targetBounds,
                 result -> mHandler.post(() -> {
@@ -295,6 +298,7 @@ final class DesktopWindowTransitionController {
                     state.clearFullscreenRestoreBounds();
                     state.setAppRequestedFullscreen(false);
                     rememberWindowed(task, targetBounds);
+                    mRuntimeState.focusTask(taskId);
                     mRuntimeState.scheduleRefresh();
                 }));
     }
@@ -423,6 +427,7 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
+        releaseFullscreenParent(taskId);
         TaskRepository.setFreeform(
                 task, targetBounds,
                 result -> mHandler.post(() -> finishFullscreenRestore(
@@ -432,6 +437,14 @@ final class DesktopWindowTransitionController {
                         userRequested,
                         result.success,
                         result.message)));
+    }
+
+    private void releaseFullscreenParent(final int taskId) {
+        if (!mRuntimeState.releaseFullscreenTask(taskId)) {
+            // Continue through the normal path. If the observer disconnected,
+            // Binder death already removed its organizer-owned task area.
+            Log.w(TAG, "fullscreen parent release unavailable task=" + taskId);
+        }
     }
 
     private void finishFullscreenRestore(
@@ -455,6 +468,7 @@ final class DesktopWindowTransitionController {
         if (userRequested) {
             rememberWindowed(task, targetBounds);
         }
+        mRuntimeState.focusTask(task.taskId);
         mRuntimeState.scheduleRefresh();
     }
 
@@ -620,7 +634,7 @@ final class DesktopWindowTransitionController {
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task.active && !task.isFreeform()
                     && DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)) {
+                            .isControllableApplicationTask(task)) {
                 return task;
             }
         }
