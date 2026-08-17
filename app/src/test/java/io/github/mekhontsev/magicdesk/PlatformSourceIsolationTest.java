@@ -18,6 +18,12 @@ public final class PlatformSourceIsolationTest {
             "io.github.mekhontsev.magicdesk.platform.";
     private static final String PLATFORM_SELECTOR =
             "io/github/mekhontsev/magicdesk/PlatformDrivers.java";
+    private static final String SOC_IMPLEMENTATION_REFERENCE =
+            "io.github.mekhontsev.magicdesk.soc.";
+    private static final String SOC_SELECTOR =
+            "io/github/mekhontsev/magicdesk/SocDisplayModeBackends.java";
+    private static final String SOC_DIRECTORY =
+            "/io/github/mekhontsev/magicdesk/soc/";
     private static final String VENDOR_DIRECTORY =
             "/io/github/mekhontsev/magicdesk/platform/nubia/";
     private static final String PLATFORM_DIRECTORY =
@@ -34,6 +40,10 @@ public final class PlatformSourceIsolationTest {
         "\"RedMagicAppManager",
         "\"ColorfulLightService",
         "\"/sys/kernel/lcd_enhance/"
+    };
+    private static final String[] SOC_RUNTIME_IDENTIFIERS = {
+        "vendor.qti.hardware.display.config",
+        "vendor.qti_display_config"
     };
 
     @Test
@@ -74,6 +84,46 @@ public final class PlatformSourceIsolationTest {
         assertTrue(
                 "Vendor runtime identifiers outside platform adapter: "
                         + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void onlySocCompositionRootImportsSocImplementations()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            final String rooted = "/" + relative;
+            if (!SOC_SELECTOR.equals(relative)
+                    && !rooted.contains(SOC_DIRECTORY)
+                    && read(source).contains(SOC_IMPLEMENTATION_REFERENCE)) {
+                violations.add(relative);
+            }
+        }
+        assertTrue(
+                "SoC implementation imports outside composition root: "
+                        + violations,
+                violations.isEmpty());
+    }
+
+    @Test
+    public void socRuntimeIdentifiersStayInSocAdapter()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String relative = "/" + relativePath(source);
+            if (relative.contains(SOC_DIRECTORY)) {
+                continue;
+            }
+            final String contents = read(source);
+            for (final String identifier : SOC_RUNTIME_IDENTIFIERS) {
+                if (contents.contains(identifier)) {
+                    violations.add(relative.substring(1) + ": " + identifier);
+                }
+            }
+        }
+        assertTrue(
+                "SoC runtime identifiers outside SoC adapter: " + violations,
                 violations.isEmpty());
     }
 

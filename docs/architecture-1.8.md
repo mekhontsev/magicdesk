@@ -41,10 +41,12 @@ Android shell adapters + selected platform driver
 ```
 
 `PlatformDrivers` is the sole composition point allowed to construct a
-firmware implementation. Shared code may depend on platform contracts, but not
-on classes or runtime identifiers from `platform/nubia` or future vendor
-packages. A platform driver may refine Android behavior; it must not own the
-desktop UI or duplicate session state.
+firmware implementation. `SocDisplayModeBackends` is the corresponding
+composition point for SoC display services. Shared code may depend on their
+contracts, but not on classes or runtime identifiers from `platform/nubia`,
+`soc/qualcomm`, or future implementation packages. A platform driver may
+refine Android behavior; it must not own the desktop UI or duplicate session
+state.
 
 Display drivers remain independent from platform drivers:
 
@@ -56,9 +58,24 @@ Display drivers remain independent from platform drivers:
 
 SoC-specific display services are optional operation backends, not firmware
 platforms. For example, a Qualcomm `IDisplayConfig` backend is discovered from
-its Binder service and may augment output-mode diagnostics or control on any
-compatible device. Its absence must be inert, and Nubia, generic Android, and
-future firmware drivers must not be multiplied into SoC-specific variants.
+its Binder service and augments output-mode discovery and exact mode selection
+when Android's public mode list is incomplete. Its absence must be inert, and
+Nubia, generic Android, and future firmware drivers must not be multiplied into
+SoC-specific variants. A platform projection driver consumes only the common
+`SocDisplayModeBackend` snapshot and backend ID; Binder descriptors,
+transactions, and shell-process bridging remain inside the SoC adapter.
+
+The SoC audit deliberately keeps these boundaries separate:
+
+- Qualcomm `IDisplayConfig` belongs to `soc/qualcomm` because it follows the
+  chipset service and has been verified under shell UID 2000 independently of
+  the firmware brand;
+- `/sys/kernel/lcd_enhance`, Nubia mirror-window methods, RedMagic hardware
+  controls, and the vendor internal-audio source remain in `platform/nubia`
+  because current evidence ties them to that firmware rather than to a SoC;
+- generic thermal-zone enumeration remains diagnostic data owned by the
+  RedMagic hardware probe until another consumer requires a SoC-neutral
+  thermal contract.
 
 ## External Project Review
 

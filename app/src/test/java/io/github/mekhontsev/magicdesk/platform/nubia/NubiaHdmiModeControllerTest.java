@@ -81,6 +81,61 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
+    public void socFallbackChoosesAndDefersNativeUltrawideMode() {
+        final NubiaHdmiModeController.Mode fullHd =
+                new NubiaHdmiModeController.Mode(1920, 1080, 75, 0);
+        final NubiaHdmiModeController.Mode ultrawide =
+                new NubiaHdmiModeController.Mode(2560, 1080, 75, 0);
+
+        final NubiaHdmiModeController.Selection selection =
+                NubiaHdmiModeController.socSelection(
+                        "test-soc",
+                        "Test SoC",
+                        fullHd,
+                        Arrays.asList(fullHd, ultrawide),
+                        null);
+
+        assertMode(selection.current, 1920, 1080, 75, 0);
+        assertMode(selection.target, 2560, 1080, 75, 0);
+        assertTrue(selection.configurable);
+        assertTrue(selection.requiresDeferredMode());
+        assertFalse(selection.supportsSystemDefault());
+        assertEquals("test-soc", selection.socBackendId);
+    }
+
+    @Test
+    public void socFallbackIsUsedOnlyWhenItAddsATiming() {
+        final NubiaHdmiModeController.Mode fullHd =
+                new NubiaHdmiModeController.Mode(1920, 1080, 75, 0);
+        final NubiaHdmiModeController.Mode ultrawide =
+                new NubiaHdmiModeController.Mode(2560, 1080, 75, 0);
+        final NubiaHdmiModeController.Selection publicSelection =
+                NubiaHdmiModeController.systemModeSelection(
+                        fullHd,
+                        Arrays.asList(fullHd),
+                        null);
+        final NubiaHdmiModeController.Selection same =
+                NubiaHdmiModeController.socSelection(
+                        "test-soc",
+                        "Test SoC",
+                        fullHd,
+                        Arrays.asList(fullHd),
+                        null);
+        final NubiaHdmiModeController.Selection expanded =
+                NubiaHdmiModeController.socSelection(
+                        "test-soc",
+                        "Test SoC",
+                        fullHd,
+                        Arrays.asList(fullHd, ultrawide),
+                        null);
+
+        assertFalse(NubiaHdmiModeController.addsTiming(
+                same, publicSelection));
+        assertTrue(NubiaHdmiModeController.addsTiming(
+                expanded, publicSelection));
+    }
+
+    @Test
     public void mapsOnlyModesReproducedByNubiaResolutionProfiles() {
         final NubiaHdmiModeController.Selection nativeSelection =
                 select(null, TV_MODES);
@@ -150,7 +205,7 @@ public final class NubiaHdmiModeControllerTest {
         assertEquals(
                 NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
                 selection.vendorSizeType());
-        assertTrue(selection.requiresDeferredVendorMode());
+        assertTrue(selection.requiresDeferredMode());
     }
 
     @Test
@@ -165,7 +220,7 @@ public final class NubiaHdmiModeControllerTest {
         assertEquals(
                 NubiaHdmiModeController.VENDOR_SIZE_1080,
                 selection.vendorSizeType());
-        assertFalse(selection.requiresDeferredVendorMode());
+        assertFalse(selection.requiresDeferredMode());
     }
 
     @Test
