@@ -74,6 +74,7 @@ final class ChargeSeparationController {
     private State mState;
     private boolean mStarted;
     private boolean mWritePending;
+    private int mGeneration;
 
     ChargeSeparationController(
             final Context context,
@@ -93,6 +94,7 @@ final class ChargeSeparationController {
             return;
         }
         mStarted = true;
+        mGeneration++;
         if (!mSupported) {
             dispatchState();
             return;
@@ -130,6 +132,7 @@ final class ChargeSeparationController {
 
     void stop() {
         mStarted = false;
+        mGeneration++;
         if (mSettingObserver != null) {
             mContext.getContentResolver().unregisterContentObserver(
                     mSettingObserver);
@@ -172,6 +175,7 @@ final class ChargeSeparationController {
         }
 
         mWritePending = true;
+        final int generation = mGeneration;
         dispatchState();
         EXECUTOR.execute(() -> {
             boolean success = false;
@@ -194,7 +198,9 @@ final class ChargeSeparationController {
             mMainHandler.post(() -> {
                 mWritePending = false;
                 refreshSetting();
-                complete(callback, result, resultMessage);
+                if (mStarted && generation == mGeneration) {
+                    complete(callback, result, resultMessage);
+                }
             });
         });
     }

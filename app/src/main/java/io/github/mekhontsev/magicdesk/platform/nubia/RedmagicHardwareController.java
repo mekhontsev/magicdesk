@@ -180,7 +180,11 @@ final class RedmagicHardwareController {
             return;
         }
         LISTENERS.add(listener);
-        MAIN.post(() -> listener.onHardwareStateChanged(sSnapshot));
+        MAIN.post(() -> {
+            if (LISTENERS.contains(listener)) {
+                listener.onHardwareStateChanged(sSnapshot);
+            }
+        });
     }
 
     static void removeListener(final Listener listener) {

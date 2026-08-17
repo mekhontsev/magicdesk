@@ -75,7 +75,11 @@ final class DisplayRecordingController {
         }
         mListeners.add(listener);
         final Snapshot snapshot = snapshot();
-        mMainHandler.post(() -> listener.onRecordingStateChanged(snapshot));
+        mMainHandler.post(() -> {
+            if (mListeners.contains(listener)) {
+                listener.onRecordingStateChanged(snapshot);
+            }
+        });
     }
 
     void removeListener(final Listener listener) {
