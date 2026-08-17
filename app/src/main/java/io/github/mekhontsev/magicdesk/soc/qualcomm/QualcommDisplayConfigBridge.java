@@ -55,17 +55,34 @@ public final class QualcommDisplayConfigBridge {
         }
     }
 
-    public static void main(final String[] args) throws Exception {
-        if (args.length == 1 && "query".equals(args[0])) {
-            System.out.print(encode(queryDirect()));
-            return;
+    public static void main(final String[] args) {
+        try {
+            if (args.length == 1 && "query".equals(args[0])) {
+                System.out.print(encode(queryDirect()));
+                return;
+            }
+            if (args.length == 2 && "set".equals(args[0])) {
+                applyDirect(args[1]);
+                System.out.println("applied=" + args[1]);
+                return;
+            }
+            throw new IllegalArgumentException("usage: query | set TIMING");
+        } catch (ReflectiveOperationException | RemoteException
+                | RuntimeException | LinkageError error) {
+            // An OEM may expose the service with a different Binder revision.
+            // Report an unavailable backend to the caller without producing an
+            // Android crash record from this short-lived app_process command.
+            System.err.println("Qualcomm display-config failed: "
+                    + usefulMessage(error));
+            System.exit(1);
         }
-        if (args.length == 2 && "set".equals(args[0])) {
-            applyDirect(args[1]);
-            System.out.println("applied=" + args[1]);
-            return;
-        }
-        throw new IllegalArgumentException("usage: query | set TIMING");
+    }
+
+    private static String usefulMessage(final Throwable error) {
+        final String message = error.getMessage();
+        return error.getClass().getSimpleName()
+                + (message == null || message.trim().isEmpty()
+                        ? "" : ": " + message.trim().replace('\n', ' '));
     }
 
     static Snapshot queryDirect()
