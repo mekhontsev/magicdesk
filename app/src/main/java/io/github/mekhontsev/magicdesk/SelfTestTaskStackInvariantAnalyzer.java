@@ -128,6 +128,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 visibleOnDesktop = true;
             }
             if (task.fixture
+                    && mDisplayId != 0
                     && task.displayId == 0
                     && task.windowingMode == WINDOWING_MODE_FREEFORM) {
                 addAnomaly("phone-freeform:" + mStage.name + ':' + task.taskId,
@@ -145,6 +146,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " entered display " + task.displayId);
             }
             if (task.taskId != mHostTaskId
+                    && mDisplayId != 0
                     && task.home && task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
                 addAnomaly("visible-home:" + mStage.name + ':' + task.taskId,

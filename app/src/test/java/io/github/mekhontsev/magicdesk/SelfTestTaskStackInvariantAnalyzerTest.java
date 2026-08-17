@@ -82,6 +82,24 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsFreeformFixtureWhenPhoneIsDesktopTarget() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot phoneDesktop =
+                snapshot(
+                        0,
+                        task(HOST_TASK_ID, 0, 1,
+                                false, false, false),
+                        task(FIXTURE_TASK_ID, 0, 5,
+                                true, true, false));
+        analyzer.begin("WINDOW", phoneDesktop);
+
+        assertEquals(0,
+                analyzer.finish(phoneDesktop).anomalies.length);
+    }
+
+    @Test
     public void acceptsHiddenTargetModeBeforeDisplayTransfer() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("MOVE", windowed(0, true));
@@ -180,6 +198,26 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
         analyzer.begin("WINDOW", snapshot);
 
         assertContains(analyzer.finish(snapshot), "Home task 20 became visible");
+    }
+
+    @Test
+    public void acceptsPhoneHomeBelowPhoneDesktop() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot phoneDesktop =
+                snapshot(
+                        0,
+                        task(HOST_TASK_ID, 0, 1,
+                                true, false, true),
+                        task(FIXTURE_TASK_ID, 0, 1,
+                                true, true, false),
+                        task(20, 0, 1,
+                                true, false, true));
+        analyzer.begin("FULLSCREEN", phoneDesktop);
+
+        assertEquals(0,
+                analyzer.finish(phoneDesktop).anomalies.length);
     }
 
     private static SelfTestTaskStackInvariantAnalyzer analyzer() {
