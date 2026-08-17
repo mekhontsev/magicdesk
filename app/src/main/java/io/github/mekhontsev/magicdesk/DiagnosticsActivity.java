@@ -454,6 +454,11 @@ public final class DiagnosticsActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopAwaitingWirelessDisplay();
+        if (mSelfTestRunning && !DesktopSelfTestController.isRunning()) {
+            // Preparation owns the observer until the test takes over. Do not
+            // leave it recording unrelated desktop frames if this UI closes.
+            DesktopSelfTestHostObserver.cancel();
+        }
         super.onDestroy();
     }
 
