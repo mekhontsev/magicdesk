@@ -9,6 +9,8 @@ import android.view.MotionEvent;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Owns desktop input bridges, routing, and software-keyboard policy. */
 final class RuntimeDesktopInputCoordinator {
@@ -23,6 +25,13 @@ final class RuntimeDesktopInputCoordinator {
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
     private final DesktopMouseBridge mMouseBridge;
+    private final ExecutorService mInputSourceWorker =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskInputRefresh");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
@@ -65,6 +74,7 @@ final class RuntimeDesktopInputCoordinator {
         ++mInputSourceRefreshGeneration;
         mInputDevices.stop();
         mMouseBridge.stop();
+        mInputSourceWorker.shutdownNow();
         restoreShowImeOverride();
         KeyboardShortcutWatcher.stop();
         mKeyboardWatcherRunning = false;
@@ -80,7 +90,13 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     void onConsoleModeChanged() {
+        if (mDestroyed) {
+            return;
+        }
         ++mInputSourceRefreshGeneration;
+        if (requiresExternalInputBridge()) {
+            refreshDesktopInputSources();
+        }
     }
 
     void setDesktopDisplay(
@@ -302,11 +318,12 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     private void refreshDesktopInputSources() {
-        if (!requiresExternalInputBridge() || !ShellAccess.isReady()) {
+        if (mDestroyed || !requiresExternalInputBridge()
+                || !ShellAccess.isReady()) {
             return;
         }
         final int generation = ++mInputSourceRefreshGeneration;
-        final Thread refreshThread = new Thread(() -> {
+        mInputSourceWorker.execute(() -> {
             try {
                 final String inputDump = ShellAccess.run(
                         "/system/bin/dumpsys input");
@@ -328,9 +345,7 @@ final class RuntimeDesktopInputCoordinator {
                 Log.w(TAG,
                         "Could not refresh desktop input sources", error);
             }
-        }, "MagicDeskInputRefresh");
-        refreshThread.setDaemon(true);
-        refreshThread.start();
+        });
     }
 
     private boolean ownsExternalDesktop() {

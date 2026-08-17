@@ -334,6 +334,9 @@ public abstract class DesktopShellActivity extends Activity
         if (mDisplayProfiles != null) {
             mDisplayProfiles.stop();
         }
+        if (mDisplayDensityController != null) {
+            mDisplayDensityController.close();
+        }
         mLastApps = Collections.emptyList();
         if (mStartMenuController != null) {
             mStartMenuController.release();

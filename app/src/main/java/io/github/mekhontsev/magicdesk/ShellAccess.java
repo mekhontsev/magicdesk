@@ -66,11 +66,13 @@ public final class ShellAccess {
     private ShellAccess() {
     }
 
-    static synchronized void initialize() {
-        if (sInitialized) {
-            return;
+    static void initialize() {
+        synchronized (ShellAccess.class) {
+            if (sInitialized) {
+                return;
+            }
+            sInitialized = true;
         }
-        sInitialized = true;
         Shizuku.addBinderReceivedListenerSticky(BINDER_RECEIVED);
         Shizuku.addBinderDeadListener(BINDER_DEAD);
         Shizuku.addRequestPermissionResultListener(PERMISSION_RESULT);
@@ -101,7 +103,7 @@ public final class ShellAccess {
         STATE_LISTENERS.remove(listener);
     }
 
-    static synchronized Snapshot refresh() {
+    static Snapshot refresh() {
         final Snapshot snapshot = publish(inspectNow());
         SERVICE_CONNECTION.connect(snapshot, ShellAccess::userServiceArgs);
         return snapshot;
@@ -1220,21 +1222,24 @@ public final class ShellAccess {
         refresh();
     }
 
-    private static synchronized Snapshot publish(final Snapshot snapshot) {
+    private static Snapshot publish(final Snapshot snapshot) {
         return publish(snapshot, false);
     }
 
-    private static synchronized Snapshot publish(
+    private static Snapshot publish(
             final Snapshot snapshot,
             final boolean notifyUnchanged) {
-        final Snapshot previous = sSnapshot;
-        sSnapshot = snapshot;
-        if (!shouldNotifyStateListeners(
-                previous, snapshot, notifyUnchanged)) {
-            return snapshot;
+        final boolean notify;
+        synchronized (ShellAccess.class) {
+            final Snapshot previous = sSnapshot;
+            sSnapshot = snapshot;
+            notify = shouldNotifyStateListeners(
+                    previous, snapshot, notifyUnchanged);
         }
-        for (final StateListener listener : STATE_LISTENERS) {
-            listener.onShellStateChanged(snapshot);
+        if (notify) {
+            for (final StateListener listener : STATE_LISTENERS) {
+                listener.onShellStateChanged(snapshot);
+            }
         }
         return snapshot;
     }

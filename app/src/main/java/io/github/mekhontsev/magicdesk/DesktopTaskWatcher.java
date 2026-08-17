@@ -7,6 +7,7 @@ import android.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,29 +66,41 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized void stop() {
-        failPendingFocusCallbacks("task observer stopped");
-        closeHandle();
+    void stop() {
+        final List<TaskRepository.ActionCallback> callbacks;
+        final ShellTaskObserverHandle handle;
+        synchronized (this) {
+            callbacks = drainPendingFocusCallbacksLocked();
+            handle = detachHandleLocked();
+        }
+        if (handle != null) {
+            handle.close();
+        }
+        completeFocusCallbacks(
+                callbacks, false, "task observer stopped");
     }
 
-    synchronized void destroy() {
-        if (mDestroyed) {
-            return;
+    void destroy() {
+        synchronized (this) {
+            if (mDestroyed) {
+                return;
+            }
+            mDestroyed = true;
         }
-        mDestroyed = true;
         stop();
         mExecutor.shutdownNow();
     }
 
-    synchronized boolean configure(
+    boolean configure(
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            mHandle.configure(displayId, displayBounds, workAreaBounds);
+            handle.configure(displayId, displayBounds, workAreaBounds);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
@@ -100,40 +113,54 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized void clearConfiguration() {
-        if (mHandle == null) {
+    void clearConfiguration() {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return;
         }
         try {
-            mHandle.configure(-1, new Rect(), new Rect());
+            handle.configure(-1, new Rect(), new Rect());
         } catch (IOException error) {
             Log.w(TAG, "failed to clear task observer configuration", error);
         }
     }
 
-    synchronized void sendFocusStack(
+    void sendFocusStack(
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
-        if (mHandle == null) {
-            completeFocusCallback(
-                    callback, false, "task observer unavailable");
-            return;
-        }
-        final long sequence = ++mNextFocusSequence;
-        if (callback != null) {
-            mFocusCallbacks.put(Long.valueOf(sequence), callback);
-        }
         final int[] taskIdArray = new int[taskIds.size()];
         for (int index = 0; index < taskIds.size(); index++) {
             taskIdArray[index] = taskIds.get(index).intValue();
         }
-        try {
-            mHandle.focusStack(sequence, displayId, taskIdArray);
-        } catch (IOException error) {
-            mFocusCallbacks.remove(Long.valueOf(sequence));
+        final ShellTaskObserverHandle handle;
+        final long sequence;
+        synchronized (this) {
+            handle = mHandle;
+            if (handle == null) {
+                sequence = -1L;
+            } else {
+                sequence = ++mNextFocusSequence;
+                if (callback != null) {
+                    mFocusCallbacks.put(Long.valueOf(sequence), callback);
+                }
+            }
+        }
+        if (handle == null) {
             completeFocusCallback(
-                    callback, false, "task observer focus failed");
+                    callback, false, "task observer unavailable");
+            return;
+        }
+        try {
+            handle.focusStack(sequence, displayId, taskIdArray);
+        } catch (IOException error) {
+            final TaskRepository.ActionCallback failedCallback;
+            synchronized (this) {
+                failedCallback = mFocusCallbacks.remove(
+                        Long.valueOf(sequence));
+            }
+            completeFocusCallback(
+                    failedCallback, false, "task observer focus failed");
             Log.w(TAG, "failed to focus task stack", error);
             recordFailure(
                     "TASK-OBSERVER-FOCUS-001",
@@ -143,43 +170,46 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized boolean releaseFullscreenTask(
+    boolean releaseFullscreenTask(
             final int displayId,
             final int taskId) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            return mHandle.releaseFullscreenTask(displayId, taskId);
+            return handle.releaseFullscreenTask(displayId, taskId);
         } catch (IOException error) {
             Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
             return false;
         }
     }
 
-    synchronized boolean closeFullscreenTask(
+    boolean closeFullscreenTask(
             final int displayId,
             final int taskId) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            return mHandle.closeFullscreenTask(displayId, taskId);
+            return handle.closeFullscreenTask(displayId, taskId);
         } catch (IOException error) {
             Log.w(TAG, "failed to close fullscreen task=" + taskId, error);
             return false;
         }
     }
 
-    synchronized boolean startSelfTestTaskStackGuard(
+    boolean startSelfTestTaskStackGuard(
             final int displayId,
             final int hostTaskId,
             final String stage) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            mHandle.startSelfTestTaskStackGuard(
+            handle.startSelfTestTaskStackGuard(
                     displayId, hostTaskId, stage);
             return true;
         } catch (IOException error) {
@@ -188,24 +218,26 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized void setSelfTestTaskStackGuardStage(final String stage) {
-        if (mHandle == null) {
+    void setSelfTestTaskStackGuardStage(final String stage) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return;
         }
         try {
-            mHandle.setSelfTestTaskStackGuardStage(stage);
+            handle.setSelfTestTaskStackGuardStage(stage);
         } catch (IOException error) {
             Log.w(TAG, "failed to update self-test task-stack stage", error);
         }
     }
 
-    synchronized SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
-        if (mHandle == null) {
+    SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return SelfTestTaskStackReport.unavailable(
                     "task observer unavailable");
         }
         try {
-            return mHandle.stopSelfTestTaskStackGuard();
+            return handle.stopSelfTestTaskStackGuard();
         } catch (IOException error) {
             Log.w(TAG, "failed to stop self-test task-stack guard", error);
             return SelfTestTaskStackReport.unavailable(
@@ -213,13 +245,14 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized boolean setPhoneTouchpadPreservation(
+    boolean setPhoneTouchpadPreservation(
             final boolean enabled) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            mHandle.setPhoneTouchpadPreservation(enabled);
+            handle.setPhoneTouchpadPreservation(enabled);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to "
@@ -229,13 +262,14 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized boolean setExternalTaskMigrationProtection(
+    boolean setExternalTaskMigrationProtection(
             final boolean enabled) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            mHandle.setExternalTaskMigrationProtection(enabled);
+            handle.setExternalTaskMigrationProtection(enabled);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to "
@@ -245,15 +279,16 @@ final class DesktopTaskWatcher {
         }
     }
 
-    synchronized boolean refreshTaskCaption(
+    boolean refreshTaskCaption(
             final int displayId,
             final int taskId,
             final int sourceId) {
-        if (mHandle == null) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
             return false;
         }
         try {
-            mHandle.refreshTaskCaption(displayId, taskId, sourceId);
+            handle.refreshTaskCaption(displayId, taskId, sourceId);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to refresh native fullscreen caption", error);
@@ -277,18 +312,24 @@ final class DesktopTaskWatcher {
             if (handle.isClosed()) {
                 throw new IOException("task observer disconnected during startup");
             }
+            final boolean active = mListener.isActive(generation);
+            final boolean installed;
+            final boolean destroyed;
             synchronized (this) {
-                if (mDestroyed || !mListener.isActive(generation)
-                        || handle.isClosed()) {
-                    handle.close();
-                    if (!mDestroyed && mListener.isActive(generation)) {
-                        throw new IOException(
-                                "task observer disconnected during startup");
-                    }
-                    return;
+                destroyed = mDestroyed;
+                installed = !destroyed && active && !handle.isClosed();
+                if (installed) {
+                    mHandle = handle;
+                    mCallback = callback;
                 }
-                mHandle = handle;
-                mCallback = callback;
+            }
+            if (!installed) {
+                handle.close();
+                if (!destroyed && active) {
+                    throw new IOException(
+                            "task observer disconnected during startup");
+                }
+                return;
             }
             postIfActive(generation, () -> mListener.onReady(generation));
         } catch (IOException error) {
@@ -330,13 +371,15 @@ final class DesktopTaskWatcher {
         });
     }
 
-    private synchronized void closeHandle() {
+    private synchronized ShellTaskObserverHandle currentHandle() {
+        return mHandle;
+    }
+
+    private ShellTaskObserverHandle detachHandleLocked() {
         final ShellTaskObserverHandle handle = mHandle;
         mHandle = null;
         mCallback = null;
-        if (handle != null) {
-            handle.close();
-        }
+        return handle;
     }
 
     private void onTasksChanged(final int generation) {
@@ -460,14 +503,28 @@ final class DesktopTaskWatcher {
     private void failPendingFocusCallbacks(final String message) {
         final List<TaskRepository.ActionCallback> callbacks;
         synchronized (this) {
-            if (mFocusCallbacks.isEmpty()) {
-                return;
-            }
-            callbacks = new ArrayList<>(mFocusCallbacks.values());
-            mFocusCallbacks.clear();
+            callbacks = drainPendingFocusCallbacksLocked();
         }
+        completeFocusCallbacks(callbacks, false, message);
+    }
+
+    private List<TaskRepository.ActionCallback>
+            drainPendingFocusCallbacksLocked() {
+        if (mFocusCallbacks.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<TaskRepository.ActionCallback> callbacks =
+                new ArrayList<>(mFocusCallbacks.values());
+        mFocusCallbacks.clear();
+        return callbacks;
+    }
+
+    private static void completeFocusCallbacks(
+            final List<TaskRepository.ActionCallback> callbacks,
+            final boolean success,
+            final String message) {
         for (final TaskRepository.ActionCallback callback : callbacks) {
-            completeFocusCallback(callback, false, message);
+            completeFocusCallback(callback, success, message);
         }
     }
 
