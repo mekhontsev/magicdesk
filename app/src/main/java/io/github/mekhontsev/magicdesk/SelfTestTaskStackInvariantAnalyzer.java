@@ -205,7 +205,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 reachedFinal = true;
                 continue;
             }
-            if (!reachedFinal && isHiddenTransferPreparation(
+            if (!reachedFinal && isHiddenPreparation(
                     firstState, lastState, currentState)) {
                 continue;
             }
@@ -302,18 +302,25 @@ final class SelfTestTaskStackInvariantAnalyzer {
         return state == null ? "absent" : state.stateKey();
     }
 
-    private static boolean isHiddenTransferPreparation(
+    private static boolean isHiddenPreparation(
             final TaskState first,
             final TaskState last,
             final TaskState current) {
-        return first != null
-                && last != null
-                && current != null
-                && first.displayId != last.displayId
+        if (last == null
+                || current == null
+                || !current.visibilityKnown
+                || current.visible) {
+            return false;
+        }
+        if (first == null) {
+            // Android may create a task in its parent's default mode before
+            // applying the requested launch mode. It is safe only while the
+            // task remains hidden on its final display.
+            return current.displayId == last.displayId;
+        }
+        return first.displayId != last.displayId
                 && current.displayId == first.displayId
-                && current.windowingMode == last.windowingMode
-                && current.visibilityKnown
-                && !current.visible;
+                && current.windowingMode == last.windowingMode;
     }
 
     private String formatSample(

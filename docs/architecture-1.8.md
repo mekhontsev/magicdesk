@@ -118,8 +118,9 @@ windowing-mode detours and visibility gaps that final-state assertions miss.
 Cross-display fullscreen return has one shared shell primitive: it hides the
 task and commits its target mode on the source display, moves the hidden root,
 then reveals it on the destination. The guard accepts only that hidden source
-preparation; a visible mode detour or any freeform task on display 0 remains a
-failure.
+preparation and the hidden default-mode state of a newly created task before
+its requested launch mode is committed. A visible mode detour or any freeform
+task on display 0 remains a failure.
 
 True-fullscreen Alt+Tab uses a shared Android task-display-area mechanism, not
 a platform workaround. The ownership invariant and the failed alternatives are

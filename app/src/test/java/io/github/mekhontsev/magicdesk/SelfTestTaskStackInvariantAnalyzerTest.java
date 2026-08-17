@@ -121,6 +121,43 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsHiddenDefaultModeDuringTaskCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot absent = snapshot(
+                0,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        true, false, false));
+        analyzer.begin("LAUNCH", absent);
+        analyzer.sample("created", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false)), true);
+
+        assertEquals(0,
+                analyzer.finish(windowed(2, true)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsVisibleDefaultModeDuringTaskCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot absent = snapshot(
+                0,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        true, false, false));
+        analyzer.begin("LAUNCH", absent);
+        analyzer.sample("created", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false)), true);
+
+        assertContains(
+                analyzer.finish(windowed(2, true)),
+                "observed=display2/mode1");
+    }
+
+    @Test
     public void acceptsDesktopHostReportedAsHomeActivity() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot = snapshot(

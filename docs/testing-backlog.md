@@ -270,7 +270,9 @@ not supported runtime modes:
 - [x] Observe every self-test task callback and reject visible intermediate
   windowing/display states, freeform tasks on display 0, and wallpaper-only
   gaps during fullscreen handoff. Simulated regression coverage verifies both
-  hidden fullscreen return to the phone and survivor-first fullscreen close.
+  hidden fullscreen return to the phone and survivor-first fullscreen close;
+  wired coverage also permits Android's hidden default-mode task creation
+  without weakening the same check for visible launches.
 - [x] A debug-only lifecycle instrumentation runs the owned simulated-display
   regression, recreates the desktop Activity, exercises freeform and fullscreen
   transitions, and verifies display/task cleanup. CI still needs a compatible
