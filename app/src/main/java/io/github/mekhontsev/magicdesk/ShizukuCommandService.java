@@ -93,6 +93,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public SystemMonitorSnapshot readSystemMonitorSnapshot(
+            final boolean includeProcessMemory) {
+        return SystemMonitorReader.read(includeProcessMemory);
+    }
+
+    @Override
     public String execute(final String command) {
         if (command == null || command.isEmpty()) {
             return "-1\nempty command";

@@ -11,6 +11,9 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.format.Formatter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,6 +27,7 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 public final class TaskManagerActivity extends Activity
         implements ShellAccess.StateListener {
@@ -32,11 +36,20 @@ public final class TaskManagerActivity extends Activity
     private static final int COLOR_TEXT = 0xFFE8EEF5;
     private static final int COLOR_MUTED = 0xFF9DAAB8;
     private static final int COLOR_CYAN = 0xFF22D3EE;
+    private static final long REFRESH_INTERVAL_MILLIS = 3_000L;
+    private static final int PROCESS_MEMORY_REFRESH_CYCLES = 4;
 
     private LinearLayout mTasks;
     private TextView mStatus;
+    private final Handler mHandler = new Handler(Looper.getMainLooper());
+    private final SystemMonitorRepository mMonitor =
+            new SystemMonitorRepository();
+    private final Runnable mScheduledRefresh = this::refresh;
     private boolean mDestroyed;
+    private boolean mStarted;
+    private boolean mLoading;
     private int mLoadGeneration;
+    private int mRefreshCycle;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, TaskManagerActivity.class);
@@ -55,17 +68,21 @@ public final class TaskManagerActivity extends Activity
                 R.drawable.ic_magicdesk);
         BuiltInWindowRegistry.register(this);
         setContentView(createContent());
-        refresh();
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        mStarted = true;
         ShellAccess.addStateListener(this);
     }
 
     @Override
     protected void onStop() {
+        mStarted = false;
+        mLoading = false;
+        mLoadGeneration++;
+        mHandler.removeCallbacks(mScheduledRefresh);
         ShellAccess.removeStateListener(this);
         super.onStop();
     }
@@ -74,6 +91,8 @@ public final class TaskManagerActivity extends Activity
     protected void onDestroy() {
         mDestroyed = true;
         mLoadGeneration++;
+        mHandler.removeCallbacks(mScheduledRefresh);
+        mMonitor.close();
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();
     }
@@ -87,6 +106,7 @@ public final class TaskManagerActivity extends Activity
             if (snapshot != null && snapshot.isReady()) {
                 refresh();
             } else {
+                mHandler.removeCallbacks(mScheduledRefresh);
                 mStatus.setText(getString(
                         R.string.task_manager_unavailable,
                         snapshot == null ? "unknown" : snapshot.error));
@@ -137,11 +157,18 @@ public final class TaskManagerActivity extends Activity
     }
 
     private void refresh() {
+        mHandler.removeCallbacks(mScheduledRefresh);
         if (!ShellAccess.isReady()) {
             mStatus.setText(R.string.task_manager_waiting);
             return;
         }
+        if (mLoading) {
+            return;
+        }
+        mLoading = true;
         final int generation = ++mLoadGeneration;
+        final boolean includeProcessMemory =
+                ++mRefreshCycle % PROCESS_MEMORY_REFRESH_CYCLES == 0;
         mStatus.setText(R.string.task_manager_loading);
         TaskRepository.load(-1, snapshot -> runOnUiThread(() -> {
             if (mDestroyed || generation != mLoadGeneration) {
@@ -151,13 +178,31 @@ public final class TaskManagerActivity extends Activity
                 mStatus.setText(getString(
                         R.string.task_manager_unavailable,
                         snapshot.error));
+                finishRefresh();
                 return;
             }
-            render(snapshot.tasks);
+            mMonitor.load(includeProcessMemory, monitor -> runOnUiThread(() -> {
+                if (mDestroyed || generation != mLoadGeneration) {
+                    return;
+                }
+                render(snapshot.tasks, monitor);
+                finishRefresh();
+            }));
         }));
     }
 
-    private void render(final List<TaskRepository.TaskEntry> rawTasks) {
+    private void finishRefresh() {
+        mLoading = false;
+        if (mStarted && ShellAccess.isReady()) {
+            mHandler.postDelayed(
+                    mScheduledRefresh,
+                    REFRESH_INTERVAL_MILLIS);
+        }
+    }
+
+    private void render(
+            final List<TaskRepository.TaskEntry> rawTasks,
+            final SystemMonitorRepository.Snapshot monitor) {
         final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
         for (final TaskRepository.TaskEntry task : rawTasks) {
             if (DesktopManagedTaskPolicy.isManagedApplicationTask(task)
@@ -170,23 +215,47 @@ public final class TaskManagerActivity extends Activity
                 .thenComparing(task -> labelFor(task.packageName))
                 .thenComparingInt(task -> task.taskId));
         mTasks.removeAllViews();
+        final boolean compact = isCompactLayout();
         for (final TaskRepository.TaskEntry task : tasks) {
-            mTasks.addView(createTaskRow(task), new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(66)));
+            mTasks.addView(createTaskRow(task, monitor),
+                    new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            dp(compact ? 112 : 70)));
             final View divider = new View(this);
             divider.setBackgroundColor(0xFF26303D);
             mTasks.addView(divider, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 1));
         }
-        mStatus.setText(getString(R.string.task_manager_count, tasks.size()));
+        if (monitor.available) {
+            final long usedMemory = Math.max(
+                    0L,
+                    monitor.totalMemoryKb - monitor.availableMemoryKb);
+            mStatus.setText(getString(
+                    R.string.task_manager_summary,
+                    tasks.size(),
+                    formatPercent(monitor.cpuPercent),
+                    formatMemory(usedMemory),
+                    formatMemory(monitor.totalMemoryKb),
+                    monitor.loadAverage));
+        } else {
+            mStatus.setText(getString(R.string.task_manager_count, tasks.size()));
+        }
     }
 
-    private View createTaskRow(final TaskRepository.TaskEntry task) {
+    private View createTaskRow(
+            final TaskRepository.TaskEntry task,
+            final SystemMonitorRepository.Snapshot monitor) {
         final LinearLayout row = new LinearLayout(this);
+        final boolean compact = isCompactLayout();
+        row.setOrientation(
+                compact ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(6), dp(4), dp(4), dp(4));
         row.setBackgroundColor(task.active ? 0xFF1F2C3A : COLOR_BACKGROUND);
         row.setOnClickListener(view -> focus(task));
+
+        final LinearLayout identity = new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
 
         final ImageView icon = new ImageView(this);
         icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -196,7 +265,7 @@ public final class TaskManagerActivity extends Activity
         } catch (PackageManager.NameNotFoundException error) {
             icon.setImageResource(R.drawable.ic_magicdesk);
         }
-        row.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        identity.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         final LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
@@ -207,39 +276,81 @@ public final class TaskManagerActivity extends Activity
         name.setTextSize(15f);
         name.setSingleLine(true);
         final TextView detail = new TextView(this);
-        detail.setText(getString(
+        final String taskDetail = getString(
                 R.string.task_manager_task_detail,
                 task.displayId,
                 task.windowingMode,
                 task.taskId,
-                task.packageName));
+                task.packageName);
+        final SystemMonitorRepository.ProcessResources resources =
+                monitor.forPackage(task.packageName);
+        final String cpu = formatPercent(resources.cpuPercent);
+        final String memory = formatMemory(resources.pssKb);
+        detail.setText(compact
+                ? taskDetail + "\n" + getString(
+                        R.string.task_manager_process_resources,
+                        cpu,
+                        memory)
+                : getString(
+                        R.string.task_manager_task_resources,
+                        taskDetail,
+                        cpu,
+                        memory));
         detail.setTextColor(COLOR_MUTED);
         detail.setTextSize(11f);
-        detail.setSingleLine(true);
+        detail.setSingleLine(!compact);
+        detail.setMaxLines(compact ? 2 : 1);
         labels.addView(name);
         labels.addView(detail);
-        row.addView(labels, new LinearLayout.LayoutParams(
+        identity.addView(labels, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        row.addView(identity, new LinearLayout.LayoutParams(
+                compact ? ViewGroup.LayoutParams.MATCH_PARENT : 0,
+                compact ? 0 : ViewGroup.LayoutParams.MATCH_PARENT,
+                1f));
 
-        row.addView(iconButton(
+        final LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        final int actionSize = compact ? 38 : 44;
+        actions.addView(iconButton(
                 android.R.drawable.ic_menu_view,
                 R.string.task_manager_focus,
-                view -> focus(task)), square());
-        row.addView(iconButton(
+                view -> focus(task)), square(actionSize));
+        actions.addView(iconButton(
                 android.R.drawable.ic_menu_info_details,
                 R.string.task_manager_logs,
-                view -> openLogs(task)), square());
-        row.addView(iconButton(
+                view -> openLogs(task)), square(actionSize));
+        actions.addView(iconButton(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 R.string.task_manager_close,
-                view -> closeTask(task)), square());
+                view -> closeTask(task)), square(actionSize));
         if (!BuildConfig.APPLICATION_ID.equals(task.packageName)) {
-            row.addView(iconButton(
+            actions.addView(iconButton(
                     android.R.drawable.ic_menu_delete,
                     R.string.task_manager_force_stop,
-                    view -> confirmForceStop(task)), square());
+                    view -> confirmForceStop(task)), square(actionSize));
         }
+        row.addView(actions, new LinearLayout.LayoutParams(
+                compact ? ViewGroup.LayoutParams.MATCH_PARENT
+                        : ViewGroup.LayoutParams.WRAP_CONTENT,
+                compact ? dp(actionSize) : ViewGroup.LayoutParams.MATCH_PARENT));
         return row;
+    }
+
+    private boolean isCompactLayout() {
+        return getResources().getConfiguration().screenWidthDp < 420;
+    }
+
+    private String formatPercent(final float value) {
+        return value < 0f
+                ? "--"
+                : String.format(Locale.getDefault(), "%.1f%%", value);
+    }
+
+    private String formatMemory(final long valueKb) {
+        return valueKb < 0L
+                ? "--"
+                : Formatter.formatShortFileSize(this, valueKb * 1024L);
     }
 
     private void focus(final TaskRepository.TaskEntry task) {
@@ -334,8 +445,8 @@ public final class TaskManagerActivity extends Activity
         return button;
     }
 
-    private LinearLayout.LayoutParams square() {
-        return new LinearLayout.LayoutParams(dp(44), dp(44));
+    private LinearLayout.LayoutParams square(final int sizeDp) {
+        return new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp));
     }
 
     private int dp(final int value) {

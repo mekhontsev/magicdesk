@@ -211,6 +211,23 @@ public final class ShellAccess {
         }
     }
 
+    static SystemMonitorSnapshot readSystemMonitorSnapshot(
+            final boolean includeProcessMemory) throws IOException {
+        try {
+            final SystemMonitorSnapshot snapshot = requireService()
+                    .readSystemMonitorSnapshot(includeProcessMemory);
+            if (snapshot == null) {
+                throw new IOException(
+                        "Shell service returned no system snapshot");
+            }
+            return snapshot;
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Shell system monitor failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     static String updateHardwareKeyboardLayout(
             final String mode,
             final String currentDescriptor)
@@ -789,7 +806,7 @@ public final class ShellAccess {
     private static IOException shellFileFailure(
             final String action, final Throwable error) {
         return new IOException(
-                "Shizuku filesystem " + action + " failed: "
+                "Shell filesystem " + action + " failed: "
                         + usefulMessage(error),
                 error);
     }

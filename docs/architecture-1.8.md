@@ -178,7 +178,15 @@ owner-bound directory observation, search, and file-operation contracts;
 Console remains the only UI that accepts arbitrary commands. Process-local
 drag payloads and explicit window intents connect Files, Desktop, and Console
 without introducing global current-directory state. Task Manager reuses
-`TaskRepository`, while application log viewers own independent bounded stream
-lifecycles.
+`TaskRepository`; its resource monitor receives bounded structured snapshots
+from the shell service, keeping `/proc` and `dumpsys` parsing out of UI code.
+Application log viewers own independent bounded stream lifecycles. Start search
+combines the application catalog, built-in tasks and actions, and the existing
+owner-bound file-search contract instead of adding an arbitrary command path.
+
+Desktop and Files decode standard file keyboard commands through one shared
+contract. Each workspace implements only commands supported by its selection
+model, so this does not introduce a second global clipboard or hidden desktop
+selection state.
 
 Each step must leave the branch buildable and independently reviewable.

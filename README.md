@@ -173,11 +173,14 @@ and Android user; neither kind of state is written into the desktop folder.
 
 ### Desktop controls
 
-- Start menu with application search and keyboard navigation.
+- Start menu with unified application, file, MagicDesk setting, and desktop
+  action search, plus keyboard navigation. Desktop file results use the same
+  bounded, shell-backed search contract as Files; Files retains recursive
+  search from any visible directory.
 - Open Tasks view with exact-task focus and close controls.
-- Open **Task Manager** for running application tasks, per-task focus and
-  close, explicit force-stop, and a lifecycle-bound application log viewer
-  filtered by Android UID.
+- Open **Task Manager** for running application tasks, live CPU and memory
+  indicators, per-task focus and close, explicit force-stop, and a
+  lifecycle-bound application log viewer filtered by Android UID.
 - Right-click context menus in MagicDesk and ordinary applications.
 - Notification center with unread state, actions, dismissal, and transient
   notification popups.

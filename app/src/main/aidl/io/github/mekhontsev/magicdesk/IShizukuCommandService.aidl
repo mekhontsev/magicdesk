@@ -11,6 +11,7 @@ import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
 import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
 import io.github.mekhontsev.magicdesk.ShellFilePage;
+import io.github.mekhontsev.magicdesk.SystemMonitorSnapshot;
 
 interface IShizukuCommandService {
     void destroy() = 16777114;
@@ -231,5 +232,8 @@ interface IShizukuCommandService {
         IBinder ownerToken) = 68;
 
     void cancelShellFileSearch(long searchId) = 69;
+
+    SystemMonitorSnapshot readSystemMonitorSnapshot(
+        boolean includeProcessMemory) = 70;
 
 }
