@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 import android.view.Display;
@@ -28,15 +29,17 @@ final class PhoneControlPanelLauncher {
         final Display display = source.getDisplay();
         final boolean crossDisplay = display != null
                 && display.getDisplayId() != Display.DEFAULT_DISPLAY;
+        final Context context = source.getApplicationContext();
         if (crossDisplay && ShellAccess.isReady()) {
             EXECUTOR.execute(() -> {
                 if (!openOnPhoneWithShell()) {
-                    source.runOnUiThread(() -> openWithAndroidApi(source));
+                    context.getMainExecutor().execute(
+                            () -> openWithAndroidApi(context));
                 }
             });
             return;
         }
-        openWithAndroidApi(source);
+        openWithAndroidApi(context);
     }
 
     static String createLaunchCommand(
@@ -81,10 +84,10 @@ final class PhoneControlPanelLauncher {
                 || output.contains("Exception");
     }
 
-    private static void openWithAndroidApi(final Activity source) {
+    private static void openWithAndroidApi(final Context context) {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-        final Intent intent = ControlActivity.createLaunchIntent(source);
-        source.startActivity(intent, options.toBundle());
+        final Intent intent = ControlActivity.createLaunchIntent(context);
+        context.startActivity(intent, options.toBundle());
     }
 }
