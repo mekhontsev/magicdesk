@@ -5,6 +5,7 @@ import io.github.mekhontsev.magicdesk.DesktopSelfTestResult;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
+import io.github.mekhontsev.magicdesk.platform.qualcomm.QualcommDisplayConfigProbe;
 
 import android.content.Context;
 
@@ -16,6 +17,7 @@ final class GenericAndroidPlatformDiagnostics implements PlatformDiagnostics {
     public void appendCapabilityProbe(
             final StringBuilder report,
             final Context context) {
+        QualcommDisplayConfigProbe.appendTo(report);
     }
 
     @Override
