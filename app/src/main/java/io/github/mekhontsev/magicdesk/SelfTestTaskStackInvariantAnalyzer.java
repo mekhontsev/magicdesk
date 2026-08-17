@@ -180,12 +180,16 @@ final class SelfTestTaskStackInvariantAnalyzer {
     }
 
     private void analyzeFixture(final Stage stage, final int taskId) {
-        final String first = stateKey(stage.samples.get(0).snapshot, taskId);
-        final String last = stateKey(
-                stage.samples.get(stage.samples.size() - 1).snapshot, taskId);
+        final TaskState firstState =
+                stage.samples.get(0).snapshot.find(taskId);
+        final TaskState lastState = stage.samples.get(
+                stage.samples.size() - 1).snapshot.find(taskId);
+        final String first = stateKey(firstState);
+        final String last = stateKey(lastState);
         boolean reachedFinal = first.equals(last);
         for (final Sample sample : stage.samples) {
-            final String current = stateKey(sample.snapshot, taskId);
+            final TaskState currentState = sample.snapshot.find(taskId);
+            final String current = stateKey(currentState);
             if (first.equals(last)) {
                 if (!first.equals(current)) {
                     addTaskTransitionAnomaly(
@@ -199,6 +203,10 @@ final class SelfTestTaskStackInvariantAnalyzer {
             }
             if (last.equals(current)) {
                 reachedFinal = true;
+                continue;
+            }
+            if (!reachedFinal && isHiddenTransferPreparation(
+                    firstState, lastState, currentState)) {
                 continue;
             }
             addTaskTransitionAnomaly(
@@ -290,11 +298,22 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
     }
 
-    private static String stateKey(
-            final Snapshot snapshot,
-            final int taskId) {
-        final TaskState state = snapshot.find(taskId);
+    private static String stateKey(final TaskState state) {
         return state == null ? "absent" : state.stateKey();
+    }
+
+    private static boolean isHiddenTransferPreparation(
+            final TaskState first,
+            final TaskState last,
+            final TaskState current) {
+        return first != null
+                && last != null
+                && current != null
+                && first.displayId != last.displayId
+                && current.displayId == first.displayId
+                && current.windowingMode == last.windowingMode
+                && current.visibilityKnown
+                && !current.visible;
     }
 
     private String formatSample(

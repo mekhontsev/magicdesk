@@ -115,13 +115,21 @@ Self-test window stages now share an event-driven task-stack invariant guard.
 The shell observer records bounded snapshots only on Android task callbacks and
 stage boundaries; a platform-neutral analyzer detects transient display or
 windowing-mode detours and visibility gaps that final-state assertions miss.
+Cross-display fullscreen return has one shared shell primitive: it hides the
+task and commits its target mode on the source display, moves the hidden root,
+then reveals it on the destination. The guard accepts only that hidden source
+preparation; a visible mode detour or any freeform task on display 0 remains a
+failure.
 
 True-fullscreen Alt+Tab uses a shared Android task-display-area mechanism, not
 a platform workaround. The ownership invariant and the failed alternatives are
 recorded in [Fullscreen Alt+Tab](fullscreen-alt-tab.md). The self-test contract
 also covers releasing and closing individual tasks, survivor input focus, and
 abrupt simulated-display removal; it must pass before changing task-focus or
-task-area lifecycle operations.
+task-area lifecycle operations. Closing the active member first hands focus and
+visibility to the top surviving member, waits for the observed task state, and
+only then removes the now-background task. This prevents a wallpaper-only
+frame without relying on delayed repair.
 
 The session transition path now has one owner. Display drivers cannot close a
 session or call back into `ConsoleModeSwitcher`; the coordinator receives the

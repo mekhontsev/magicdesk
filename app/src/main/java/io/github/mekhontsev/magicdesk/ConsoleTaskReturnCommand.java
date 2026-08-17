@@ -3,22 +3,17 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.content.ComponentName;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.LinkedHashSet;
-import java.util.concurrent.TimeUnit;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class ConsoleTaskReturnCommand {
     private static final int PHONE_DISPLAY_ID = 0;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
-    private static final long MOVE_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(5);
-    private static final long MOVE_POLL_MILLIS = 25L;
-
     private ConsoleTaskReturnCommand() {
     }
 
@@ -48,17 +43,15 @@ public final class ConsoleTaskReturnCommand {
             int failed = 0;
             for (final int taskId : taskIds) {
                 try {
-                    moveRootTask(taskId, PHONE_DISPLAY_ID);
-                    awaitTask(service, PHONE_DISPLAY_ID, taskId);
-                    // The display move is a WMShell transition. A direct WCT
-                    // can lose a race with its final state and leave the top
-                    // task freeform on the phone.
-                    TaskFullscreenTransitionCommand.applyFullscreen(
-                            PHONE_DISPLAY_ID, taskId, false, false);
+                    TaskFullscreenMoveCommand.moveTask(
+                            service,
+                            taskId,
+                            taskId,
+                            sourceDisplayId,
+                            PHONE_DISPLAY_ID);
                     System.out.println("task-returned=" + taskId);
                     moved++;
-                } catch (IOException | ReflectiveOperationException
-                        | RuntimeException error) {
+                } catch (ReflectiveOperationException | RuntimeException error) {
                     System.out.println("task-return-failed=" + taskId
                             + " error=" + usefulMessage(error));
                     failed++;
@@ -134,48 +127,6 @@ public final class ConsoleTaskReturnCommand {
             throws ReflectiveOperationException {
         return HiddenTaskApi.getWindowConfigurationValue(
                 task, "getActivityType");
-    }
-
-    private static void moveRootTask(final int taskId, final int displayId)
-            throws IOException {
-        final Process process = new ProcessBuilder(
-                "/system/bin/cmd", "activity", "display", "move-stack",
-                Integer.toString(taskId), Integer.toString(displayId))
-                .redirectErrorStream(true)
-                .start();
-        try {
-            final BoundedProcessRunner.Result result =
-                    BoundedProcessRunner.run(process);
-            if (result.exitCode != 0) {
-                throw new IOException("move task " + taskId + " failed "
-                        + result.exitCode + ": " + result.output);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("task move interrupted", e);
-        } finally {
-            process.destroy();
-        }
-    }
-
-    private static void awaitTask(final Object service, final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final long deadline = System.nanoTime() + MOVE_TIMEOUT_NANOS;
-        do {
-            final Object task =
-                    HiddenTaskApi.findTask(service, displayId, taskId);
-            if (task != null) {
-                return;
-            }
-            try {
-                Thread.sleep(MOVE_POLL_MILLIS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("task move interrupted", e);
-            }
-        } while (System.nanoTime() < deadline);
-        throw new IllegalStateException(
-                "task " + taskId + " did not move to display " + displayId);
     }
 
     private static int parseDisplayId(final String value) {

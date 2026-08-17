@@ -157,6 +157,20 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean closeFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            return mHandle.closeFullscreenTask(displayId, taskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to close fullscreen task=" + taskId, error);
+            return false;
+        }
+    }
+
     synchronized boolean startSelfTestTaskStackGuard(
             final int displayId,
             final int hostTaskId,

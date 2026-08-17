@@ -267,6 +267,10 @@ not supported runtime modes:
   both directions without an intermediate freeform mode. It restores only state
   owned by the selected target and includes its bounded result in Diagnostics
   without background polling.
+- [x] Observe every self-test task callback and reject visible intermediate
+  windowing/display states, freeform tasks on display 0, and wallpaper-only
+  gaps during fullscreen handoff. Simulated regression coverage verifies both
+  hidden fullscreen return to the phone and survivor-first fullscreen close.
 - [x] A debug-only lifecycle instrumentation runs the owned simulated-display
   regression, recreates the desktop Activity, exercises freeform and fullscreen
   transitions, and verifies display/task cleanup. CI still needs a compatible

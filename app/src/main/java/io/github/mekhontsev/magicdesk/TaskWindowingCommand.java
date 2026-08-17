@@ -410,6 +410,20 @@ public final class TaskWindowingCommand {
                 FreeformApplication.SHOW_TRANSITION);
     }
 
+    static void prepareFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        applyPreparedFullscreen(service, displayId, taskId, true);
+    }
+
+    static void showPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        applyPreparedFullscreen(service, displayId, taskId, false);
+    }
+
     static void restorePreparedTask(
             final Object service,
             final int displayId,
@@ -504,6 +518,52 @@ public final class TaskWindowingCommand {
         } else {
             TaskFullscreenTransitionCommand.startTransition(
                     transactionClass, transaction);
+        }
+    }
+
+    private static void applyPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final boolean hidden) throws ReflectiveOperationException {
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "setWindowingMode", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken,
+                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                .invoke(transaction, taskToken, new Rect());
+        transactionClass.getMethod(
+                "setDensityDpi", tokenClass, Integer.TYPE)
+                .invoke(transaction, taskToken, Integer.valueOf(0));
+        transactionClass.getMethod(
+                "setForceTranslucent", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.FALSE);
+        transactionClass.getMethod(
+                "setHidden", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.valueOf(hidden));
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transactionClass,
+                transaction,
+                tokenClass,
+                taskToken,
+                true);
+        if (hidden) {
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+        } else {
+            TaskFullscreenTransitionCommand.startTransition(
+                    TRANSIT_TO_FRONT, transactionClass, transaction);
         }
     }
 

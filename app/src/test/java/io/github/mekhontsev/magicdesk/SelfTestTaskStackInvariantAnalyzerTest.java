@@ -82,6 +82,45 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsHiddenTargetModeBeforeDisplayTransfer() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("MOVE", windowed(0, true));
+        analyzer.sample("prepared", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false)), true);
+
+        assertEquals(0,
+                analyzer.finish(snapshot(
+                        2,
+                        task(HOST_TASK_ID, DISPLAY_ID, 1,
+                                true, false, false),
+                        task(FIXTURE_TASK_ID, 0, 1,
+                                true, true, false))).anomalies.length);
+    }
+
+    @Test
+    public void rejectsVisibleTargetModeBeforeDisplayTransfer() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("MOVE", windowed(0, true));
+        analyzer.sample("prepared", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false)), true);
+
+        assertContains(
+                analyzer.finish(snapshot(
+                        2,
+                        task(HOST_TASK_ID, DISPLAY_ID, 1,
+                                true, false, false),
+                        task(FIXTURE_TASK_ID, 0, 1,
+                                true, true, false))),
+                "observed=display2/mode1");
+    }
+
+    @Test
     public void acceptsDesktopHostReportedAsHomeActivity() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot = snapshot(

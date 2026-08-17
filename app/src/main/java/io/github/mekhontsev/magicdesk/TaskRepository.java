@@ -302,8 +302,11 @@ public final class TaskRepository {
                                     targetDisplayId,
                                     bounds);
                 } else {
-                    command = CMD + " activity display move-stack "
-                            + task.rootTaskId + " " + targetDisplayId;
+                    command = TaskFullscreenMoveCommand.createMoveCommand(
+                            task.taskId,
+                            task.rootTaskId,
+                            task.displayId,
+                            targetDisplayId);
                 }
                 result = runCommand(command);
             } catch (IOException | RuntimeException error) {

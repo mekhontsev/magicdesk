@@ -584,16 +584,26 @@ final class DesktopSelfTestWindowSuite {
         }
         if (!freeform) {
             if (currentTask.displayId != displayId) {
-                ShellAccess.run(
-                        "/system/bin/cmd activity display move-stack "
-                                + currentTask.rootTaskId + " " + displayId);
+                final String output = ShellAccess.run(
+                        TaskFullscreenMoveCommand.createMoveCommand(
+                                taskId,
+                                currentTask.rootTaskId,
+                                currentTask.displayId,
+                                displayId));
+                if (!output.contains("task-fullscreen-move=" + taskId)) {
+                    throw new IOException(output.trim());
+                }
                 waitForTask(
                         displayId,
                         FIXTURE_CLASS,
-                        entry -> entry.taskId == taskId);
+                        entry -> entry.taskId == taskId
+                                && "fullscreen".equals(
+                                        entry.windowingMode));
+            } else {
+                ShellAccess.run(
+                        TaskRepository.createFullscreenTransitionCommand(
+                                displayId, taskId));
             }
-            ShellAccess.run(TaskRepository.createFullscreenTransitionCommand(
-                    displayId, taskId));
             final TaskStackParser.Entry fullscreenTask = waitForTask(
                     displayId,
                     FIXTURE_CLASS,

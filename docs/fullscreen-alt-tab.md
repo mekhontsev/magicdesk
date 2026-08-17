@@ -169,8 +169,11 @@ result.
   area.
 - Restoring or snapping a task first reparents that task to the display's
   default task area while it is still fullscreen. The ordinary window command
-  runs only after that release. Closing and task removal use the same tracked
-  lifetime, and the organizer-owned area is deleted when its last task leaves.
+  runs only after that release. Closing the active task first focuses the
+  topmost live survivor through the same fullscreen-area mechanism and waits
+  until it is visible. It then removes the old, already-background task through
+  one synchronous WCT. Task removal uses the same tracked lifetime, and the
+  organizer-owned area is deleted when its last task leaves.
 - A complete simulated self-test switched two true fullscreen tasks in both
   directions. Both remained `mode=fullscreen` while the Alt+Tab panel was
   visible, after each switch, and while real injected typing verified that
@@ -181,10 +184,11 @@ result.
 - Self-test cleanup deleted the area and its simulated display without leaving
   a `MagicDesk fullscreen stack` container or stale task behind.
 - The lifecycle self-test restored and closed one task while its peer remained
-  in the fullscreen area, then injected text into the survivor. A separate
-  simulated-display test removed the live display without normal session
-  cleanup and verified that the runtime stopped, the fullscreen area vanished,
-  and the fixture was either removed or migrated to display 0 as fullscreen.
+  in the fullscreen area, verified there was no task-stack visibility gap, then
+  injected text into the survivor. A separate simulated-display test removed
+  the live display without normal session cleanup and verified that the runtime
+  stopped, the fullscreen area vanished, and the fixture was either removed or
+  migrated to display 0 as fullscreen.
 - If task-display-area creation is unavailable on another platform, MagicDesk
   falls back to its previous stack-focus path instead of attempting a delayed
   fullscreen repair.

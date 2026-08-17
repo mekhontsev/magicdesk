@@ -273,6 +273,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, displayId, taskId);
     }
 
+    boolean closeFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        return mFullscreenTaskArea.closeTask(
+                mService, displayId, taskId);
+    }
+
     void startSelfTestTaskStackGuard(
             final int displayId,
             final int hostTaskId,

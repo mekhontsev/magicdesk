@@ -32,7 +32,7 @@ final class ExistingTaskController {
     static ReuseResult normalizeLaunchedFullscreen(
             final AppLaunchTarget target,
             final int targetDisplayId) throws IOException {
-        final TaskInfo task = waitForBestTask(
+        TaskInfo task = waitForBestTask(
                 target, targetDisplayId, false);
         if (task == null) {
             throw new IOException(
@@ -46,12 +46,22 @@ final class ExistingTaskController {
                 + " mode=" + task.windowingMode
                 + " targetDisplay=" + targetDisplayId);
         if (task.displayId != targetDisplayId) {
-            final String command = CMD + " activity display move-stack "
-                    + task.rootTaskId + " " + targetDisplayId;
+            final String command = TaskFullscreenMoveCommand.createMoveCommand(
+                    task.taskId,
+                    task.rootTaskId,
+                    task.displayId,
+                    targetDisplayId);
             runCommand(command);
             waitForTaskDisplay(task.taskId, targetDisplayId);
+            final TaskInfo movedTask = findTask(task.taskId);
+            if (movedTask == null) {
+                throw new IOException(
+                        "moved task " + task.taskId + " is unavailable");
+            }
+            task = movedTask;
+        } else {
+            setFullscreen(task, targetDisplayId);
         }
-        setFullscreen(task, targetDisplayId);
         bringTaskStackToFrontBestEffort(task, null);
         return ReuseResult.reused(task.packageName);
     }
@@ -172,10 +182,11 @@ final class ExistingTaskController {
                                     bounds);
                     movedAsFreeform = true;
                 } else {
-                    // Physical projection owns cross-display task transfer.
-                    // Starting its task through a WCT can terminate the session.
-                    command = CMD + " activity display move-stack "
-                            + task.rootTaskId + " " + targetDisplayId;
+                    command = TaskFullscreenMoveCommand.createMoveCommand(
+                            task.taskId,
+                            task.rootTaskId,
+                            task.displayId,
+                            targetDisplayId);
                 }
                 Log.i(TAG, "move display: " + command);
                 final String output = runCommand(command);

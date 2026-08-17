@@ -129,6 +129,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public boolean closeFullscreenTask(final int taskId) {
+                        return mTaskWatcherReady
+                                && mTaskWatcher.closeFullscreenTask(
+                                        mDisplayId, taskId);
+                    }
+
+                    @Override
                     public void focusTask(final int taskId) {
                         if (!mRunning || taskId < 0) {
                             return;

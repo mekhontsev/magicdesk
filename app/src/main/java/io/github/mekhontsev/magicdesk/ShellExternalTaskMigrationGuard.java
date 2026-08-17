@@ -337,14 +337,12 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         try {
             HiddenTaskApi.requireTask(
                     mService, sourceDisplayId, state.taskId);
-            mService.getClass().getMethod(
-                    "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                    .invoke(
-                            mService,
-                            Integer.valueOf(state.taskId),
-                            Integer.valueOf(Display.DEFAULT_DISPLAY));
-            TaskWindowingCommand.focusFullscreenTask(
-                    mService, Display.DEFAULT_DISPLAY, state.taskId);
+            TaskFullscreenMoveCommand.moveTask(
+                    mService,
+                    state.taskId,
+                    state.taskId,
+                    sourceDisplayId,
+                    Display.DEFAULT_DISPLAY);
             migrated = true;
             Log.i(TAG, "migrated launcher task to phone task="
                     + state.taskId);

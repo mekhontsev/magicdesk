@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.HashSet;
@@ -20,6 +21,8 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenArea";
     private static final int FEATURE_ROOT = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final long VISIBILITY_TIMEOUT_MILLIS = 3_000L;
+    private static final long VISIBILITY_POLL_MILLIS = 20L;
 
     private final Set<Integer> mTaskIds = new HashSet<>();
 
@@ -147,6 +150,95 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
             return false;
         }
+    }
+
+    synchronized boolean closeTask(
+            final Object service,
+            final int displayId,
+            final int taskId) {
+        if (mArea == null || mDisplayId != displayId
+                || !mTaskIds.contains(Integer.valueOf(taskId))) {
+            return false;
+        }
+        final int survivorTaskId;
+        try {
+            survivorTaskId = findTopSurvivor(service, displayId, taskId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "failed to find fullscreen close survivor", error);
+            return false;
+        }
+        if (survivorTaskId < 0) {
+            return false;
+        }
+
+        try {
+            // Hand visibility to the survivor before destroying the old top
+            // task. This reuses the proven fullscreen-area focus path and
+            // makes the subsequent removal a background operation.
+            applyFocus(
+                    service, displayId, new int[]{survivorTaskId});
+            waitForVisibleTask(service, displayId, survivorTaskId);
+
+            final Class<?> tokenClass =
+                    Class.forName("android.window.WindowContainerToken");
+            final Class<?> transactionClass = Class.forName(
+                    "android.window.WindowContainerTransaction");
+            final Object transaction =
+                    transactionClass.getConstructor().newInstance();
+            final Object closingToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod("removeTask", tokenClass)
+                    .invoke(transaction, closingToken);
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+            mTaskIds.remove(Integer.valueOf(taskId));
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "fullscreen close handoff failed task="
+                    + taskId, error);
+            return false;
+        }
+        Log.i(TAG, "closed fullscreen task=" + taskId
+                + " survivor=" + survivorTaskId
+                + " display=" + displayId);
+        return true;
+    }
+
+    private int findTopSurvivor(
+            final Object service,
+            final int displayId,
+            final int closingTaskId) throws ReflectiveOperationException {
+        // ActivityTaskManager returns running tasks in top-first order.
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int candidateTaskId = HiddenTaskApi.getIntField(
+                    task, "taskId");
+            if (candidateTaskId != closingTaskId
+                    && mTaskIds.contains(Integer.valueOf(candidateTaskId))
+                    && HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode")
+                            == WINDOWING_MODE_FULLSCREEN) {
+                return candidateTaskId;
+            }
+        }
+        return -1;
+    }
+
+    private static void waitForVisibleTask(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        final long deadline = SystemClock.uptimeMillis()
+                + VISIBILITY_TIMEOUT_MILLIS;
+        do {
+            final Object task = HiddenTaskApi.findTask(
+                    service, displayId, taskId);
+            if (task != null
+                    && HiddenTaskApi.getBooleanField(task, "isVisible")) {
+                return;
+            }
+            SystemClock.sleep(VISIBILITY_POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IllegalStateException(
+                "fullscreen survivor did not become visible task=" + taskId);
     }
 
     private void ensureArea(
