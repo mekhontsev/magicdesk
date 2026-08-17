@@ -92,19 +92,13 @@ final class DesktopSelfTestFixtureState {
                             .append('/')
                             .append(task.visible ? "visible" : "hidden")
                             .append('/')
-                            .append(formatBounds(task.bounds));
+                            .append(DesktopSelfTestGeometry.format(task.bounds));
                 }
             }
             return detail.length() == 0 ? "none" : detail.toString();
         } catch (IOException ignored) {
             return "unavailable";
         }
-    }
-
-    private static String formatBounds(
-            final TaskStackParser.Bounds bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
     }
 
     private static String readFile(final File file) {

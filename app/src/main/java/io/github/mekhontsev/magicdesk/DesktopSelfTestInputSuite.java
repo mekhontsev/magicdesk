@@ -547,7 +547,7 @@ final class DesktopSelfTestInputSuite {
                         && entry.visible
                         && "freeform".equals(entry.windowingMode));
         waitForFrontTask(displayId, taskId);
-        final Rect bounds = toRect(task.bounds);
+        final Rect bounds = DesktopSelfTestGeometry.toRect(task.bounds);
         waitForCaptionInputFrame(displayId, taskId, bounds);
         final int x = bounds.right - geometry.scaleFrom160Dpi(
                 MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
@@ -561,7 +561,7 @@ final class DesktopSelfTestInputSuite {
                 entry -> entry.taskId == taskId
                         && entry.visible
                         && "freeform".equals(entry.windowingMode)
-                        && !equalsBounds(entry.bounds, bounds)
+                        && !DesktopSelfTestGeometry.matches(entry.bounds, bounds)
                         && isMaximizedBounds(
                                 entry.bounds, geometry));
     }
@@ -641,11 +641,11 @@ final class DesktopSelfTestInputSuite {
                     + target.windowingMode + ", other="
                     + other.windowingMode);
         }
-        if (!equalsBounds(target.bounds, targetBounds)
-                || !equalsBounds(other.bounds, otherBounds)) {
+        if (!DesktopSelfTestGeometry.matches(target.bounds, targetBounds)
+                || !DesktopSelfTestGeometry.matches(other.bounds, otherBounds)) {
             throw new IOException("maximized bounds changed: target="
-                    + formatBounds(target.bounds) + ", other="
-                    + formatBounds(other.bounds));
+                    + DesktopSelfTestGeometry.format(target.bounds) + ", other="
+                    + DesktopSelfTestGeometry.format(other.bounds));
         }
         if (!target.visible) {
             throw new IOException("maximized target is not visible");
@@ -680,7 +680,8 @@ final class DesktopSelfTestInputSuite {
             return null;
         }
         return new MaximizedTaskPair(
-                toRect(first.bounds), toRect(second.bounds));
+                DesktopSelfTestGeometry.toRect(first.bounds),
+                DesktopSelfTestGeometry.toRect(second.bounds));
     }
 
     private static boolean isMaximizedBounds(
@@ -797,7 +798,7 @@ final class DesktopSelfTestInputSuite {
                     restoreCode,
                     "Restore one task without changing its fullscreen peer",
                     "restored=" + secondTaskId + "/freeform/"
-                            + formatBounds(restored.bounds)
+                            + DesktopSelfTestGeometry.format(restored.bounds)
                             + ", peer=" + peer.taskId + "/fullscreen");
         } catch (Exception error) {
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -913,7 +914,7 @@ final class DesktopSelfTestInputSuite {
                     FIXTURE_CLASS,
                     task -> task.taskId == taskId
                             && "freeform".equals(task.windowingMode)
-                            && equalsBounds(task.bounds, bounds));
+                            && DesktopSelfTestGeometry.matches(task.bounds, bounds));
         } catch (IOException error) {
             throw new IOException("could not establish windowed bounds for task "
                     + taskId + ": " + usefulMessage(error));
@@ -1097,8 +1098,8 @@ final class DesktopSelfTestInputSuite {
                     "native caption placement was unavailable");
             return;
         }
-        final Rect leftBounds = toRect(left.bounds);
-        final Rect rightBounds = toRect(right.bounds);
+        final Rect leftBounds = DesktopSelfTestGeometry.toRect(left.bounds);
+        final Rect rightBounds = DesktopSelfTestGeometry.toRect(right.bounds);
         check(result,
                 "NATIVE-SNAP-003",
                 "Verify native side-by-side placement",
@@ -1141,7 +1142,7 @@ final class DesktopSelfTestInputSuite {
                             && "freeform".equals(task.windowingMode)
                             && task.visible);
             final Rect captionBounds = geometry.captionControlsWindow(!left);
-            if (!equalsBounds(before.bounds, captionBounds)) {
+            if (!DesktopSelfTestGeometry.matches(before.bounds, captionBounds)) {
                 ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
                         displayId, taskId, captionBounds));
                 before = waitForTask(
@@ -1150,12 +1151,14 @@ final class DesktopSelfTestInputSuite {
                         task -> task.taskId == taskId
                                 && "freeform".equals(task.windowingMode)
                                 && task.visible
-                                && equalsBounds(task.bounds, captionBounds));
+                                && DesktopSelfTestGeometry.matches(
+                                        task.bounds, captionBounds));
             }
             focusTaskThroughDesktop(displayId, taskId);
             waitForFrontTask(displayId, taskId);
             waitForCaptionInputFrame(displayId, taskId, captionBounds);
-            final Rect beforeBounds = toRect(before.bounds);
+            final Rect beforeBounds = DesktopSelfTestGeometry.toRect(
+                    before.bounds);
             openNativeMaximizeMenu(
                     displayId, before.bounds, geometry);
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
@@ -1178,9 +1181,11 @@ final class DesktopSelfTestInputSuite {
                         task -> task.taskId == taskId
                                 && "freeform".equals(task.windowingMode)
                                 && task.visible
-                                && !equalsBounds(task.bounds, beforeBounds)
+                                && !DesktopSelfTestGeometry.matches(
+                                        task.bounds, beforeBounds)
                                 && geometry.isSnapped(
-                                        toRect(task.bounds), left));
+                                        DesktopSelfTestGeometry.toRect(
+                                                task.bounds), left));
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
@@ -1190,7 +1195,7 @@ final class DesktopSelfTestInputSuite {
                     code,
                     label,
                     "task=" + taskId + ", bounds="
-                            + formatBounds(placed.bounds));
+                            + DesktopSelfTestGeometry.format(placed.bounds));
             return placed;
         } catch (Exception error) {
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -1568,25 +1573,6 @@ final class DesktopSelfTestInputSuite {
         return AppProcessCommand.run(
                 "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
                 arguments);
-    }
-
-    private static boolean equalsBounds(
-            final TaskStackParser.Bounds actual, final Rect expected) {
-        return actual != null
-                && actual.left == expected.left
-                && actual.top == expected.top
-                && actual.right == expected.right
-                && actual.bottom == expected.bottom;
-    }
-
-    private static Rect toRect(final TaskStackParser.Bounds bounds) {
-        return bounds == null ? null : new Rect(
-                bounds.left, bounds.top, bounds.right, bounds.bottom);
-    }
-
-    private static String formatBounds(final TaskStackParser.Bounds bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
     }
 
     private static final class MaximizedTaskPair {

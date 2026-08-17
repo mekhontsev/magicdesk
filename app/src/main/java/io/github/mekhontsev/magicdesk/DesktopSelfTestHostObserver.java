@@ -20,12 +20,14 @@ final class DesktopSelfTestHostObserver {
     private static boolean sReady;
     private static boolean sLostReadyUi;
     private static int sAltTabPanelGeneration;
+    private static int sGeneration;
     private static final List<String> EVENTS = new ArrayList<>();
 
     private DesktopSelfTestHostObserver() {
     }
 
     static synchronized void begin() {
+        sGeneration++;
         sActive = true;
         sStartedAt = SystemClock.uptimeMillis();
         sStage = "PREPARE";
@@ -78,6 +80,7 @@ final class DesktopSelfTestHostObserver {
         if (activity == null || !isActive()) {
             return;
         }
+        final int generation = generation();
         final View decor = activity.getWindow().getDecorView();
         decor.getViewTreeObserver().addOnPreDrawListener(
                 new ViewTreeObserver.OnPreDrawListener() {
@@ -88,7 +91,7 @@ final class DesktopSelfTestHostObserver {
                         if (observer.isAlive()) {
                             observer.removeOnPreDrawListener(this);
                         }
-                        recordFrame(activity, reason);
+                        recordFrame(activity, reason, generation);
                         return true;
                     }
                 });
@@ -108,6 +111,7 @@ final class DesktopSelfTestHostObserver {
     }
 
     static synchronized void cancel() {
+        sGeneration++;
         sActive = false;
         sStartedAt = 0L;
         sStage = "PREPARE";
@@ -122,8 +126,9 @@ final class DesktopSelfTestHostObserver {
 
     private static synchronized void recordFrame(
             final DesktopShellActivity activity,
-            final String reason) {
-        if (!sActive || activity == null) {
+            final String reason,
+            final int generation) {
+        if (!sActive || generation != sGeneration || activity == null) {
             return;
         }
         final int displayId = activity.getCurrentDisplayId();
@@ -145,6 +150,10 @@ final class DesktopSelfTestHostObserver {
                     + " task=" + activity.getTaskId()
                     + " mode=" + (freeform ? "freeform" : "fullscreen"));
         }
+    }
+
+    private static synchronized int generation() {
+        return sGeneration;
     }
 
     static final class Observation {

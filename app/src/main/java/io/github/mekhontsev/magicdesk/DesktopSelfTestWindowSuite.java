@@ -121,7 +121,8 @@ final class DesktopSelfTestWindowSuite {
                     return "first-frame=" + expected
                             + ", first-callback=" + initialLaunch
                             + ", requested="
-                            + formatBounds(requestedWindowBounds);
+                            + DesktopSelfTestGeometry.format(
+                                    requestedWindowBounds);
                 });
         final TaskStackParser.Entry settledWindow = require(result,
                 "WINDOW-010",
@@ -134,10 +135,12 @@ final class DesktopSelfTestWindowSuite {
                                     && "freeform".equals(
                                             entry.windowingMode)
                                     && geometry.containsWindow(
-                                            toRect(entry.bounds)));
+                                            DesktopSelfTestGeometry.toRect(
+                                                    entry.bounds)));
                     return task;
                 });
-        final Rect windowBounds = toRect(settledWindow.bounds);
+        final Rect windowBounds = DesktopSelfTestGeometry.toRect(
+                settledWindow.bounds);
         final DesktopSelfTestGeometry settledGeometry =
                 geometry.withObservedWindow(windowBounds);
         final DesktopSelfTestInputSuite.CaptionReference captionReference =
@@ -188,7 +191,7 @@ final class DesktopSelfTestWindowSuite {
                                     == WINDOWING_MODE_FREEFORM
                             && taskTransfer.firstFront.displayId
                                     == targetDisplayId
-                            && equalsBounds(
+                            && equalsObservationBounds(
                                     taskTransfer.firstFront,
                                     windowBounds)
                             ? DesktopSelfTestResult.State.PASS
@@ -198,7 +201,7 @@ final class DesktopSelfTestWindowSuite {
                     "first-front=" + taskTransfer.firstFront
                             + ", pixels=" + taskTransfer.pixelSamples
                             + ", requested="
-                            + formatBounds(windowBounds));
+                            + DesktopSelfTestGeometry.format(windowBounds));
             }
         }
         check(result,
@@ -223,10 +226,11 @@ final class DesktopSelfTestWindowSuite {
                     targetDisplayId, FIXTURE_CLASS,
                     entry -> "freeform".equals(entry.windowingMode)
                             && entry.visible
-                            && equalsBounds(entry.bounds, windowBounds));
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, windowBounds));
             waitForFrontTask(
                     targetDisplayId, targetFixtureTaskId);
-            return formatBounds(task.bounds);
+            return DesktopSelfTestGeometry.format(task.bounds);
         });
         DesktopSelfTestInputSuite.runInitialWindowChecks(
                 result,
@@ -252,8 +256,9 @@ final class DesktopSelfTestWindowSuite {
             final TaskStackParser.Entry task = waitForTask(
                     targetDisplayId, FIXTURE_CLASS,
                     entry -> "freeform".equals(entry.windowingMode)
-                            && equalsBounds(entry.bounds, windowBounds));
-            return formatBounds(task.bounds);
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, windowBounds));
+            return DesktopSelfTestGeometry.format(task.bounds);
         });
         DesktopSelfTestInputSuite.verifyCaptionStructure(
                 result,
@@ -649,7 +654,8 @@ final class DesktopSelfTestWindowSuite {
             if (observation.taskId != taskId
                     || observation.displayId != displayId
                     || observation.windowingMode != expectedMode
-                    || (freeform && !equalsBounds(observation, bounds))) {
+                    || (freeform && !equalsObservationBounds(
+                            observation, bounds))) {
                 throw new IOException(
                         "unexpected task front-state: " + observation);
             }
@@ -819,12 +825,14 @@ final class DesktopSelfTestWindowSuite {
                     entry -> entry.taskId == firstTaskId
                             && "freeform".equals(entry.windowingMode)
                             && entry.visible
-                            && equalsBounds(entry.bounds, leftBounds));
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, leftBounds));
             waitForTask(displayId, FIXTURE_CLASS,
                     entry -> entry.taskId == secondTaskId
                             && "freeform".equals(entry.windowingMode)
                             && entry.visible
-                            && equalsBounds(entry.bounds, rightBounds));
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, rightBounds));
             return "left=" + firstTaskId + ", right=" + secondTaskId;
         });
 
@@ -857,16 +865,7 @@ final class DesktopSelfTestWindowSuite {
                 : "restored window did not receive focus");
     }
 
-    private static boolean equalsBounds(
-            final TaskStackParser.Bounds actual, final Rect expected) {
-        return actual != null
-                && actual.left == expected.left
-                && actual.top == expected.top
-                && actual.right == expected.right
-                && actual.bottom == expected.bottom;
-    }
-
-    private static boolean equalsBounds(
+    private static boolean equalsObservationBounds(
             final DesktopTaskLaunchProbe.Observation actual,
             final Rect expected) {
         return actual != null
@@ -875,21 +874,6 @@ final class DesktopSelfTestWindowSuite {
                 && actual.top == expected.top
                 && actual.right == expected.right
                 && actual.bottom == expected.bottom;
-    }
-
-    private static Rect toRect(final TaskStackParser.Bounds bounds) {
-        return bounds == null ? null : new Rect(
-                bounds.left, bounds.top, bounds.right, bounds.bottom);
-    }
-
-    private static String formatBounds(final TaskStackParser.Bounds bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
-    }
-
-    private static String formatBounds(final Rect bounds) {
-        return "[" + bounds.left + "," + bounds.top + "]["
-                + bounds.right + "," + bounds.bottom + "]";
     }
 
 }
