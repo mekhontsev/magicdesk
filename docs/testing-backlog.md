@@ -263,9 +263,10 @@ not supported runtime modes:
   a connected wired/Miracast display, or the phone display. It audits hidden and
   RedMagic API availability, verifies native caption structure before and after
   fullscreen, physically exercises native left/right placement, verifies
-  two-window keyboard focus transfer, restores only state owned by the selected
-  target, and includes its bounded result in Diagnostics without background
-  polling.
+  two-window keyboard focus transfer, and switches two true-fullscreen tasks in
+  both directions without an intermediate freeform mode. It restores only state
+  owned by the selected target and includes its bounded result in Diagnostics
+  without background polling.
 - [x] A debug-only lifecycle instrumentation runs the owned simulated-display
   regression, recreates the desktop Activity, exercises freeform and fullscreen
   transitions, and verifies display/task cleanup. CI still needs a compatible

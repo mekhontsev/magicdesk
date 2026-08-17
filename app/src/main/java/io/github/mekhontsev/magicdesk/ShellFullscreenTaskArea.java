@@ -7,7 +7,14 @@ import android.util.Log;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Keeps true fullscreen tasks in a fullscreen parent while their order changes. */
+/**
+ * Keeps true fullscreen tasks in a fullscreen parent while their order changes.
+ *
+ * <p>The dedicated parent is the invariant: reordering the same tasks in the
+ * default desktop task area lets some firmware resolve them as freeform. Do
+ * not replace this with a delayed fullscreen repair. See
+ * {@code docs/fullscreen-alt-tab.md}.
+ */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellFullscreenTaskArea implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenArea";

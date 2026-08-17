@@ -1,8 +1,23 @@
-# Temporary fullscreen Alt+Tab experiment log
+# Fullscreen Alt+Tab
 
-Status: mechanism confirmed on the simulated display on 2026-08-17; lifecycle
-and physical-display validation remain. Delete or replace this file when the
-final architecture documentation is committed.
+This document records an architecture decision, its rejected alternatives,
+and the regression contract. Do not replace the dedicated fullscreen task
+display area with an ordinary focus/reorder operation or a delayed fullscreen
+repair without first updating the tests and the evidence recorded here.
+
+## Decision
+
+True-fullscreen tasks switched through MagicDesk Alt+Tab live in an
+organizer-owned fullscreen `TaskDisplayArea`. The organizer is owned by the
+long-lived shell task-observer session. The complete fullscreen stack is
+reparented once; subsequent switches reorder it inside the same fullscreen
+parent. Unsupported platforms fall back to the ordinary focus path without a
+post-transition repair.
+
+The permanent regression contract is `FULLSCREEN-ALT-TAB-001` through
+`FULLSCREEN-ALT-TAB-003` in the desktop self-test. It verifies both task modes
+while the Alt+Tab panel is open, after each switch, and through real injected
+text focus.
 
 ## Goal
 

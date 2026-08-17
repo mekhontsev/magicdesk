@@ -111,6 +111,11 @@ caption repair, focus synchronization, phone task recovery, and the pointer
 driver. Source-isolation tests reject fully qualified implementation references
 and known vendor runtime identifiers outside platform adapters.
 
+True-fullscreen Alt+Tab uses a shared Android task-display-area mechanism, not
+a platform workaround. The ownership invariant and the failed alternatives are
+recorded in [Fullscreen Alt+Tab](fullscreen-alt-tab.md); its self-test contract
+must pass before changing task-focus hierarchy operations.
+
 The session transition path now has one owner. Display drivers cannot close a
 session or call back into `ConsoleModeSwitcher`; the coordinator receives the
 selected projection and feature contracts and performs direct-session close or

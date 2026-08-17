@@ -457,8 +457,10 @@ selected viewport and accepts the minimum window size enforced by that
 display's WMShell implementation. It exercises the production desktop,
 freeform, fullscreen, minimize/restore, taskbar geometry, native
 caption and resize input, native left/right placement, and keyboard focus
-switching between two windows. It also recreates the desktop Activity and
-checks hidden Android and RedMagic APIs that can be inspected safely.
+switching between two windows. It verifies that Alt+Tab between two true
+fullscreen tasks never converts either task to freeform. It also recreates the
+desktop Activity and checks hidden Android and RedMagic APIs that can be
+inspected safely.
 
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified
@@ -560,6 +562,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - [Architecture](docs/architecture.md)
 - [Shell access and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
+- [Fullscreen Alt+Tab](docs/fullscreen-alt-tab.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Deferred validation backlog](docs/testing-backlog.md)
 - [Contributing and IDE setup](CONTRIBUTING.md)

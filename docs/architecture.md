@@ -324,6 +324,12 @@ runtime integration and are not distributed through the same release path.
   normalization. A single `WindowedTaskLaunchLease` spans each operation so
   startup-window protection and phone-touchpad preservation cannot be entered
   twice by the launcher and reuse path.
+- `ShellFullscreenTaskArea` owns the organizer-created fullscreen task area
+  used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
+  fullscreen parent avoids the transient freeform state caused by reordering
+  roots in the default desktop task area. Its rationale, rejected alternatives,
+  and regression contract are documented in
+  [Fullscreen Alt+Tab](fullscreen-alt-tab.md).
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -548,7 +554,9 @@ caption source and geometry, display-targeted application input, native caption
 and resize input handles, true fullscreen, restore, minimize, and cleanup. It
 then opens two independent editor fixtures, uses the native caption menu to
 place them on the left and right halves, and verifies keyboard focus transfer
-through both the desktop task controller and mouse input. Input assertions wait
+through both the desktop task controller and mouse input. It also switches the
+pair twice as true-fullscreen tasks and verifies that neither task becomes
+freeform while the Alt+Tab panel is open or after focus changes. Input assertions wait
 for the current InputDispatcher focus state rather than a fixed transition
 delay. The test also requests the native horizontal resize cursor and verifies
 WMShell's transition trace when that firmware trace is available.
