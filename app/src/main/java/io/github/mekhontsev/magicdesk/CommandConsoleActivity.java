@@ -20,8 +20,12 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.style.ForegroundColorSpan;
 import android.view.Display;
+import android.view.ActionMode;
+import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
@@ -33,7 +37,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class CommandConsoleActivity extends Activity
         implements ShellAccess.StateListener {
@@ -48,11 +57,21 @@ public final class CommandConsoleActivity extends Activity
     private static final int COLOR_MUTED = 0xFF94A3B8;
     private static final int COLOR_CYAN = 0xFF22D3EE;
     private static final int COLOR_AMBER = 0xFFF59E0B;
+    private static final int ACTION_OPEN_SELECTED_PATH = 1;
+    private static final int COMPLETION_PAGE_SIZE = 500;
 
     private final ConsoleCommandHistory mHistory =
             new ConsoleCommandHistory();
     private final SpannableStringBuilder mTranscript =
             new SpannableStringBuilder();
+    private final ExecutorService mWorker =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskConsoleWork");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private final AtomicInteger mCompletionGeneration = new AtomicInteger();
 
     private EditText mCommand;
     private TextView mWorkingDirectory;
@@ -157,6 +176,7 @@ public final class CommandConsoleActivity extends Activity
         if (mSession != null) {
             mSession.close();
         }
+        mWorker.shutdownNow();
         super.onDestroy();
     }
 
@@ -218,6 +238,11 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_copy_output,
                 view -> copyOutput());
         header.addView(mCopy, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        final ImageButton openFiles = createIconButton(
+                R.drawable.ic_desktop_folder,
+                R.string.console_open_working_directory,
+                view -> openWorkingDirectory());
+        header.addView(openFiles, new LinearLayout.LayoutParams(dp(44), dp(44)));
         final LinearLayout.LayoutParams headerParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -236,6 +261,40 @@ public final class CommandConsoleActivity extends Activity
         mOutput.setCursorVisible(false);
         mOutput.setShowSoftInputOnFocus(false);
         mOutput.setVerticalScrollBarEnabled(true);
+        mOutput.setCustomSelectionActionModeCallback(
+                new ActionMode.Callback() {
+                    @Override
+                    public boolean onCreateActionMode(
+                            final ActionMode mode, final Menu menu) {
+                        menu.add(
+                                Menu.NONE,
+                                ACTION_OPEN_SELECTED_PATH,
+                                Menu.NONE,
+                                R.string.console_reveal_selected_path);
+                        return true;
+                    }
+
+                    @Override
+                    public boolean onPrepareActionMode(
+                            final ActionMode mode, final Menu menu) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean onActionItemClicked(
+                            final ActionMode mode, final MenuItem item) {
+                        if (item.getItemId() != ACTION_OPEN_SELECTED_PATH) {
+                            return false;
+                        }
+                        revealSelectedPath();
+                        mode.finish();
+                        return true;
+                    }
+
+                    @Override
+                    public void onDestroyActionMode(final ActionMode mode) {
+                    }
+                });
         mOutput.setGravity(Gravity.TOP | Gravity.START);
         mOutput.setPadding(dp(8), dp(6), dp(8), dp(6));
         mOutput.setBackground(rounded(COLOR_PANEL_ALT, dp(6), COLOR_PANEL_ALT));
@@ -312,6 +371,7 @@ public final class CommandConsoleActivity extends Activity
             }
         });
         mCommand.setOnKeyListener(this::handleCommandKey);
+        mCommand.setOnDragListener(this::handleFileDrop);
         mCommand.setOnEditorActionListener((view, actionId, event) -> {
             if (event != null) {
                 return false;
@@ -419,7 +479,7 @@ public final class CommandConsoleActivity extends Activity
         updateShellStatus();
         updateActions();
         final long started = SystemClock.elapsedRealtime();
-        new Thread(() -> {
+        mWorker.execute(() -> {
             try {
                 final ConsoleShellSession.ExecutionResult result =
                         mSession.execute(command);
@@ -429,7 +489,7 @@ public final class CommandConsoleActivity extends Activity
                 final long duration = SystemClock.elapsedRealtime() - started;
                 runOnUiThread(() -> showFailure(error, duration));
             }
-        }, "MagicDeskConsole").start();
+        });
     }
 
     private void showResult(
@@ -551,6 +611,13 @@ public final class CommandConsoleActivity extends Activity
             }
             return true;
         }
+        if (keyCode == KeyEvent.KEYCODE_TAB) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN
+                    && event.getRepeatCount() == 0) {
+                requestPathCompletion();
+            }
+            return true;
+        }
         if (event.getAction() != KeyEvent.ACTION_DOWN
                 || !event.hasNoModifiers()) {
             return false;
@@ -565,6 +632,199 @@ public final class CommandConsoleActivity extends Activity
             return showHistoryEntry(mHistory.next());
         }
         return false;
+    }
+
+    private boolean handleFileDrop(final View view, final DragEvent event) {
+        final FileDragPayload payload = FileDragPayload.from(event);
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return payload != null;
+            case DragEvent.ACTION_DROP:
+                if (payload == null) {
+                    return false;
+                }
+                insertCommandText(ConsolePathText.quotePaths(
+                        payload.absolutePaths));
+                return true;
+            default:
+                return payload != null;
+        }
+    }
+
+    private void insertCommandText(final String insertion) {
+        final String current = mCommand.getText().toString();
+        final int start = Math.max(0, mCommand.getSelectionStart());
+        final int end = Math.max(0, mCommand.getSelectionEnd());
+        final String updated = ConsolePathText.insert(
+                current, start, end, insertion);
+        mCommand.setText(updated);
+        final int insertedAt = updated.indexOf(insertion,
+                Math.min(start, updated.length()));
+        mCommand.setSelection(insertedAt < 0
+                ? updated.length() : insertedAt + insertion.length());
+        mCommand.requestFocus();
+    }
+
+    private void requestPathCompletion() {
+        if (mRunning || !ShellAccess.isReady()) {
+            return;
+        }
+        final String command = mCommand.getText().toString();
+        final int cursor = Math.max(0, mCommand.getSelectionStart());
+        if (cursor != mCommand.getSelectionEnd()) {
+            return;
+        }
+        final ConsolePathText.CompletionRequest request =
+                ConsolePathText.completionRequest(
+                        command, cursor, mSession.workingDirectory());
+        if (request == null) {
+            return;
+        }
+        final int generation = mCompletionGeneration.incrementAndGet();
+        mWorker.execute(() -> {
+            try {
+                final List<ShellFileInfo> entries = new ArrayList<>();
+                int offset = 0;
+                ShellFilePage page;
+                do {
+                    page = ShellAccess.listShellDirectory(
+                            request.parentPath,
+                            offset,
+                            COMPLETION_PAGE_SIZE,
+                            true,
+                            ShellFileSystem.SORT_NAME,
+                            true);
+                    for (final ShellFileInfo entry : page.entries) {
+                        entries.add(entry);
+                    }
+                    offset = page.nextOffset;
+                } while (!page.complete
+                        && generation == mCompletionGeneration.get());
+                final ConsolePathText.CompletionResult result =
+                        ConsolePathText.complete(request, entries);
+                runOnUiThread(() -> applyCompletion(
+                        generation, command, request, result));
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (generation == mCompletionGeneration.get()) {
+                        Toast.makeText(
+                                this,
+                                getString(
+                                        R.string.console_completion_failed,
+                                        ShellAccess.usefulMessage(error)),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+
+    private void applyCompletion(
+            final int generation,
+            final String original,
+            final ConsolePathText.CompletionRequest request,
+            final ConsolePathText.CompletionResult result) {
+        if (generation != mCompletionGeneration.get()
+                || result == null
+                || !original.equals(mCommand.getText().toString())) {
+            return;
+        }
+        if (result.replacement != null) {
+            final String completed = original.substring(0, request.tokenStart)
+                    + result.replacement
+                    + original.substring(request.tokenEnd);
+            mCommand.setText(completed);
+            mCommand.setSelection(request.tokenStart
+                    + result.replacement.length());
+            return;
+        }
+        if (!result.alternatives.isEmpty()) {
+            final int shown = Math.min(6, result.alternatives.size());
+            Toast.makeText(
+                    this,
+                    TextUtils.join("  ", result.alternatives.subList(0, shown)),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openWorkingDirectory() {
+        openFilesAt(CommandConsoleActivity.createFilesDirectoryInfo(
+                mSession.workingDirectory()));
+    }
+
+    private void revealSelectedPath() {
+        final int start = Math.max(0, mOutput.getSelectionStart());
+        final int end = Math.max(0, mOutput.getSelectionEnd());
+        if (start == end) {
+            return;
+        }
+        final String selected = mOutput.getText().subSequence(
+                Math.min(start, end), Math.max(start, end)).toString();
+        final String path;
+        try {
+            path = ConsolePathText.resolveSelectedPath(
+                    mSession.workingDirectory(), selected);
+        } catch (IllegalArgumentException error) {
+            Toast.makeText(this, R.string.console_path_invalid,
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        mWorker.execute(() -> {
+            try {
+                final ShellFileInfo file = ShellAccess.getShellFileInfo(path);
+                runOnUiThread(() -> openFilesAt(file));
+            } catch (IOException | RuntimeException error) {
+                runOnUiThread(() -> Toast.makeText(
+                        this,
+                        getString(
+                                R.string.console_path_unavailable,
+                                ShellAccess.usefulMessage(error)),
+                        Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    private void openFilesAt(final ShellFileInfo file) {
+        BuiltInWindowLauncher.launch(
+                this,
+                FileManagerActivity.createRevealIntent(this, file),
+                FileManagerActivity.launchTarget(this),
+                error -> {
+                    if (error != null) {
+                        Toast.makeText(
+                                this,
+                                getString(
+                                        R.string.console_files_failed,
+                                        ShellAccess.usefulMessage(error)),
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+    }
+
+    private static ShellFileInfo createFilesDirectoryInfo(
+            final String absolutePath) {
+        final String normalized = ShellFilePathPolicy
+                .normalizeShellAbsolute(absolutePath);
+        final String name = "/".equals(normalized)
+                ? "/" : normalized.substring(normalized.lastIndexOf('/') + 1);
+        return new ShellFileInfo(
+                normalized,
+                name,
+                android.provider.DocumentsContract.Document.MIME_TYPE_DIR,
+                "",
+                0L,
+                0L,
+                0L,
+                0L,
+                ShellAccess.SHELL_UID,
+                ShellAccess.SHELL_UID,
+                0,
+                true,
+                false,
+                true,
+                false,
+                true,
+                false);
     }
 
     private boolean shouldNavigatePrevious() {
