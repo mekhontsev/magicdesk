@@ -78,7 +78,7 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
         mListeners.add(listener);
         final Snapshot snapshot = snapshot();
         mMainHandler.post(() -> {
-            if (mListeners.contains(listener)) {
+            if (mListeners.contains(listener) && snapshot == snapshot()) {
                 listener.onRecordingStateChanged(snapshot);
             }
         });
@@ -313,9 +313,15 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
     }
 
     private void dispatchSnapshot(final Snapshot snapshot) {
+        if (snapshot != snapshot()) {
+            return;
+        }
         MagicDeskRuntime.setOperationStatus(
                 snapshot.state == State.IDLE ? null : snapshot.message);
         mMainHandler.post(() -> {
+            if (snapshot != snapshot()) {
+                return;
+            }
             for (final Listener listener : mListeners) {
                 listener.onRecordingStateChanged(snapshot);
             }

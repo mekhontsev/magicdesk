@@ -355,6 +355,9 @@ final class FileOperationCenter implements ShellAccess.StateListener {
     private void notifyListeners() {
         final Snapshot snapshot = snapshot();
         mMain.post(() -> {
+            if (snapshot.sequence != snapshot().sequence) {
+                return;
+            }
             for (final Listener listener : mListeners) {
                 listener.onFileOperationStateChanged(snapshot);
             }
