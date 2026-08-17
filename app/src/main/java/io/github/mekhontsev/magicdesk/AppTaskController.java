@@ -361,9 +361,10 @@ final class AppTaskController {
         final int displayId = mActivity.getCurrentDisplayId();
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()
-                            || displayId
-                                    != mActivity.getCurrentDisplayId()) {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    if (displayId != mActivity.getCurrentDisplayId()) {
                         runCompletion(completion);
                         return;
                     }
@@ -392,6 +393,9 @@ final class AppTaskController {
                             visibleTasks,
                             currentTask,
                             result -> mActivity.runOnUiThread(() -> {
+                                if (mActivity.isActivityUnavailable()) {
+                                    return;
+                                }
                                 if (!result.success) {
                                     mActivity.setStatus(
                                             mActivity.getString(
@@ -433,6 +437,9 @@ final class AppTaskController {
         TaskRepository.minimizeTask(
                 task, focusTask,
                 result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     if (!result.success) {
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_switch_failed,
@@ -496,6 +503,9 @@ final class AppTaskController {
                     MagicDeskRuntime.finishFullscreenTransition(
                             displayId, result.success);
                     mActivity.runOnUiThread(() -> {
+                        if (mActivity.isActivityUnavailable()) {
+                            return;
+                        }
                         if (result.success) {
                             if (remembersWindowState(app)) {
                                 AppWindowStateStore.rememberMode(
@@ -569,6 +579,9 @@ final class AppTaskController {
                 targetDisplayId,
                 savedWindowBounds(app),
                 result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     if (result.success) {
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_moved_to_display,
@@ -612,6 +625,9 @@ final class AppTaskController {
         TaskRepository.closeTask(
                 task,
                 result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     mActivity.setStatus(mActivity.getString(
                             result.success
                                     ? R.string.status_window_closed
@@ -630,6 +646,9 @@ final class AppTaskController {
         TaskRepository.forceStop(
                 app.packageName,
                 result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     mActivity.setStatus(mActivity.getString(
                             result.success
                                     ? R.string.status_app_force_stopped
@@ -653,9 +672,11 @@ final class AppTaskController {
             mActivity.setStatus(R.string.status_desktop_visible);
             TaskRepository.load(
                     displayId,
-                    snapshot -> mActivity.runOnUiThread(() ->
-                            mActivity.restoreWorkspaceApp(
-                                    snapshot, true)));
+                    snapshot -> mActivity.runOnUiThread(() -> {
+                        if (!mActivity.isActivityUnavailable()) {
+                            mActivity.restoreWorkspaceApp(snapshot, true);
+                        }
+                    }));
             return;
         }
         mActivity.setStatus(R.string.status_restoring_windows);
@@ -663,6 +684,9 @@ final class AppTaskController {
                 displayId,
                 savedTasks,
                 result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     mActivity.setStatus(result.success
                             ? mActivity.getString(
                                     R.string.status_windows_restored)
@@ -675,9 +699,12 @@ final class AppTaskController {
                     mActivity.refreshTaskSnapshot();
                     TaskRepository.load(
                             displayId,
-                            snapshot -> mActivity.runOnUiThread(() ->
+                            snapshot -> mActivity.runOnUiThread(() -> {
+                                if (!mActivity.isActivityUnavailable()) {
                                     mActivity.restoreWorkspaceApp(
-                                            snapshot, false)));
+                                            snapshot, false);
+                                }
+                            }));
                 }));
     }
 

@@ -335,6 +335,9 @@ final class DesktopControlsController {
         ConsoleModeSwitcher.setPhoneScreenOff(
                 screenOff,
                 success -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
                     update();
                     final int resultResId;
                     if (!success) {

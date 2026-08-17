@@ -428,6 +428,9 @@ public final class ControlActivity extends Activity
         ConsoleModeSwitcher.setPhoneScreenOff(
                 screenOff,
                 success -> runOnUiThread(() -> {
+                    if (isActivityUnavailable()) {
+                        return;
+                    }
                     final int result;
                     if (!success) {
                         result = R.string.status_phone_screen_failed;

@@ -75,7 +75,11 @@ final class BuiltInWindowLauncher {
             final Callback callback,
             final Throwable error) {
         if (callback != null) {
-            activity.runOnUiThread(() -> callback.onComplete(error));
+            activity.runOnUiThread(() -> {
+                if (!activity.isFinishing() && !activity.isDestroyed()) {
+                    callback.onComplete(error);
+                }
+            });
         }
     }
 }

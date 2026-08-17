@@ -779,11 +779,17 @@ public final class CommandConsoleActivity extends Activity
                 }
                 final ConsolePathText.CompletionResult result =
                         ConsolePathText.complete(request, entries);
-                runOnUiThread(() -> applyCompletion(
-                        generation, command, request, result));
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        applyCompletion(
+                                generation, command, request, result);
+                    }
+                });
             } catch (IOException | RuntimeException error) {
                 runOnUiThread(() -> {
-                    if (generation == mCompletionGeneration.get()) {
+                    if (!isFinishing()
+                            && !isDestroyed()
+                            && generation == mCompletionGeneration.get()) {
                         Toast.makeText(
                                 this,
                                 getString(
@@ -869,14 +875,22 @@ public final class CommandConsoleActivity extends Activity
         mWorker.execute(() -> {
             try {
                 final ShellFileInfo file = ShellAccess.getShellFileInfo(path);
-                runOnUiThread(() -> openFilesAt(file));
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        openFilesAt(file);
+                    }
+                });
             } catch (IOException | RuntimeException error) {
-                runOnUiThread(() -> Toast.makeText(
-                        this,
-                        getString(
-                                R.string.console_path_unavailable,
-                                ShellAccess.usefulMessage(error)),
-                        Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) {
+                        Toast.makeText(
+                                this,
+                                getString(
+                                        R.string.console_path_unavailable,
+                                        ShellAccess.usefulMessage(error)),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
         });
     }

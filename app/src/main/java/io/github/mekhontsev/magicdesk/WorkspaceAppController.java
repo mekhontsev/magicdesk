@@ -93,6 +93,9 @@ final class WorkspaceAppController {
                     task,
                     desiredBounds,
                     result -> mActivity.runOnUiThread(() -> {
+                        if (mActivity.isActivityUnavailable()) {
+                            return;
+                        }
                         if (bringToFront) {
                             mActivity.focusTask(app, task);
                         }
