@@ -63,6 +63,7 @@ final class ShellFileAdapter extends BaseAdapter {
             new LinkedHashMap<>();
     private FileManagerLayoutMode mLayoutMode =
             FileManagerLayoutMode.LIST;
+    private boolean mShowLocation;
 
     ShellFileAdapter(
             final Context context,
@@ -97,6 +98,14 @@ final class ShellFileAdapter extends BaseAdapter {
             return;
         }
         mLayoutMode = layoutMode;
+        notifyDataSetChanged();
+    }
+
+    void setShowLocation(final boolean showLocation) {
+        if (mShowLocation == showLocation) {
+            return;
+        }
+        mShowLocation = showLocation;
         notifyDataSetChanged();
     }
 
@@ -161,8 +170,10 @@ final class ShellFileAdapter extends BaseAdapter {
         item.name.setTypeface(null, file.directory || shortcut != null
                 ? Typeface.BOLD : Typeface.NORMAL);
         if (item.details != null) {
-            item.details.setText(shortcut == null
-                    ? details(file) : shortcut.targetPath);
+            item.details.setText(mShowLocation
+                    ? file.absolutePath
+                    : shortcut == null
+                            ? details(file) : shortcut.targetPath);
         }
         item.root.setBackgroundColor(
                 mSelected.contains(file.absolutePath)

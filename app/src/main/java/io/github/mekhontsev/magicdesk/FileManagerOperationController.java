@@ -5,71 +5,46 @@ import android.app.ProgressDialog;
 import android.os.Binder;
 import android.os.IBinder;
 
-import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 
 final class FileManagerOperationController implements AutoCloseable {
     interface Listener {
         void onOperationFinished(
                 boolean successful,
-                String message,
-                boolean movedClipboard);
-
-        void onOperationStartFailed(Throwable error);
+                String message);
     }
 
-    private static final long NO_OPERATION = -1L;
     private static final long LOCAL_IMPORT = -2L;
-    private static final long PENDING_REMOTE_OPERATION = 0L;
 
     private final Activity mActivity;
-    private final ExecutorService mWorker;
     private final Listener mListener;
     private final IBinder mOwnerToken = new Binder();
-    private final IFileOperationCallback mCallback =
-            new IFileOperationCallback.Stub() {
-                @Override
-                public void onProgress(
-                        final long operationId,
-                        final int completedItems,
-                        final int totalItems,
-                        final String currentPath,
-                        final long bytesCompleted) {
-                    mActivity.runOnUiThread(() -> updateRemoteProgress(
-                            operationId,
-                            completedItems,
-                            totalItems,
-                            currentPath));
-                }
+    private final FileOperationCenter mCenter = FileOperationCenter.get();
+    private final FileOperationCenter.Listener mCenterListener =
+            this::onRemoteStateChanged;
 
-                @Override
-                public void onFinished(
-                        final long operationId,
-                        final boolean successful,
-                        final String message) {
-                    mActivity.runOnUiThread(() -> finishRemote(
-                            operationId, successful, message));
-                }
-            };
-
-    private long mActiveOperationId = NO_OPERATION;
-    private boolean mMovesClipboard;
+    private long mActiveOperationId;
+    private long mLastCompletionSequence;
     private volatile boolean mImportCancelled;
     private volatile boolean mClosed;
     private ProgressDialog mProgress;
 
     FileManagerOperationController(
             final Activity activity,
-            final ExecutorService worker,
             final Listener listener) {
         mActivity = activity;
-        mWorker = worker;
         mListener = listener;
+        final FileOperationCenter.Snapshot snapshot = mCenter.snapshot();
+        mLastCompletionSequence = snapshot.sequence;
+        mCenter.addListener(mCenterListener);
+        if (snapshot.isBusy()) {
+            onRemoteStateChanged(snapshot);
+        }
     }
 
     boolean isBusy() {
-        return mActiveOperationId != NO_OPERATION;
+        return mActiveOperationId == LOCAL_IMPORT
+                || mCenter.snapshot().isBusy();
     }
 
     IBinder ownerToken() {
@@ -80,44 +55,15 @@ final class FileManagerOperationController implements AutoCloseable {
             final int operation,
             final List<String> paths,
             final String destination,
-            final boolean movesClipboard) {
+            final long clipboardGeneration) {
         if (mClosed || isBusy() || paths == null || paths.isEmpty()) {
             return false;
         }
-        mActiveOperationId = PENDING_REMOTE_OPERATION;
-        mMovesClipboard = movesClipboard;
-        showProgress(paths.size());
-        mWorker.execute(() -> {
-            try {
-                final long operationId = ShellAccess.startShellFileOperation(
-                        operation,
-                        paths.toArray(new String[0]),
-                        destination,
-                        mCallback,
-                        mOwnerToken);
-                if (mClosed) {
-                    ShellAccess.cancelShellFileOperation(operationId);
-                    return;
-                }
-                mActivity.runOnUiThread(() -> {
-                    if (mClosed) {
-                        return;
-                    }
-                    if (mActiveOperationId == PENDING_REMOTE_OPERATION) {
-                        mActiveOperationId = operationId;
-                    }
-                });
-            } catch (IOException | RuntimeException error) {
-                mActivity.runOnUiThread(() -> {
-                    if (mClosed) {
-                        return;
-                    }
-                    reset();
-                    mListener.onOperationStartFailed(error);
-                });
-            }
-        });
-        return true;
+        return mCenter.start(
+                operation,
+                paths,
+                destination,
+                clipboardGeneration);
     }
 
     boolean beginImport(final int totalItems) {
@@ -152,77 +98,63 @@ final class FileManagerOperationController implements AutoCloseable {
 
     void finishImport() {
         if (mActiveOperationId == LOCAL_IMPORT) {
-            reset();
+            mActiveOperationId = 0L;
+            mImportCancelled = false;
+            dismissProgress();
         }
     }
 
     @Override
     public void close() {
         mClosed = true;
-        final long operationId = mActiveOperationId;
-        if (operationId == LOCAL_IMPORT) {
+        mCenter.removeListener(mCenterListener);
+        if (mActiveOperationId == LOCAL_IMPORT) {
             mImportCancelled = true;
-        } else if (operationId > 0L) {
-            try {
-                // The binder call only flips the remote cancellation flag.
-                ShellAccess.cancelShellFileOperation(operationId);
-            } catch (IOException ignored) {
-                // Service teardown will stop any remaining operation.
-            }
         }
-        reset();
+        mActiveOperationId = 0L;
+        dismissProgress();
     }
 
-    private void updateRemoteProgress(
-            final long operationId,
-            final int completed,
-            final int total,
-            final String path) {
-        if (mClosed || (mActiveOperationId > 0L
-                && operationId != mActiveOperationId)) {
+    private void onRemoteStateChanged(
+            final FileOperationCenter.Snapshot snapshot) {
+        if (mClosed || mActiveOperationId == LOCAL_IMPORT) {
             return;
         }
-        mActiveOperationId = operationId;
-        if (mProgress != null) {
-            mProgress.setMax(Math.max(1, total));
-            mProgress.setProgress(Math.min(completed, total));
+        if (snapshot.isBusy()) {
+            showProgressIfMissing(snapshot.totalItems);
+            mProgress.setMax(Math.max(1, snapshot.totalItems));
+            mProgress.setProgress(Math.min(
+                    snapshot.completedItems, snapshot.totalItems));
             mProgress.setMessage(mActivity.getString(
                     R.string.file_manager_operation_progress,
-                    completed,
-                    total) + "\n" + path);
-        }
-    }
-
-    private void finishRemote(
-            final long operationId,
-            final boolean successful,
-            final String message) {
-        if (mClosed || (mActiveOperationId > 0L
-                && operationId != mActiveOperationId)) {
+                    snapshot.completedItems,
+                    snapshot.totalItems) + (snapshot.currentPath.isEmpty()
+                            ? "" : "\n" + snapshot.currentPath));
             return;
         }
-        final boolean movedClipboard = mMovesClipboard;
-        reset();
+        dismissProgress();
+        if (snapshot.state != FileOperationCenter.State.FINISHED
+                || snapshot.sequence <= mLastCompletionSequence) {
+            return;
+        }
+        mLastCompletionSequence = snapshot.sequence;
         mListener.onOperationFinished(
-                successful, message, movedClipboard);
+                snapshot.successful,
+                snapshot.message);
     }
 
     private void cancel() {
-        final long operationId = mActiveOperationId;
-        if (operationId == LOCAL_IMPORT) {
+        if (mActiveOperationId == LOCAL_IMPORT) {
             mImportCancelled = true;
             return;
         }
-        if (operationId <= 0L) {
-            return;
+        mCenter.cancel();
+    }
+
+    private void showProgressIfMissing(final int total) {
+        if (mProgress == null) {
+            showProgress(total);
         }
-        mWorker.execute(() -> {
-            try {
-                ShellAccess.cancelShellFileOperation(operationId);
-            } catch (IOException ignored) {
-                // Completion or service shutdown owns the remaining cleanup.
-            }
-        });
     }
 
     private void showProgress(final int total) {
@@ -238,13 +170,6 @@ final class FileManagerOperationController implements AutoCloseable {
                 mActivity.getString(R.string.file_manager_cancel),
                 (dialog, which) -> cancel());
         mProgress.show();
-    }
-
-    private void reset() {
-        mActiveOperationId = NO_OPERATION;
-        mMovesClipboard = false;
-        mImportCancelled = false;
-        dismissProgress();
     }
 
     private void dismissProgress() {
