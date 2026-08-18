@@ -101,6 +101,18 @@ final class ShellFileAdapter extends BaseAdapter {
         notifyDataSetChanged();
     }
 
+    void setSelection(final Set<String> selected) {
+        mSelected.clear();
+        mSelected.addAll(selected);
+    }
+
+    void refreshSelection(final View view) {
+        if (view == null || !(view.getTag() instanceof ItemView)) {
+            return;
+        }
+        applySelection((ItemView) view.getTag());
+    }
+
     void setShowLocation(final boolean showLocation) {
         if (mShowLocation == showLocation) {
             return;
@@ -152,13 +164,8 @@ final class ShellFileAdapter extends BaseAdapter {
         final ShellFileInfo file = getItem(position);
         final DesktopFolderShortcut shortcut =
                 mFolderShortcuts.get(file.absolutePath);
-        if (item.checkbox != null) {
-            item.checkbox.setOnCheckedChangeListener(null);
-            item.checkbox.setChecked(
-                    mSelected.contains(file.absolutePath));
-            item.checkbox.setOnCheckedChangeListener((button, checked) ->
-                    mListener.onSelectionChanged(file, checked));
-        }
+        item.file = file;
+        applySelection(item);
         item.icon.clearColorFilter();
         item.icon.setImageResource(shortcut == null
                 ? FileIconResolver.forFile(file.directory, file.mimeType)
@@ -175,9 +182,6 @@ final class ShellFileAdapter extends BaseAdapter {
                     : shortcut == null
                             ? details(file) : shortcut.targetPath);
         }
-        item.root.setBackgroundColor(
-                mSelected.contains(file.absolutePath)
-                        ? COLOR_ACTIVE : COLOR_BACKGROUND);
         item.metaState = 0;
         item.eventTime = 0L;
         new DeferredContextDragGesture(
@@ -232,6 +236,22 @@ final class ShellFileAdapter extends BaseAdapter {
                         event)
                 : null);
         return item.root;
+    }
+
+    private void applySelection(final ItemView item) {
+        if (item.file == null) {
+            return;
+        }
+        final boolean selected = mSelected.contains(
+                item.file.absolutePath);
+        if (item.checkbox != null) {
+            item.checkbox.setOnCheckedChangeListener(null);
+            item.checkbox.setChecked(selected);
+            item.checkbox.setOnCheckedChangeListener((button, checked) ->
+                    mListener.onSelectionChanged(item.file, checked));
+        }
+        item.root.setBackgroundColor(
+                selected ? COLOR_ACTIVE : COLOR_BACKGROUND);
     }
 
     private boolean handleFolderDrag(
@@ -377,6 +397,7 @@ final class ShellFileAdapter extends BaseAdapter {
         final TextView name;
         final TextView details;
         final FileManagerLayoutMode layoutMode;
+        ShellFileInfo file;
         int metaState;
         long eventTime;
 

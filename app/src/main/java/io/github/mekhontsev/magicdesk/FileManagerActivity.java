@@ -419,7 +419,7 @@ public final class FileManagerActivity extends Activity
             } else {
                 mSelected.put(file.absolutePath, file);
             }
-            renderFiles();
+            renderSelection();
             return;
         }
         final long clickTime = eventTime > 0L
@@ -498,7 +498,7 @@ public final class FileManagerActivity extends Activity
             mSelected.remove(file.absolutePath);
         }
         mSelectionAnchorPath = file.absolutePath;
-        renderFiles();
+        renderSelection();
     }
 
     @Override
@@ -645,7 +645,7 @@ public final class FileManagerActivity extends Activity
             mSelected.clear();
             mSelected.put(file.absolutePath, file);
             mSelectionAnchorPath = file.absolutePath;
-            renderFiles();
+            renderSelection();
         }
         final List<ShellFileInfo> dragged = new ArrayList<>();
         for (final ShellFileInfo selected : mSelected.values()) {
@@ -1287,6 +1287,16 @@ public final class FileManagerActivity extends Activity
                 mSearchMode || mHistoryIndex > 0,
                 !mSearchMode && mHistoryIndex + 1 < mHistory.size(),
                 !mSearchMode && !"/".equals(mCurrentPath));
+        updateSelectionSummary(visible);
+    }
+
+    private void renderSelection() {
+        mView.updateSelection(mSelected.keySet());
+        updateSelectionSummary(visibleFiles());
+    }
+
+    private void updateSelectionSummary(
+            final List<ShellFileInfo> visible) {
         updateActionState();
         if (!mSelected.isEmpty()) {
             mView.setStatus(getString(
@@ -1435,14 +1445,14 @@ public final class FileManagerActivity extends Activity
     private void clearSelection() {
         mSelected.clear();
         mSelectionAnchorPath = null;
-        renderFiles();
+        renderSelection();
     }
 
     private void selectOnly(final ShellFileInfo file) {
         mSelected.clear();
         mSelected.put(file.absolutePath, file);
         mSelectionAnchorPath = file.absolutePath;
-        renderFiles();
+        renderSelection();
     }
 
     private void selectAll() {
@@ -1453,7 +1463,7 @@ public final class FileManagerActivity extends Activity
         }
         mSelectionAnchorPath = visible.isEmpty()
                 ? null : visible.get(0).absolutePath;
-        renderFiles();
+        renderSelection();
     }
 
     private void selectRange(
@@ -1495,7 +1505,7 @@ public final class FileManagerActivity extends Activity
             final ShellFileInfo file = visible.get(index);
             mSelected.put(file.absolutePath, file);
         }
-        renderFiles();
+        renderSelection();
     }
 
     private List<ShellFileInfo> visibleFiles() {

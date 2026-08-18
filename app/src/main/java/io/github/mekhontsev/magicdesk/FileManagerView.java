@@ -462,6 +462,18 @@ final class FileManagerView {
         updateItemVisibility();
     }
 
+    void updateSelection(final Set<String> selectedPaths) {
+        mAdapter.setSelection(selectedPaths);
+        refreshVisibleSelection(mList);
+        refreshVisibleSelection(mGrid);
+    }
+
+    private void refreshVisibleSelection(final ViewGroup items) {
+        for (int index = 0; index < items.getChildCount(); index++) {
+            mAdapter.refreshSelection(items.getChildAt(index));
+        }
+    }
+
     void setSearchResults(final boolean searchResults) {
         mAdapter.setShowLocation(searchResults);
     }
