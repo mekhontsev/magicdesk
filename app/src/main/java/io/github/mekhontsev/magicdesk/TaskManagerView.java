@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -47,6 +48,9 @@ final class TaskManagerView {
     private static final int COLOR_TEXT = 0xFFE8EEF5;
     private static final int COLOR_MUTED = 0xFF9DAAB8;
     private static final int TABLE_MIN_WIDTH_DP = 820;
+    private static final int APPLICATION_MIN_WIDTH_DP = 232;
+    private static final int APPLICATION_MAX_WIDTH_DP = 360;
+    private static final int APPLICATION_IDENTITY_CHROME_DP = 58;
     private static final int DISPLAY_WIDTH_DP = 72;
     private static final int MODE_WIDTH_DP = 96;
     private static final int TASK_WIDTH_DP = 72;
@@ -61,6 +65,8 @@ final class TaskManagerView {
     private final TextView mStatus;
     private final ImageButton mRefreshButton;
     private final View mRoot;
+    private TextView mApplicationHeader;
+    private int mApplicationColumnWidthPx;
     private final Map<Integer, TaskRow> mTaskRows = new LinkedHashMap<>();
     private final Map<String, AppResources> mAppResources =
             new LinkedHashMap<>();
@@ -73,6 +79,7 @@ final class TaskManagerView {
         mActivity = activity;
         mRefresh = refresh;
         mActions = actions;
+        mApplicationColumnWidthPx = dp(APPLICATION_MIN_WIDTH_DP);
         mRows = new LinearLayout(activity);
         mRows.setOrientation(LinearLayout.VERTICAL);
         mStatus = statusView();
@@ -112,6 +119,7 @@ final class TaskManagerView {
                         task -> resourcesFor(task.packageName).label,
                         String.CASE_INSENSITIVE_ORDER)
                 .thenComparingInt(task -> task.taskId));
+        updateApplicationColumnWidth(tasks);
         updateRows(tasks, monitor);
         updateSummary(tasks.size(), monitor);
     }
@@ -178,10 +186,10 @@ final class TaskManagerView {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackgroundColor(COLOR_SURFACE);
-        row.addView(headerCell(
+        mApplicationHeader = headerCell(
                 R.string.task_manager_column_application,
-                Gravity.START | Gravity.CENTER_VERTICAL),
-                flexibleColumn());
+                Gravity.START | Gravity.CENTER_VERTICAL);
+        row.addView(mApplicationHeader, applicationColumn());
         row.addView(headerCell(
                 R.string.task_manager_column_cpu,
                 Gravity.END | Gravity.CENTER_VERTICAL),
@@ -199,6 +207,7 @@ final class TaskManagerView {
         row.addView(headerCell(
                 R.string.task_manager_column_task,
                 Gravity.CENTER), fixedColumn(TASK_WIDTH_DP));
+        row.addView(new View(mActivity), flexibleColumn());
         row.addView(headerCell(
                 R.string.task_manager_column_actions,
                 Gravity.CENTER), fixedColumn(ACTIONS_WIDTH_DP));
@@ -280,6 +289,35 @@ final class TaskManagerView {
                 monitor.loadAverage));
     }
 
+    private void updateApplicationColumnWidth(
+            final List<TaskRepository.TaskEntry> tasks) {
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int preferredWidth = dp(APPLICATION_MIN_WIDTH_DP);
+        for (final TaskRepository.TaskEntry task : tasks) {
+            final AppResources resources = resourcesFor(task.packageName);
+            paint.setTextSize(sp(14f));
+            final float labelWidth = paint.measureText(resources.label);
+            paint.setTextSize(sp(10f));
+            final float packageWidth = paint.measureText(task.packageName);
+            final int identityWidth = dp(APPLICATION_IDENTITY_CHROME_DP)
+                    + (int) Math.ceil(Math.max(labelWidth, packageWidth));
+            preferredWidth = Math.max(preferredWidth, identityWidth);
+        }
+        preferredWidth = Math.min(
+                preferredWidth, dp(APPLICATION_MAX_WIDTH_DP));
+        // Keep periodic process refreshes from shifting every later column.
+        if (preferredWidth <= mApplicationColumnWidthPx) {
+            return;
+        }
+        mApplicationColumnWidthPx = preferredWidth;
+        if (mApplicationHeader != null) {
+            mApplicationHeader.setLayoutParams(applicationColumn());
+        }
+        for (final TaskRow row : mTaskRows.values()) {
+            row.identity.setLayoutParams(applicationColumn());
+        }
+    }
+
     private AppResources resourcesFor(final String packageName) {
         AppResources resources = mAppResources.get(packageName);
         if (resources != null) {
@@ -335,6 +373,12 @@ final class TaskManagerView {
                 0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
     }
 
+    private LinearLayout.LayoutParams applicationColumn() {
+        return new LinearLayout.LayoutParams(
+                mApplicationColumnWidthPx,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+    }
+
     private LinearLayout.LayoutParams fixedColumn(final int widthDp) {
         return new LinearLayout.LayoutParams(
                 dp(widthDp), ViewGroup.LayoutParams.MATCH_PARENT);
@@ -343,6 +387,11 @@ final class TaskManagerView {
     private int dp(final int value) {
         return Math.round(value
                 * mActivity.getResources().getDisplayMetrics().density);
+    }
+
+    private float sp(final float value) {
+        return value * mActivity.getResources()
+                .getDisplayMetrics().scaledDensity;
     }
 
     private final class TaskRow {
@@ -354,6 +403,7 @@ final class TaskManagerView {
         final TextView taskId;
         final TextView cpu;
         final TextView memory;
+        final View identity;
         TaskRepository.TaskEntry task;
 
         TaskRow(final TaskRepository.TaskEntry initialTask) {
@@ -366,7 +416,8 @@ final class TaskManagerView {
             row.setPadding(dp(4), dp(3), dp(4), dp(3));
             row.setOnClickListener(view -> mActions.focus(task));
 
-            row.addView(createIdentity(initialTask), flexibleColumn());
+            identity = createIdentity(initialTask);
+            row.addView(identity, applicationColumn());
             cpu = valueCell(Gravity.END | Gravity.CENTER_VERTICAL);
             row.addView(cpu, fixedColumn(CPU_WIDTH_DP));
             memory = valueCell(Gravity.END | Gravity.CENTER_VERTICAL);
@@ -377,6 +428,7 @@ final class TaskManagerView {
             row.addView(mode, fixedColumn(MODE_WIDTH_DP));
             taskId = valueCell(Gravity.CENTER);
             row.addView(taskId, fixedColumn(TASK_WIDTH_DP));
+            row.addView(new View(mActivity), flexibleColumn());
             row.addView(createActions(initialTask),
                     fixedColumn(ACTIONS_WIDTH_DP));
 
