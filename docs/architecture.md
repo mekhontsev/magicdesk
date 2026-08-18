@@ -610,9 +610,11 @@ pair twice as true-fullscreen tasks and verifies that neither task becomes
 freeform while the Alt+Tab panel is open or after focus changes. It restores and
 closes one task, then verifies that the fullscreen survivor still receives real
 injected text. Input assertions wait for the current InputDispatcher focus
-state rather than a fixed transition delay. The test also requests the native
-horizontal resize cursor and verifies WMShell's transition trace when that
-firmware trace is available.
+state rather than a fixed transition delay. InputDispatcher frames are
+normalized from the display's natural coordinates into its current rotation,
+so the same PHONE scenario runs in portrait and landscape. The test also
+requests the native horizontal resize cursor and verifies WMShell's transition
+trace when that firmware trace is available.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
@@ -636,16 +638,18 @@ launch call sites. Physical desktop displays use their default task area. The
 simulated target creates a short-lived shell-owned `TaskDisplayArea`, launches
 or moves the task there with its final freeform mode and bounds, and applies the
 same freeform state after deleting the temporary area. The phone desktop
-creates a shell-owned task area before launching its host and starts
-`DesktopActivity` directly inside it. The host therefore never leaves the
-phone's default task area in a way that makes Android resume and raise the
-control panel behind it. The fullscreen MagicDesk host is the bottom task in
-the session area and its freeform windows are siblings above it.
-Android 16 may still create its native desktop wallpaper in display 0's default
-area, but that area stays below the complete MagicDesk desktop layer instead of
-replacing the host. Session shutdown reparents the owned live tasks to the
-default area as fullscreen before deleting the area. Production launches,
-existing-task moves, and self-test fixtures resolve the same display policy.
+creates a shell-owned task area as the top child of Android's default task
+container before launching its host and starts `DesktopActivity` directly
+inside it. Keeping the session inside that container lets SystemUI place later
+caption menus and other transient task decorations above it. It also avoids a
+cross-root host transition that would resume and raise the phone control panel.
+The fullscreen MagicDesk host is the bottom task in the session area and its
+freeform windows are siblings above it. Android 16 may still create its native
+desktop wallpaper in display 0's default area, but the session child remains
+above that task instead of replacing the host. Session shutdown reparents the
+owned live tasks to the default area as fullscreen before deleting the area.
+Production launches, existing-task moves, and self-test fixtures resolve the
+same display policy.
 The shell observer also reports whether the focused phone task belongs to the
 session area. This gates the overlay taskbar without changing its normal
 fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone

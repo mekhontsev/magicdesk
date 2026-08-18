@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
+import android.view.Surface;
 
 /** Derives deterministic self-test coordinates from the active desktop viewport. */
 final class DesktopSelfTestGeometry {
@@ -12,6 +13,7 @@ final class DesktopSelfTestGeometry {
     final Rect displayBounds;
     final Rect workArea;
     final int densityDpi;
+    private final int displayRotation;
     private final int minimumWindowWidth;
     private final int minimumWindowHeight;
 
@@ -19,13 +21,22 @@ final class DesktopSelfTestGeometry {
             final Rect displayBounds,
             final Rect workArea,
             final int densityDpi) {
-        this(displayBounds, workArea, densityDpi, 1, 1);
+        this(displayBounds, workArea, densityDpi, Surface.ROTATION_0);
+    }
+
+    DesktopSelfTestGeometry(
+            final Rect displayBounds,
+            final Rect workArea,
+            final int densityDpi,
+            final int displayRotation) {
+        this(displayBounds, workArea, densityDpi, displayRotation, 1, 1);
     }
 
     private DesktopSelfTestGeometry(
             final Rect displayBounds,
             final Rect workArea,
             final int densityDpi,
+            final int displayRotation,
             final int minimumWindowWidth,
             final int minimumWindowHeight) {
         if (!hasArea(displayBounds)
@@ -34,12 +45,15 @@ final class DesktopSelfTestGeometry {
                 || workArea.top < displayBounds.top
                 || workArea.right > displayBounds.right
                 || workArea.bottom > displayBounds.bottom
-                || densityDpi <= 0) {
+                || densityDpi <= 0
+                || displayRotation < Surface.ROTATION_0
+                || displayRotation > Surface.ROTATION_270) {
             throw new IllegalArgumentException("invalid self-test geometry");
         }
         this.displayBounds = copy(displayBounds);
         this.workArea = copy(workArea);
         this.densityDpi = densityDpi;
+        this.displayRotation = displayRotation;
         this.minimumWindowWidth = Math.max(1, minimumWindowWidth);
         this.minimumWindowHeight = Math.max(1, minimumWindowHeight);
     }
@@ -99,8 +113,54 @@ final class DesktopSelfTestGeometry {
                 displayBounds,
                 workArea,
                 densityDpi,
+                displayRotation,
                 Math.max(minimumWindowWidth, width(bounds)),
                 Math.max(minimumWindowHeight, height(bounds)));
+    }
+
+    /** Converts InputDispatcher's natural-orientation frame to display space. */
+    Rect inputFrame(final TaskInputWindowParser.Frame frame) {
+        if (frame == null) {
+            throw new IllegalArgumentException("input frame is unavailable");
+        }
+        final int naturalWidth = (displayRotation & 1) == 0
+                ? width(displayBounds) : height(displayBounds);
+        final int naturalHeight = (displayRotation & 1) == 0
+                ? height(displayBounds) : width(displayBounds);
+        final Rect rotated;
+        switch (displayRotation) {
+            case Surface.ROTATION_90:
+                rotated = rect(
+                        frame.top,
+                        naturalWidth - frame.right,
+                        frame.bottom,
+                        naturalWidth - frame.left);
+                break;
+            case Surface.ROTATION_180:
+                rotated = rect(
+                        naturalWidth - frame.right,
+                        naturalHeight - frame.bottom,
+                        naturalWidth - frame.left,
+                        naturalHeight - frame.top);
+                break;
+            case Surface.ROTATION_270:
+                rotated = rect(
+                        naturalHeight - frame.bottom,
+                        frame.left,
+                        naturalHeight - frame.top,
+                        frame.right);
+                break;
+            case Surface.ROTATION_0:
+            default:
+                rotated = rect(
+                        frame.left, frame.top, frame.right, frame.bottom);
+                break;
+        }
+        return rect(
+                rotated.left + displayBounds.left,
+                rotated.top + displayBounds.top,
+                rotated.right + displayBounds.left,
+                rotated.bottom + displayBounds.top);
     }
 
     boolean containsWindow(final Rect bounds) {

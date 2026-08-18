@@ -17,17 +17,32 @@ final class DesktopSelfTestTasks {
             final String className,
             final TaskPredicate predicate) throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskStackParser.Entry lastObserved = null;
         do {
+            final String stack = ShellAccess.run(
+                    "/system/bin/cmd activity stack list");
+            lastObserved = findTask(stack, displayId, className);
             final TaskStackParser.Entry task = findTask(
-                    ShellAccess.run("/system/bin/cmd activity stack list"),
-                    displayId, className, predicate);
+                    stack, displayId, className, predicate);
             if (task != null) {
                 return task;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className
-                + " did not reach the expected state on display " + displayId);
+                + " did not reach the expected state on display " + displayId
+                + "; last=" + describe(lastObserved));
+    }
+
+    private static String describe(final TaskStackParser.Entry task) {
+        if (task == null) {
+            return "absent";
+        }
+        return "task=" + task.taskId
+                + "/display=" + task.displayId
+                + "/mode=" + task.windowingMode
+                + "/" + (task.visible ? "visible" : "hidden")
+                + "/bounds=" + DesktopSelfTestGeometry.format(task.bounds);
     }
 
     static TaskStackParser.Entry waitForFrontTask(

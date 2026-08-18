@@ -73,7 +73,8 @@ final class DesktopSelfTestInputSuite {
             typeAndVerifyText(context, displayId, taskId, token, "0");
             return "tap=" + x + "," + y;
         });
-        verifyNativeInputWindows(result, displayId, taskId, bounds);
+        verifyNativeInputWindows(
+                result, displayId, taskId, bounds, geometry);
         verifyResizeCursor(result, displayId, taskId, geometry);
     }
 
@@ -293,7 +294,8 @@ final class DesktopSelfTestInputSuite {
             final DesktopSelfTestResult result,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final DesktopSelfTestGeometry geometry) {
         final String dump;
         try {
             dump = ShellAccess.run("/system/bin/dumpsys input");
@@ -306,9 +308,11 @@ final class DesktopSelfTestInputSuite {
             return;
         }
         check(result, "INPUT-002", "Verify native caption input window", () ->
-                inspectCaptionInputWindow(dump, displayId, taskId, bounds));
+                inspectCaptionInputWindow(
+                        dump, displayId, taskId, bounds, geometry));
         check(result, "INPUT-003", "Verify native resize input window", () ->
-                inspectResizeInputWindow(dump, displayId, taskId, bounds));
+                inspectResizeInputWindow(
+                        dump, displayId, taskId, bounds, geometry));
     }
 
     private static void verifyResizeCursor(
@@ -562,7 +566,7 @@ final class DesktopSelfTestInputSuite {
                         && "freeform".equals(entry.windowingMode));
         waitForFrontTask(displayId, taskId);
         final Rect bounds = DesktopSelfTestGeometry.toRect(task.bounds);
-        waitForCaptionInputFrame(displayId, taskId, bounds);
+        waitForCaptionInputFrame(displayId, taskId, bounds, geometry);
         final int x = bounds.right - geometry.scaleFrom160Dpi(
                 MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
         final int y = bounds.top + geometry.scaleFrom160Dpi(
@@ -1170,19 +1174,21 @@ final class DesktopSelfTestInputSuite {
             }
             focusTaskThroughDesktop(displayId, taskId);
             waitForFrontTask(displayId, taskId);
-            waitForCaptionInputFrame(displayId, taskId, captionBounds);
+            waitForCaptionInputFrame(
+                    displayId, taskId, captionBounds, geometry);
             final Rect beforeBounds = DesktopSelfTestGeometry.toRect(
                     before.bounds);
             openNativeMaximizeMenu(
                     displayId, before.bounds, geometry);
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
                     displayId, taskId);
+            final Rect menuFrame = geometry.inputFrame(menu.frame);
             // The detached SystemUI menu is laid out in phone-display density.
             final float menuDensity = defaultDisplayDensity();
-            final int x = menu.frame.right - Math.round(menuDensity * (left
+            final int x = menuFrame.right - Math.round(menuDensity * (left
                     ? SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP
                     : SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP));
-            final int y = menu.frame.top
+            final int y = menuFrame.top
                     + Math.round(menuDensity
                             * SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP);
             ShellAccess.run(pointerCommand(
@@ -1382,7 +1388,8 @@ final class DesktopSelfTestInputSuite {
     private static void waitForCaptionInputFrame(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final DesktopSelfTestGeometry geometry) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
         TaskInputWindowParser.Entry lastCaption = null;
@@ -1392,13 +1399,15 @@ final class DesktopSelfTestInputSuite {
                             ShellAccess.run("/system/bin/dumpsys input"),
                             taskId);
             lastCaption = caption;
+            final Rect displayFrame = caption == null
+                    ? null : geometry.inputFrame(caption.frame);
             if (caption != null
                     && caption.displayId == displayId
                     && caption.hasInputChannel()
                     && caption.hasTouchableRegion()
-                    && ((caption.frame.left == bounds.left
-                            && caption.frame.top == bounds.top
-                            && caption.frame.right == bounds.right)
+                    && ((displayFrame.left == bounds.left
+                            && displayFrame.top == bounds.top
+                            && displayFrame.right == bounds.right)
                         || (caption.frame.left == 0
                             && caption.frame.top == 0
                             && caption.frame.right == bounds.width()))) {
@@ -1409,9 +1418,11 @@ final class DesktopSelfTestInputSuite {
         throw new IOException("caption did not settle for task " + taskId
                 + " at " + bounds + "; last="
                 + (lastCaption == null
-                        ? "unavailable"
-                        : "display=" + lastCaption.displayId
+                                ? "unavailable"
+                                : "display=" + lastCaption.displayId
                                 + ", frame=" + lastCaption.frame
+                                + ", normalized="
+                                + geometry.inputFrame(lastCaption.frame)
                                 + ", channel="
                                 + lastCaption.hasInputChannel()
                                 + ", touchable="
@@ -1479,16 +1490,18 @@ final class DesktopSelfTestInputSuite {
             final String dump,
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final DesktopSelfTestGeometry geometry) throws IOException {
         final TaskInputWindowParser.Entry entry = requireInputWindow(
                 TaskInputWindowParser.findCaption(dump, taskId),
                 displayId,
                 "caption");
-        final boolean displayCoordinates = entry.frame.left == bounds.left
-                && entry.frame.top == bounds.top
-                && entry.frame.right == bounds.right
-                && entry.frame.bottom > entry.frame.top
-                && entry.frame.bottom < bounds.bottom;
+        final Rect displayFrame = geometry.inputFrame(entry.frame);
+        final boolean displayCoordinates = displayFrame.left == bounds.left
+                && displayFrame.top == bounds.top
+                && displayFrame.right == bounds.right
+                && displayFrame.bottom > displayFrame.top
+                && displayFrame.bottom < bounds.bottom;
         final boolean taskCoordinates = entry.frame.left == 0
                 && entry.frame.top == 0
                 && entry.frame.right == bounds.width()
@@ -1496,17 +1509,20 @@ final class DesktopSelfTestInputSuite {
                 && entry.frame.bottom < bounds.height();
         if (!displayCoordinates && !taskCoordinates) {
             throw new IOException("caption input frame is misaligned: "
-                    + entry.frame);
+                    + entry.frame + ", normalized=" + displayFrame);
         }
         return inputWindowDetail(entry,
-                displayCoordinates ? "display" : "task-local");
+                displayCoordinates ? "display" : "task-local")
+                + (displayCoordinates
+                        ? ", normalized=" + displayFrame : "");
     }
 
     private static String inspectResizeInputWindow(
             final String dump,
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final DesktopSelfTestGeometry geometry) throws IOException {
         final TaskInputWindowParser.Entry entry = requireInputWindow(
                 TaskInputWindowParser.findResize(dump, taskId),
                 displayId,
@@ -1514,20 +1530,23 @@ final class DesktopSelfTestInputSuite {
         if (!entry.hasConfig("SPY")) {
             throw new IOException("resize input window is not a spy window");
         }
-        final boolean displayCoordinates = entry.frame.left == bounds.left
-                && entry.frame.top == bounds.top
-                && entry.frame.right == bounds.right
-                && entry.frame.bottom == bounds.bottom;
+        final Rect displayFrame = geometry.inputFrame(entry.frame);
+        final boolean displayCoordinates = displayFrame.left == bounds.left
+                && displayFrame.top == bounds.top
+                && displayFrame.right == bounds.right
+                && displayFrame.bottom == bounds.bottom;
         final boolean taskCoordinates = entry.frame.left == 0
                 && entry.frame.top == 0
                 && entry.frame.right == bounds.width()
                 && entry.frame.bottom == bounds.height();
         if (!displayCoordinates && !taskCoordinates) {
             throw new IOException("resize input frame is misaligned: "
-                    + entry.frame);
+                    + entry.frame + ", normalized=" + displayFrame);
         }
         return inputWindowDetail(entry,
-                displayCoordinates ? "display" : "task-local");
+                displayCoordinates ? "display" : "task-local")
+                + (displayCoordinates
+                        ? ", normalized=" + displayFrame : "");
     }
 
     private static TaskInputWindowParser.Entry requireInputWindow(

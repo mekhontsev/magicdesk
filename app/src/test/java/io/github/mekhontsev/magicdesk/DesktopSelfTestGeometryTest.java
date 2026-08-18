@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
+import android.view.Surface;
 
 import org.junit.Test;
 
@@ -94,6 +95,38 @@ public final class DesktopSelfTestGeometryTest {
         assertFalse(geometry.isNativeSideBySide(
                 rect(0, 125, 715, 2623),
                 rect(760, 125, 1475, 2623)));
+    }
+
+    @Test
+    public void mapsNaturalInputFramesIntoRotatedDisplaySpace() {
+        final TaskInputWindowParser.Frame landscapeInput =
+                new TaskInputWindowParser.Frame(879, 215, 1009, 1344);
+        final DesktopSelfTestGeometry clockwise = new DesktopSelfTestGeometry(
+                rect(0, 0, 2688, 1216),
+                rect(0, 125, 2688, 943),
+                520,
+                Surface.ROTATION_90);
+        final DesktopSelfTestGeometry upsideDown =
+                new DesktopSelfTestGeometry(
+                        rect(0, 0, 1216, 2688),
+                        rect(0, 125, 1216, 2454),
+                        520,
+                        Surface.ROTATION_180);
+        final DesktopSelfTestGeometry counterClockwise =
+                new DesktopSelfTestGeometry(
+                        rect(0, 0, 2688, 1216),
+                        rect(0, 125, 2688, 943),
+                        520,
+                        Surface.ROTATION_270);
+
+        assertRect(clockwise.inputFrame(landscapeInput),
+                215, 207, 1344, 337);
+        assertRect(upsideDown.inputFrame(
+                        new TaskInputWindowParser.Frame(206, 2337, 1001, 2561)),
+                215, 127, 1010, 351);
+        assertRect(counterClockwise.inputFrame(
+                        new TaskInputWindowParser.Frame(207, 1344, 337, 2473)),
+                215, 207, 1344, 337);
     }
 
     @Test

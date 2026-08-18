@@ -687,15 +687,17 @@ final class DesktopSelfTestWindowSuite {
                 if (viewport != null && workArea != null) {
                     final Rect display = viewport.displayBounds();
                     final int densityDpi = displayDensity(context, displayId);
+                    final int rotation = displayRotation(context, displayId);
                     if (display.width() > 0
                             && display.height() > 0
                             && workArea.left == display.left
                             && workArea.right == display.right
                             && workArea.top >= display.top
                             && workArea.bottom < display.bottom
-                            && densityDpi > 0) {
+                            && densityDpi > 0
+                            && rotation >= 0) {
                         return new DesktopSelfTestGeometry(
-                                display, workArea, densityDpi);
+                                display, workArea, densityDpi, rotation);
                     }
                 }
                 SystemClock.sleep(POLL_MILLIS);
@@ -715,6 +717,15 @@ final class DesktopSelfTestWindowSuite {
         }
         return context.createDisplayContext(display)
                 .getResources().getDisplayMetrics().densityDpi;
+    }
+
+    private static int displayRotation(
+            final Context context, final int displayId) {
+        final DisplayManager manager = context.getSystemService(
+                DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(displayId);
+        return display == null ? -1 : display.getRotation();
     }
 
     private static void verifyDesktopWallpaper(
