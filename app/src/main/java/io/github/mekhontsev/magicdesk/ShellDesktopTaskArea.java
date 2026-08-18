@@ -8,14 +8,14 @@ import android.util.Log;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/** Owns freeform tasks that must stay outside a display's default task area. */
+/** Owns the desktop session inside a display's default task container. */
 final class ShellDesktopTaskArea implements AutoCloseable {
     private static final String TAG = "MagicDeskDesktopArea";
     private static final String HOST_PACKAGE =
             "io.github.mekhontsev.magicdesk";
     private static final String HOST_CLASS = HOST_PACKAGE
             + ".DesktopActivity";
-    private static final int FEATURE_ROOT = 0;
+    private static final int FEATURE_DEFAULT_TASK_CONTAINER = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long HIERARCHY_TIMEOUT_MILLIS = 3_000L;
@@ -130,9 +130,18 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 false);
         mTaskIds.add(Integer.valueOf(taskId));
         mOwnership.markDesktop(taskId);
-        waitForTaskArea(taskId, mArea.featureId(), true);
-        TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+        // A vendor PendingIntent launch can honor the organizer task area but
+        // inherit fullscreen from its parent. Once the task identity is known,
+        // make the normal OPEN transition authoritative for mode and bounds.
+        ShellPreparedTaskTransition.revealFreeform(
                 mService, displayId, taskId, bounds);
+        waitForTaskArea(taskId, mArea.featureId(), true);
+        // WindowManager may expand the requested bounds to an application's
+        // minimum size. The session contract owns hierarchy and mode; callers
+        // observe the resulting geometry instead of requiring impossible
+        // pixel-exact bounds.
+        TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                mService, displayId, taskId, WINDOWING_MODE_FREEFORM);
         return taskId;
     }
 
@@ -234,7 +243,9 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private void ensureArea() throws ReflectiveOperationException {
         if (mArea == null) {
             mArea = TaskDisplayAreaHandle.create(
-                    mDisplayId, FEATURE_ROOT, "MagicDesk desktop session");
+                    mDisplayId,
+                    FEATURE_DEFAULT_TASK_CONTAINER,
+                    "MagicDesk desktop session");
             Log.i(TAG, "created desktop task area display=" + mDisplayId);
         }
     }
@@ -273,8 +284,9 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 tokenClass,
                 hostToken,
                 true);
-        // Keep the complete session plane above the default task area. This
-        // must remain the final hierarchy operation in the transaction.
+        // Keep the complete session plane above existing application tasks
+        // inside the default task container. SystemUI can then add transient
+        // task-decoration surfaces above this child area.
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE)
                 .invoke(transaction, mArea.token(), Boolean.TRUE);

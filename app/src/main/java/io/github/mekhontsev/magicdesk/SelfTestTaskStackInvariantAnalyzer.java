@@ -122,18 +122,10 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
 
         boolean visibleOnDesktop = false;
-        boolean visibleFreeformFixture = false;
         for (final TaskState task : snapshot.tasks) {
             if (task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
                 visibleOnDesktop = true;
-            }
-            if (task.fixture
-                    && task.displayId == mDisplayId
-                    && task.windowingMode == WINDOWING_MODE_FREEFORM
-                    && task.visibilityKnown
-                    && task.visible) {
-                visibleFreeformFixture = true;
             }
             if (task.fixture
                     && mDisplayId != 0
@@ -163,15 +155,11 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " became visible");
             }
         }
-        if (visibleFreeformFixture
-                && host != null
-                && host.visibilityKnown
-                && !host.visible) {
-            addAnomaly("freeform-host-hidden:" + mStage.name,
-                    formatSample(reason, snapshot)
-                            + " desktop host is hidden behind"
-                            + " a visible freeform fixture");
-        }
+        // A visible freeform child can make ActivityTaskManager report the
+        // fullscreen host in the same organizer-owned area as hidden even
+        // while its surface remains rendered. Dedicated pixel and lifecycle
+        // probes verify the host; this analyzer verifies its hierarchy and
+        // that the display never has a visibility gap.
         if (snapshot.visibilityKnown && !visibleOnDesktop) {
             addAnomaly("visibility-gap:" + mStage.name,
                     formatSample(reason, snapshot)
@@ -254,23 +242,12 @@ final class SelfTestTaskStackInvariantAnalyzer {
         if (!allVisibilityKnown(stage)) {
             return;
         }
-        final boolean stableDesktopBackground = hostVisible(first)
-                && hostVisible(last)
-                && !hasVisibleFullscreenFixture(first)
-                && !hasVisibleFullscreenFixture(last);
         // Fullscreen peers can occupy both endpoints while the active task is
         // intentionally restored to another mode between them.
         final boolean stableFullscreen = hasVisibleFullscreenFixture(first)
                 && hasVisibleFullscreenFixture(last)
                 && !hasEndpointFixtureModeTransition(first, last);
         for (final Sample sample : stage.samples) {
-            if (stableDesktopBackground && !hostVisible(sample.snapshot)) {
-                addAnomaly("host-visibility:" + stage.name,
-                        formatSample(sample.reason, sample.snapshot)
-                                + " desktop host became invisible"
-                                + " during a windowed operation");
-                return;
-            }
             if (stableFullscreen
                     && !hasVisibleFullscreenFixture(sample.snapshot)) {
                 addAnomaly("fullscreen-visibility:" + stage.name,
@@ -308,11 +285,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
             }
         }
         return true;
-    }
-
-    private boolean hostVisible(final Snapshot snapshot) {
-        final TaskState host = snapshot.find(mHostTaskId);
-        return host != null && host.visibilityKnown && host.visible;
     }
 
     private boolean hasVisibleFullscreenFixture(final Snapshot snapshot) {

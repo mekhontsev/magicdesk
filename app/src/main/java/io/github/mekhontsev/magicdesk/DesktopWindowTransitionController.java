@@ -146,7 +146,10 @@ final class DesktopWindowTransitionController {
             return;
         }
         if (initialSample) {
-            if (state.isAppRequestedFullscreen()) {
+            if (shouldReconcileInitialImmersiveSample(
+                    previous,
+                    requestingImmersive,
+                    state.isAppRequestedFullscreen())) {
                 mRuntimeState.scheduleRefresh();
             }
             return;
@@ -210,6 +213,18 @@ final class DesktopWindowTransitionController {
         return !initialSample
                 && requestingImmersive
                 && Boolean.FALSE.equals(previous);
+    }
+
+    static boolean shouldReconcileInitialImmersiveSample(
+            final Boolean previous,
+            final boolean requestingImmersive,
+            final boolean appRequestedFullscreen) {
+        // A display reconfiguration resets the shell monitor's client sample,
+        // but not this task's runtime state. Reconcile an already-observed
+        // request once the task is visible again without treating a new
+        // process's first immersive state as a fresh request.
+        return appRequestedFullscreen
+                || (requestingImmersive && Boolean.TRUE.equals(previous));
     }
 
     static boolean shouldClearManualImmersiveOverride(

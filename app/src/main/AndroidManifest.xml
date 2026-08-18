@@ -115,7 +115,7 @@
 
         <activity
             android:name=".DesktopActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"

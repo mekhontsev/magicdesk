@@ -43,4 +43,24 @@ public final class ImmersiveRequestStateTest {
                 .shouldClearManualImmersiveOverride(
                         true, false));
     }
+
+    @Test
+    public void repeatedInitialSampleReconcilesKnownImmersiveRequest() {
+        assertTrue(DesktopWindowTransitionController
+                .shouldReconcileInitialImmersiveSample(
+                        Boolean.TRUE, true, false));
+        assertTrue(DesktopWindowTransitionController
+                .shouldReconcileInitialImmersiveSample(
+                        Boolean.FALSE, false, true));
+    }
+
+    @Test
+    public void firstClientSampleDoesNotInventImmersiveRequest() {
+        assertFalse(DesktopWindowTransitionController
+                .shouldReconcileInitialImmersiveSample(
+                        null, true, false));
+        assertFalse(DesktopWindowTransitionController
+                .shouldReconcileInitialImmersiveSample(
+                        Boolean.FALSE, false, false));
+    }
 }

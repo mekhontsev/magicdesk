@@ -100,14 +100,12 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
-    public void rejectsHiddenDesktopHostDuringWindowedOperation() {
+    public void acceptsOrganizerHostVisibilityMetadataChange() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("FOCUS", windowed(0, true));
         analyzer.sample("focus", windowed(1, false), true);
 
-        assertContains(
-                analyzer.finish(windowed(2, true)),
-                "desktop host became invisible");
+        assertEquals(0, analyzer.finish(windowed(2, true)).anomalies.length);
     }
 
     @Test
@@ -128,7 +126,7 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
-    public void rejectsHiddenPhoneDesktopBehindFreeformFixture() {
+    public void acceptsHiddenPhoneHostBehindOrganizerFreeformFixture() {
         final SelfTestTaskStackInvariantAnalyzer analyzer =
                 new SelfTestTaskStackInvariantAnalyzer(
                         0, HOST_TASK_ID, 0);
@@ -141,9 +139,7 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                                 true, true, false));
         analyzer.begin("WINDOW", phoneDesktop);
 
-        assertContains(
-                analyzer.finish(phoneDesktop),
-                "desktop host is hidden behind a visible freeform fixture");
+        assertEquals(0, analyzer.finish(phoneDesktop).anomalies.length);
     }
 
     @Test
