@@ -273,43 +273,63 @@ public final class TaskWindowingCommand {
 
     static boolean normalizeFullscreenTask(
             final Object service,
-            final Object task) throws ReflectiveOperationException {
+            final int displayId,
+            final Object task,
+            final boolean refreshCaption) throws ReflectiveOperationException {
         if (task == null) {
             throw new IllegalArgumentException("task is required");
         }
-        if (HiddenTaskApi.getWindowConfigurationValue(
-                task, "getWindowingMode") == WINDOWING_MODE_FULLSCREEN) {
+        final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+        final int originalMode = HiddenTaskApi.getWindowConfigurationValue(
+                task, "getWindowingMode");
+        if (originalMode == WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        final Object taskToken = HiddenTaskApi.getField(task, "token");
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod(
-                "setDensityDpi", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(0));
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
-                transaction,
-                tokenClass,
-                taskToken,
-                true);
-        // Preserve the current stack order. The task may be a background
-        // phone task discovered by the global display-0 invariant. Applying
-        // synchronously also closes the interval in which Quickstep could
-        // observe freeform state after a system-driven display move.
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
-        return true;
+        final Object originalConfiguration =
+                HiddenTaskApi.getWindowConfiguration(task);
+        final Rect originalBounds = new Rect(
+                (Rect) originalConfiguration.getClass()
+                        .getMethod("getBounds")
+                        .invoke(originalConfiguration));
+        final int captionSourceId = refreshCaption
+                ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
+                : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
+        boolean hidden = false;
+        try {
+            // Hide without consuming the mode boundary. The reveal is then a
+            // real freeform-to-fullscreen WMShell transition, which replaces
+            // the old surface and caption instead of updating only task state.
+            hidden = true;
+            ShellPreparedTaskTransition.hideCurrentTask(
+                    service, displayId, taskId);
+            ShellPreparedTaskTransition.showPreparedFullscreen(
+                    service, displayId, taskId);
+            TaskFullscreenTransitionCommand.awaitFullscreen(
+                    service, displayId, taskId);
+            hidden = false;
+            TaskFullscreenTransitionCommand.refreshCaptionIfRequested(
+                    service,
+                    displayId,
+                    taskId,
+                    refreshCaption,
+                    captionSourceId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            if (hidden) {
+                try {
+                    ShellPreparedTaskTransition.restorePreparedTask(
+                            service,
+                            displayId,
+                            taskId,
+                            originalMode,
+                            originalBounds);
+                } catch (ReflectiveOperationException
+                        | RuntimeException restoreError) {
+                    error.addSuppressed(restoreError);
+                }
+            }
+            throw error;
+        }
     }
 
     private static void restoreLayout(

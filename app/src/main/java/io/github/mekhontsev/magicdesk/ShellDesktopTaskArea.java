@@ -22,6 +22,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private static final long HIERARCHY_POLL_MILLIS = 20L;
 
     private final Object mService;
+    private final ShellDesktopTaskOwnership mOwnership;
     private final Set<Integer> mTaskIds = new LinkedHashSet<>();
 
     private TaskDisplayAreaHandle mArea;
@@ -29,8 +30,11 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private int mHostTaskId = -1;
     private boolean mEnabled;
 
-    ShellDesktopTaskArea(final Object service) {
+    ShellDesktopTaskArea(
+            final Object service,
+            final ShellDesktopTaskOwnership ownership) {
         mService = service;
+        mOwnership = ownership;
     }
 
     synchronized void configure(
@@ -96,6 +100,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                             Class.forName(
                                     "android.window.WindowContainerToken"),
                             mArea.token());
+            mOwnership.markDesktop(taskId);
             attachHost(taskId);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -124,6 +129,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 mArea.token(),
                 false);
         mTaskIds.add(Integer.valueOf(taskId));
+        mOwnership.markDesktop(taskId);
         waitForTaskArea(taskId, mArea.featureId(), true);
         TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                 mService, displayId, taskId, bounds);
@@ -165,6 +171,9 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 tokenClass,
                 taskToken,
                 false);
+        // This transition is explicitly owned by MagicDesk. Mark it before
+        // WMShell publishes the resulting fullscreen-to-freeform change.
+        mOwnership.markDesktop(taskId);
         TaskFullscreenTransitionCommand.startTransition(
                 transactionClass, transaction);
         mTaskIds.add(Integer.valueOf(taskId));

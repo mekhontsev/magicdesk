@@ -236,8 +236,9 @@ final class ShellTaskObserverHandle implements Closeable {
                             + ShellAccess.usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
-            stopRemoteObserver();
-            serviceDisconnected();
+            // A remote method can report an operation-level failure as a
+            // RuntimeException while its Binder and observer remain healthy.
+            // Only a transport failure should tear down the observer session.
             throw new IOException(
                     "task observer call failed: "
                             + ShellAccess.usefulMessage(error),
@@ -259,8 +260,9 @@ final class ShellTaskObserverHandle implements Closeable {
                             + ShellAccess.usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
-            stopRemoteObserver();
-            serviceDisconnected();
+            // Keep the registered observer after a rejected task operation.
+            // Runtime exceptions cross AIDL for ordinary service-side errors;
+            // Binder death is reported separately as RemoteException.
             throw new IOException(
                     "task observer call failed: "
                             + ShellAccess.usefulMessage(error),

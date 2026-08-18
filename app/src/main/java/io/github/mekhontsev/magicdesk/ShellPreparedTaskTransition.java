@@ -111,6 +111,27 @@ final class ShellPreparedTaskTransition {
                 FullscreenApplication.HIDE_SYNC);
     }
 
+    static void hideCurrentTask(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        // Preserve the current mode so the reveal transition retains a real
+        // freeform/fullscreen boundary for WMShell to rebuild decorations.
+        transactionClass.getMethod(
+                "setHidden", tokenClass, Boolean.TYPE)
+                .invoke(transaction, taskToken, Boolean.TRUE);
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+    }
+
     static void prepareDetachedFullscreen(
             final Object service,
             final int displayId,

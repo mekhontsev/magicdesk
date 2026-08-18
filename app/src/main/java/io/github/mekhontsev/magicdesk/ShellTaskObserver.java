@@ -36,6 +36,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellTransientTaskBoundsController mTransientBounds;
+    private final ShellDesktopTaskOwnership mDesktopOwnership =
+            new ShellDesktopTaskOwnership();
     private final ShellFullscreenTaskArea mFullscreenTaskArea =
             new ShellFullscreenTaskArea();
     private final ShellDesktopTaskArea mDesktopTaskArea;
@@ -67,7 +69,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException("missing platform task policy");
         }
         mService = HiddenTaskApi.getService();
-        mDesktopTaskArea = new ShellDesktopTaskArea(mService);
+        mDesktopTaskArea = new ShellDesktopTaskArea(
+                mService, mDesktopOwnership);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mCallback = callback;
         mCallbackFailure = callbackFailure;
@@ -83,6 +86,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, inputOwner);
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
+                windowing.requiresNativeFullscreenCaptionRefresh(),
                 new ShellExternalTaskMigrationGuard.Listener() {
                     @Override
                     public void onError(final String error) {
@@ -111,6 +115,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     public void onTasksSampled(
                             final int displayId,
                             final java.util.List<?> tasks) {
+                        for (final Integer taskId
+                                : mDesktopOwnership.observeTasks(
+                                        displayId, tasks)) {
+                            restoreUnexpectedPhoneFreeform(
+                                    displayId, taskId.intValue());
+                        }
                         mTransientBounds.observeTasks(displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }
@@ -200,6 +210,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalStateException("task observer is closed");
         }
         mFullscreenTaskArea.configure(displayId);
+        mDesktopOwnership.configure(displayId);
+        if (managedTaskArea && managedTaskAreaHostTaskId >= 0) {
+            mDesktopOwnership.markDesktop(managedTaskAreaHostTaskId);
+        }
         mDesktopTaskArea.configure(
                 displayId,
                 managedTaskArea,
@@ -438,6 +452,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTransientBounds.forget(taskId);
             mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
+            mDesktopOwnership.forget(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange("task-removed");
         }
@@ -447,6 +462,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
+            mDesktopOwnership.observeTask(taskInfo);
             reportDesktopTaskAreaForeground(taskInfo);
             mMigrationGuard.onTaskMovedToFront(taskInfo);
             if (isPhoneTouchpadTask(taskInfo)) {
@@ -570,7 +586,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final Boolean foreground = mDesktopTaskArea.foregroundForTask(
                 HiddenTaskApi.getTaskDisplayId(taskInfo), taskInfo.taskId);
         if (foreground != null) {
-            reportDesktopTaskAreaForeground(foreground.booleanValue());
+            reportDesktopTaskAreaForeground(foreground.booleanValue()
+                    || mDesktopOwnership.isDesktopTask(taskInfo));
         }
     }
 
@@ -585,10 +602,35 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     HiddenTaskApi.getTaskDisplayId(task), taskId);
             if (foreground != null) {
                 reportDesktopTaskAreaForeground(
-                        foreground.booleanValue());
+                        foreground.booleanValue()
+                                || mDesktopOwnership.isDesktopTask(task));
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not resolve focused task area", error);
+        }
+    }
+
+    private void restoreUnexpectedPhoneFreeform(
+            final int displayId,
+            final int taskId) {
+        if (displayId != Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.DEFAULT_DISPLAY, taskId);
+            if (task != null
+                    && TaskWindowingCommand.normalizeFullscreenTask(
+                            mService,
+                            Display.DEFAULT_DISPLAY,
+                            task,
+                            mWindowing.requiresNativeFullscreenCaptionRefresh())) {
+                Log.i(TAG, "restored unexpected phone freeform task="
+                        + taskId);
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not restore phone fullscreen task="
+                    + taskId, error);
         }
     }
 

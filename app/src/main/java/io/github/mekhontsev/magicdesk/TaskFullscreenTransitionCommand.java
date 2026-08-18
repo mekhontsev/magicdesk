@@ -81,15 +81,28 @@ public final class TaskFullscreenTransitionCommand {
 
         startTransition(transactionClass, fullscreenTransaction);
         awaitFullscreen(service, displayId, taskId);
+        return refreshCaptionIfRequested(
+                service,
+                displayId,
+                taskId,
+                refreshCaption,
+                captionSourceId);
+    }
+
+    static boolean refreshCaptionIfRequested(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final boolean refreshCaption,
+            final int captionSourceId) {
         if (!refreshCaption
                 || captionSourceId
                         == TaskLocalInsetsSourceParser.NO_SOURCE_ID) {
             return false;
         }
         try {
-            TaskCaptionInsetsRefresher.refresh(
-                    service, transactionClass, tokenClass, taskToken,
-                    captionSourceId);
+            TaskCaptionInsetsRefresher.refreshTask(
+                    service, displayId, taskId, captionSourceId);
             return true;
         } catch (ReflectiveOperationException | RuntimeException e) {
             System.err.printf("caption source refresh failed: id=%08x: %s%n",

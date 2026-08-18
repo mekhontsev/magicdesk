@@ -400,7 +400,17 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
-        launchActivity(service, intent, options);
+        if (areaToken == null) {
+            launchActivity(service, intent, options);
+        } else {
+            // An organizer-owned TDA is intentionally outside WMShell's
+            // desktop repository. Starting through ActivityTaskManager lets
+            // a vendor transition handler reinterpret the first requested
+            // freeform task. Supplying the launch as the transition's WCT
+            // keeps its task area, mode and bounds in one authoritative
+            // organizer operation.
+            launchPendingIntentTransition(intent, options);
+        }
         return waitForTask(
                 service,
                 displayId,

@@ -36,6 +36,7 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
 
     private final Object mService;
     private final Listener mListener;
+    private final boolean mRefreshFullscreenCaption;
     private final Map<Integer, TaskState> mDesktopTasks = new HashMap<>();
     private final Set<Integer> mMigratingTasks = new HashSet<>();
     private final ExecutorService mMigrationExecutor =
@@ -98,8 +99,10 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
 
     ShellExternalTaskMigrationGuard(
             final Object service,
+            final boolean refreshFullscreenCaption,
             final Listener listener) {
         mService = service;
+        mRefreshFullscreenCaption = refreshFullscreenCaption;
         mListener = listener;
     }
 
@@ -421,7 +424,10 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
             }
             final boolean normalized =
                     TaskWindowingCommand.normalizeFullscreenTask(
-                            mService, task);
+                            mService,
+                            Display.DEFAULT_DISPLAY,
+                            task,
+                            mRefreshFullscreenCaption);
             Log.i(TAG, (normalized
                     ? "normalized phone task to fullscreen task="
                     : "phone task already fullscreen task=") + taskId);
