@@ -145,6 +145,11 @@ final class RuntimeDesktopSessionCoordinator {
         if (displayRemoved) {
             PhoneTouchpadController.release(displayId);
             DesktopRuntimeBridge.closeDesktopSession(displayId);
+            if (desktopTarget != null
+                    && desktopTarget.kind
+                            == DesktopDisplayTarget.Kind.SIMULATED) {
+                SimulatedDesktopDisplayController.release(displayId);
+            }
             if (externalDesktopRemoved) {
                 mRemovedDesktopDisplayId = displayId;
                 if (!expectedDesktopRemoval) {

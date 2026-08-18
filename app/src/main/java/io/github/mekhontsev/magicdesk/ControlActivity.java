@@ -293,8 +293,8 @@ public final class ControlActivity extends Activity
             launchWirelessDesktop(mWirelessDisplayId);
             return;
         }
-        mStatus = getString(R.string.status_external_display_unavailable);
-        refresh();
+        mStatus = getString(R.string.status_external_display_checking);
+        scheduleExternalDisplayProbe(true, 0L);
     }
 
     @Override
@@ -334,6 +334,8 @@ public final class ControlActivity extends Activity
         } else if (mWirelessDisplayId > Display.DEFAULT_DISPLAY) {
             ConsoleModeSwitcher.showDesktop(
                     DesktopDisplayTarget.wireless(mWirelessDisplayId));
+        } else {
+            ConsoleModeSwitcher.showMagicDesk();
         }
     }
 
@@ -496,9 +498,7 @@ public final class ControlActivity extends Activity
         final DesktopDisplayTarget activeTarget =
                 DesktopRuntimeBridge.getDesktopTarget(activeDesktopDisplayId);
         final boolean externalRuntimeDesktop = activeTarget != null
-                && (activeTarget.kind == DesktopDisplayTarget.Kind.WIRED
-                        || activeTarget.kind
-                                == DesktopDisplayTarget.Kind.WIRELESS);
+                && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE;
         final boolean externalDesktopActive =
                 consoleModeActive
                         || externalRuntimeDesktop;
@@ -524,6 +524,8 @@ public final class ControlActivity extends Activity
                 mWiredDisplayId > Display.DEFAULT_DISPLAY,
                 mWirelessConnectionUiAvailable,
                 mWirelessDisplayId > Display.DEFAULT_DISPLAY,
+                DesktopDisplayDrivers.isSupported(
+                        DesktopDisplayTarget.Kind.SIMULATED),
                 mStatus,
                 ShellAccess.statusLabel(),
                 currentDisplayId(),
@@ -674,12 +676,9 @@ public final class ControlActivity extends Activity
             PhoneControlPanelLauncher.open(this);
             return;
         }
-        if (shouldStart && connected) {
+        if (shouldStart) {
             startExternalDesktopAfterProbe();
             return;
-        }
-        if (shouldStart) {
-            mStatus = getString(R.string.status_external_display_unavailable);
         }
         refresh();
     }
@@ -700,9 +699,7 @@ public final class ControlActivity extends Activity
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(displayId);
         return target != null
-                && (target.kind == DesktopDisplayTarget.Kind.WIRED
-                        || target.kind
-                                == DesktopDisplayTarget.Kind.WIRELESS);
+                && target.kind != DesktopDisplayTarget.Kind.PHONE;
     }
 
     private String describeExternalDisplay(

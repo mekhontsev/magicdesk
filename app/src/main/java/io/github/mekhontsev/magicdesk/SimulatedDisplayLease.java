@@ -11,8 +11,9 @@ final class SimulatedDisplayLease implements Closeable {
     static final String SETTING = "overlay_display_devices";
     static final String SPEC = "1920x1080/160";
 
-    private static final String READY = "MAGICDESK_SELF_TEST_READY";
-    private static final String RESTORED = "MAGICDESK_SELF_TEST_RESTORED";
+    private static final String READY = "MAGICDESK_SIMULATED_DISPLAY_READY";
+    private static final String RESTORED =
+            "MAGICDESK_SIMULATED_DISPLAY_RESTORED";
 
     private final ShellStreamHandle mStream;
     private final BufferedReader mReader;

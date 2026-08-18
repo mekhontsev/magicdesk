@@ -35,6 +35,11 @@ public final class ConsoleDisplayController {
                 DISPLAY + " get-displays --ids-only --type wifi"));
     }
 
+    static int findOverlayDisplayId() {
+        return findFirstDisplayId(runCommand(
+                DISPLAY + " get-displays --ids-only --type overlay"));
+    }
+
     static int findFirstDisplayId(final String output) {
         if (output == null) {
             return -1;

@@ -71,6 +71,7 @@ final class PhoneControlPanelController {
         final boolean wiredDisplayConnected;
         final boolean wirelessConnectionUiAvailable;
         final boolean wirelessDisplayConnected;
+        final boolean simulatedDesktopAvailable;
         final String status;
         final String runtime;
         final int currentDisplayId;
@@ -92,6 +93,7 @@ final class PhoneControlPanelController {
                 final boolean wiredDisplayConnected,
                 final boolean wirelessConnectionUiAvailable,
                 final boolean wirelessDisplayConnected,
+                final boolean simulatedDesktopAvailable,
                 final String status,
                 final String runtime,
                 final int currentDisplayId,
@@ -113,6 +115,7 @@ final class PhoneControlPanelController {
             this.wirelessConnectionUiAvailable =
                     wirelessConnectionUiAvailable;
             this.wirelessDisplayConnected = wirelessDisplayConnected;
+            this.simulatedDesktopAvailable = simulatedDesktopAvailable;
             this.status = status;
             this.runtime = runtime;
             this.currentDisplayId = currentDisplayId;
@@ -226,7 +229,8 @@ final class PhoneControlPanelController {
         final boolean canStartOrShowExternalDesktop =
                 state.externalDesktopActive
                         || state.externalDisplayState
-                                == ExternalDisplayState.CONNECTED;
+                                == ExternalDisplayState.CONNECTED
+                        || state.simulatedDesktopAvailable;
         mExternalDesktop.setEnabled(
                 state.consoleControlAvailable
                         && canStartOrShowExternalDesktop);

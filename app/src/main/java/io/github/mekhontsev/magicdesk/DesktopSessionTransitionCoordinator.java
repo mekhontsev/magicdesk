@@ -193,6 +193,9 @@ final class DesktopSessionTransitionCoordinator {
             MagicDeskRuntime.prepareDesktopDisplayRemoval(
                     target.displayId);
             DesktopRuntimeBridge.closeDesktopSession(target.displayId);
+            if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
+                SimulatedDesktopDisplayController.release(target.displayId);
+            }
             success = true;
         }
         if (restorePhonePanel) {
@@ -250,7 +253,12 @@ final class DesktopSessionTransitionCoordinator {
                     .show(null, wirelessDisplayId);
             return;
         }
-        Log.i(TAG, "No connected external display is available");
+        if (mFeatures.supportsDisplay(
+                DesktopDisplayTarget.Kind.SIMULATED)) {
+            SimulatedDesktopDisplayController.show();
+            return;
+        }
+        Log.i(TAG, "No desktop display is available");
     }
 
     private static PlatformProjectionDriver.Transport transportFor(

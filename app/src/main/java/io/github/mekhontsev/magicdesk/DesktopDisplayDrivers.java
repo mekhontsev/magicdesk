@@ -22,7 +22,9 @@ final class DesktopDisplayDrivers {
     }
 
     static boolean isExternalDesktopSupported() {
-        return FEATURES.supportsExternalDesktop();
+        return FEATURES.supportsExternalDesktop()
+                || FEATURES.supportsDisplay(
+                        DesktopDisplayTarget.Kind.SIMULATED);
     }
 
     static DesktopDisplayDriver forKind(

@@ -10,6 +10,7 @@ import org.junit.Test;
 public final class DesktopDisplayDriversTest {
     @Test
     public void registryProvidesOneDriverPerTargetKind() {
+        assertTrue(DesktopDisplayDrivers.isExternalDesktopSupported());
         for (final DesktopDisplayTarget.Kind kind
                 : DesktopDisplayTarget.Kind.values()) {
             final DesktopDisplayDriver driver =
