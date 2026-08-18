@@ -11,6 +11,7 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     private static final int DISPLAY_ID = 2;
     private static final int HOST_TASK_ID = 1;
     private static final int FIXTURE_TASK_ID = 10;
+    private static final int SECOND_FIXTURE_TASK_ID = 11;
 
     @Test
     public void acceptsStableWindowedOperation() {
@@ -61,6 +62,40 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
 
         assertContains(
                 analyzer.finish(fullscreen(2, true, false)),
+                "no fullscreen fixture is visible");
+    }
+
+    @Test
+    public void acceptsVisibleFreeformDuringFullscreenRestore() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("RESTORE", fullscreenPair(
+                0, 1, true, 1, false, false));
+        analyzer.sample("task-front", fullscreenPair(
+                1, 5, true, 1, false, true), true);
+
+        assertEquals(0, analyzer.finish(fullscreenPair(
+                2, 5, false, 1, true, false)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsFullscreenVisibilityGapWhileClosingPeer() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("CLOSE", fullscreenPair(
+                0, 1, true, 1, false, false));
+        analyzer.sample("task-removed", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        true, false, false),
+                task(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false)), true);
+
+        assertContains(
+                analyzer.finish(snapshot(
+                        2,
+                        task(HOST_TASK_ID, DISPLAY_ID, 1,
+                                false, false, false),
+                        task(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                                true, true, false))),
                 "no fullscreen fixture is visible");
     }
 
@@ -257,6 +292,23 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         hostVisible, false, false),
                 task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
                         fixtureVisible, true, false));
+    }
+
+    private static SelfTestTaskStackInvariantAnalyzer.Snapshot fullscreenPair(
+            final long time,
+            final int firstMode,
+            final boolean firstVisible,
+            final int secondMode,
+            final boolean secondVisible,
+            final boolean hostVisible) {
+        return snapshot(
+                time,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        hostVisible, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, firstMode,
+                        firstVisible, true, false),
+                task(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, secondMode,
+                        secondVisible, true, false));
     }
 
     private static SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot(

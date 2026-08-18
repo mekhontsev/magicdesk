@@ -241,8 +241,11 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 && hostVisible(last)
                 && !hasVisibleFullscreenFixture(first)
                 && !hasVisibleFullscreenFixture(last);
+        // Fullscreen peers can occupy both endpoints while the active task is
+        // intentionally restored to another mode between them.
         final boolean stableFullscreen = hasVisibleFullscreenFixture(first)
-                && hasVisibleFullscreenFixture(last);
+                && hasVisibleFullscreenFixture(last)
+                && !hasEndpointFixtureModeTransition(first, last);
         for (final Sample sample : stage.samples) {
             if (stableDesktopBackground && !hostVisible(sample.snapshot)) {
                 addAnomaly("host-visibility:" + stage.name,
@@ -260,6 +263,25 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 return;
             }
         }
+    }
+
+    private boolean hasEndpointFixtureModeTransition(
+            final Snapshot first,
+            final Snapshot last) {
+        for (final TaskState firstState : first.tasks) {
+            if (!firstState.fixture) {
+                continue;
+            }
+            final TaskState lastState = last.find(firstState.taskId);
+            if (lastState != null
+                    && lastState.fixture
+                    && (firstState.displayId != lastState.displayId
+                            || firstState.windowingMode
+                                    != lastState.windowingMode)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean allVisibilityKnown(final Stage stage) {
