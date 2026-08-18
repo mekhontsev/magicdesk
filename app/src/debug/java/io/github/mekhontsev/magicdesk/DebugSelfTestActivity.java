@@ -16,6 +16,12 @@ public final class DebugSelfTestActivity extends Activity {
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         final LaunchTarget target = readTarget(getIntent());
+        if (target == null) {
+            Log.e(TAG, "invalid self-test target; expected PHONE, SIMULATED, "
+                    + "WIRED, or WIRELESS");
+            finish();
+            return;
+        }
         if (DeviceSetupManager.isRuntimeAuthorized()) {
             launchDiagnostics(target);
             return;
@@ -72,18 +78,10 @@ public final class DebugSelfTestActivity extends Activity {
     private static LaunchTarget readTarget(final Intent intent) {
         final String value = intent == null
                 ? null : intent.getStringExtra(EXTRA_TARGET);
-        if (value == null || value.isEmpty()) {
-            return LaunchTarget.SIMULATED;
-        }
-        try {
-            return LaunchTarget.valueOf(
-                    value.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return LaunchTarget.SIMULATED;
-        }
+        return LaunchTarget.parse(value);
     }
 
-    private enum LaunchTarget {
+    enum LaunchTarget {
         PHONE(DesktopSelfTestTarget.PHONE, null),
         SIMULATED(DesktopSelfTestTarget.SIMULATED, null),
         WIRED(DesktopSelfTestTarget.EXTERNAL,
@@ -99,6 +97,17 @@ public final class DebugSelfTestActivity extends Activity {
                 final DesktopDisplayTarget.Kind displayKind) {
             this.selfTestTarget = selfTestTarget;
             this.displayKind = displayKind;
+        }
+
+        static LaunchTarget parse(final String value) {
+            if (value == null || value.trim().isEmpty()) {
+                return null;
+            }
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
         }
     }
 }
