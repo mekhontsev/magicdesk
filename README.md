@@ -1,11 +1,11 @@
 # MagicDesk
 
 MagicDesk is an open-source workstation environment for Android 15 and newer.
-It turns a phone, tablet, or Android-reported secondary display into a practical
-workspace built from native Android windows, a taskbar and Start menu, desktop
-files and widgets, shell-backed Files and Console tools, task and notification
-controls, display capture, global keyboard controls, and optional phone-based
-touchpad support.
+It turns a phone, tablet, or secondary display exposed by Android into a
+practical workspace with native Android windows, a taskbar and Start menu,
+desktop files and widgets, built-in Files, Console, and Task Manager,
+notification controls, display capture, global keyboard controls, and an
+optional phone-based touchpad and text-input panel.
 
 Applications remain ordinary Android tasks managed by the system. MagicDesk
 organizes those tasks into a coherent desktop and integrates them with the
@@ -16,8 +16,8 @@ separate guest operating system.
 MagicDesk belongs to the same broad Android desktop category as Samsung DeX,
 but it is an independent open-source environment rather than a port or clone.
 The common implementation builds on Android's task, window, and display APIs;
-focused platform and SoC drivers add capabilities that are not part of standard
-Android.
+dedicated platform and SoC drivers add capabilities that are not part of
+standard Android.
 
 The compatibility goal is to support as many capable devices and firmware
 versions as practical with one MagicDesk APK and one codebase. Runtime
@@ -43,62 +43,63 @@ Android already provides applications, system task management, and display
 transports. MagicDesk connects those capabilities into a consistent workspace
 that can run on the device itself or on a secondary display:
 
-- Android applications run in overlapping, resizable system windows with
-  native WMShell decorations.
+- Android applications use native WMShell windows and can be overlapped,
+  resized, snapped, maximized, or made fullscreen.
 - A persistent taskbar tracks real Android tasks and pinned applications,
-  collecting items that do not fit into an explicit icon-and-name overflow
-  menu instead of leaving them off-screen.
-- On the phone desktop, an upward swipe from the bottom content edge reveals
-  the taskbar over a fullscreen application without opening Android Recents.
+  keeping additional items reachable through an icon-and-name overflow menu.
 - Start, freely positioned desktop shortcuts, a global desktop folder, Android
-  widgets, task switching, and Show Desktop provide normal mouse-driven
+  widgets, task switching, and Show Desktop provide familiar mouse-driven
   navigation.
 - Desktop-style global shortcuts manage windows without application-specific
   configuration.
-- On supported firmware, the phone can remain available as a touchpad and
-  text-input panel.
-- Fullscreen applications and in-app fullscreen video use the entire external
-  display.
-- Built-in Files, Console, and Settings provide a coherent desktop workflow
-  without requiring a separate shell or file manager.
-
-MagicDesk does not emulate Android applications, host them inside custom views,
-or replace Android's task organizer. Applications remain ordinary Android
-tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
+- The phone can remain available as MagicDesk's touchpad and text-input
+  control panel.
+- Built-in Files, Console, Task Manager, and Settings provide a coherent
+  desktop workflow without requiring a separate shell or file manager.
 
 ## Highlights
 
-### Desktop workspace
+### Windows and sessions
 
 - Launch applications in Windowed or Fullscreen mode.
 - Keep multiple overlapping windows visible and switch exact tasks from the
   taskbar or with `Alt+Tab`.
-- Minimize windowed applications without pausing them, so media and background
-  work can continue behind the desktop.
+- Minimize windowed applications without closing them; applications that
+  support background operation can continue behind the desktop.
 - Send an existing task between the phone and active external desktop from its
   context menu without restarting the application.
 - Snap windows left or right, maximize them above the taskbar, or enter true
   fullscreen.
+- Request another task for a compatible application through **New window**.
+  MagicDesk Files supports this directly; other Android applications may
+  reject the request through their own activity launch mode.
 - Pin applications to the taskbar or place shortcuts on the desktop.
+- Preserve the last visible freeform window layout across Show Desktop.
+- Keep live application tasks available when the external desktop is closed,
+  then restore their desktop mode and layout when the desktop is started
+  again. Tasks that Android or the user closed are never relaunched.
+- Remember an application's explicit Windowed or Fullscreen choice and its last
+  freeform position for subsequent Auto launches.
+
+### Files and Console
+
 - Use `/storage/emulated/0/Desktop` as the normal desktop filesystem: create,
   open, rename, and delete files or folders directly from the desktop, and
   drag files between the desktop and application windows that support
   Android's global drag-and-drop protocol. Files and folders can also be moved
   directly between the desktop and built-in Files; hold `Ctrl` while starting
   the drag to copy instead.
-- Open the built-in **Files** window for the complete filesystem visible to
-  the authorized Android shell identity. It supports path navigation, hidden
-  files, sorting, selection, create, rename, permanent
-  delete, copy, cut, paste, current-folder name filtering, recursive name
-  search, live directory updates, properties,
-  external editors, and global file
-  drag-and-drop. Conflicting copies receive a numeric suffix instead of
-  silently replacing data. Desktop and Files items use the same context menu,
-  activation preference, and process-local copy/cut buffer; Properties reports
-  the actual owner and mode. Files uses the Android system default application
-  when one exists, and its in-window **Open with** dialog can set the same
-  system-wide default.
-  Multiple Files windows can use the same process-local copy/cut buffer.
+- Open the built-in **Files** window for the filesystem visible to the
+  authorized Android shell identity. It supports path navigation, hidden
+  files, sorting, selection, create, rename, permanent delete, copy, cut,
+  paste, current-folder filtering, recursive name search, live directory
+  updates, properties, external editors, and global file drag-and-drop.
+  Conflicting copies receive a numeric suffix instead of silently replacing
+  data. Desktop and Files items use the same context menu, activation
+  preference, and process-local copy/cut buffer; Properties reports the actual
+  owner and mode. Files uses the Android system default application when one
+  exists, and its in-window **Open with** dialog can set the same system-wide
+  default. Multiple Files windows share the same process-local copy/cut buffer.
   Shell copy, move, and delete operations continue if their initiating Files
   window is closed; reopening Files reconnects to progress and cancellation.
   An APK can be installed or updated only after an explicit confirmation.
@@ -112,23 +113,17 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
   command cursor. Console can open its current directory in Files, reveal a
   selected output path after shell-side validation, and complete paths with
   `Tab`.
-- Request another task for a compatible application through **New window**.
-  MagicDesk Files supports this directly; Android applications may reject the
-  request through their own activity launch mode.
+
+### Desktop layout
+
 - Add native Android widgets, move them on the desktop, and resize supported
   providers from their context menu.
-- Preserve the last visible freeform window layout across Show Desktop.
-- Keep live application tasks available when the external desktop is closed,
-  then restore their desktop mode and layout when the desktop is started
-  again. Tasks that Android or the user closed are never relaunched.
 - Keep desktop files, widgets, pins, shortcuts, and recent applications global
   across displays. Desktop-item and application-window positions use relative
   coordinates so the layout adapts to each display, while output mode, Fill
   display, and DPI remain per-monitor settings.
 - Leave SmartCast or the system projection UI in control when output mode is
-  set to **System/native**; later desktop starts do not overwrite that choice.
-- Remember an application's explicit Windowed or Fullscreen choice and its last
-  freeform position for subsequent Auto launches.
+  set to **System / native**; later desktop starts do not overwrite that choice.
 - Use the phone's current static wallpaper or set a local image as the custom
   desktop wallpaper directly from MagicDesk Files, center-cropped for the
   active display.
@@ -136,9 +131,10 @@ tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
 Desktop configuration is stored as an atomic, human-readable file at
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`; an optional custom
 wallpaper is stored beside it. The hidden directory is not shown as a desktop
-item. Runtime state, diagnostics, and Recent history remain private to the app.
-Android widget bindings remain system-managed and scoped to the installed app
-and Android user; neither kind of state is written into the desktop folder.
+item. Runtime state, diagnostics, and recent-application history remain private
+to the app. Android widget bindings remain system-managed and scoped to the
+installed app and Android user. Neither app-private runtime state nor
+system-managed widget bindings are written into the desktop folder.
 
 ### Desktop controls
 
@@ -168,7 +164,7 @@ and Android user; neither kind of state is written into the desktop folder.
   and keeping an active desktop session awake.
 - Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
-- Automatic external-desktop startup and window-layout restoration through
+- Start or reveal the desktop and restore its hidden window layout with
   `Win+D`.
 
 ### Physical input
@@ -181,12 +177,12 @@ MagicDesk's full input bridge to provide the following behavior:
 - `Ctrl+Space` cycles through layouts exposed to Android by the active input
   method as enabled keyboard subtypes, in system order. An IME that exposes
   only one subtype cannot provide system-wide physical-keyboard switching.
-- `Alt+Tab` bypasses RedMagic's broken system Recents path while ordinary
-  `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal application input.
-- Right click reaches Chrome, Firefox, MagicDesk, and other applications
-  instead of being converted to Android Back by RedMagic firmware.
+- `Alt+Tab` switches exact desktop tasks without entering system Recents, while
+  ordinary `Tab`, `Shift+Tab`, and `Ctrl+Tab` remain normal application input.
+- Right click reaches applications as a secondary click instead of being
+  converted to Android Back.
 - Mouse hot-plug and multiple external keyboard or touchpad devices are
-  handled without recreating the virtual devices or restarting applications.
+  handled without restarting the desktop session or applications.
 
 ## Requirements
 
@@ -196,10 +192,10 @@ MagicDesk requires:
 - the official Shizuku application with its server running;
 - a one-time Device Setup and reboot to enable Android desktop windowing.
 
-No ZTE, nubia, or RedMagic branding is required. Devices without a focused
-vendor integration use the Standard Android platform driver; the available
-session types still depend on the desktop and display capabilities exposed by
-their firmware.
+MagicDesk is not restricted to ZTE, nubia, or RedMagic devices. Devices without
+a dedicated vendor integration use the Standard Android platform driver; the
+available session types still depend on the desktop and display capabilities
+exposed by their firmware.
 
 An external desktop requires either:
 
@@ -215,8 +211,8 @@ the device display without an external display.
 On the Standard Android profile, MagicDesk opens an already connected
 secondary display directly and leaves connection, disconnection, mirror mode,
 and output timing to the system. Compatible RedMagic firmware additionally
-provides a **Wireless** action backed by SmartCast, managed
-Console transitions, output controls, phone-screen control, absolute pointer
+provides a **Wireless** action backed by SmartCast, managed projection
+transitions, output controls, phone-screen control, absolute pointer
 positioning, and hardware controls. Unsupported optional integrations remain
 disabled instead of blocking the desktop.
 
@@ -268,7 +264,7 @@ for device-specific pairing and startup details.
    [GitHub Release](https://github.com/mekhontsev/magicdesk/releases) or build
    it from source.
 3. Launch MagicDesk on the phone and allow it through Shizuku.
-4. Press **Prepare device**. MagicDesk applies its app-specific permission and
+4. Press **Prepare device**. MagicDesk applies its app-specific permissions and
    desktop-windowing configuration through Shizuku.
 5. Reboot when requested. Android and WMShell cache part of the desktop
    configuration during startup.
@@ -296,7 +292,7 @@ for signed-in GitHub users.
 
 The build number and short commit ID are included in the version shown by
 **About** and in compatibility reports, for example
-`1.7.1-dev.123.abcdef0`.
+`1.8.1-dev.123.abcdef0`.
 
 ### Uninstalling
 
@@ -321,13 +317,13 @@ display size, density, and scaling to platform defaults.
 4. For a wireless session, connect a Miracast receiver through the system UI
    or, on a supported platform, select **Wireless**. After the
    display appears in Phone Control Panel, select **Start external desktop**.
-5. Select **Close desktop** to leave the desktop while keeping its live
-   application tasks available on the phone. Starting the desktop again
-   restores the tasks that are still alive, including their previous desktop
-   modes and layouts. A platform-managed transport also returns to mirroring;
-   a direct Android secondary display remains connected under system control.
-   Select **Exit MagicDesk** to close MagicDesk windows, clear the saved live
-   session, and stop MagicDesk and its background services completely.
+5. Select **Close desktop** to leave the desktop and park its live application
+   tasks on the phone. Starting the desktop again restores tasks that are still
+   alive, including their previous desktop modes and layouts. A
+   platform-managed transport also returns to mirroring; a direct Android
+   secondary display remains connected under system control. Select **Exit
+   MagicDesk** to close MagicDesk windows, clear the saved live session, and
+   stop MagicDesk and its background services completely.
 
 The initial external-display DPI is selected from the display resolution; for
 1920-pixel-wide displays the recommendation is `160`. The DPI can be adjusted
@@ -338,21 +334,21 @@ from System, Tools, Phone Control Panel, or with `Win+I`.
 
 ### Phone notification
 
-MagicDesk keeps a persistent notification while it is running. It is useful
-when no physical keyboard or mouse is connected:
+MagicDesk keeps a persistent notification while it is running, providing a
+direct route back to its phone-side controls:
 
 - Tap the notification itself to open Phone Control Panel on the phone.
 - Tap **Open touchpad** to launch or reopen the MagicDesk phone-side touchpad
   for the active wired or wireless desktop.
 
 The full desktop can also run on display 0 through **Open desktop here**, which
-supports tablets and allows development without an external monitor.
+supports tablets and provides a complete workspace without an external monitor.
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| `Win+D` | Start the external desktop, show it, or restore the previous window layout |
+| `Win+D` | Start or reveal the selected desktop, or restore the previous window layout |
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore fullscreen/maximized task to a window; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap the active task to either half of the desktop |
@@ -364,7 +360,7 @@ supports tablets and allows development without an external monitor.
 | `Win+Q` | Toggle the System panel |
 | `Win+I` | Open MagicDesk settings |
 | `Win+Print Screen` | Save the active display under `Pictures/Screenshots` |
-| `Win+Shift+Print Screen` | Start or stop desktop recording; include internal audio when supported and save under `Movies/MagicDesk` |
+| `Win+Shift+Print Screen` | Start or stop desktop recording with the configured audio mode and save it under `Movies/MagicDesk` |
 | `Ctrl+Space` | Select the next configured physical-keyboard layout |
 | `Win+/` | Show all MagicDesk shortcuts |
 | `Escape` | Act as normal Escape in the active app and dismiss transient cross-application UI |
@@ -372,7 +368,7 @@ supports tablets and allows development without an external monitor.
 The unmodified Win key is deliberately unused. The taskbar language indicator
 cycles the same configured layouts as `Ctrl+Space`.
 
-## Shell Access And Trust
+## Shell Access and Trust
 
 Privileged MagicDesk operations run under an authorized Android shell identity:
 normally UID 2000, the same identity used by `adb shell`, or UID 0 when the
@@ -404,10 +400,10 @@ The trust boundaries are deliberately narrow:
   viewer window.
 - MagicDesk changes only the desktop settings required by the selected
   platform driver. Every platform uses the two documented Android windowing
-  settings; supported Nubia/REDMAGIC firmware additionally uses two documented
-  persistent properties. **Restore defaults** removes those overrides instead of
-  guessing firmware values. The RedMagic property writer accepts only those
-  two hardcoded boolean/absent properties.
+  settings; supported Nubia/REDMAGIC firmware additionally uses two narrowly
+  scoped persistent system properties. **Restore defaults** removes those
+  overrides instead of guessing firmware values. The RedMagic property writer
+  accepts only those two hardcoded boolean/absent properties.
 - Projection, phone-screen and launcher integration, absolute-pointer access,
   optional firmware app entry points, and vendor diagnostics are selected
   through the same platform-driver boundary. The standard Android profile does
@@ -428,7 +424,7 @@ runtime and display contract is in
 behavior is recorded in the
 [Nubia vendor interface audit](docs/nubia-vendor-audit.md).
 
-## Diagnostics And Issues
+## Diagnostics and Issues
 
 Open **Tools > Diagnostics** to generate a copyable compatibility report. It
 contains device and firmware identity, display/input information, desktop
@@ -447,14 +443,15 @@ caption and resize input, native left/right placement, and keyboard focus
 switching between two windows. It verifies that Alt+Tab between two true
 fullscreen tasks never converts either task to freeform, then restores and
 closes one task while checking the fullscreen survivor's real input focus. It
-also recreates the desktop Activity and checks hidden Android and RedMagic APIs
-that can be inspected safely.
+also recreates the desktop Activity and checks available hidden Android,
+platform, and SoC APIs that can be inspected safely.
 
 While those stages run, an event-driven task-stack guard records the hierarchy
 reported by Android callbacks. It detects intermediate display or windowing-
 mode detours, a freeform task reaching the phone, an unexpected HOME task,
 desktop-host visibility loss, and a gap where neither fullscreen task is
-visible. This structural check does not poll or capture screen pixels.
+visible. Capability-gated in-memory pixel probes separately check the desktop
+background and native caption rendering without writing screenshots to files.
 
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified
@@ -491,13 +488,6 @@ adb shell am start -n \
 ```
 
 The accepted targets are `phone`, `simulated`, `wired`, and `wireless`.
-
-**Tools > Console** opens a desktop terminal backed by the authorized Android
-shell service. Each Console window owns one long-lived `/system/bin/sh` session,
-tracks its current directory, keeps command history for that window, and
-provides selectable output. Closing the window or running `exit` ends only that
-Console session. Files can open Console in the current directory or prepare a
-selected shell script for explicit review and execution.
 
 Include the report, exact reproduction steps, and whether the problem survives
 a reboot when filing an issue.
@@ -537,7 +527,7 @@ systems, Gradle finds a side-by-side NDK through the Android SDK;
 
 See [Contributing](CONTRIBUTING.md) for IDE setup and verification commands.
 
-## Releases And Signing
+## Releases and Signing
 
 GitHub Actions lints and builds MagicDesk after every non-documentation change.
 A `v*` tag runs the signed release workflow, verifies the APK contents and
