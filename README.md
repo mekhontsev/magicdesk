@@ -1,18 +1,23 @@
 # MagicDesk
 
-MagicDesk is an open-source desktop environment for Android 15 and
-newer. It turns a phone, tablet, or Android-reported secondary display into a
-practical desktop workspace with native Android windows, a taskbar, Start menu,
-desktop files and shortcuts, Android widgets, global keyboard controls,
-notifications, and optional phone-based touchpad support.
+MagicDesk is an open-source workstation environment for Android 15 and newer.
+It turns a phone, tablet, or Android-reported secondary display into a practical
+workspace built from native Android windows, a taskbar and Start menu, desktop
+files and widgets, shell-backed Files and Console tools, task and notification
+controls, display capture, global keyboard controls, and optional phone-based
+touchpad support.
 
-MagicDesk started as the RedMagic counterpart to Samsung DeX and retains deep
-integration with compatible RedMagic firmware. It has since grown into its own
-desktop environment with integrated Files, Console, Settings, widgets, and
-compatibility diagnostics. It is not a port of DeX and is not affiliated with
-Samsung. The common desktop builds on Android's own task, window, and
-external-display APIs; focused platform drivers add capabilities that are not
-part of standard Android.
+Applications remain ordinary Android tasks managed by the system. MagicDesk
+organizes those tasks into a coherent desktop and integrates them with the
+device's files, displays, input, and authorized Android shell capabilities; it
+does not stream applications, embed them in replacement views, or run a
+separate guest operating system.
+
+MagicDesk belongs to the same broad Android desktop category as Samsung DeX,
+but it is an independent open-source environment rather than a port or clone.
+The common implementation builds on Android's task, window, and display APIs;
+focused platform and SoC drivers add capabilities that are not part of standard
+Android.
 
 The compatibility goal is to support as many capable devices and firmware
 versions as practical with one MagicDesk APK and one codebase. Runtime
@@ -32,14 +37,11 @@ creating separate device builds or forks.
 
 ![MagicDesk running Termux and Firefox in overlapping native windows with the Hardware panel open](docs/images/magicdesk-multitasking.png)
 
-## Why MagicDesk
+## Workspace Model
 
-Many Android devices can drive a secondary display, but their stock interface
-does not provide the complete desktop workflow available in Samsung DeX.
-MagicDesk supplies that missing shell while continuing to use native Android
-tasks and the projection transport provided by the device firmware.
-
-The result is a familiar desktop model:
+Android already provides applications, system task management, and display
+transports. MagicDesk connects those capabilities into a consistent workspace
+that can run on the device itself or on a secondary display:
 
 - Android applications run in overlapping, resizable system windows with
   native WMShell decorations.
@@ -51,7 +53,7 @@ The result is a familiar desktop model:
 - Start, freely positioned desktop shortcuts, a global desktop folder, Android
   widgets, task switching, and Show Desktop provide normal mouse-driven
   navigation.
-- DeX-style global shortcuts manage windows without application-specific
+- Desktop-style global shortcuts manage windows without application-specific
   configuration.
 - On supported firmware, the phone can remain available as a touchpad and
   text-input panel.
@@ -63,43 +65,6 @@ The result is a familiar desktop model:
 MagicDesk does not emulate Android applications, host them inside custom views,
 or replace Android's task organizer. Applications remain ordinary Android
 tasks managed by Android's ActivityTaskManager, WindowOrganizer, and WMShell.
-
-## MagicDesk And Samsung DeX
-
-This comparison is deliberately scoped. The MagicDesk column describes
-behavior verified on a RedMagic 11 Pro (`NX809J`) running Android 16 and the
-firmware build listed under **Currently verified**. Other RedMagic devices and
-OTA versions may behave differently. Samsung DeX capabilities also vary by
-Galaxy device and One UI version.
-
-| Capability | MagicDesk on the verified RedMagic 11 Pro | Samsung DeX |
-| --- | --- | --- |
-| Wired external desktop | Verified through USB-C DisplayPort and RedMagic Console Mode | Built into supported Galaxy devices |
-| Wireless desktop | Verified through the stock SmartCast/Miracast picker and the common MagicDesk desktop session | Supported on compatible Miracast displays |
-| Desktop on the device display | Runs the same desktop implementation directly on the phone or a tablet | Standalone DeX is limited to selected Galaxy tablets and Z TriFold devices |
-| Native overlapping windows | Android freeform tasks with system WMShell captions | Native DeX windows |
-| Window management | Resize, snap, maximize, minimize, true fullscreen, Show Desktop, exact task switching, and proportional window-layout restoration across displays | Resize, arrange, minimize, maximize, fullscreen, and task switching |
-| Application launch policy | Explicit Auto, Windowed, and Fullscreen modes; Auto remembers the last explicit mode and window position | Resizable or fixed-size mode according to application compatibility |
-| Keyboard and mouse | Physical layouts, repeat, application right click, hot-plug, and DeX-style global shortcuts | Integrated keyboard, mouse, and global shortcut support |
-| Phone touchpad | One MagicDesk touchpad for wired and wireless sessions, with drag, right click, scrolling, text input, and built-in gesture help | Integrated DeX touchpad |
-| Notifications and settings | Desktop notification center, quick System controls, and persistent MagicDesk settings; not a complete Android Quick Settings replacement | System-integrated notifications and Quick Settings |
-| Android widgets | Native widgets with placement, resize, and configuration | Desktop widgets are not currently supported |
-| Desktop files | A real Desktop directory plus built-in Files for the complete shell-accessible filesystem, file operations, external editors, drag-and-drop, and Console/Termux handoff | File workflows are primarily provided through My Files |
-| Cross-app drag and drop | Global Android file drag-and-drop between the desktop and compatible application windows | Application drag-and-drop where supported |
-| Capture | Screenshots and configurable recording of the selected display; verified firmware adds internal audio, with video-only fallback elsewhere | Samsung system screenshot and screen-recording tools; availability varies by device and software |
-| Display controls | Sink-reported output modes, refresh rate, per-monitor DPI, identification, and Fill display | System-managed output behavior with device-dependent options |
-| Device controls | RedMagic bypass charging, cooling fan, liquid pump, and temperature controls | No equivalent RedMagic hardware controls |
-| Multiple workspaces | Deliberately not implemented | Up to four workspaces on selected Android 16 / One UI 8 devices |
-| Setup and support | Open source; requires Shizuku, Device Setup, and one reboot; currently experimental, with capabilities selected by the active platform driver | Proprietary, built into supported Galaxy firmware, and product-supported by Samsung |
-
-Samsung documents its current [wired, wireless, and standalone DeX
-modes](https://www.samsung.com/us/support/answer/ANS10010217/), [keyboard and
-mouse shortcuts](https://www.samsung.com/us/support/answer/ANS10003477/), and
-[desktop widget limitation](https://www.samsung.com/us/support/answer/ANS10001972/).
-MagicDesk aims for the same everyday Android desktop workflow, not a claim of
-complete product parity: DeX remains more mature and deeply integrated, while
-MagicDesk adds RedMagic-specific controls, desktop files, widgets, diagnostics,
-and selected-display recording.
 
 ## Highlights
 
@@ -602,7 +567,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - Author: [Dmitry Mekhontsev](https://github.com/mekhontsev)
 - Main package: `io.github.mekhontsev.magicdesk`
 - Minimum SDK: 35
-- Target SDK: 36
+- Target SDK: 37
 - License: [MIT](LICENSE)
 
 Samsung DeX is a trademark of Samsung Electronics. Its name is used here only
