@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -17,11 +18,15 @@ final class DesktopMouseBridge {
     private static final String DUMPSYS_INPUT =
             "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MILLIS = 1_000L;
+    private static final long CAPTURE_STOP_TIMEOUT_MILLIS = 1_000L;
     private final Object mLock = new Object();
     private final Context mContext;
+    private final Runnable mStateChanged;
 
     private boolean mRequested;
     private boolean mReady;
+    private boolean mCaptureRequested;
+    private boolean mCaptureStopPending;
     private boolean mPointerRestoreArmed;
     private boolean mPointerReactivationArmed;
     private int mGeneration;
@@ -29,8 +34,11 @@ final class DesktopMouseBridge {
     private ShellStreamHandle mStream;
     private float mScrollRemainder;
 
-    DesktopMouseBridge(final Context context) {
+    DesktopMouseBridge(
+            final Context context,
+            final Runnable stateChanged) {
         mContext = context.getApplicationContext();
+        mStateChanged = stateChanged;
     }
 
     void start() {
@@ -51,14 +59,19 @@ final class DesktopMouseBridge {
     }
 
     void stop() {
+        setCaptureEnabled(false);
         final ShellStreamHandle stream;
         final Thread supervisor;
+        final boolean notifyStateChanged;
         synchronized (mLock) {
             if (!mRequested && mStream == null) {
                 return;
             }
             mRequested = false;
+            notifyStateChanged = mReady;
             mReady = false;
+            mCaptureRequested = false;
+            mCaptureStopPending = false;
             mPointerRestoreArmed = false;
             mPointerReactivationArmed = false;
             mScrollRemainder = 0.0f;
@@ -67,10 +80,14 @@ final class DesktopMouseBridge {
             supervisor = mSupervisorThread;
             mStream = null;
             mSupervisorThread = null;
+            mLock.notifyAll();
         }
         closeQuietly(stream);
         if (supervisor != null) {
             supervisor.interrupt();
+        }
+        if (notifyStateChanged) {
+            mStateChanged.run();
         }
     }
 
@@ -83,6 +100,56 @@ final class DesktopMouseBridge {
     boolean isRunning() {
         synchronized (mLock) {
             return mRequested;
+        }
+    }
+
+    void setCaptureEnabled(final boolean enabled) {
+        final ShellStreamHandle stream;
+        synchronized (mLock) {
+            if (mCaptureRequested == enabled) {
+                return;
+            }
+            mCaptureRequested = enabled;
+            stream = mRequested && mReady ? mStream : null;
+            mCaptureStopPending = !enabled && stream != null;
+        }
+        Log.i(TAG, "physical capture enabled=" + enabled);
+        if (stream == null) {
+            return;
+        }
+        if (!writeControl(stream, enabled ? "start" : "stop")) {
+            synchronized (mLock) {
+                if (mStream == stream) {
+                    mCaptureStopPending = false;
+                    mLock.notifyAll();
+                }
+            }
+            return;
+        }
+        if (!enabled) {
+            awaitCaptureStopped(stream);
+        }
+    }
+
+    private void awaitCaptureStopped(final ShellStreamHandle stream) {
+        final long deadline = SystemClock.uptimeMillis()
+                + CAPTURE_STOP_TIMEOUT_MILLIS;
+        synchronized (mLock) {
+            while (mStream == stream && mCaptureStopPending) {
+                final long remaining = deadline
+                        - SystemClock.uptimeMillis();
+                if (remaining <= 0L) {
+                    Log.w(TAG,
+                            "Timed out waiting for physical capture release");
+                    return;
+                }
+                try {
+                    mLock.wait(remaining);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
     }
 
@@ -245,13 +312,23 @@ final class DesktopMouseBridge {
                 throw new IOException("uinput bridge exited unexpectedly");
             }
         } finally {
+            final boolean notifyStateChanged;
             synchronized (mLock) {
                 if (mStream == stream) {
                     mStream = null;
+                    notifyStateChanged = mReady;
                     mReady = false;
+                    mCaptureRequested = false;
+                    mCaptureStopPending = false;
+                    mLock.notifyAll();
+                } else {
+                    notifyStateChanged = false;
                 }
             }
             closeQuietly(stream);
+            if (notifyStateChanged) {
+                mStateChanged.run();
+            }
         }
     }
 
@@ -262,12 +339,21 @@ final class DesktopMouseBridge {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
             final boolean restorePointer;
             final boolean reactivatePointer;
+            final boolean capturePointer;
+            final boolean notifyStateChanged;
             synchronized (mLock) {
                 if (isActiveLocked(generation) && mStream == stream) {
+                    notifyStateChanged = !mReady;
                     mReady = true;
+                } else {
+                    notifyStateChanged = false;
                 }
                 restorePointer = mPointerRestoreArmed;
                 reactivatePointer = mPointerReactivationArmed;
+                capturePointer = mCaptureRequested;
+            }
+            if (capturePointer) {
+                writeControl(stream, "start");
             }
             if (restorePointer) {
                 writeControl(stream, "restore-pointer-on-motion");
@@ -276,6 +362,9 @@ final class DesktopMouseBridge {
                 writeControl(stream, "reactivate-pointer-on-motion");
             }
             Log.i(TAG, line);
+            if (notifyStateChanged) {
+                mStateChanged.run();
+            }
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_POINTER_MOTION")) {
@@ -287,6 +376,15 @@ final class DesktopMouseBridge {
                 mPointerRestoreArmed = false;
             }
             ShellAccess.restorePointerPositionIfDisplaced();
+            return;
+        }
+        if (line.startsWith("MAGICDESK_MOUSE_CAPTURE_STOPPED")) {
+            synchronized (mLock) {
+                if (mStream == stream) {
+                    mCaptureStopPending = false;
+                    mLock.notifyAll();
+                }
+            }
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_POINTER_REACTIVATE")) {
@@ -328,13 +426,15 @@ final class DesktopMouseBridge {
         return mRequested && mGeneration == generation;
     }
 
-    private static void writeControl(
+    private static boolean writeControl(
             final ShellStreamHandle stream,
             final String command) {
         try {
             stream.writeLine(command);
+            return true;
         } catch (IOException error) {
             Log.w(TAG, "Could not configure mouse bridge", error);
+            return false;
         }
     }
 

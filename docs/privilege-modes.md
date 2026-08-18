@@ -80,6 +80,12 @@ identity remains stable, avoiding application configuration changes. A source
 is grabbed only after it reaches a neutral key/button state, so a wake sequence
 cannot be divided between Android and the virtual device.
 
+The mouse helper remains passive until its virtual device is visible and the
+UserService has associated the input route with the desktop display. During
+teardown it acknowledges releasing the physical sources before those
+associations are removed. This keeps exclusive capture and display routing
+within one ordered lifecycle.
+
 The standard Android platform does not start these routing helpers or grab
 physical input devices. It leaves already-correct system input routing intact;
 the full routing bridge is a platform capability, not a requirement of the

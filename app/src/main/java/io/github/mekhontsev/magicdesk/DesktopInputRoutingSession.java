@@ -13,10 +13,11 @@ import java.util.Set;
 
 public final class DesktopInputRoutingSession implements AutoCloseable {
     private static final int DISPLAY_TYPE_EXTERNAL = 2;
-    private static final long VIRTUAL_KEYBOARD_TIMEOUT_MILLIS = 3_000L;
-    private static final long VIRTUAL_KEYBOARD_POLL_MILLIS = 100L;
+    private static final long VIRTUAL_DEVICE_TIMEOUT_MILLIS = 3_000L;
+    private static final long VIRTUAL_DEVICE_POLL_MILLIS = 100L;
     private static final String VIRTUAL_KEYBOARD_LOCATION_PREFIX =
             "magicdesk-keyboard-";
+    private static final String VIRTUAL_MOUSE_LOCATION = "magicdesk-mouse";
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
@@ -65,7 +66,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         final List<DesktopKeyboardDevice> keyboards =
                 waitForVirtualKeyboards(expectedVirtualKeyboardCount);
         final List<DesktopMouseDevice> mice =
-                DesktopInputDeviceDiscovery.findRoutableMice();
+                waitForVirtualMouse();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
                 new DesktopInputRoutingSession(
@@ -370,18 +371,36 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             final int expectedCount)
             throws IOException, InterruptedException {
         final long deadline = SystemClock.uptimeMillis()
-                + VIRTUAL_KEYBOARD_TIMEOUT_MILLIS;
+                + VIRTUAL_DEVICE_TIMEOUT_MILLIS;
         List<DesktopKeyboardDevice> keyboards;
         do {
             keyboards = DesktopInputDeviceDiscovery.findRoutableKeyboards();
             if (countVirtualKeyboards(keyboards) == expectedCount) {
                 return keyboards;
             }
-            Thread.sleep(VIRTUAL_KEYBOARD_POLL_MILLIS);
+            Thread.sleep(VIRTUAL_DEVICE_POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "Expected " + expectedCount
                         + " MagicDesk virtual keyboards in EventHub");
+    }
+
+    private static List<DesktopMouseDevice> waitForVirtualMouse()
+            throws IOException, InterruptedException {
+        final long deadline = SystemClock.uptimeMillis()
+                + VIRTUAL_DEVICE_TIMEOUT_MILLIS;
+        List<DesktopMouseDevice> mice;
+        do {
+            mice = DesktopInputDeviceDiscovery.findRoutableMice();
+            for (final DesktopMouseDevice mouse : mice) {
+                if (VIRTUAL_MOUSE_LOCATION.equals(mouse.location)) {
+                    return mice;
+                }
+            }
+            Thread.sleep(VIRTUAL_DEVICE_POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "MagicDesk virtual mouse is missing from EventHub");
     }
 
     private static int countVirtualKeyboards(

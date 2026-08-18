@@ -23,13 +23,15 @@ public final class RuntimeDesktopInputCoordinatorTest {
     @Test
     public void keyboardWatcherRequiresShellAndKeyboardOrRouting() {
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                false, true, Display.INVALID_DISPLAY));
+                false, true, Display.INVALID_DISPLAY, true));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, false, Display.INVALID_DISPLAY));
+                true, false, Display.INVALID_DISPLAY, true));
         assertTrue(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, true, Display.INVALID_DISPLAY));
+                true, true, Display.INVALID_DISPLAY, true));
         assertTrue(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, false, 7));
+                true, false, 7, true));
+        assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
+                true, true, 7, false));
     }
 
     @Test

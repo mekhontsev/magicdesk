@@ -12,6 +12,10 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 final class KeyboardShortcutWatcher {
+    interface RoutingListener {
+        void onRoutingChanged(int displayId, boolean ready);
+    }
+
     private static final String TAG = "MagicDeskKeys";
     private static final String INPUT_EVENT_COMMAND =
             "/system/bin/getevent -lt";
@@ -31,11 +35,14 @@ final class KeyboardShortcutWatcher {
     private static long sGeneration;
     private static boolean sFullShortcutMode;
     private static int sRoutingDisplayId = -1;
+    private static RoutingListener sRoutingListener;
 
     private KeyboardShortcutWatcher() {
     }
 
-    static void start(final int routingDisplayId) {
+    static void start(
+            final int routingDisplayId,
+            final RoutingListener routingListener) {
         final long generation;
         synchronized (LOCK) {
             if (sRunning) {
@@ -43,6 +50,7 @@ final class KeyboardShortcutWatcher {
             }
             sRunning = true;
             sRoutingDisplayId = routingDisplayId;
+            sRoutingListener = routingListener;
             generation = ++sGeneration;
             sThread = new Thread(new Runnable() {
                 @Override
@@ -60,22 +68,32 @@ final class KeyboardShortcutWatcher {
         final ShellInputRoutingHandle inputRouting;
         final Thread thread;
         final boolean cancelAltTab;
+        final RoutingListener routingListener;
+        final int routingDisplayId;
+        final boolean routingWasReady;
         synchronized (LOCK) {
             sRunning = false;
             sGeneration++;
             cancelAltTab = SHORTCUTS.reset();
             inputStream = sInputStream;
             inputRouting = sInputRouting;
+            routingListener = sRoutingListener;
+            routingDisplayId = sRoutingDisplayId;
+            routingWasReady = inputRouting != null;
             thread = sThread;
             sInputStream = null;
             sInputRouting = null;
             sThread = null;
             sFullShortcutMode = false;
             sRoutingDisplayId = -1;
+            sRoutingListener = null;
             LOCK.notifyAll();
         }
         if (cancelAltTab) {
             ConsoleModeSwitcher.cancelAltTab();
+        }
+        if (routingWasReady && routingListener != null) {
+            routingListener.onRoutingChanged(routingDisplayId, false);
         }
         closeQuietly(inputRouting);
         closeQuietly(inputStream);
@@ -232,11 +250,11 @@ final class KeyboardShortcutWatcher {
 
             inputRouting = ShellAccess.openInputRouting(
                     routingDisplayId, layoutCount);
-            setInputRouting(inputRouting, generation);
             if (inputRouting.virtualKeyboardCount() != layoutCount) {
                 throw new IOException(
                         "virtual keyboard routing count mismatch");
             }
+            setInputRouting(inputRouting, generation);
 
             final ShellStreamHandle activeKeyboardStream =
                     keyboardStream;
@@ -272,10 +290,10 @@ final class KeyboardShortcutWatcher {
                         "Keyboard bridge exited unexpectedly");
             }
         } finally {
+            clearInputRouting(inputRouting);
             closeQuietly(inputRouting);
             closeQuietly(keyboardReader);
             closeQuietly(keyboardStream);
-            clearInputRouting(inputRouting);
             clearInputStream(keyboardStream);
             HardwareKeyboardLayoutController.detachLayoutSink(
                     layoutSink);
@@ -302,8 +320,8 @@ final class KeyboardShortcutWatcher {
                     + " layouts=0");
             waitUntilStopped(generation);
         } finally {
-            closeQuietly(inputRouting);
             clearInputRouting(inputRouting);
+            closeQuietly(inputRouting);
         }
     }
 
@@ -603,10 +621,17 @@ final class KeyboardShortcutWatcher {
     private static void setInputRouting(
             final ShellInputRoutingHandle inputRouting,
             final long generation) {
+        RoutingListener listener = null;
+        int displayId = -1;
         synchronized (LOCK) {
             if (sRunning && sGeneration == generation) {
                 sInputRouting = inputRouting;
+                listener = sRoutingListener;
+                displayId = sRoutingDisplayId;
             }
+        }
+        if (listener != null) {
+            listener.onRoutingChanged(displayId, true);
         }
     }
 
@@ -634,13 +659,20 @@ final class KeyboardShortcutWatcher {
 
     private static void clearInputRouting(
             final ShellInputRoutingHandle inputRouting) {
+        RoutingListener listener = null;
+        int displayId = -1;
         synchronized (LOCK) {
             if (sInputRouting == inputRouting) {
                 sInputRouting = null;
+                listener = sRoutingListener;
+                displayId = sRoutingDisplayId;
                 if (sInputStream == null) {
                     sFullShortcutMode = false;
                 }
             }
+        }
+        if (listener != null) {
+            listener.onRoutingChanged(displayId, false);
         }
     }
 

@@ -31,6 +31,7 @@ struct bridge_state {
     bool pointer_reactivation_armed;
     bool pointer_moved;
     bool source_pointer_initialized[MAX_SOURCES];
+    bool capture_enabled;
     int pointer_activation_direction;
 };
 
@@ -237,6 +238,10 @@ static int prepare_source_handoff(
         const int source_index,
         const struct input_event *events,
         const size_t event_count) {
+    if (!state->capture_enabled) {
+        state->source_pointer_initialized[source_index] = false;
+        return 0;
+    }
     for (size_t index = 0; index < event_count; ++index) {
         const struct input_event *event = &events[index];
         if (event->type == EV_REL
@@ -349,6 +354,26 @@ static int handle_control_line(
         struct bridge_state *state,
         const char *line) {
     int first = 0;
+    if (strcmp(line, "start") == 0) {
+        // The virtual device must be associated with the desktop before a
+        // physical report is captured and forwarded through it.
+        state->capture_enabled = true;
+        memset(state->source_pointer_initialized, 0,
+                sizeof(state->source_pointer_initialized));
+        return 0;
+    }
+    if (strcmp(line, "stop") == 0) {
+        state->capture_enabled = false;
+        if (clear_button_state(state) < 0) {
+            return -1;
+        }
+        magicdesk_ungrab_sources(
+                state->sources, state->source_count);
+        memset(state->source_pointer_initialized, 0,
+                sizeof(state->source_pointer_initialized));
+        emit_line("MAGICDESK_MOUSE_CAPTURE_STOPPED");
+        return 0;
+    }
     if (strcmp(line, "sources") == 0) {
         return reconcile_sources(state, "");
     }

@@ -84,6 +84,15 @@ state through that pointer. `BTN_RIGHT` is the deliberate exception: the
 helper consumes the physical sequence and requests one display-targeted
 Android secondary click, bypassing RedMagic's conversion to Back.
 
+The pointer helper starts passively. The runtime first waits until its virtual
+mouse is visible in EventHub, establishes the display associations, and only
+then enables physical capture. Teardown reverses that order: the helper
+releases every `EVIOCGRAB` and acknowledges completion before the routing
+session removes its associations. A helper restart repeats the same protocol
+instead of inheriting capture permission from a destroyed virtual device.
+This ordering prevents physical and virtual cursor mappers from observing a
+partially constructed or partially removed route.
+
 The keyboard bridge follows the same ownership model. Forwarding the complete
 stream preserves key repeat, modifier state, hot-plug behavior, and the first
 key after a layout change more reliably than synthetic one-key injection. It
@@ -1140,6 +1149,13 @@ InputManager inventory changes replace only the physical source descriptors,
 so Android does not deliver keyboard/navigation configuration changes to every
 foreground application. This matters for older SDL applications that cannot
 safely recreate their rendering state during an input hot-plug.
+
+The mouse helper does not capture a physical source merely because its process
+is alive. Capture begins only after the virtual pointer has appeared in
+EventHub and the shared input-routing session reports ready. On shutdown, a
+native acknowledgement confirms that all sources have been released before
+that session closes. The acknowledgement is an ordering barrier, not a pacing
+delay; a bounded timeout exists only for a failed helper.
 
 A newly opened source is captured only after `EVIOCGKEY` reports a neutral
 state both before and after `EVIOCGRAB`. Until then Android receives the whole
