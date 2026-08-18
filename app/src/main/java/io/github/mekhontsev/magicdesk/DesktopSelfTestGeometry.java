@@ -48,6 +48,12 @@ final class DesktopSelfTestGeometry {
         return relativeBounds(0.08f, 0.10f, 0.50f, 0.70f, false);
     }
 
+    Rect browserWindow() {
+        // Matches the wide window in which the Firefox fullscreen restore
+        // regression was captured, while remaining relative to the work area.
+        return relativeBounds(0.14f, 0.14f, 0.86f, 0.88f, false);
+    }
+
     Rect leftWindow() {
         return relativeBounds(0.04f, 0.09f, 0.48f, 0.84f, false);
     }

@@ -27,6 +27,10 @@ final class DesktopSelfTestFixtureState {
         clear(context, DesktopSelfTestActivity.TEXT_MARKER_FILE);
     }
 
+    static void clearImmersive(final Context context) {
+        clear(context, DesktopSelfTestActivity.IMMERSIVE_MARKER_FILE);
+    }
+
     static void awaitFirstFrame(
             final Context context,
             final String token,
@@ -45,6 +49,17 @@ final class DesktopSelfTestFixtureState {
         await(context,
                 DesktopSelfTestActivity.TEXT_MARKER_FILE,
                 token + "|" + displayId + "|" + digit,
+                displayId);
+    }
+
+    static void awaitImmersive(
+            final Context context,
+            final String token,
+            final int displayId,
+            final boolean enabled) throws IOException {
+        await(context,
+                DesktopSelfTestActivity.IMMERSIVE_MARKER_FILE,
+                token + "|" + displayId + "|" + enabled,
                 displayId);
     }
 

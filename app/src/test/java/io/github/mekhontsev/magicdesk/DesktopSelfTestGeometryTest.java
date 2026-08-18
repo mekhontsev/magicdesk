@@ -18,6 +18,7 @@ public final class DesktopSelfTestGeometryTest {
                 240);
 
         assertRect(geometry.primaryWindow(), 154, 114, 960, 801);
+        assertRect(geometry.browserWindow(), 269, 160, 1651, 1007);
         assertRect(geometry.captionRenderSample(geometry.primaryWindow()),
                 557, 124, 959, 164);
         assertRect(geometry.leftWindow(), 77, 103, 922, 961);

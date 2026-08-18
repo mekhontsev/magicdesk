@@ -12,6 +12,7 @@ import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.ViewGroup;
@@ -24,7 +25,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 /** Deterministic window used only by the manually started desktop self-test. */
-public final class DesktopSelfTestActivity extends Activity {
+public class DesktopSelfTestActivity extends Activity {
     static final String EXTRA_DISPLAY_ID = "self_test_display_id";
     static final String EXTRA_TOKEN = "self_test_token";
     static final String EXTRA_ALLOW_DISPLAY_MOVE = "self_test_allow_display_move";
@@ -38,6 +39,8 @@ public final class DesktopSelfTestActivity extends Activity {
     static final String FIRST_FRAME_MARKER_FILE =
             "desktop-self-test-first-frame.txt";
     static final String TEXT_MARKER_FILE = "desktop-self-test-text.txt";
+    static final String IMMERSIVE_MARKER_FILE =
+            "desktop-self-test-immersive.txt";
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private String mToken = "";
     private boolean mAllowDisplayMove;
@@ -53,8 +56,10 @@ public final class DesktopSelfTestActivity extends Activity {
                                     intent.getAction())
                             && mToken.equals(intent.getStringExtra(
                                     EXTRA_IMMERSIVE_TOKEN))) {
-                        applyImmersive(intent.getBooleanExtra(
-                                EXTRA_IMMERSIVE, false));
+                        final boolean enabled = intent.getBooleanExtra(
+                                EXTRA_IMMERSIVE, false);
+                        applyImmersive(enabled);
+                        recordImmersiveFrame(enabled);
                     }
                 }
             };
@@ -121,13 +126,68 @@ public final class DesktopSelfTestActivity extends Activity {
             return;
         }
         if (enabled) {
-            controller.hide(WindowInsets.Type.systemBars());
+            enterBrowserImmersiveMode(controller);
         } else {
-            controller.show(WindowInsets.Type.systemBars());
+            exitBrowserImmersiveMode(controller);
         }
+        configureImmersiveWindow(enabled);
     }
 
-    private FrameLayout createContent() {
+    protected void configureImmersiveWindow(final boolean enabled) {
+        // Browser-shaped fixtures can reproduce their additional window relayout.
+    }
+
+    protected View immersiveInsetsView() {
+        return getWindow().getDecorView();
+    }
+
+    private void enterBrowserImmersiveMode(
+            final WindowInsetsController controller) {
+        hideSystemBars(controller);
+        immersiveInsetsView().setOnApplyWindowInsetsListener(
+                (view, insets) -> {
+                    if (insets.isVisible(WindowInsets.Type.statusBars())) {
+                        hideSystemBars(controller);
+                    }
+                    return view.onApplyWindowInsets(insets);
+                });
+    }
+
+    private void exitBrowserImmersiveMode(
+            final WindowInsetsController controller) {
+        controller.show(WindowInsets.Type.systemBars());
+        immersiveInsetsView().setOnApplyWindowInsetsListener(null);
+    }
+
+    private static void hideSystemBars(
+            final WindowInsetsController controller) {
+        controller.hide(WindowInsets.Type.systemBars());
+        controller.setSystemBarsBehavior(
+                WindowInsetsController
+                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+    }
+
+    private void recordImmersiveFrame(final boolean enabled) {
+        final android.view.View decor = getWindow().getDecorView();
+        decor.requestApplyInsets();
+        decor.getViewTreeObserver().addOnPreDrawListener(
+                new ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        final ViewTreeObserver observer =
+                                decor.getViewTreeObserver();
+                        if (observer.isAlive()) {
+                            observer.removeOnPreDrawListener(this);
+                        }
+                        writeMarker(IMMERSIVE_MARKER_FILE,
+                                mToken + "|" + displayId() + "|" + enabled);
+                        return true;
+                    }
+                });
+        decor.invalidate();
+    }
+
+    protected FrameLayout createContent() {
         final FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(0xFF123A4A);
         root.setFocusableInTouchMode(true);

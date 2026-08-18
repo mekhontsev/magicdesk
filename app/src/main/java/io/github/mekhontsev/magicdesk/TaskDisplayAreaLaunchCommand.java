@@ -27,6 +27,8 @@ public final class TaskDisplayAreaLaunchCommand {
             "io.github.mekhontsev.magicdesk";
     private static final String ACTIVITY_CLASS =
             "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity";
+    private static final String BROWSER_ACTIVITY_CLASS =
+            "io.github.mekhontsev.magicdesk.DesktopSelfTestBrowserActivity";
     // Nubia cannot rank an empty nested TDA; use a sibling of the default TDA.
     private static final int FEATURE_ROOT = 0;
     private static final int TRANSIT_OPEN = 1;
@@ -74,12 +76,29 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final String token,
             final Rect bounds) {
+        return createSelfTestLaunchCommand(
+                displayId, token, bounds, ACTIVITY_CLASS);
+    }
+
+    static String createBrowserSelfTestLaunchCommand(
+            final int displayId,
+            final String token,
+            final Rect bounds) {
+        return createSelfTestLaunchCommand(
+                displayId, token, bounds, BROWSER_ACTIVITY_CLASS);
+    }
+
+    private static String createSelfTestLaunchCommand(
+            final int displayId,
+            final String token,
+            final Rect bounds,
+            final String activityClass) {
         if (displayId < 0 || token == null
                 || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid self-test launch");
         }
         final Intent intent = new Intent()
-                .setComponent(new ComponentName(PACKAGE_NAME, ACTIVITY_CLASS))
+                .setComponent(new ComponentName(PACKAGE_NAME, activityClass))
                 .setData(Uri.parse("magicdesk-self-test:" + token))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK

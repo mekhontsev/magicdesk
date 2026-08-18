@@ -5,7 +5,6 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
-import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.hasClass;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 
 import android.content.Context;
@@ -37,6 +36,8 @@ final class DesktopSelfTestCleanup {
             try {
                 removeFixtureTasks();
                 waitForTaskAbsent(DesktopSelfTestComponents.FIXTURE_CLASS);
+                waitForTaskAbsent(
+                        DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS);
             } catch (IOException error) {
                 clean = false;
                 detail.append("fixture removal: ")
@@ -176,10 +177,7 @@ final class DesktopSelfTestCleanup {
         final String stack = ShellAccess.run(
                 "/system/bin/cmd activity stack list");
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
-            if (!hasClass(task.componentName,
-                    DesktopSelfTestComponents.FIXTURE_CLASS)
-                    && !hasClass(task.topActivityName,
-                            DesktopSelfTestComponents.FIXTURE_CLASS)) {
+            if (!DesktopSelfTestComponents.isFixtureTask(task)) {
                 continue;
             }
             if (requiresPhoneDesktopExitBeforeRemoval(
@@ -194,7 +192,7 @@ final class DesktopSelfTestCleanup {
                                         task.displayId, task.taskId));
                 waitForTask(
                         task.displayId,
-                        DesktopSelfTestComponents.FIXTURE_CLASS,
+                        fixtureClass(task),
                         entry -> entry.taskId == task.taskId
                                 && "fullscreen".equals(
                                         entry.windowingMode));
@@ -215,6 +213,18 @@ final class DesktopSelfTestCleanup {
                         task.displayId, task.taskId);
             }
         }
+    }
+
+    private static String fixtureClass(
+            final TaskStackParser.Entry task) {
+        return DesktopSelfTestTasks.hasClass(
+                task.componentName,
+                DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS)
+                || DesktopSelfTestTasks.hasClass(
+                        task.topActivityName,
+                        DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS)
+                ? DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS
+                : DesktopSelfTestComponents.FIXTURE_CLASS;
     }
 
     static boolean requiresPhoneDesktopExitBeforeRemoval(

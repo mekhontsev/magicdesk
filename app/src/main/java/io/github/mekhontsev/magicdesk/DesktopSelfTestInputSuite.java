@@ -244,11 +244,25 @@ final class DesktopSelfTestInputSuite {
 
     private static String inspectCaptionStructure(
             final int taskId, final Rect bounds) throws IOException {
-        return ShellAccess.run(AppProcessCommand.run(
-                "io.github.mekhontsev.magicdesk.TaskCaptionStructureCommand",
-                taskId + " "
-                        + bounds.left + " " + bounds.top + " "
-                        + bounds.right + " " + bounds.bottom)).trim();
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        IOException lastFailure = null;
+        do {
+            try {
+                return ShellAccess.run(AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk"
+                                + ".TaskCaptionStructureCommand",
+                        taskId + " "
+                                + bounds.left + " " + bounds.top + " "
+                                + bounds.right + " " + bounds.bottom)).trim();
+            } catch (IOException error) {
+                lastFailure = error;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw lastFailure == null
+                ? new IOException("caption structure is unavailable")
+                : lastFailure;
     }
 
     private static String waitForVisibleCaptionSurface(

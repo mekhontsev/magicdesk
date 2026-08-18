@@ -16,8 +16,6 @@ final class DesktopSelfTestPhoneUiObserver {
     private static final int MAX_EVENTS = 24;
     private static final String TOUCHPAD_CLASS =
             "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
-    private static final String FIXTURE_CLASS =
-            DesktopSelfTestComponents.FIXTURE_CLASS;
 
     private static boolean sActive;
     private static long sStartedAt;
@@ -82,8 +80,11 @@ final class DesktopSelfTestPhoneUiObserver {
                     continue;
                 }
                 final boolean fixture =
-                        hasClass(task.componentName, FIXTURE_CLASS)
-                                || hasClass(task.topActivityName, FIXTURE_CLASS);
+                        DesktopSelfTestComponents.isFixtureComponent(
+                                task.componentName)
+                                || DesktopSelfTestComponents
+                                        .isFixtureComponent(
+                                                task.topActivityName);
                 observePhoneTaskMode(
                         task.taskId, fixture, task.windowingMode);
                 if (!task.visible) {
@@ -113,7 +114,8 @@ final class DesktopSelfTestPhoneUiObserver {
                 continue;
             }
             final boolean fixture =
-                    hasClass(task.componentName, FIXTURE_CLASS);
+                    DesktopSelfTestComponents.isFixtureComponent(
+                            task.componentName);
             observePhoneTaskMode(
                     task.taskId, fixture, task.windowingMode);
             if (!task.visible) {

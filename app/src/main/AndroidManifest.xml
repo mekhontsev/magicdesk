@@ -156,6 +156,21 @@
             android:taskAffinity="${applicationId}.selftest" />
 
         <activity
+            android:name=".DesktopSelfTestBrowserActivity"
+            android:configChanges="keyboard|keyboardHidden|layoutDirection|mcc|mnc|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/self_test_window_target"
+            android:launchMode="singleTask"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:process=":selftest"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:taskAffinity="${applicationId}.selftest.browser"
+            android:theme="@style/SelfTestBrowserTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".CommandConsoleActivity"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"

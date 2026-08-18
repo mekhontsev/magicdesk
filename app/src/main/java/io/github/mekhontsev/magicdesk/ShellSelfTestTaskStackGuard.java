@@ -93,9 +93,8 @@ final class ShellSelfTestTaskStackGuard {
                     .getWindowConfigurationValue(task, "getActivityType");
             final ComponentName component = HiddenTaskApi.getTaskComponent(task);
             final boolean fixture = component != null
-                    && DesktopSelfTestTasks.hasClass(
-                            component.flattenToString(),
-                            DesktopSelfTestComponents.FIXTURE_CLASS);
+                    && DesktopSelfTestComponents.isFixtureComponent(
+                            component.flattenToString());
             boolean taskVisibilityKnown = true;
             boolean visible = false;
             try {

@@ -30,6 +30,8 @@ final class DesktopSelfTestWindowSuite {
             DesktopSelfTestComponents.PACKAGE_NAME;
     private static final String FIXTURE_CLASS =
             DesktopSelfTestComponents.FIXTURE_CLASS;
+    private static final String BROWSER_FIXTURE_CLASS =
+            DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS;
     private static final String DESKTOP_CLASS =
             DesktopSelfTestComponents.DESKTOP_CLASS;
     private static final int SIMULATED_WIDTH = 1920;
@@ -280,13 +282,30 @@ final class DesktopSelfTestWindowSuite {
                 targetFixtureTaskId,
                 windowBounds,
                 captionReference);
+        final Rect browserBounds = settledGeometry.browserWindow();
+        final SurfaceReferenceResult browserSurfaceReference =
+                target == DesktopSelfTestTarget.PHONE
+                        ? SurfaceReferenceResult.unavailable(
+                                "the selected desktop uses display 0")
+                        : captureSurfaceReferenceOutsideWindow(
+                                captureSource,
+                                settledGeometry,
+                                browserBounds);
+        final DesktopSelfTestInputSuite.CaptionReference
+                browserCaptionReference =
+                DesktopSelfTestInputSuite.alignCaptionReference(
+                        captionReference,
+                        browserBounds,
+                        settledGeometry);
         verifyAppRequestedFullscreenRestore(
+                appContext,
                 result,
                 targetDisplayId,
                 targetFixtureTaskId,
-                windowBounds,
+                browserBounds,
                 captureSource,
-                captionReference);
+                browserSurfaceReference,
+                browserCaptionReference);
         require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
             ShellAccess.run(AppProcessCommand.run(
                     "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
@@ -310,11 +329,13 @@ final class DesktopSelfTestWindowSuite {
     }
 
     private static void verifyAppRequestedFullscreenRestore(
+            final Context appContext,
             final DesktopSelfTestResult result,
             final int displayId,
             final int taskId,
             final Rect expectedBounds,
             final DisplayCaptureSource captureSource,
+            final SurfaceReferenceResult surfaceReference,
             final DesktopSelfTestInputSuite.CaptionReference captionReference)
             throws AbortSelfTest {
         final String token = Long.toHexString(System.nanoTime());
@@ -325,7 +346,7 @@ final class DesktopSelfTestWindowSuite {
                 () -> {
                     final DesktopTaskLaunchProbe.Observation observation =
                             preservePhoneTouchpad(() ->
-                                    launchFixtureAndObserve(
+                                    launchBrowserFixtureAndObserve(
                                             displayId,
                                             token,
                                             expectedBounds));
@@ -344,23 +365,36 @@ final class DesktopSelfTestWindowSuite {
                     "WINDOW-015",
                     "Enter application-requested fullscreen",
                     () -> {
+                        DesktopSelfTestFixtureState.clearImmersive(appContext);
                         setFixtureImmersive(token, true);
+                        DesktopSelfTestFixtureState.awaitImmersive(
+                                appContext, token, displayId, true);
                         final TaskStackParser.Entry task = waitForTask(
                                 displayId,
-                                FIXTURE_CLASS,
+                                BROWSER_FIXTURE_CLASS,
                                 entry -> entry.taskId == immersiveTaskId
                                         && "fullscreen".equals(
                                                 entry.windowingMode));
-                        return "task=" + task.taskId;
+                        // The application request and MagicDesk's task
+                        // transition are asynchronous. Exiting before both
+                        // settle creates an artificial transition race that a
+                        // real browser video does not exercise.
+                        return "task=" + task.taskId
+                                + ", mode=" + task.windowingMode
+                                + ", bounds="
+                                + DesktopSelfTestGeometry.format(task.bounds);
                     });
             require(result,
                     "WINDOW-016",
                     "Restore application-requested window bounds",
                     () -> {
+                        DesktopSelfTestFixtureState.clearImmersive(appContext);
                         setFixtureImmersive(token, false);
+                        DesktopSelfTestFixtureState.awaitImmersive(
+                                appContext, token, displayId, false);
                         final TaskStackParser.Entry task = waitForTask(
                                 displayId,
-                                FIXTURE_CLASS,
+                                BROWSER_FIXTURE_CLASS,
                                 entry -> entry.taskId == immersiveTaskId
                                         && "freeform".equals(
                                                 entry.windowingMode)
@@ -370,6 +404,11 @@ final class DesktopSelfTestWindowSuite {
                         return DesktopSelfTestGeometry.format(task.bounds);
                     });
             restored = true;
+            verifyDesktopSurfaceRestored(
+                    result,
+                    "WINDOW-018",
+                    "Restore desktop surface after application fullscreen",
+                    surfaceReference);
             DesktopSelfTestInputSuite.verifyCaptionStructure(
                     result,
                     "CAPTION-005",
@@ -399,6 +438,64 @@ final class DesktopSelfTestWindowSuite {
             }
             removeFixtureTaskBestEffort(immersiveTaskId);
         }
+    }
+
+    private static void verifyDesktopSurfaceRestored(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final SurfaceReferenceResult surfaceReference) {
+        DesktopSelfTestHostObserver.stage(code);
+        if (surfaceReference.reference == null) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    code, label, surfaceReference.error);
+            return;
+        }
+        try {
+            final DesktopTransitionSurfaceProbe.Reference expected =
+                    surfaceReference.reference;
+            final String output = ShellAccess.run(
+                    DesktopTransitionSurfaceProbe.createCaptureCommand(
+                            expected.captureSource,
+                            expected.x,
+                            expected.y));
+            final DesktopTransitionSurfaceProbe.Reference actual =
+                    DesktopTransitionSurfaceProbe.parseReference(
+                            expected.captureSource,
+                            expected.x,
+                            expected.y,
+                            output);
+            final boolean restored = isStableDesktopPixel(
+                    expected.color, actual.color);
+            result.add(restored
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    code,
+                    label,
+                    "expected=" + DesktopTransitionSurfaceProbe.formatColor(
+                            expected.color)
+                            + ", actual="
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    actual.color));
+        } catch (IOException | IllegalArgumentException error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    code, label, usefulMessage(error));
+        }
+    }
+
+    private static boolean isStableDesktopPixel(
+            final int expected,
+            final int actual) {
+        // A recomposed wallpaper can move a few RGB levels through color
+        // conversion. The broken Firefox path replaces it with a different
+        // solid surface, which is far outside this tolerance.
+        final int tolerance = 12;
+        return Math.abs(((expected >>> 16) & 0xFF)
+                        - ((actual >>> 16) & 0xFF)) <= tolerance
+                && Math.abs(((expected >>> 8) & 0xFF)
+                        - ((actual >>> 8) & 0xFF)) <= tolerance
+                && Math.abs((expected & 0xFF) - (actual & 0xFF))
+                        <= tolerance;
     }
 
     private static void setFixtureImmersive(
@@ -598,16 +695,41 @@ final class DesktopSelfTestWindowSuite {
             final int displayId,
             final String token,
             final Rect bounds) throws IOException {
+        return launchFixtureAndObserve(
+                displayId,
+                token,
+                bounds,
+                FIXTURE_CLASS,
+                TaskDisplayAreaLaunchCommand.createSelfTestLaunchCommand(
+                        displayId, token, bounds));
+    }
+
+    private static DesktopTaskLaunchProbe.Observation
+            launchBrowserFixtureAndObserve(
+                    final int displayId,
+                    final String token,
+                    final Rect bounds) throws IOException {
+        return launchFixtureAndObserve(
+                displayId,
+                token,
+                bounds,
+                BROWSER_FIXTURE_CLASS,
+                TaskDisplayAreaLaunchCommand
+                        .createBrowserSelfTestLaunchCommand(
+                                displayId, token, bounds));
+    }
+
+    private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
+            final int displayId,
+            final String token,
+            final Rect bounds,
+            final String fixtureClass,
+            final String launchCommand) throws IOException {
         final ComponentName component =
-                new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
+                new ComponentName(PACKAGE_NAME, fixtureClass);
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(-1, component)) {
-            final String output = ShellAccess.run(
-                    TaskDisplayAreaLaunchCommand
-                            .createSelfTestLaunchCommand(
-                                    displayId,
-                                    token,
-                                    bounds));
+            final String output = ShellAccess.run(launchCommand);
             if (!output.contains("task-display-area-launch=")) {
                 throw new IOException(output.trim());
             }
@@ -878,10 +1000,34 @@ final class DesktopSelfTestWindowSuite {
     private static SurfaceReferenceResult captureSurfaceReference(
             final DisplayCaptureSource captureSource,
             final DesktopSelfTestGeometry geometry) {
+        return captureSurfaceReference(
+                captureSource,
+                geometry.displayBounds.left
+                        + geometry.displayBounds.width() * 3 / 4,
+                geometry.workArea.centerY());
+    }
+
+    private static SurfaceReferenceResult captureSurfaceReferenceOutsideWindow(
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry,
+            final Rect windowBounds) {
+        if (windowBounds == null
+                || windowBounds.right >= geometry.workArea.right) {
+            return SurfaceReferenceResult.unavailable(
+                    "no desktop sample area remains outside the test window");
+        }
+        return captureSurfaceReference(
+                captureSource,
+                windowBounds.right
+                        + (geometry.workArea.right - windowBounds.right) / 2,
+                windowBounds.centerY());
+    }
+
+    private static SurfaceReferenceResult captureSurfaceReference(
+            final DisplayCaptureSource captureSource,
+            final int x,
+            final int y) {
         try {
-            final int x = geometry.displayBounds.left
-                    + geometry.displayBounds.width() * 3 / 4;
-            final int y = geometry.workArea.centerY();
             final String output = ShellAccess.run(
                     DesktopTransitionSurfaceProbe.createCaptureCommand(
                             captureSource, x, y));
