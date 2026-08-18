@@ -14,7 +14,7 @@ final class DesktopWindowTransitionController {
         int displayId();
         boolean isRunning();
         boolean beginAppFullscreenTask(int taskId, Rect restoreBounds);
-        boolean releaseFullscreenTask(int taskId);
+        boolean restoreFullscreenTask(int taskId, Rect bounds);
         boolean closeFullscreenTask(int taskId);
         void focusTask(int taskId);
         void scheduleRefresh();
@@ -306,9 +306,7 @@ final class DesktopWindowTransitionController {
         state.setManualImmersiveOverride(true);
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
-        releaseFullscreenParent(taskId);
-        TaskRepository.setFreeform(
-                task, targetBounds,
+        final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> {
                     if (!mTaskStates.isCurrent(taskId, state)) {
                         return;
@@ -327,7 +325,12 @@ final class DesktopWindowTransitionController {
                     rememberWindowed(task, targetBounds);
                     mRuntimeState.focusTask(taskId);
                     mRuntimeState.scheduleRefresh();
-                }));
+                });
+        if (mRuntimeState.restoreFullscreenTask(taskId, targetBounds)) {
+            callback.onComplete(new TaskRepository.ActionResult(true, ""));
+        } else {
+            TaskRepository.setFreeform(task, targetBounds, callback);
+        }
     }
 
     private void restoreOrMinimize(
@@ -459,7 +462,6 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
-        releaseFullscreenParent(taskId);
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> finishFullscreenRestore(
                         task,
@@ -468,18 +470,12 @@ final class DesktopWindowTransitionController {
                         userRequested,
                         result.success,
                         result.message));
-        if (task.isFreeform()) {
+        if (mRuntimeState.restoreFullscreenTask(taskId, targetBounds)) {
+            callback.onComplete(new TaskRepository.ActionResult(true, ""));
+        } else if (task.isFreeform()) {
             TaskRepository.rebuildFreeform(task, targetBounds, callback);
         } else {
             TaskRepository.setFreeform(task, targetBounds, callback);
-        }
-    }
-
-    private void releaseFullscreenParent(final int taskId) {
-        if (!mRuntimeState.releaseFullscreenTask(taskId)) {
-            // Continue through the normal path. If the observer disconnected,
-            // Binder death already removed its organizer-owned task area.
-            Log.w(TAG, "fullscreen parent release unavailable task=" + taskId);
         }
     }
 

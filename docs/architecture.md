@@ -1059,6 +1059,13 @@ return omits WMShell's native decoration, the task is hidden, passed through a
 real mode boundary, and revealed with its saved bounds; the Activity instance
 and display stay unchanged.
 
+`ShellPreparedTaskTransition` is the single owner of the hidden preparation,
+final reveal, and rollback transactions used by freeform rebuilds and task
+moves. It also atomically detaches a task from MagicDesk's organizer-owned
+fullscreen parent while restoring final freeform bounds. Higher-level
+controllers retain lifecycle policy; interactive drag, resize, and focus never
+pass through this prepared-state mechanism.
+
 RedMagic can retain a stale caption inset after changing windowing mode. The
 working same-display refresh captures the task-local caption source before the
 transition, then synchronously replaces that exact client source with an empty

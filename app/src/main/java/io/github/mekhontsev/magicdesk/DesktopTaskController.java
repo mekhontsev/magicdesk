@@ -122,10 +122,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
-                    public boolean releaseFullscreenTask(final int taskId) {
-                        return !mTaskWatcherReady
-                                || mTaskWatcher.releaseFullscreenTask(
-                                        mDisplayId, taskId);
+                    public boolean restoreFullscreenTask(
+                            final int taskId,
+                            final Rect bounds) {
+                        return mTaskWatcherReady
+                                && mTaskWatcher.restoreFullscreenTask(
+                                        mDisplayId, taskId, bounds);
                     }
 
                     @Override

@@ -129,12 +129,13 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             // Firmware may already have nominally changed the task to freeform.
             // Re-establish a hidden fullscreen boundary while detaching it from
             // our parent, then reveal only the canonical freeform geometry.
-            prepareAppFullscreenRestore(service, displayId, taskId);
+            ShellPreparedTaskTransition.prepareDetachedFullscreen(
+                    service, displayId, taskId);
             hidden = true;
             TaskDisplayAreaLaunchCommand.waitForTaskVisibility(
                     service, displayId, taskId, false);
             forgetAppFullscreenTask(taskId);
-            TaskWindowingCommand.showPreparedFreeform(
+            ShellPreparedTaskTransition.showPreparedFreeform(
                     service, displayId, taskId, restoreBounds);
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, restoreBounds);
@@ -147,7 +148,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             forgetAppFullscreenTask(taskId);
             if (hidden) {
                 try {
-                    TaskWindowingCommand.restorePreparedTask(
+                    ShellPreparedTaskTransition.restorePreparedTask(
                             service,
                             displayId,
                             taskId,
@@ -161,41 +162,6 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             }
             return false;
         }
-    }
-
-    private void prepareAppFullscreenRestore(
-            final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE);
-        transactionClass.getMethod(
-                "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                .invoke(transaction, new Object[]{
-                        taskToken, null, Boolean.TRUE});
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
-                transaction,
-                tokenClass,
-                taskToken,
-                true);
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
     }
 
     private void forgetAppFullscreenTask(final int taskId) {
@@ -264,47 +230,43 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         return true;
     }
 
-    synchronized boolean releaseTask(
+    synchronized boolean restoreTask(
             final Object service,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final Rect bounds) {
         if (mArea == null || mDisplayId != displayId
-                || !mTaskIds.contains(Integer.valueOf(taskId))) {
-            return true;
+                || !mTaskIds.contains(Integer.valueOf(taskId))
+                || bounds == null || bounds.isEmpty()) {
+            return false;
         }
         try {
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass =
-                    Class.forName("android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
-                    service, displayId, taskId);
-            // A null parent returns the task to the display's default task
-            // area before the caller changes it from fullscreen to freeform.
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(transaction, taskToken, new Rect());
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, new Object[]{
-                            taskToken, null, Boolean.TRUE});
-            SyncWindowContainerTransaction.apply(
-                    service, transactionClass, transaction);
+            ShellPreparedTaskTransition.detachAndShowFreeform(
+                    service, displayId, taskId, bounds);
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
             mTaskIds.remove(Integer.valueOf(taskId));
-            if (mTaskIds.isEmpty()) {
-                close();
-            }
-            Log.i(TAG, "released fullscreen task=" + taskId
+            // The detach is part of an asynchronous WMShell transition. Keep
+            // the now-empty organizer area alive until the observer closes or
+            // reuses it; deleting its parent here can race the same transition.
+            Log.i(TAG, "restored fullscreen task=" + taskId
                     + " display=" + displayId);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
+            Log.w(TAG, "failed to restore fullscreen task=" + taskId, error);
+            try {
+                // Preserve the old two-step fallback only when the atomic
+                // detach-and-restore transaction itself is unavailable.
+                ShellPreparedTaskTransition.detachFullscreenParent(
+                        service, displayId, taskId);
+                mAppRestoreBounds.remove(Integer.valueOf(taskId));
+                mTaskIds.remove(Integer.valueOf(taskId));
+                if (mTaskIds.isEmpty()) {
+                    close();
+                }
+            } catch (ReflectiveOperationException
+                    | RuntimeException detachError) {
+                error.addSuppressed(detachError);
+            }
             return false;
         }
     }

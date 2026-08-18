@@ -75,11 +75,21 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, sequence, displayId, taskIds));
     }
 
-    boolean releaseFullscreenTask(
+    boolean restoreFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
-        return callServiceForResult(() -> mService.releaseFullscreenTask(
-                mCallback, displayId, taskId));
+            final int taskId,
+            final Rect bounds) throws IOException {
+        if (bounds == null || bounds.isEmpty()) {
+            return false;
+        }
+        return callServiceForResult(() -> mService.restoreFullscreenTask(
+                mCallback,
+                displayId,
+                taskId,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom));
     }
 
     boolean beginAppFullscreenTask(

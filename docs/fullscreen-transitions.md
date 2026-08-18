@@ -46,6 +46,13 @@ not in the critical path. This restores the desktop surface and native caption
 without using the phone display, restarting the application, or exposing the
 firmware's partial freeform state.
 
+The same shell-owned visibility boundary is shared by running-task display
+moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task
+belongs to MagicDesk's fullscreen parent, a manual restore or snap reparents it
+to the display's default task area, applies freeform mode and final bounds, and
+reveals its caption in one WMShell transition. Platforms without that parent
+retain the existing one-shot freeform transition.
+
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included
 when they are created or restored.

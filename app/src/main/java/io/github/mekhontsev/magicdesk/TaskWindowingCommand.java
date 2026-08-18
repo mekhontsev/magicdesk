@@ -7,17 +7,9 @@ import java.lang.reflect.Method;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
-    private static final int TRANSIT_OPEN = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int TRANSIT_TO_FRONT = 3;
-
-    private enum FreeformApplication {
-        TRANSITION,
-        OPEN_TRANSITION,
-        HIDE_SYNC,
-        SHOW_TRANSITION
-    }
 
     private TaskWindowingCommand() {
     }
@@ -90,7 +82,7 @@ public final class TaskWindowingCommand {
         if (right <= left || bottom <= top) {
             throw new IllegalArgumentException("invalid bounds");
         }
-        applyFreeform(
+        ShellPreparedTaskTransition.applyFreeform(
                 HiddenTaskApi.getService(),
                 displayId,
                 taskId,
@@ -114,20 +106,23 @@ public final class TaskWindowingCommand {
             // then let the normal freeform transition recreate the native
             // decoration without exposing an intermediate fullscreen frame.
             hidden = true;
-            prepareFreeform(service, displayId, taskId, bounds);
+            ShellPreparedTaskTransition.prepareFreeform(
+                    service, displayId, taskId, bounds);
             TaskDisplayAreaLaunchCommand.waitForTaskVisibility(
                     service, displayId, taskId, false);
-            applyPreparedFullscreen(service, displayId, taskId, true);
+            ShellPreparedTaskTransition.prepareFullscreen(
+                    service, displayId, taskId);
             TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
                     service, displayId, taskId, WINDOWING_MODE_FULLSCREEN);
-            showPreparedFreeform(service, displayId, taskId, bounds);
+            ShellPreparedTaskTransition.showPreparedFreeform(
+                    service, displayId, taskId, bounds);
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, bounds);
             hidden = false;
         } catch (ReflectiveOperationException | RuntimeException error) {
             if (hidden) {
                 try {
-                    restorePreparedTask(
+                    ShellPreparedTaskTransition.restorePreparedTask(
                             service,
                             displayId,
                             taskId,
@@ -407,215 +402,6 @@ public final class TaskWindowingCommand {
                 TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                         service, displayId, taskIds[index], bounds[index]);
             }
-        }
-    }
-
-    static void applyFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.TRANSITION);
-    }
-
-    static void revealFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.OPEN_TRANSITION);
-    }
-
-    static void prepareFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.HIDE_SYNC);
-    }
-
-    static void showPreparedFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.SHOW_TRANSITION);
-    }
-
-    static void prepareFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        applyPreparedFullscreen(service, displayId, taskId, true);
-    }
-
-    static void showPreparedFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        applyPreparedFullscreen(service, displayId, taskId, false);
-    }
-
-    static void restorePreparedTask(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final int windowingMode,
-            final Rect bounds) throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(windowingMode));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect(bounds));
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
-                transaction,
-                tokenClass,
-                taskToken,
-                windowingMode != WINDOWING_MODE_FREEFORM);
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
-    }
-
-    private static void applyFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds,
-            final FreeformApplication application)
-            throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, bounds);
-        transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        if (application == FreeformApplication.HIDE_SYNC
-                || application == FreeformApplication.SHOW_TRANSITION) {
-            transactionClass.getMethod(
-                    "setHidden", tokenClass, Boolean.TYPE)
-                    .invoke(
-                            transaction,
-                            taskToken,
-                            Boolean.valueOf(
-                                    application
-                                            == FreeformApplication.HIDE_SYNC));
-        }
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass, transaction, tokenClass, taskToken, false);
-        if (application == FreeformApplication.HIDE_SYNC) {
-            SyncWindowContainerTransaction.apply(
-                    service, transactionClass, transaction);
-        } else if (application == FreeformApplication.OPEN_TRANSITION) {
-            TaskFullscreenTransitionCommand.startTransition(
-                    TRANSIT_OPEN, transactionClass, transaction);
-        } else {
-            TaskFullscreenTransitionCommand.startTransition(
-                    transactionClass, transaction);
-        }
-    }
-
-    private static void applyPreparedFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final boolean hidden) throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod(
-                "setDensityDpi", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(0));
-        transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.valueOf(hidden));
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
-                transaction,
-                tokenClass,
-                taskToken,
-                true);
-        if (hidden) {
-            SyncWindowContainerTransaction.apply(
-                    service, transactionClass, transaction);
-        } else {
-            TaskFullscreenTransitionCommand.startTransition(
-                    TRANSIT_TO_FRONT, transactionClass, transaction);
         }
     }
 

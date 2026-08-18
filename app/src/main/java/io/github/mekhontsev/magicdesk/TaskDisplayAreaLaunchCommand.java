@@ -279,7 +279,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 if (defaultApp) {
                     // Keep the desktop surface visible until the cold task has
                     // drawn its first freeform frame.
-                    TaskWindowingCommand.revealFreeform(
+                    ShellPreparedTaskTransition.revealFreeform(
                             service, displayId, taskId, bounds);
                     waitForTaskWindowingMode(
                             service,
@@ -772,7 +772,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 observation.sample("before");
             }
             taskHidden = true;
-            TaskWindowingCommand.prepareFreeform(
+            ShellPreparedTaskTransition.prepareFreeform(
                     service, sourceDisplayId, taskId, bounds);
             waitForTaskWindowingMode(
                     service,
@@ -804,7 +804,7 @@ public final class TaskDisplayAreaLaunchCommand {
             if (observation != null) {
                 observation.sample("moved");
             }
-            TaskWindowingCommand.showPreparedFreeform(
+            ShellPreparedTaskTransition.showPreparedFreeform(
                     service, targetDisplayId, taskId, bounds);
             waitForTaskVisibility(
                     service, targetDisplayId, taskId, true);
@@ -854,7 +854,7 @@ public final class TaskDisplayAreaLaunchCommand {
             waitForTask(
                     service, sourceDisplayId, taskId, null, null);
         }
-        TaskWindowingCommand.restorePreparedTask(
+        ShellPreparedTaskTransition.restorePreparedTask(
                 service,
                 sourceDisplayId,
                 taskId,

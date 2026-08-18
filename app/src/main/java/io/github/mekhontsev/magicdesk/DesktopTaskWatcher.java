@@ -171,17 +171,18 @@ final class DesktopTaskWatcher {
         }
     }
 
-    boolean releaseFullscreenTask(
+    boolean restoreFullscreenTask(
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final Rect bounds) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             return false;
         }
         try {
-            return handle.releaseFullscreenTask(displayId, taskId);
+            return handle.restoreFullscreenTask(displayId, taskId, bounds);
         } catch (IOException error) {
-            Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
+            Log.w(TAG, "failed to restore fullscreen task=" + taskId, error);
             return false;
         }
     }

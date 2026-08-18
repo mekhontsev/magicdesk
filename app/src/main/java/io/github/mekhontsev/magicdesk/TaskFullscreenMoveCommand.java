@@ -80,7 +80,7 @@ public final class TaskFullscreenMoveCommand {
             // Commit the target mode while the task still belongs to its
             // source display. Only a hidden task crosses the display boundary.
             taskHidden = true;
-            TaskWindowingCommand.prepareFullscreen(
+            ShellPreparedTaskTransition.prepareFullscreen(
                     service, sourceDisplayId, taskId);
             waitForTaskState(
                     service,
@@ -100,7 +100,7 @@ public final class TaskFullscreenMoveCommand {
                     taskId,
                     WINDOWING_MODE_FULLSCREEN,
                     false);
-            TaskWindowingCommand.showPreparedFullscreen(
+            ShellPreparedTaskTransition.showPreparedFullscreen(
                     service, targetDisplayId, taskId);
             waitForTaskState(
                     service,
@@ -154,7 +154,7 @@ public final class TaskFullscreenMoveCommand {
                     WINDOWING_MODE_FULLSCREEN,
                     false);
         }
-        TaskWindowingCommand.restorePreparedTask(
+        ShellPreparedTaskTransition.restorePreparedTask(
                 service,
                 sourceDisplayId,
                 taskId,
