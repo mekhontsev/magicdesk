@@ -129,6 +129,17 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public boolean beginAppFullscreenTask(
+                            final int taskId,
+                            final Rect restoreBounds) {
+                        return mTaskWatcherReady
+                                && mTaskWatcher.beginAppFullscreenTask(
+                                        mDisplayId,
+                                        taskId,
+                                        restoreBounds);
+                    }
+
+                    @Override
                     public boolean closeFullscreenTask(final int taskId) {
                         return mTaskWatcherReady
                                 && mTaskWatcher.closeFullscreenTask(
@@ -189,10 +200,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final int generation,
                             final int taskId,
                             final boolean requesting,
-                            final boolean initialSample) {
+                            final boolean initialSample,
+                            final boolean restoredByObserver) {
                         if (mRunning) {
                             mWindowTransitions.handleImmersiveRequest(
-                                    taskId, requesting, initialSample);
+                                    taskId,
+                                    requesting,
+                                    initialSample,
+                                    restoredByObserver);
                         }
                     }
 

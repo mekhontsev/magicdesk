@@ -46,7 +46,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mRestoringPhoneTouchpad;
     private boolean mExternalNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
-    private int mConfiguredDisplayId = Display.INVALID_DISPLAY;
+    private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
 
     ShellTaskObserver(
             final Context context,
@@ -117,8 +117,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int taskId,
                             final boolean requesting,
                             final boolean initialSample) {
+                        final boolean restoredByObserver = !initialSample
+                                && !requesting
+                                && mFullscreenTaskArea.restoreAppFullscreen(
+                                        mService,
+                                        mConfiguredDisplayId,
+                                        taskId);
                         callCallback(() -> mCallback.onImmersiveRequest(
-                                taskId, requesting, initialSample));
+                                taskId,
+                                requesting,
+                                initialSample,
+                                restoredByObserver));
                     }
 
                     @Override
@@ -273,6 +282,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, displayId, taskId);
     }
 
+    boolean beginAppFullscreenTask(
+            final int displayId,
+            final int taskId,
+            final Rect restoreBounds) {
+        if (mClosed || displayId != mConfiguredDisplayId) {
+            return false;
+        }
+        return mFullscreenTaskArea.beginAppFullscreen(
+                mService, displayId, taskId, restoreBounds);
+    }
+
     boolean closeFullscreenTask(
             final int displayId,
             final int taskId) {
@@ -391,6 +411,20 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final boolean focused) {
         mFocusController.onTaskFocusChanged(taskId, focused);
         signalChange("focus-changed");
+    }
+
+    @Override
+    public void onActivityRequestedOrientationChanged(
+            final int taskId,
+            final int requestedOrientation) {
+        signalChange("activity-orientation");
+    }
+
+    @Override
+    public void onTaskRequestedOrientationChanged(
+            final int taskId,
+            final int requestedOrientation) {
+        signalChange("task-orientation");
     }
 
     @Override

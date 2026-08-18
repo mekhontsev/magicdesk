@@ -407,6 +407,16 @@ final class DesktopSelfTestWindowSuite {
                         return DesktopSelfTestGeometry.format(task.bounds)
                                 + ", " + caption;
                     });
+            require(result,
+                    "WINDOW-019",
+                    "Repeat application fullscreen restoration",
+                    () -> repeatAppRequestedFullscreenRestore(
+                            appContext,
+                            token,
+                            displayId,
+                            immersiveTaskId,
+                            expectedBounds,
+                            2));
             restored = true;
             verifyDesktopSurfaceRestored(
                     result,
@@ -442,6 +452,45 @@ final class DesktopSelfTestWindowSuite {
             }
             removeFixtureTaskBestEffort(immersiveTaskId);
         }
+    }
+
+    private static String repeatAppRequestedFullscreenRestore(
+            final Context appContext,
+            final String token,
+            final int displayId,
+            final int taskId,
+            final Rect expectedBounds,
+            final int repetitions) throws IOException {
+        for (int index = 0; index < repetitions; index++) {
+            DesktopSelfTestHostObserver.stage(
+                    "WINDOW-019-ENTER-" + (index + 1));
+            DesktopSelfTestFixtureState.clearImmersive(appContext);
+            setFixtureImmersive(token, true);
+            DesktopSelfTestFixtureState.awaitImmersive(
+                    appContext, token, displayId, true);
+            waitForTask(
+                    displayId,
+                    BROWSER_FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "fullscreen".equals(entry.windowingMode));
+
+            DesktopSelfTestHostObserver.stage(
+                    "WINDOW-019-RESTORE-" + (index + 1));
+            DesktopSelfTestFixtureState.clearImmersive(appContext);
+            setFixtureImmersive(token, false);
+            DesktopSelfTestFixtureState.awaitImmersive(
+                    appContext, token, displayId, false);
+            waitForTask(
+                    displayId,
+                    BROWSER_FIXTURE_CLASS,
+                    entry -> entry.taskId == taskId
+                            && "freeform".equals(entry.windowingMode)
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, expectedBounds));
+        }
+        return "task=" + taskId + ", cycles=" + repetitions
+                + ", bounds="
+                + DesktopSelfTestGeometry.format(expectedBounds);
     }
 
     private static void verifyDesktopSurfaceRestored(

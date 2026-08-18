@@ -92,6 +92,15 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, taskId);
     }
 
+    boolean beginAppFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final Rect restoreBounds) {
+        return requireSession(callback).observer.beginAppFullscreenTask(
+                displayId, taskId, restoreBounds);
+    }
+
     boolean closeFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,

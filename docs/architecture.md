@@ -179,14 +179,16 @@ and the client-preserving refresh described in
 The default desktop task area is freeform-oriented. Reordering independent
 fullscreen roots there can make a task inherit freeform mode during Alt+Tab,
 even when its final mode is repaired afterward. MagicDesk therefore reparents
-the complete true-fullscreen stack into one organizer-owned fullscreen
-`TaskDisplayArea` before switching focus.
+true-fullscreen tasks into one organizer-owned fullscreen `TaskDisplayArea`.
+The same parent holds an application-driven fullscreen task until its immersive
+request ends, preventing firmware from exposing a partial freeform restore.
 
 The long-lived shell task observer owns that area. Switching only reorders
 children inside the same parent; restoring a window releases that task to the
-default task area while it is still fullscreen. Closing the final member
-deletes the area. Platforms without this organizer capability use the ordinary
-focus path and never apply a delayed mode repair.
+default task area while it is hidden or still fullscreen. Application-driven
+restores are completed in the observer before their result crosses Binder.
+Closing the final member deletes the area. Platforms without this organizer
+capability use the ordinary focus path and never apply a delayed mode repair.
 
 ## Modules
 

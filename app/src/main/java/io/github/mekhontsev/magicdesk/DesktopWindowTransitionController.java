@@ -13,6 +13,7 @@ final class DesktopWindowTransitionController {
     interface RuntimeState {
         int displayId();
         boolean isRunning();
+        boolean beginAppFullscreenTask(int taskId, Rect restoreBounds);
         boolean releaseFullscreenTask(int taskId);
         boolean closeFullscreenTask(int taskId);
         void focusTask(int taskId);
@@ -135,10 +136,15 @@ final class DesktopWindowTransitionController {
     void handleImmersiveRequest(
             final int taskId,
             final boolean requestingImmersive,
-            final boolean initialSample) {
+            final boolean initialSample,
+            final boolean restoredByObserver) {
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         final Boolean previous =
                 state.updateImmersiveRequested(requestingImmersive);
+        if (restoredByObserver) {
+            finishObservedAppFullscreenRestore(state);
+            return;
+        }
         if (initialSample) {
             if (state.isAppRequestedFullscreen()) {
                 mRuntimeState.scheduleRefresh();
@@ -156,6 +162,19 @@ final class DesktopWindowTransitionController {
             Log.i(TAG, "kept startup task windowed task=" + taskId);
         }
         mRuntimeState.scheduleRefresh();
+    }
+
+    private void finishObservedAppFullscreenRestore(
+            final DesktopTaskRuntimeState state) {
+        final boolean transitionPending = state.isFullscreenTransition();
+        state.finishFullscreenTransition();
+        state.clearFullscreenRestoreBounds();
+        state.setAppRequestedFullscreen(false);
+        if (transitionPending && !hasFullscreenTransitions()) {
+            finishWorkspaceTransition(mRuntimeState.displayId(), true);
+        } else {
+            mRuntimeState.scheduleRefresh();
+        }
     }
 
     void noteManualFreeformTransition(final int taskId) {
@@ -403,6 +422,11 @@ final class DesktopWindowTransitionController {
                                 AppWindowState.Mode.FULLSCREEN);
                     }
                 });
+        if (appRequested && mRuntimeState.beginAppFullscreenTask(
+                taskId, task.bounds)) {
+            mRuntimeState.scheduleRefresh();
+            return;
+        }
         if (appRequested) {
             TaskRepository.setAppRequestedFullscreen(task, callback);
         } else {

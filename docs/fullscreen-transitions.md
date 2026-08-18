@@ -29,22 +29,22 @@ transition, has strict time and output bounds, and is not part of a background
 poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
 
-When an application initiates immersive mode itself, MagicDesk uses
-`TaskClientPreservingFullscreenTransitionCommand` to submit fullscreen geometry
-without waiting for a potentially long first frame. The application's own
-insets request updates its client window; retrying or rebuilding the Activity
-can discard transient state such as the browser's HTML Fullscreen API session.
-When the application makes system bars visible again, MagicDesk returns the
-task to its saved freeform bounds and includes the caption inset.
+When an application initiates immersive mode itself, the long-lived shell task
+observer places that task in MagicDesk's organizer-owned fullscreen parent and
+retains its freeform bounds. The application's own insets request updates its
+client window; retrying or rebuilding the Activity can discard transient state
+such as the browser's HTML Fullscreen API session. Platforms where that parent
+cannot be created retain the client-preserving one-shot command as a fallback.
 
 An orientation change can make Android report the saved freeform mode and bounds
-before WMShell has recreated the task decoration. MagicDesk keeps application
-fullscreen ownership until the complete restore finishes. If this partial
-state is observed, it first hides the existing task surface, establishes a real
-fullscreen-to-freeform mode boundary, and reveals the same Activity through the
-normal WMShell transition. This restores the desktop surface and native caption
+before WMShell has recreated the task decoration. Orientation task callbacks
+wake the shell observer immediately; when system bars become visible again,
+the same observer hides and detaches the task, establishes a real
+fullscreen-to-freeform mode boundary, and reveals the same Activity at its
+saved bounds through the normal WMShell transition. The application process is
+not in the critical path. This restores the desktop surface and native caption
 without using the phone display, restarting the application, or exposing the
-intermediate fullscreen task.
+firmware's partial freeform state.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

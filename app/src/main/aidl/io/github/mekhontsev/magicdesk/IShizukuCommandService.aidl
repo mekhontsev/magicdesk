@@ -238,4 +238,13 @@ interface IShizukuCommandService {
 
     void refreshPointerViewport() = 71;
 
+    boolean beginAppFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        int restoreLeft,
+        int restoreTop,
+        int restoreRight,
+        int restoreBottom) = 72;
+
 }

@@ -4,7 +4,8 @@ oneway interface ITaskObserverCallback {
     void onTasksChanged() = 1;
 
     void onImmersiveRequest(
-        int taskId, boolean requesting, boolean initialSample) = 2;
+        int taskId, boolean requesting, boolean initialSample,
+        boolean restoredByObserver) = 2;
 
     void onTaskGone(int taskId) = 3;
 

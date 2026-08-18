@@ -23,4 +23,14 @@ public abstract class TaskStackListener {
 
     public void onTaskFocusChanged(final int taskId, final boolean focused) {
     }
+
+    public void onActivityRequestedOrientationChanged(
+            final int taskId,
+            final int requestedOrientation) {
+    }
+
+    public void onTaskRequestedOrientationChanged(
+            final int taskId,
+            final int requestedOrientation) {
+    }
 }

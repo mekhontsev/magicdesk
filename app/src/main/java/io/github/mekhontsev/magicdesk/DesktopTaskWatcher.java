@@ -20,7 +20,8 @@ final class DesktopTaskWatcher {
         void onReady(int generation);
         void onChanged(int generation);
         void onImmersiveRequest(int generation, int taskId,
-                boolean requesting, boolean initialSample);
+                boolean requesting, boolean initialSample,
+                boolean restoredByObserver);
         void onTaskGone(int generation, int taskId);
         void onWindowingModeChanged(
                 int generation,
@@ -181,6 +182,23 @@ final class DesktopTaskWatcher {
             return handle.releaseFullscreenTask(displayId, taskId);
         } catch (IOException error) {
             Log.w(TAG, "failed to release fullscreen task=" + taskId, error);
+            return false;
+        }
+    }
+
+    boolean beginAppFullscreenTask(
+            final int displayId,
+            final int taskId,
+            final Rect restoreBounds) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return false;
+        }
+        try {
+            return handle.beginAppFullscreenTask(
+                    displayId, taskId, restoreBounds);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to begin app fullscreen task=" + taskId, error);
             return false;
         }
     }
@@ -390,9 +408,14 @@ final class DesktopTaskWatcher {
             final int generation,
             final int taskId,
             final boolean requesting,
-            final boolean initialSample) {
+            final boolean initialSample,
+            final boolean restoredByObserver) {
         postIfActive(generation, () -> mListener.onImmersiveRequest(
-                generation, taskId, requesting, initialSample));
+                generation,
+                taskId,
+                requesting,
+                initialSample,
+                restoredByObserver));
     }
 
     private void onTaskGone(
@@ -559,9 +582,14 @@ final class DesktopTaskWatcher {
         public void onImmersiveRequest(
                 final int taskId,
                 final boolean requesting,
-                final boolean initialSample) throws RemoteException {
+                final boolean initialSample,
+                final boolean restoredByObserver) throws RemoteException {
             mOwner.onImmersiveRequest(
-                    mGeneration, taskId, requesting, initialSample);
+                    mGeneration,
+                    taskId,
+                    requesting,
+                    initialSample,
+                    restoredByObserver);
         }
 
         @Override
