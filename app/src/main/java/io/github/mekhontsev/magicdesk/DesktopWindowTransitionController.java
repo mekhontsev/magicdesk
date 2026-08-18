@@ -60,7 +60,8 @@ final class DesktopWindowTransitionController {
         if (!shouldForgetManagedFullscreenState(
                 previousMode,
                 currentMode,
-                state != null && state.isFullscreenTransition())) {
+                state != null && state.isFullscreenTransition(),
+                state != null && state.isAppRequestedFullscreen())) {
             return;
         }
         // A native restore bypasses MagicDesk's restore callback. Forget its
@@ -74,10 +75,12 @@ final class DesktopWindowTransitionController {
     static boolean shouldForgetManagedFullscreenState(
             final int previousMode,
             final int currentMode,
-            final boolean transitionPending) {
+            final boolean transitionPending,
+            final boolean appRequested) {
         return previousMode == WINDOWING_MODE_FULLSCREEN
                 && currentMode == WINDOWING_MODE_FREEFORM
-                && !transitionPending;
+                && !transitionPending
+                && !appRequested;
     }
 
     static boolean supportsFullscreenTask(final int shortcut) {
@@ -263,7 +266,7 @@ final class DesktopWindowTransitionController {
             final boolean left) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
-        if (!state.beginFullscreenTransition()) {
+        if (!state.beginFullscreenRestoreTransition()) {
             return;
         }
         final Rect savedBounds = state.fullscreenRestoreBounds();
@@ -414,7 +417,7 @@ final class DesktopWindowTransitionController {
             final boolean userRequested) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
-        if (!state.beginFullscreenTransition()) {
+        if (!state.beginFullscreenRestoreTransition()) {
             return;
         }
         final Rect savedBounds = state.fullscreenRestoreBounds();
@@ -433,15 +436,19 @@ final class DesktopWindowTransitionController {
             }
         }
         releaseFullscreenParent(taskId);
-        TaskRepository.setFreeform(
-                task, targetBounds,
+        final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> finishFullscreenRestore(
                         task,
                         state,
                         targetBounds,
                         userRequested,
                         result.success,
-                        result.message)));
+                        result.message));
+        if (task.isFreeform()) {
+            TaskRepository.rebuildFreeform(task, targetBounds, callback);
+        } else {
+            TaskRepository.setFreeform(task, targetBounds, callback);
+        }
     }
 
     private void releaseFullscreenParent(final int taskId) {
@@ -499,15 +506,32 @@ final class DesktopWindowTransitionController {
             }
             final TaskRepository.TaskEntry task =
                     findTask(allTasks, taskId.intValue());
-            if (task == null || task.isFreeform()) {
-                if (task != null
-                        && state.isFullscreenTransition()) {
-                    continue;
-                }
+            if (task == null) {
                 state.setAppRequestedFullscreen(false);
                 state.clearFullscreenRestoreBounds();
                 continue;
             }
+            if (state.isFullscreenTransition()) {
+                if (state.isFullscreenRestoreTransition()) {
+                    continue;
+                }
+                if (!task.isFreeform()) {
+                    continue;
+                }
+                // The application can enter and leave fullscreen between two
+                // observer samples. Its freeform state proves that the entry
+                // transition was overtaken; complete that state before
+                // starting the canonical restore below.
+                state.finishFullscreenTransition();
+                if (!hasFullscreenTransitions()) {
+                    finishWorkspaceTransition(
+                            mRuntimeState.displayId(), true);
+                }
+            }
+            // An activity orientation change can make firmware restore the
+            // task mode before WMShell restores its caption and desktop
+            // surface. Do not skip the canonical transaction merely because
+            // the observed task is already nominally freeform.
             restoreFullscreenTask(task, false);
         }
 
@@ -546,6 +570,7 @@ final class DesktopWindowTransitionController {
                     mTaskStates.find(task.taskId);
             if (state != null
                     && state.isFullscreenTransition()
+                    && state.isFullscreenEntryTransition()
                     && state.isAppRequestedFullscreen()
                     && !task.isFreeform()) {
                 completedTaskIds.add(taskId);

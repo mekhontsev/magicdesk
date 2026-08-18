@@ -33,6 +33,12 @@ public final class DesktopTaskRuntimeRegistryTest {
         assertTrue(state.isAppRequestedFullscreen());
         assertTrue(state.isFullscreenTransition());
         assertFalse(state.beginFullscreenTransition());
+        assertTrue(state.isFullscreenEntryTransition());
+        assertFalse(state.isFullscreenRestoreTransition());
+        state.finishFullscreenTransition();
+        assertTrue(state.beginFullscreenRestoreTransition());
+        assertFalse(state.isFullscreenEntryTransition());
+        assertTrue(state.isFullscreenRestoreTransition());
     }
 
     @Test

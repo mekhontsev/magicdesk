@@ -37,6 +37,15 @@ can discard transient state such as the browser's HTML Fullscreen API session.
 When the application makes system bars visible again, MagicDesk returns the
 task to its saved freeform bounds and includes the caption inset.
 
+An orientation change can make Android report the saved freeform mode and bounds
+before WMShell has recreated the task decoration. MagicDesk keeps application
+fullscreen ownership until the complete restore finishes. If this partial
+state is observed, it first hides the existing task surface, establishes a real
+fullscreen-to-freeform mode boundary, and reveals the same Activity through the
+normal WMShell transition. This restores the desktop surface and native caption
+without using the phone display, restarting the application, or exposing the
+intermediate fullscreen task.
+
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included
 when they are created or restored.

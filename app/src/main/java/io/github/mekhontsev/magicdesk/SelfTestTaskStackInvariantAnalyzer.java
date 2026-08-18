@@ -207,8 +207,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 reachedFinal = true;
                 continue;
             }
-            if (!reachedFinal && isHiddenPreparation(
-                    firstState, lastState, currentState)) {
+            if (isHiddenPreparation(firstState, lastState, currentState)) {
                 continue;
             }
             addTaskTransitionAnomaly(
@@ -319,6 +318,15 @@ final class SelfTestTaskStackInvariantAnalyzer {
             // applying the requested launch mode. It is safe only while the
             // task remains hidden on its final display.
             return current.displayId == last.displayId;
+        }
+        if (first.displayId == last.displayId
+                && current.displayId == last.displayId
+                && current.windowingMode == first.windowingMode) {
+            // An application may reach the final mode before WMShell has
+            // restored its decoration. Re-entering the source mode is safe
+            // while hidden and gives the following transition a real mode
+            // boundary without exposing that intermediate state.
+            return true;
         }
         return first.displayId != last.displayId
                 && current.displayId == first.displayId

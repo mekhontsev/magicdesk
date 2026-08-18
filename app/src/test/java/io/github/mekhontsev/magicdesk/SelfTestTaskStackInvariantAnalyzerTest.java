@@ -43,6 +43,17 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsHiddenSourceModeDuringDecorationRestore() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("RESTORE", fullscreen(0, true, false));
+        analyzer.sample("client-restore", windowed(1, true), true);
+        analyzer.sample("hidden-rebuild", fullscreen(2, false, true), true);
+
+        assertEquals(0,
+                analyzer.finish(windowed(3, true)).anomalies.length);
+    }
+
+    @Test
     public void rejectsFullscreenVisibilityGap() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("ALT-TAB", fullscreen(0, true, false));

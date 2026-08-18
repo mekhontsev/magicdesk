@@ -246,6 +246,17 @@ public final class TaskRepository {
                 callback);
     }
 
+    static void rebuildFreeform(final TaskEntry task, final Rect bounds,
+            final ActionCallback callback) {
+        if (!isUsableTask(task) || !task.isFreeform()
+                || !hasExplicitBounds(bounds)) {
+            complete(callback, false, "invalid freeform rebuild");
+            return;
+        }
+        runAction(createRebuildFreeformCommand(
+                task.displayId, task.taskId, bounds), callback);
+    }
+
     static void resizeTaskBounds(final TaskEntry task, final Rect bounds,
             final ActionCallback callback) {
         if (!isUsableTask(task) || !hasExplicitBounds(bounds)) {
@@ -394,6 +405,17 @@ public final class TaskRepository {
     static String createFreeformTransitionCommand(final int displayId,
             final int taskId, final Rect bounds) {
         final String arguments = "freeform " + displayId + " " + taskId
+                + " " + bounds.left + " " + bounds.top
+                + " " + bounds.right + " " + bounds.bottom;
+        return AppProcessCommand.run(TASK_WINDOWING_COMMAND, arguments);
+    }
+
+    static String createRebuildFreeformCommand(final int displayId,
+            final int taskId, final Rect bounds) {
+        if (displayId < 0 || taskId < 0 || !hasExplicitBounds(bounds)) {
+            throw new IllegalArgumentException("invalid task bounds");
+        }
+        final String arguments = "rebuild-freeform " + displayId + " " + taskId
                 + " " + bounds.left + " " + bounds.top
                 + " " + bounds.right + " " + bounds.bottom;
         return AppProcessCommand.run(TASK_WINDOWING_COMMAND, arguments);

@@ -514,7 +514,7 @@ public final class TaskDisplayAreaLaunchCommand {
         throw new IllegalStateException("task did not appear");
     }
 
-    private static void waitForTaskWindowingMode(
+    static void waitForTaskWindowingMode(
             final Object service,
             final int displayId,
             final int taskId,
@@ -862,7 +862,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 originalBounds);
     }
 
-    private static void waitForTaskVisibility(
+    static void waitForTaskVisibility(
             final Object service,
             final int displayId,
             final int taskId,

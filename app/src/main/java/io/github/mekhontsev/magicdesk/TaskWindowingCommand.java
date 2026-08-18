@@ -31,6 +31,13 @@ public final class TaskWindowingCommand {
                         parseInt(args[5], "right"), parseInt(args[6], "bottom"));
                 return;
             }
+            if (args.length == 7 && "rebuild-freeform".equals(args[0])) {
+                rebuildFreeform(parseInt(args[1], "display id"),
+                        parseInt(args[2], "task id"),
+                        parseInt(args[3], "left"), parseInt(args[4], "top"),
+                        parseInt(args[5], "right"), parseInt(args[6], "bottom"));
+                return;
+            }
             if (args.length == 7 && "bounds".equals(args[0])) {
                 setBounds(parseInt(args[1], "display id"),
                         parseInt(args[2], "task id"),
@@ -61,7 +68,7 @@ public final class TaskWindowingCommand {
                 return;
             }
             System.err.println("usage: TaskWindowingCommand "
-                    + "<freeform|bounds display task left top right bottom"
+                    + "<freeform|rebuild-freeform|bounds display task left top right bottom"
                     + "|desktop-host display task refresh-caption"
                     + "|minimize display task focus-task"
                     + "|focus display task..."
@@ -89,6 +96,51 @@ public final class TaskWindowingCommand {
                 taskId,
                 new Rect(left, top, right, bottom));
         System.out.println("task-freeform=" + taskId);
+    }
+
+    private static void rebuildFreeform(final int displayId, final int taskId,
+            final int left, final int top, final int right, final int bottom)
+            throws ReflectiveOperationException {
+        if (right <= left || bottom <= top) {
+            throw new IllegalArgumentException("invalid bounds");
+        }
+        final Object service = HiddenTaskApi.getService();
+        final Rect bounds = new Rect(left, top, right, bottom);
+        boolean hidden = false;
+        try {
+            // A client configuration change can return a task to nominal
+            // freeform without asking WMShell to rebuild its caption leash.
+            // Hide its current surface first, establish a real mode boundary,
+            // then let the normal freeform transition recreate the native
+            // decoration without exposing an intermediate fullscreen frame.
+            hidden = true;
+            prepareFreeform(service, displayId, taskId, bounds);
+            TaskDisplayAreaLaunchCommand.waitForTaskVisibility(
+                    service, displayId, taskId, false);
+            applyPreparedFullscreen(service, displayId, taskId, true);
+            TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                    service, displayId, taskId, WINDOWING_MODE_FULLSCREEN);
+            showPreparedFreeform(service, displayId, taskId, bounds);
+            TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+                    service, displayId, taskId, bounds);
+            hidden = false;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            if (hidden) {
+                try {
+                    restorePreparedTask(
+                            service,
+                            displayId,
+                            taskId,
+                            WINDOWING_MODE_FREEFORM,
+                            bounds);
+                } catch (ReflectiveOperationException
+                        | RuntimeException restoreError) {
+                    error.addSuppressed(restoreError);
+                }
+            }
+            throw error;
+        }
+        System.out.println("task-freeform-rebuilt=" + taskId);
     }
 
     private static void setDesktopHost(

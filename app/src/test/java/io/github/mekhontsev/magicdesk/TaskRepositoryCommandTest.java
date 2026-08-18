@@ -30,6 +30,16 @@ public final class TaskRepositoryCommandTest {
     }
 
     @Test
+    public void buildsFreeformSurfaceRebuildCommand() {
+        assertEquals(
+                AppProcessCommand.run(
+                        "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
+                        "rebuild-freeform 3 42 10 20 810 620"),
+                TaskRepository.createRebuildFreeformCommand(
+                        3, 42, rect(10, 20, 810, 620)));
+    }
+
+    @Test
     public void taskEntryRecognizesBoundedFreeformState() {
         assertTrue(task("freeform", rect(10, 20, 810, 620))
                 .isBoundedFreeform());

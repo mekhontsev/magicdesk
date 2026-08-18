@@ -1050,7 +1050,12 @@ custom window layer.
 
 Application-requested immersive mode is reported by the task watcher. MagicDesk
 hides its shell and lets the same Activity enter true fullscreen. Leaving
-immersive mode restores the prior desktop geometry.
+immersive mode restores the prior desktop geometry. Per-task transition state
+distinguishes entry from restoration so a firmware-driven early return to
+nominal freeform cannot complete or submit the restore twice. When that early
+return omits WMShell's native decoration, the task is hidden, passed through a
+real mode boundary, and revealed with its saved bounds; the Activity instance
+and display stay unchanged.
 
 RedMagic can retain a stale caption inset after changing windowing mode. The
 working same-display refresh captures the task-local caption source before the

@@ -4,6 +4,12 @@ import android.graphics.Rect;
 
 /** Transient window-management state owned by one Android task id. */
 final class DesktopTaskRuntimeState {
+    private enum FullscreenTransition {
+        NONE,
+        ENTERING,
+        RESTORING
+    }
+
     static final class BoundsTransition {
         private final Rect mTargetBounds;
         final boolean clearsMaximizeState;
@@ -29,7 +35,8 @@ final class DesktopTaskRuntimeState {
     private Rect mFullscreenRestoreBounds;
     private Boolean mImmersiveRequested;
     private boolean mAppRequestedFullscreen;
-    private boolean mFullscreenTransition;
+    private FullscreenTransition mFullscreenTransition =
+            FullscreenTransition.NONE;
     private boolean mManualImmersiveOverride;
     private boolean mStartupWindowed;
 
@@ -135,19 +142,36 @@ final class DesktopTaskRuntimeState {
     }
 
     synchronized boolean beginFullscreenTransition() {
-        if (mFullscreenTransition) {
+        return beginFullscreenTransition(FullscreenTransition.ENTERING);
+    }
+
+    synchronized boolean beginFullscreenRestoreTransition() {
+        return beginFullscreenTransition(FullscreenTransition.RESTORING);
+    }
+
+    private boolean beginFullscreenTransition(
+            final FullscreenTransition transition) {
+        if (mFullscreenTransition != FullscreenTransition.NONE) {
             return false;
         }
-        mFullscreenTransition = true;
+        mFullscreenTransition = transition;
         return true;
     }
 
     synchronized boolean isFullscreenTransition() {
-        return mFullscreenTransition;
+        return mFullscreenTransition != FullscreenTransition.NONE;
+    }
+
+    synchronized boolean isFullscreenEntryTransition() {
+        return mFullscreenTransition == FullscreenTransition.ENTERING;
+    }
+
+    synchronized boolean isFullscreenRestoreTransition() {
+        return mFullscreenTransition == FullscreenTransition.RESTORING;
     }
 
     synchronized void finishFullscreenTransition() {
-        mFullscreenTransition = false;
+        mFullscreenTransition = FullscreenTransition.NONE;
     }
 
     synchronized boolean hasManualImmersiveOverride() {

@@ -84,7 +84,7 @@ final class DesktopSelfTestInputSuite {
             final int taskId,
             final Rect bounds) {
         check(result, code, label, () ->
-                inspectCaptionStructure(taskId, bounds));
+                awaitCaptionStructure(taskId, bounds));
     }
 
     static void verifyCaptionSurface(
@@ -242,7 +242,7 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static String inspectCaptionStructure(
+    static String awaitCaptionStructure(
             final int taskId, final Rect bounds) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;

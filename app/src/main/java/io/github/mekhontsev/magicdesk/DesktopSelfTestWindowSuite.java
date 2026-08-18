@@ -401,7 +401,11 @@ final class DesktopSelfTestWindowSuite {
                                         && DesktopSelfTestGeometry.matches(
                                                 entry.bounds,
                                                 expectedBounds));
-                        return DesktopSelfTestGeometry.format(task.bounds);
+                        final String caption = DesktopSelfTestInputSuite
+                                .awaitCaptionStructure(
+                                        immersiveTaskId, expectedBounds);
+                        return DesktopSelfTestGeometry.format(task.bounds)
+                                + ", " + caption;
                     });
             restored = true;
             verifyDesktopSurfaceRestored(

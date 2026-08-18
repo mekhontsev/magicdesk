@@ -13,13 +13,16 @@ public final class DesktopWindowTransitionControllerTest {
     public void forgetsFullscreenStateOnlyAfterNativeRestore() {
         assertTrue(DesktopWindowTransitionController
                 .shouldForgetManagedFullscreenState(
-                        FULLSCREEN, FREEFORM, false));
+                        FULLSCREEN, FREEFORM, false, false));
 
         assertFalse(DesktopWindowTransitionController
                 .shouldForgetManagedFullscreenState(
-                        FULLSCREEN, FREEFORM, true));
+                        FULLSCREEN, FREEFORM, true, false));
         assertFalse(DesktopWindowTransitionController
                 .shouldForgetManagedFullscreenState(
-                        FREEFORM, FULLSCREEN, false));
+                        FULLSCREEN, FREEFORM, false, true));
+        assertFalse(DesktopWindowTransitionController
+                .shouldForgetManagedFullscreenState(
+                        FREEFORM, FULLSCREEN, false, false));
     }
 }
