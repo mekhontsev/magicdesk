@@ -2,12 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 
-/** Hosts diagnostics on an owned Android overlay display. */
+/** Models an external desktop on an owned Android overlay display. */
 final class SimulatedDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
-                    DesktopTaskAreaPolicy.TRANSIENT,
-                    false,
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    true,
                     false,
                     true);
 
