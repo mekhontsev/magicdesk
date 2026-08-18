@@ -190,10 +190,10 @@ final class DesktopSelfTestWindowSuite {
                         "Preserve desktop surface during task transfer",
                         taskTransfer.probeError);
             } else {
-                final boolean hiddenPhysicalPreparation =
-                        taskTransfer.hiddenPhysicalPreparation;
+                final boolean hiddenRootTransferPreparation =
+                        taskTransfer.hiddenRootTransferPreparation;
                 final boolean directFreeformFront =
-                        !hiddenPhysicalPreparation
+                        !hiddenRootTransferPreparation
                                 && taskTransfer.firstFront.windowingMode
                                         == WINDOWING_MODE_FREEFORM
                                 && taskTransfer.firstFront.displayId
@@ -202,7 +202,7 @@ final class DesktopSelfTestWindowSuite {
                                         taskTransfer.firstFront,
                                         windowBounds);
                 result.add(!taskTransfer.surfaceChanged
-                            && (hiddenPhysicalPreparation
+                            && (hiddenRootTransferPreparation
                                     || directFreeformFront)
                             ? DesktopSelfTestResult.State.PASS
                             : DesktopSelfTestResult.State.FAIL,
@@ -840,13 +840,13 @@ final class DesktopSelfTestWindowSuite {
         waitForWindowFocus(displayId, true);
         if (DesktopDisplayDrivers.forActiveDisplay(displayId)
                 .features().rootTaskTransfer) {
-            return reopenPhysicalTask(
+            return reopenRootTask(
                     displayId, taskId, bounds, surfaceReference);
         }
         return reopenTask(displayId, taskId, bounds, surfaceReference);
     }
 
-    private static TaskTransferObservation reopenPhysicalTask(
+    private static TaskTransferObservation reopenRootTask(
             final int displayId,
             final int taskId,
             final Rect bounds,
@@ -863,7 +863,7 @@ final class DesktopSelfTestWindowSuite {
                      DesktopTaskLaunchProbe.open(
                              taskId, component, displayId)) {
             final String output = ShellAccess.run(
-                    TaskDisplayAreaLaunchCommand.createPhysicalMoveCommand(
+                    TaskDisplayAreaLaunchCommand.createRootTaskMoveCommand(
                             taskId,
                             currentTask.rootTaskId,
                             currentTask.displayId,
@@ -1065,7 +1065,7 @@ final class DesktopSelfTestWindowSuite {
         final boolean surfaceChanged;
         final String pixelSamples;
         final String probeError;
-        final boolean hiddenPhysicalPreparation;
+        final boolean hiddenRootTransferPreparation;
 
         TaskTransferObservation(
                 final DesktopTaskLaunchProbe.Observation firstFront,
@@ -1080,18 +1080,19 @@ final class DesktopSelfTestWindowSuite {
                 final boolean surfaceChanged,
                 final String pixelSamples,
                 final String probeError,
-                final boolean hiddenPhysicalPreparation) {
+                final boolean hiddenRootTransferPreparation) {
             this.firstFront = firstFront;
             this.surfaceChanged = surfaceChanged;
             this.pixelSamples = pixelSamples == null ? "" : pixelSamples;
             this.probeError = probeError == null ? "" : probeError;
-            this.hiddenPhysicalPreparation = hiddenPhysicalPreparation;
+            this.hiddenRootTransferPreparation =
+                    hiddenRootTransferPreparation;
         }
 
         @Override
         public String toString() {
             return firstFront + ", pixels=" + pixelSamples
-                    + (hiddenPhysicalPreparation
+                    + (hiddenRootTransferPreparation
                             ? ", source+target-prepared=hidden" : "")
                     + (probeError.isEmpty()
                             ? "" : ", probe-error=" + probeError);

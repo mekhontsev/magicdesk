@@ -634,12 +634,15 @@ guard is released even when task reconciliation reports a failure; the pending
 marker remains for a later recovery attempt.
 
 Task placement is selected by the display driver rather than by individual
-launch call sites. Physical desktop displays use their default task area. The
-simulated target creates a short-lived shell-owned `TaskDisplayArea`, launches
-or moves the task there with its final freeform mode and bounds, and applies the
-same freeform state after deleting the temporary area. The phone desktop
-creates a shell-owned task area as the top child of Android's default task
-container before launching its host and starts `DesktopActivity` directly
+launch call sites. Wired, wireless, and simulated desktops use the target
+display's default task area. Drivers with root-task transfer move a running
+task between displays while it is hidden and fullscreen, then reveal it through
+a target-local freeform transition. This gives WMShell an authoritative mode
+boundary on the destination so caption surfaces and input windows acquire the
+correct display. The simulated driver deliberately uses this same path to
+model external-display window behavior without connected hardware. The phone
+desktop creates a shell-owned task area as the top child of Android's default
+task container before launching its host and starts `DesktopActivity` directly
 inside it. Keeping the session inside that container lets SystemUI place later
 caption menus and other transient task decorations above it. It also avoids a
 cross-root host transition that would resume and raise the phone control panel.

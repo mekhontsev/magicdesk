@@ -29,8 +29,6 @@ public final class TaskDisplayAreaLaunchCommand {
             "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity";
     private static final String BROWSER_ACTIVITY_CLASS =
             "io.github.mekhontsev.magicdesk.DesktopSelfTestBrowserActivity";
-    // Nubia cannot rank an empty nested TDA; use a sibling of the default TDA.
-    private static final int FEATURE_ROOT = 0;
     private static final int TRANSIT_OPEN = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
@@ -39,25 +37,10 @@ public final class TaskDisplayAreaLaunchCommand {
     private TaskDisplayAreaLaunchCommand() {
     }
 
-    static String createTemporaryAreaAppLaunchCommand(
-            final Intent intent,
-            final int displayId,
-            final Rect bounds) {
-        return createAppLaunchCommand(intent, displayId, bounds, true);
-    }
-
     static String createDefaultAreaAppLaunchCommand(
             final Intent intent,
             final int displayId,
             final Rect bounds) {
-        return createAppLaunchCommand(intent, displayId, bounds, false);
-    }
-
-    private static String createAppLaunchCommand(
-            final Intent intent,
-            final int displayId,
-            final Rect bounds,
-            final boolean temporaryArea) {
         final ComponentName component = intent == null
                 ? null : intent.getComponent();
         if (component == null || displayId < 0
@@ -66,8 +49,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         return AppProcessCommand.run(
                 TaskDisplayAreaLaunchCommand.class.getName(),
-                (temporaryArea ? "app-temporary " : "app-default ")
-                        + displayId
+                "app " + displayId
                         + " " + ShellCommandLine.quote(intent.toUri(
                                 Intent.URI_INTENT_SCHEME))
                         + formatBounds(bounds));
@@ -122,12 +104,7 @@ public final class TaskDisplayAreaLaunchCommand {
         if (!hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid self-test launch");
         }
-        final DesktopTaskAreaPolicy policy =
-                DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
-        return policy == DesktopTaskAreaPolicy.DEFAULT
-                ? createDefaultAreaAppLaunchCommand(intent, displayId, bounds)
-                : createTemporaryAreaAppLaunchCommand(
-                        intent, displayId, bounds);
+        return createDefaultAreaAppLaunchCommand(intent, displayId, bounds);
     }
 
     static String createMoveCommand(
@@ -176,13 +153,13 @@ public final class TaskDisplayAreaLaunchCommand {
                                 ? "" : " " + reference.commandArguments()));
     }
 
-    static String createPhysicalMoveCommand(
+    static String createRootTaskMoveCommand(
             final int taskId,
             final int rootTaskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds) {
-        return createPhysicalMoveCommand(
+        return createRootTaskMoveCommand(
                 taskId,
                 rootTaskId,
                 sourceDisplayId,
@@ -191,7 +168,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 null);
     }
 
-    static String createPhysicalMoveCommand(
+    static String createRootTaskMoveCommand(
             final int taskId,
             final int rootTaskId,
             final int sourceDisplayId,
@@ -200,12 +177,12 @@ public final class TaskDisplayAreaLaunchCommand {
             final DesktopTransitionSurfaceProbe.Reference reference) {
         if (taskId < 0 || rootTaskId < 0 || sourceDisplayId < 0
                 || targetDisplayId < 0 || !hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException("invalid physical task move");
+            throw new IllegalArgumentException("invalid root task move");
         }
         return AppProcessCommand.run(
                 TaskDisplayAreaLaunchCommand.class.getName(),
                 (reference == null
-                        ? "move-physical " : "move-physical-observed ")
+                        ? "move-root " : "move-root-observed ")
                         + taskId
                         + " " + rootTaskId
                         + " " + sourceDisplayId
@@ -216,27 +193,23 @@ public final class TaskDisplayAreaLaunchCommand {
     }
 
     public static void main(final String[] args) {
-        final boolean temporaryApp = args.length == 7
-                && "app-temporary".equals(args[0]);
-        final boolean defaultApp = args.length == 7
-                && "app-default".equals(args[0]);
-        final boolean app = temporaryApp || defaultApp;
+        final boolean app = args.length == 7 && "app".equals(args[0]);
         final boolean move = args.length == 8 && "move".equals(args[0]);
         final boolean observedMove = args.length == 12
                 && "move-observed".equals(args[0]);
         final boolean taskMove = move || observedMove;
-        final boolean plainPhysicalMove = args.length == 9
-                && "move-physical".equals(args[0]);
-        final boolean observedPhysicalMove = args.length == 13
-                && "move-physical-observed".equals(args[0]);
-        final boolean physicalMove = plainPhysicalMove || observedPhysicalMove;
-        if (!app && !taskMove && !physicalMove) {
+        final boolean plainRootMove = args.length == 9
+                && "move-root".equals(args[0]);
+        final boolean observedRootMove = args.length == 13
+                && "move-root-observed".equals(args[0]);
+        final boolean rootMove = plainRootMove || observedRootMove;
+        if (!app && !taskMove && !rootMove) {
             System.err.println("usage: TaskDisplayAreaLaunchCommand "
-                    + "app-temporary|app-default <display-id> <intent-uri> "
+                    + "app <display-id> <intent-uri> "
                     + "<left> <top> <right> <bottom> | "
                     + "move|move-observed <task-id> <source-display-id> "
                     + "<target-display-id> <left> <top> <right> <bottom> | "
-                    + "move-physical <task-id> <root-task-id> "
+                    + "move-root <task-id> <root-task-id> "
                     + "<source-display-id> <target-display-id> "
                     + "<left> <top> <right> <bottom>"
                     + " [<capture-display-id> <x> <y> <baseline-color>]");
@@ -244,38 +217,27 @@ public final class TaskDisplayAreaLaunchCommand {
             return;
         }
 
-        TaskDisplayAreaHandle taskDisplayArea = null;
-        Object areaToken = null;
         try {
-            final int taskIdArgument = taskMove || physicalMove
+            final int taskIdArgument = taskMove || rootMove
                     ? parseNonNegative(args[1], "task id") : -1;
-            final int rootTaskIdArgument = physicalMove
+            final int rootTaskIdArgument = rootMove
                     ? parseNonNegative(args[2], "root task id") : -1;
-            final int sourceDisplayId = taskMove || physicalMove
+            final int sourceDisplayId = taskMove || rootMove
                     ? parseNonNegative(
-                            args[physicalMove ? 3 : 2], "source display id")
+                            args[rootMove ? 3 : 2], "source display id")
                     : -1;
             final int displayId = parseNonNegative(
-                    args[physicalMove ? 4 : taskMove ? 3 : 1], "display id");
+                    args[rootMove ? 4 : taskMove ? 3 : 1], "display id");
             final Rect bounds = parseBounds(
-                    args, physicalMove ? 5 : taskMove ? 4 : 3);
+                    args, rootMove ? 5 : taskMove ? 4 : 3);
             final DesktopTransitionSurfaceProbe.Reference surfaceReference =
-                    observedPhysicalMove
+                    observedRootMove
                             ? DesktopTransitionSurfaceProbe.Reference.parse(
                                     args, 9)
                             : observedMove
                                     ? DesktopTransitionSurfaceProbe.Reference
                                             .parse(args, 8)
                                     : null;
-            final Class<?> containerTokenClass = temporaryApp
-                    ? Class.forName("android.window.WindowContainerToken")
-                    : null;
-            if (temporaryApp) {
-                taskDisplayArea = TaskDisplayAreaHandle.create(
-                        displayId, FEATURE_ROOT, "MagicDesk launch");
-                areaToken = taskDisplayArea.token();
-            }
-
             final Object service = HiddenTaskApi.getService();
             final int taskId;
             DesktopTransitionSurfaceProbe.Result transitionObservation = null;
@@ -287,20 +249,18 @@ public final class TaskDisplayAreaLaunchCommand {
                         intent,
                         intent.getComponent().getPackageName(),
                         bounds,
-                        containerTokenClass,
-                        areaToken,
-                        defaultApp);
-                if (defaultApp) {
-                    // Keep the desktop surface visible until the cold task has
-                    // drawn its first freeform frame.
-                    ShellPreparedTaskTransition.revealFreeform(
-                            service, displayId, taskId, bounds);
-                    waitForTaskWindowingMode(
-                            service,
-                            displayId,
-                            taskId,
-                            WINDOWING_MODE_FREEFORM);
-                }
+                        null,
+                        null,
+                        true);
+                // Keep the desktop surface visible until the cold task has
+                // drawn its first freeform frame.
+                ShellPreparedTaskTransition.revealFreeform(
+                        service, displayId, taskId, bounds);
+                waitForTaskWindowingMode(
+                        service,
+                        displayId,
+                        taskId,
+                        WINDOWING_MODE_FREEFORM);
             } else if (taskMove) {
                 transitionObservation = moveExistingTask(
                         service,
@@ -311,7 +271,7 @@ public final class TaskDisplayAreaLaunchCommand {
                         surfaceReference);
                 taskId = taskIdArgument;
             } else {
-                transitionObservation = movePhysicalTask(
+                transitionObservation = moveRootTask(
                         service,
                         taskIdArgument,
                         rootTaskIdArgument,
@@ -320,33 +280,6 @@ public final class TaskDisplayAreaLaunchCommand {
                         bounds,
                         surfaceReference);
                 taskId = taskIdArgument;
-            }
-            if (temporaryApp) {
-                // A null parent means the default task display area on the
-                // task's current display.
-                reparentTask(
-                        service,
-                        HiddenTaskApi.requireTaskToken(
-                                service, displayId, taskId),
-                        null,
-                        bounds,
-                        containerTokenClass);
-                waitForTask(
-                        service,
-                        displayId,
-                        taskId,
-                        null,
-                        null);
-                taskDisplayArea.close();
-                taskDisplayArea = null;
-                areaToken = null;
-                // Removing an organizer-owned area is a hierarchy change of
-                // its own. Some default displays inherit fullscreen after the
-                // reparent, so make the post-removal transaction authoritative.
-                ShellPreparedTaskTransition.applyFreeform(
-                        service, displayId, taskId, bounds);
-                waitForTaskFreeformBounds(
-                        service, displayId, taskId, bounds);
             }
             if (transitionObservation != null) {
                 System.out.println("transition-surface-changed="
@@ -359,17 +292,13 @@ public final class TaskDisplayAreaLaunchCommand {
                                     '\n', ' '));
                 }
             }
-            System.out.println(taskMove || physicalMove
+            System.out.println(taskMove || rootMove
                     ? "task-freeform-move=" + taskId
                     : "task-display-area-launch=" + taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("freeform task transition failed: "
                     + usefulMessage(error));
             System.exit(1);
-        } finally {
-            if (taskDisplayArea != null) {
-                taskDisplayArea.close();
-            }
         }
     }
 
@@ -691,34 +620,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
     }
 
-    private static void reparentTask(
-            final Object service,
-            final Object taskToken,
-            final Object parentToken,
-            final Rect bounds,
-            final Class<?> tokenClass) throws ReflectiveOperationException {
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass
-                .getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        transactionClass.getMethod(
-                "setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, bounds);
-        transactionClass.getMethod(
-                "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        new Object[]{taskToken, parentToken, Boolean.TRUE});
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
-    }
-
     private static DesktopTransitionSurfaceProbe.Result moveExistingTask(
             final Object service,
             final int taskId,
@@ -799,7 +700,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 TRANSIT_OPEN, transactionClass, transaction);
     }
 
-    private static DesktopTransitionSurfaceProbe.Result movePhysicalTask(
+    private static DesktopTransitionSurfaceProbe.Result moveRootTask(
             final Object service,
             final int taskId,
             final int rootTaskId,
@@ -829,9 +730,9 @@ public final class TaskDisplayAreaLaunchCommand {
             }
             taskHidden = true;
             // Keep the task hidden in fullscreen while its root crosses the
-            // physical display boundary. Revealing freeform only on the
-            // target gives WMShell a real target-local mode transition, so it
-            // rebuilds caption surfaces and input windows on that display.
+            // display boundary. Revealing freeform only on the target gives
+            // WMShell a real target-local mode transition, so it rebuilds
+            // caption surfaces and input windows on that display.
             ShellPreparedTaskTransition.prepareFullscreen(
                     service, sourceDisplayId, taskId);
             waitForTaskWindowingMode(
@@ -896,7 +797,7 @@ public final class TaskDisplayAreaLaunchCommand {
         } catch (ReflectiveOperationException | RuntimeException error) {
             if (taskHidden) {
                 try {
-                    restoreFailedPhysicalMove(
+                    restoreFailedRootTaskMove(
                             service,
                             taskId,
                             rootTaskId,
@@ -912,7 +813,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
     }
 
-    private static void restoreFailedPhysicalMove(
+    private static void restoreFailedRootTaskMove(
             final Object service,
             final int taskId,
             final int rootTaskId,

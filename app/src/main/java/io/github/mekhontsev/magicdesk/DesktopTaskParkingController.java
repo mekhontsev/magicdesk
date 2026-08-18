@@ -273,7 +273,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final DesktopDisplayDriver driver =
                 DesktopDisplayDrivers.forTarget(target);
         final String moveCommand = driver.features().rootTaskTransfer
-                ? TaskDisplayAreaLaunchCommand.createPhysicalMoveCommand(
+                ? TaskDisplayAreaLaunchCommand.createRootTaskMoveCommand(
                         live.taskId,
                         live.rootTaskId,
                         Display.DEFAULT_DISPLAY,

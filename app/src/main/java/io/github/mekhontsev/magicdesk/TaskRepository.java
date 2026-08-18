@@ -313,7 +313,7 @@ public final class TaskRepository {
                                         targetDisplayId, preferredBounds);
                         command = targetDriver.features().rootTaskTransfer
                                 ? TaskDisplayAreaLaunchCommand
-                                        .createPhysicalMoveCommand(
+                                        .createRootTaskMoveCommand(
                                                 task.taskId,
                                                 task.rootTaskId,
                                                 task.displayId,

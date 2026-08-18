@@ -193,7 +193,7 @@ final class ExistingTaskController {
                             targetDisplayId, targetBounds);
                     command = targetDriver.features().rootTaskTransfer
                             ? TaskDisplayAreaLaunchCommand
-                                    .createPhysicalMoveCommand(
+                                    .createRootTaskMoveCommand(
                                             task.taskId,
                                             task.rootTaskId,
                                             task.displayId,

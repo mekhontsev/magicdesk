@@ -87,18 +87,9 @@ final class WindowedAppLauncher {
                 taskId = MagicDeskRuntime.launchTaskInDesktopArea(
                         displayId, launchIntent, bounds);
             } else {
-                final String launchCommand =
-                        taskAreaPolicy == DesktopTaskAreaPolicy.TRANSIENT
-                                ? TaskDisplayAreaLaunchCommand
-                                        .createTemporaryAreaAppLaunchCommand(
-                                                launchIntent,
-                                                displayId,
-                                                bounds)
-                                : TaskDisplayAreaLaunchCommand
-                                        .createDefaultAreaAppLaunchCommand(
-                                                launchIntent,
-                                                displayId,
-                                                bounds);
+                final String launchCommand = TaskDisplayAreaLaunchCommand
+                        .createDefaultAreaAppLaunchCommand(
+                                launchIntent, displayId, bounds);
                 taskId = parseTaskId(ShellAccess.run(launchCommand));
             }
             if (taskReadyCallback != null) {
