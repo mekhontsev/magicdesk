@@ -631,12 +631,26 @@ references to tasks that the test already destroyed. The phone navigation
 guard is released even when task reconciliation reports a failure; the pending
 marker remains for a later recovery attempt.
 
-Phone and simulated-display cold launches create a short-lived shell-owned
-`TaskDisplayArea` beside the target display's default task area. The new
-Activity is launched there with its original launcher Intent, freeform mode,
-and bounds, then synchronously reparented to the default area before the empty
-temporary area is deleted. Production launches and self-test fixtures share
-this display policy.
+Task placement is selected by the display driver rather than by individual
+launch call sites. Physical desktop displays use their default task area. The
+simulated target creates a short-lived shell-owned `TaskDisplayArea`, launches
+or moves the task there with its final freeform mode and bounds, and applies the
+same freeform state after deleting the temporary area. The phone desktop
+creates a shell-owned task area before launching its host and starts
+`DesktopActivity` directly inside it. The host therefore never leaves the
+phone's default task area in a way that makes Android resume and raise the
+control panel behind it. The fullscreen MagicDesk host is the bottom task in
+the session area and its freeform windows are siblings above it.
+Android 16 may still create its native desktop wallpaper in display 0's default
+area, but that area stays below the complete MagicDesk desktop layer instead of
+replacing the host. Session shutdown reparents the owned live tasks to the
+default area as fullscreen before deleting the area. Production launches,
+existing-task moves, and self-test fixtures resolve the same display policy.
+The shell observer also reports whether the focused phone task belongs to the
+session area. This gates the overlay taskbar without changing its normal
+fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone
+task is brought forward through Android UI and returns with the desktop plane.
+External-display taskbars are unaffected.
 
 Nubia's wired and Miracast desktop displays use their default task area
 directly. Cold launches enter that area through a WMShell launch transition
@@ -653,8 +667,10 @@ The shell task observer exposes an optional self-test guard. While a test is
 active, every task callback captures a bounded `getAllTasks()` snapshot tagged
 with the current test stage. A pure analyzer checks the desktop host, fixture
 display and windowing mode, HOME visibility, one-way task transitions, and
-windowed/fullscreen visibility continuity. No snapshots are taken during
-normal desktop operation, and the guard uses neither polling nor timing
+windowed/fullscreen visibility continuity. A visible freeform fixture with a
+hidden desktop host is an error on every target; this also detects a native
+desktop area taking ownership of the phone screen. No snapshots are taken
+during normal desktop operation, and the guard uses neither polling nor timing
 guesses.
 
 A separate one-shot launch probe captures the first
@@ -1341,9 +1357,9 @@ These constraints define the supported implementation paths:
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
-- Custom launch task areas are limited to display drivers whose lifecycle
-  explicitly supports them. Nubia's managed mirror displays use their default
-  task area.
+- Custom task areas are limited to display drivers whose lifecycle explicitly
+  supports them. The phone and simulated drivers own their respective session
+  and transient areas; physical desktop drivers use their default task area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.

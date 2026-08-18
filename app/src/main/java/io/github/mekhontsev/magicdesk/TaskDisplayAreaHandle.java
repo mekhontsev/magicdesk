@@ -6,13 +6,16 @@ import java.util.concurrent.Executor;
 final class TaskDisplayAreaHandle implements AutoCloseable {
     private final Object mOrganizer;
     private final Object mToken;
+    private final int mFeatureId;
     private boolean mClosed;
 
     private TaskDisplayAreaHandle(
             final Object organizer,
-            final Object token) {
+            final Object token,
+            final int featureId) {
         mOrganizer = organizer;
         mToken = token;
+        mFeatureId = featureId;
     }
 
     static TaskDisplayAreaHandle create(
@@ -38,12 +41,18 @@ final class TaskDisplayAreaHandle implements AutoCloseable {
                 .getMethod("getDisplayAreaInfo")
                 .invoke(appeared);
         final Object token = HiddenTaskApi.getField(areaInfo, "token");
+        final int featureId = HiddenTaskApi.getIntField(
+                areaInfo, "featureId");
         releaseLeash(appeared);
-        return new TaskDisplayAreaHandle(organizer, token);
+        return new TaskDisplayAreaHandle(organizer, token, featureId);
     }
 
     Object token() {
         return mToken;
+    }
+
+    int featureId() {
+        return mFeatureId;
     }
 
     @Override

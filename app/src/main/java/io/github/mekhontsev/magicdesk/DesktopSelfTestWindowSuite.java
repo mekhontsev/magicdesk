@@ -12,6 +12,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbs
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.os.SystemClock;
@@ -750,9 +751,10 @@ final class DesktopSelfTestWindowSuite {
             final Rect bounds) throws IOException {
         return launchFixtureAndObserve(
                 displayId,
-                token,
                 bounds,
                 FIXTURE_CLASS,
+                TaskDisplayAreaLaunchCommand.createSelfTestIntent(
+                        displayId, token, false),
                 TaskDisplayAreaLaunchCommand.createSelfTestLaunchCommand(
                         displayId, token, bounds));
     }
@@ -764,9 +766,10 @@ final class DesktopSelfTestWindowSuite {
                     final Rect bounds) throws IOException {
         return launchFixtureAndObserve(
                 displayId,
-                token,
                 bounds,
                 BROWSER_FIXTURE_CLASS,
+                TaskDisplayAreaLaunchCommand.createSelfTestIntent(
+                        displayId, token, true),
                 TaskDisplayAreaLaunchCommand
                         .createBrowserSelfTestLaunchCommand(
                                 displayId, token, bounds));
@@ -774,21 +777,32 @@ final class DesktopSelfTestWindowSuite {
 
     private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
             final int displayId,
-            final String token,
             final Rect bounds,
             final String fixtureClass,
+            final Intent launchIntent,
             final String launchCommand) throws IOException {
         final ComponentName component =
                 new ComponentName(PACKAGE_NAME, fixtureClass);
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(-1, component)) {
-            final String output = ShellAccess.run(launchCommand);
-            if (!output.contains("task-display-area-launch=")) {
-                throw new IOException(output.trim());
+            final DesktopTaskAreaPolicy policy =
+                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
+            final int launchedTaskId;
+            if (policy == DesktopTaskAreaPolicy.SESSION) {
+                launchedTaskId = MagicDeskRuntime.launchTaskInDesktopArea(
+                        displayId, launchIntent, bounds);
+            } else {
+                final String output = ShellAccess.run(launchCommand);
+                if (!output.contains("task-display-area-launch=")) {
+                    throw new IOException(output.trim());
+                }
+                launchedTaskId = -1;
             }
             final DesktopTaskLaunchProbe.Observation observation =
                     probe.awaitObservation();
-            if (observation.displayId != displayId) {
+            if (observation.displayId != displayId
+                    || (launchedTaskId >= 0
+                            && observation.taskId != launchedTaskId)) {
                 throw new IOException(
                         "test window launched on the wrong display: "
                                 + observation);
@@ -933,19 +947,33 @@ final class DesktopSelfTestWindowSuite {
         }
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(taskId, component)) {
-            final String output = ShellAccess.run(
-                    surfaceReference.reference != null
-                            ? TaskDisplayAreaLaunchCommand.createObservedMoveCommand(
-                                    taskId,
-                                    currentTask.displayId,
-                                    displayId,
-                                    bounds,
-                                    surfaceReference.reference)
-                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
-                                    taskId,
-                                    currentTask.displayId,
-                                    displayId,
-                                    bounds));
+            final DesktopTaskAreaPolicy policy =
+                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
+            final String output;
+            if (policy == DesktopTaskAreaPolicy.SESSION) {
+                MagicDeskRuntime.placeTaskInDesktopArea(
+                        taskId,
+                        currentTask.displayId,
+                        displayId,
+                        bounds);
+                output = "task-freeform-move=" + taskId;
+            } else {
+                output = ShellAccess.run(
+                        surfaceReference.reference != null
+                                ? TaskDisplayAreaLaunchCommand
+                                        .createObservedMoveCommand(
+                                                taskId,
+                                                currentTask.displayId,
+                                                displayId,
+                                                bounds,
+                                                surfaceReference.reference)
+                                : TaskDisplayAreaLaunchCommand
+                                        .createMoveCommand(
+                                                taskId,
+                                                currentTask.displayId,
+                                                displayId,
+                                                bounds));
+            }
             final String expectedOutput =
                     "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {

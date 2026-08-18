@@ -1614,6 +1614,18 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskbarVisible;
     }
 
+    void setDesktopPlaneForeground(final boolean foreground) {
+        if (getCurrentDisplayId() != Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        if (!foreground) {
+            hideAllPanels();
+        }
+        if (mTaskbarRevealController != null) {
+            mTaskbarRevealController.setDesktopPlaneForeground(foreground);
+        }
+    }
+
     void refreshSettings() {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         mTaskbarAutoHide = settings.taskbarAutoHide;

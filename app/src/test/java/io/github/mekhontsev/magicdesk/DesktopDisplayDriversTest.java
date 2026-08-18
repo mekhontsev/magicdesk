@@ -56,10 +56,12 @@ public final class DesktopDisplayDriversTest {
         final DesktopDisplayFeatures simulated = features(
                 DesktopDisplayTarget.Kind.SIMULATED);
 
-        assertTrue(phone.temporaryLaunchArea);
-        assertTrue(simulated.temporaryLaunchArea);
-        assertFalse(wired.temporaryLaunchArea);
-        assertFalse(wireless.temporaryLaunchArea);
+        assertEquals(DesktopTaskAreaPolicy.SESSION, phone.taskAreaPolicy);
+        assertEquals(
+                DesktopTaskAreaPolicy.TRANSIENT,
+                simulated.taskAreaPolicy);
+        assertEquals(DesktopTaskAreaPolicy.DEFAULT, wired.taskAreaPolicy);
+        assertEquals(DesktopTaskAreaPolicy.DEFAULT, wireless.taskAreaPolicy);
 
         assertFalse(phone.rootTaskTransfer);
         assertFalse(simulated.rootTaskTransfer);

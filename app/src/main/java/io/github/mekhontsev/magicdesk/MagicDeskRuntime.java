@@ -3,7 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
+import android.graphics.Rect;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.List;
@@ -272,6 +274,30 @@ public final class MagicDeskRuntime {
             final int displayId) {
         final DesktopTaskRuntime tasks = desktopTasks();
         return tasks == null ? null : tasks.getVisibleFreeformTasks(displayId);
+    }
+
+    static int launchTaskInDesktopArea(
+            final int displayId,
+            final Intent intent,
+            final Rect bounds) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.launchTaskInDesktopArea(displayId, intent, bounds);
+    }
+
+    static void placeTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        tasks.placeTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
     static List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(

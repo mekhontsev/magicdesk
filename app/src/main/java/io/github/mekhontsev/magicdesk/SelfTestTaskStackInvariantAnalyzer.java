@@ -122,10 +122,18 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
 
         boolean visibleOnDesktop = false;
+        boolean visibleFreeformFixture = false;
         for (final TaskState task : snapshot.tasks) {
             if (task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
                 visibleOnDesktop = true;
+            }
+            if (task.fixture
+                    && task.displayId == mDisplayId
+                    && task.windowingMode == WINDOWING_MODE_FREEFORM
+                    && task.visibilityKnown
+                    && task.visible) {
+                visibleFreeformFixture = true;
             }
             if (task.fixture
                     && mDisplayId != 0
@@ -154,6 +162,15 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " Home task " + task.taskId
                                 + " became visible");
             }
+        }
+        if (visibleFreeformFixture
+                && host != null
+                && host.visibilityKnown
+                && !host.visible) {
+            addAnomaly("freeform-host-hidden:" + mStage.name,
+                    formatSample(reason, snapshot)
+                            + " desktop host is hidden behind"
+                            + " a visible freeform fixture");
         }
         if (snapshot.visibilityKnown && !visibleOnDesktop) {
             addAnomaly("visibility-gap:" + mStage.name,

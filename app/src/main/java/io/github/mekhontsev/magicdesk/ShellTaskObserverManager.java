@@ -68,11 +68,15 @@ final class ShellTaskObserverManager implements Closeable {
             final ITaskObserverCallback callback,
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds) {
+            final Rect workAreaBounds,
+            final boolean managedTaskArea,
+            final int managedTaskAreaHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
-                workAreaBounds);
+                workAreaBounds,
+                managedTaskArea,
+                managedTaskAreaHostTaskId);
     }
 
     void focusStack(
@@ -82,6 +86,20 @@ final class ShellTaskObserverManager implements Closeable {
             final int[] taskIds) {
         requireSession(callback).observer.focusStack(
                 sequence, displayId, taskIds);
+    }
+
+    int launchDesktopHost(
+            final int displayId,
+            final String intentUri) {
+        final Session session;
+        synchronized (mLock) {
+            if (mSession == null) {
+                throw new IllegalStateException(
+                        "task observer is not active");
+            }
+            session = mSession;
+        }
+        return session.observer.launchDesktopHost(displayId, intentUri);
     }
 
     boolean restoreFullscreenTask(
@@ -108,6 +126,25 @@ final class ShellTaskObserverManager implements Closeable {
             final int taskId) {
         return requireSession(callback).observer.closeFullscreenTask(
                 displayId, taskId);
+    }
+
+    int launchTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String intentUri,
+            final Rect bounds) {
+        return requireSession(callback).observer.launchTaskInDesktopArea(
+                displayId, intentUri, bounds);
+    }
+
+    void placeTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) {
+        requireSession(callback).observer.placeTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
     void startSelfTestTaskStackGuard(

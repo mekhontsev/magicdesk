@@ -5,7 +5,11 @@ import android.app.Activity;
 /** Hosts diagnostics on an owned Android overlay display. */
 final class SimulatedDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
-            new DesktopDisplayFeatures(true, false, false, true);
+            new DesktopDisplayFeatures(
+                    DesktopTaskAreaPolicy.TRANSIENT,
+                    false,
+                    false,
+                    true);
 
     @Override
     public DesktopDisplayTarget.Kind kind() {

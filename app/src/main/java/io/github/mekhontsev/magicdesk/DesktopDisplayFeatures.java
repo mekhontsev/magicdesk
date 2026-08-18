@@ -2,17 +2,20 @@ package io.github.mekhontsev.magicdesk;
 
 /** Stable behavior exposed by one desktop display environment. */
 final class DesktopDisplayFeatures {
-    final boolean temporaryLaunchArea;
+    final DesktopTaskAreaPolicy taskAreaPolicy;
     final boolean rootTaskTransfer;
     final boolean phoneScreenControl;
     final boolean phoneTouchpad;
 
     DesktopDisplayFeatures(
-            final boolean temporaryLaunchArea,
+            final DesktopTaskAreaPolicy taskAreaPolicy,
             final boolean rootTaskTransfer,
             final boolean phoneScreenControl,
             final boolean phoneTouchpad) {
-        this.temporaryLaunchArea = temporaryLaunchArea;
+        if (taskAreaPolicy == null) {
+            throw new IllegalArgumentException("missing task area policy");
+        }
+        this.taskAreaPolicy = taskAreaPolicy;
         this.rootTaskTransfer = rootTaskTransfer;
         this.phoneScreenControl = phoneScreenControl;
         this.phoneTouchpad = phoneTouchpad;

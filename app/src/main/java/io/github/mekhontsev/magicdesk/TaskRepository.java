@@ -289,35 +289,51 @@ public final class TaskRepository {
         TaskCommandQueue.execute(() -> {
             final CommandResult result;
             try {
-                final String command;
-                if (targetDisplayId != Display.DEFAULT_DISPLAY) {
+                final DesktopDisplayDriver targetDriver =
+                        DesktopDisplayDrivers.forActiveDisplay(
+                                targetDisplayId);
+                if (DesktopDisplayDrivers.activeTaskAreaPolicy(
+                                targetDisplayId)
+                        == DesktopTaskAreaPolicy.SESSION) {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
                                     targetDisplayId, preferredBounds);
-                    final DesktopDisplayDriver targetDriver =
-                            DesktopDisplayDrivers.forActiveDisplay(
-                                    targetDisplayId);
-                    command = targetDriver.features().rootTaskTransfer
-                            ? TaskDisplayAreaLaunchCommand
-                                    .createPhysicalMoveCommand(
-                                            task.taskId,
-                                            task.rootTaskId,
-                                            task.displayId,
-                                            targetDisplayId,
-                                            bounds)
-                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
-                                    task.taskId,
-                                    task.displayId,
-                                    targetDisplayId,
-                                    bounds);
-                } else {
-                    command = TaskFullscreenMoveCommand.createMoveCommand(
+                    MagicDeskRuntime.placeTaskInDesktopArea(
                             task.taskId,
-                            task.rootTaskId,
                             task.displayId,
-                            targetDisplayId);
+                            targetDisplayId,
+                            bounds);
+                    result = new CommandResult(
+                            true, "task-freeform-move=" + task.taskId);
+                } else {
+                    final String command;
+                    if (targetDisplayId != Display.DEFAULT_DISPLAY) {
+                        final Rect bounds = FloatingWindowController
+                                .getWindowBounds(
+                                        targetDisplayId, preferredBounds);
+                        command = targetDriver.features().rootTaskTransfer
+                                ? TaskDisplayAreaLaunchCommand
+                                        .createPhysicalMoveCommand(
+                                                task.taskId,
+                                                task.rootTaskId,
+                                                task.displayId,
+                                                targetDisplayId,
+                                                bounds)
+                                : TaskDisplayAreaLaunchCommand
+                                        .createMoveCommand(
+                                                task.taskId,
+                                                task.displayId,
+                                                targetDisplayId,
+                                                bounds);
+                    } else {
+                        command = TaskFullscreenMoveCommand.createMoveCommand(
+                                task.taskId,
+                                task.rootTaskId,
+                                task.displayId,
+                                targetDisplayId);
+                    }
+                    result = runCommand(command);
                 }
-                result = runCommand(command);
             } catch (IOException | RuntimeException error) {
                 complete(
                         callback,

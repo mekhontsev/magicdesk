@@ -6,7 +6,11 @@ import android.view.Display;
 /** Hosts MagicDesk directly on the phone display. */
 final class PhoneDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
-            new DesktopDisplayFeatures(true, false, false, false);
+            new DesktopDisplayFeatures(
+                    DesktopTaskAreaPolicy.SESSION,
+                    false,
+                    false,
+                    false);
 
     @Override
     public DesktopDisplayTarget.Kind kind() {

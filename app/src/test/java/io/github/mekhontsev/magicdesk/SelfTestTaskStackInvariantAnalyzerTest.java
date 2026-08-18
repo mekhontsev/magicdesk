@@ -128,7 +128,7 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
-    public void acceptsFreeformFixtureWhenPhoneIsDesktopTarget() {
+    public void rejectsHiddenPhoneDesktopBehindFreeformFixture() {
         final SelfTestTaskStackInvariantAnalyzer analyzer =
                 new SelfTestTaskStackInvariantAnalyzer(
                         0, HOST_TASK_ID, 0);
@@ -141,8 +141,9 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                                 true, true, false));
         analyzer.begin("WINDOW", phoneDesktop);
 
-        assertEquals(0,
-                analyzer.finish(phoneDesktop).anomalies.length);
+        assertContains(
+                analyzer.finish(phoneDesktop),
+                "desktop host is hidden behind a visible freeform fixture");
     }
 
     @Test

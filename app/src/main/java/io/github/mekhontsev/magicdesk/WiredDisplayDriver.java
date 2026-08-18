@@ -7,7 +7,11 @@ import java.io.IOException;
 /** Hosts MagicDesk on a wired display, with optional platform mode switching. */
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
-            new DesktopDisplayFeatures(false, true, true, true);
+            new DesktopDisplayFeatures(
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    true,
+                    true,
+                    true);
     private final PlatformProjectionDriver mProjection;
 
     WiredDisplayDriver(final PlatformProjectionDriver projection) {

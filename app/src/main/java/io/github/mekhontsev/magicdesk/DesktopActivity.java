@@ -1,17 +1,26 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ActivityOptions;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 import android.view.Display;
 import android.widget.Toast;
 
+import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 /** Dedicated component used to host the MagicDesk desktop on one display. */
 public final class DesktopActivity extends DesktopShellActivity {
     private static final String TAG = "MagicDesk";
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final ExecutorService LAUNCH_EXECUTOR =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskDesktopLaunch");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     static Intent createLaunchIntent(final Context context) {
         return new Intent(context, DesktopActivity.class)
@@ -55,53 +64,56 @@ public final class DesktopActivity extends DesktopShellActivity {
                         Toast.LENGTH_LONG).show();
                 return;
             }
-            try {
-                launchNow(source, target);
-            } catch (RuntimeException error) {
-                Log.w(TAG, "local desktop launch failed", error);
-                LocalDesktopNavigationController.releaseIfCurrent(
-                        generation, null);
-                CompatibilityDiagnostics.record(
-                        "DESKTOP-LAUNCH-001",
-                        "Could not launch the local desktop",
-                        error.getMessage(),
-                        error);
-                Toast.makeText(
-                        source,
-                        source.getString(
-                                R.string.status_launch_failed,
-                                error.getMessage()),
-                        Toast.LENGTH_LONG).show();
-            }
+            launchNow(source, target, generation);
         });
     }
 
     private static void launchNow(
             final Activity source,
-            final DesktopDisplayTarget target) {
+            final DesktopDisplayTarget target,
+            final long generation) {
         final int displayId = target.displayId;
         DesktopRuntimeBridge.noteDesktopTarget(target);
         if (DesktopRuntimeBridge.focusDesktopOnDisplay(displayId)) {
             return;
         }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId);
-        DesktopShellActivity.setLaunchWindowingMode(
-                options, WINDOWING_MODE_FULLSCREEN);
-        try {
-            source.startActivity(
-                    createLaunchIntent(source).addFlags(
-                            Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                            .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId)
-                            .putExtra(
-                                    EXTRA_PROFILE_DISPLAY_ID,
-                                    target.profileDisplayId)
-                            .putExtra(EXTRA_PROFILE_KEY, target.profileKey)
-                            .putExtra(EXTRA_TARGET_KIND, target.kind.name()),
-                    options.toBundle());
-        } catch (RuntimeException error) {
-            DesktopRuntimeBridge.clearDesktopTarget(target);
-            throw error;
+        final Intent intent = createLaunchIntent(source).addFlags(
+                Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId)
+                .putExtra(EXTRA_PROFILE_DISPLAY_ID, target.profileDisplayId)
+                .putExtra(EXTRA_PROFILE_KEY, target.profileKey)
+                .putExtra(EXTRA_TARGET_KIND, target.kind.name());
+        LAUNCH_EXECUTOR.execute(() -> {
+            try {
+                ShellAccess.launchDesktopHost(displayId, intent);
+            } catch (IOException | RuntimeException error) {
+                source.runOnUiThread(() -> reportLaunchFailure(
+                        source, target, generation, error));
+            }
+        });
+    }
+
+    private static void reportLaunchFailure(
+            final Activity source,
+            final DesktopDisplayTarget target,
+            final long generation,
+            final Throwable error) {
+        Log.w(TAG, "local desktop launch failed", error);
+        DesktopRuntimeBridge.clearDesktopTarget(target);
+        LocalDesktopNavigationController.releaseIfCurrent(
+                generation, null);
+        final String message = error.getMessage() == null
+                ? error.getClass().getSimpleName() : error.getMessage();
+        CompatibilityDiagnostics.record(
+                "DESKTOP-LAUNCH-001",
+                "Could not launch the local desktop",
+                message,
+                error);
+        if (!source.isFinishing() && !source.isDestroyed()) {
+            Toast.makeText(
+                    source,
+                    source.getString(R.string.status_launch_failed, message),
+                    Toast.LENGTH_LONG).show();
         }
     }
 }

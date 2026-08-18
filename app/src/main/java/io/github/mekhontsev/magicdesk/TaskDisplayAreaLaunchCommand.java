@@ -32,6 +32,7 @@ public final class TaskDisplayAreaLaunchCommand {
     // Nubia cannot rank an empty nested TDA; use a sibling of the default TDA.
     private static final int FEATURE_ROOT = 0;
     private static final int TRANSIT_OPEN = 1;
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long TASK_TIMEOUT_MILLIS = 5_000L;
 
@@ -77,7 +78,9 @@ public final class TaskDisplayAreaLaunchCommand {
             final String token,
             final Rect bounds) {
         return createSelfTestLaunchCommand(
-                displayId, token, bounds, ACTIVITY_CLASS);
+                createSelfTestIntent(displayId, token, false),
+                displayId,
+                bounds);
     }
 
     static String createBrowserSelfTestLaunchCommand(
@@ -85,20 +88,22 @@ public final class TaskDisplayAreaLaunchCommand {
             final String token,
             final Rect bounds) {
         return createSelfTestLaunchCommand(
-                displayId, token, bounds, BROWSER_ACTIVITY_CLASS);
+                createSelfTestIntent(displayId, token, true),
+                displayId,
+                bounds);
     }
 
-    private static String createSelfTestLaunchCommand(
+    static Intent createSelfTestIntent(
             final int displayId,
             final String token,
-            final Rect bounds,
-            final String activityClass) {
-        if (displayId < 0 || token == null
-                || !hasExplicitBounds(bounds)) {
+            final boolean browser) {
+        if (displayId < 0 || token == null) {
             throw new IllegalArgumentException("invalid self-test launch");
         }
-        final Intent intent = new Intent()
-                .setComponent(new ComponentName(PACKAGE_NAME, activityClass))
+        return new Intent()
+                .setComponent(new ComponentName(
+                        PACKAGE_NAME,
+                        browser ? BROWSER_ACTIVITY_CLASS : ACTIVITY_CLASS))
                 .setData(Uri.parse("magicdesk-self-test:" + token))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -108,11 +113,20 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra(
                         DesktopSelfTestActivity.EXTRA_ALLOW_DISPLAY_MOVE,
                         true);
-        return DesktopDisplayDrivers.forActiveDisplay(displayId)
-                .features().temporaryLaunchArea
-                ? createTemporaryAreaAppLaunchCommand(
-                        intent, displayId, bounds)
-                : createDefaultAreaAppLaunchCommand(
+    }
+
+    private static String createSelfTestLaunchCommand(
+            final Intent intent,
+            final int displayId,
+            final Rect bounds) {
+        if (!hasExplicitBounds(bounds)) {
+            throw new IllegalArgumentException("invalid self-test launch");
+        }
+        final DesktopTaskAreaPolicy policy =
+                DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
+        return policy == DesktopTaskAreaPolicy.DEFAULT
+                ? createDefaultAreaAppLaunchCommand(intent, displayId, bounds)
+                : createTemporaryAreaAppLaunchCommand(
                         intent, displayId, bounds);
     }
 
@@ -326,12 +340,13 @@ public final class TaskDisplayAreaLaunchCommand {
                 taskDisplayArea.close();
                 taskDisplayArea = null;
                 areaToken = null;
-                waitForTask(
-                        service,
-                        displayId,
-                        taskId,
-                        null,
-                        null);
+                // Removing an organizer-owned area is a hierarchy change of
+                // its own. Some default displays inherit fullscreen after the
+                // reparent, so make the post-removal transaction authoritative.
+                ShellPreparedTaskTransition.applyFreeform(
+                        service, displayId, taskId, bounds);
+                waitForTaskFreeformBounds(
+                        service, displayId, taskId, bounds);
             }
             if (transitionObservation != null) {
                 System.out.println("transition-surface-changed="
@@ -358,7 +373,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
     }
 
-    private static int launchTask(
+    static int launchTask(
             final Object service,
             final int displayId,
             final Intent intent,
@@ -383,6 +398,37 @@ public final class TaskDisplayAreaLaunchCommand {
             ActivityOptions.class.getMethod("setAvoidMoveToFront")
                     .invoke(options);
         }
+        final Set<Integer> existingTaskIds = taskIdsOnDisplay(
+                service, displayId);
+        launchActivity(service, intent, options);
+        return waitForTask(
+                service,
+                displayId,
+                -1,
+                expectedPackage,
+                existingTaskIds);
+    }
+
+    static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Class<?> containerTokenClass,
+            final Object areaToken) throws ReflectiveOperationException {
+        if (intent == null || intent.getComponent() == null
+                || areaToken == null) {
+            throw new IllegalArgumentException(
+                    "fullscreen task-area launch requires an explicit target");
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        ActivityOptions.class.getMethod(
+                "setLaunchTaskDisplayArea", containerTokenClass)
+                .invoke(options, areaToken);
+        ActivityOptions.class.getMethod(
+                "setLaunchWindowingMode", Integer.TYPE)
+                .invoke(options, Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
         launchActivity(service, intent, options);
@@ -601,7 +647,7 @@ public final class TaskDisplayAreaLaunchCommand {
         return taskIds;
     }
 
-    private static Intent createAppIntent(final String intentUri) {
+    static Intent createAppIntent(final String intentUri) {
         final Intent intent;
         try {
             intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME);

@@ -96,6 +96,12 @@ public final class DesktopRuntimeBridge {
         return UI.refreshDesktopInputFocus(displayId);
     }
 
+    static void setDesktopPlaneForeground(
+            final int displayId,
+            final boolean foreground) {
+        UI.setDesktopPlaneForeground(displayId, foreground);
+    }
+
     static boolean restoreLastVisibleWindows() {
         return UI.restoreLastVisibleWindows();
     }

@@ -50,7 +50,9 @@ final class ShellTaskObserverHandle implements Closeable {
     void configure(
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds) throws IOException {
+            final Rect workAreaBounds,
+            final boolean managedTaskArea,
+            final int managedTaskAreaHostTaskId) throws IOException {
         if (displayBounds == null || workAreaBounds == null) {
             throw new IOException("missing task observer bounds");
         }
@@ -64,7 +66,9 @@ final class ShellTaskObserverHandle implements Closeable {
                 workAreaBounds.left,
                 workAreaBounds.top,
                 workAreaBounds.right,
-                workAreaBounds.bottom));
+                workAreaBounds.bottom,
+                managedTaskArea,
+                managedTaskAreaHostTaskId));
     }
 
     void focusStack(
@@ -114,6 +118,42 @@ final class ShellTaskObserverHandle implements Closeable {
             final int taskId) throws IOException {
         return callServiceForResult(() -> mService.closeFullscreenTask(
                 mCallback, displayId, taskId));
+    }
+
+    int launchTaskInDesktopArea(
+            final int displayId,
+            final String intentUri,
+            final Rect bounds) throws IOException {
+        if (bounds == null || bounds.isEmpty()) {
+            throw new IOException("invalid desktop task bounds");
+        }
+        return callServiceForResult(() -> mService.launchTaskInDesktopArea(
+                mCallback,
+                displayId,
+                intentUri,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom));
+    }
+
+    void placeTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) throws IOException {
+        if (bounds == null || bounds.isEmpty()) {
+            throw new IOException("invalid desktop task bounds");
+        }
+        callService(() -> mService.placeTaskInDesktopArea(
+                mCallback,
+                taskId,
+                sourceDisplayId,
+                targetDisplayId,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom));
     }
 
     void startSelfTestTaskStackGuard(

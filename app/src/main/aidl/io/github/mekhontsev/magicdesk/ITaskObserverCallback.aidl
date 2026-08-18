@@ -25,4 +25,6 @@ oneway interface ITaskObserverCallback {
     void onInputFocusRefreshRequired() = 8;
 
     void onPhoneTaskNormalized(int taskId) = 9;
+
+    void onDesktopTaskAreaForegroundChanged(boolean foreground) = 10;
 }

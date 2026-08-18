@@ -52,7 +52,11 @@ final class WindowedAppLauncher {
             final TaskReadyCallback taskReadyCallback) throws IOException {
         final Rect bounds = FloatingWindowController.getWindowBounds(
                 displayId, preferredBounds);
-        final boolean nativeDesktop = NativeDesktopController.shouldUse();
+        final DesktopTaskAreaPolicy taskAreaPolicy =
+                DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
+        final boolean nativeDesktop =
+                taskAreaPolicy != DesktopTaskAreaPolicy.SESSION
+                        && NativeDesktopController.shouldUse();
         final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
         if (!createNew) {
             final ExistingTaskController.ReuseResult existing = reuse(
@@ -78,22 +82,25 @@ final class WindowedAppLauncher {
         }
         try (WindowedTaskLaunchLease launchLease =
                 WindowedTaskLaunchLease.acquire()) {
-            final String launchCommand =
-                    DesktopDisplayDrivers.forActiveDisplay(displayId)
-                            .features().temporaryLaunchArea
-                            ? TaskDisplayAreaLaunchCommand
-                                    .createTemporaryAreaAppLaunchCommand(
-                                            launchIntent,
-                                            displayId,
-                                            bounds)
-                            : TaskDisplayAreaLaunchCommand
-                                    .createDefaultAreaAppLaunchCommand(
-                                            launchIntent,
-                                            displayId,
-                                            bounds);
-            final String output = ShellAccess.run(
-                    launchCommand);
-            final int taskId = parseTaskId(output);
+            final int taskId;
+            if (taskAreaPolicy == DesktopTaskAreaPolicy.SESSION) {
+                taskId = MagicDeskRuntime.launchTaskInDesktopArea(
+                        displayId, launchIntent, bounds);
+            } else {
+                final String launchCommand =
+                        taskAreaPolicy == DesktopTaskAreaPolicy.TRANSIENT
+                                ? TaskDisplayAreaLaunchCommand
+                                        .createTemporaryAreaAppLaunchCommand(
+                                                launchIntent,
+                                                displayId,
+                                                bounds)
+                                : TaskDisplayAreaLaunchCommand
+                                        .createDefaultAreaAppLaunchCommand(
+                                                launchIntent,
+                                                displayId,
+                                                bounds);
+                taskId = parseTaskId(ShellAccess.run(launchCommand));
+            }
             if (taskReadyCallback != null) {
                 taskReadyCallback.onTaskReady();
             }

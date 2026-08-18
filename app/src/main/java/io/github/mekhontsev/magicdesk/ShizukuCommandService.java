@@ -228,12 +228,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workLeft,
             final int workTop,
             final int workRight,
-            final int workBottom) {
+            final int workBottom,
+            final boolean managedTaskArea,
+            final int managedTaskAreaHostTaskId) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
-                new Rect(workLeft, workTop, workRight, workBottom));
+                new Rect(workLeft, workTop, workRight, workBottom),
+                managedTaskArea,
+                managedTaskAreaHostTaskId);
     }
 
     @Override
@@ -244,6 +248,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int[] taskIds) {
         mTaskObserverManager.focusStack(
                 callback, sequence, displayId, taskIds);
+    }
+
+    @Override
+    public int launchDesktopHost(
+            final int displayId,
+            final String intentUri) {
+        return mTaskObserverManager.launchDesktopHost(displayId, intentUri);
     }
 
     @Override
@@ -289,6 +300,40 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int taskId) {
         return mTaskObserverManager.closeFullscreenTask(
                 callback, displayId, taskId);
+    }
+
+    @Override
+    public int launchTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String intentUri,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom) {
+        return mTaskObserverManager.launchTaskInDesktopArea(
+                callback,
+                displayId,
+                intentUri,
+                new Rect(left, top, right, bottom));
+    }
+
+    @Override
+    public void placeTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom) {
+        mTaskObserverManager.placeTaskInDesktopArea(
+                callback,
+                taskId,
+                sourceDisplayId,
+                targetDisplayId,
+                new Rect(left, top, right, bottom));
     }
 
     @Override

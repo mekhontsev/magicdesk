@@ -38,6 +38,17 @@ final class SyncWindowContainerTransaction {
         callbackBinder.await(syncId);
     }
 
+    static void applyAsync(final Object activityTaskManagerService,
+            final Class<?> transactionClass, final Object transaction)
+            throws ReflectiveOperationException {
+        final Object controller = activityTaskManagerService.getClass()
+                .getMethod("getWindowOrganizerController")
+                .invoke(activityTaskManagerService);
+        controller.getClass().getMethod(
+                "applyTransaction", transactionClass)
+                .invoke(controller, transaction);
+    }
+
     private static final class CallbackInvocationHandler implements InvocationHandler {
         private final IBinder mBinder;
 

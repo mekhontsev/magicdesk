@@ -38,6 +38,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTransientTaskBoundsController mTransientBounds;
     private final ShellFullscreenTaskArea mFullscreenTaskArea =
             new ShellFullscreenTaskArea();
+    private final ShellDesktopTaskArea mDesktopTaskArea;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
     private volatile boolean mClosed;
@@ -46,6 +47,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mRestoringPhoneTouchpad;
     private boolean mExternalNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
+    private Boolean mDesktopTaskAreaForeground;
     private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
 
     ShellTaskObserver(
@@ -65,6 +67,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             throw new IllegalArgumentException("missing platform task policy");
         }
         mService = HiddenTaskApi.getService();
+        mDesktopTaskArea = new ShellDesktopTaskArea(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mCallback = callback;
         mCallbackFailure = callbackFailure;
@@ -190,11 +193,20 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     void configure(
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds) {
+            final Rect workAreaBounds,
+            final boolean managedTaskArea,
+            final int managedTaskAreaHostTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
         mFullscreenTaskArea.configure(displayId);
+        mDesktopTaskArea.configure(
+                displayId,
+                managedTaskArea,
+                managedTaskAreaHostTaskId);
+        if (!managedTaskArea) {
+            mDesktopTaskAreaForeground = null;
+        }
         if (displayId < 0) {
             updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
@@ -272,6 +284,24 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    int launchDesktopHost(
+            final int displayId,
+            final String intentUri) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        try {
+            final int taskId = mDesktopTaskArea.launchHost(
+                    displayId, intentUri);
+            reportDesktopTaskAreaForeground(true);
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch desktop host: " + usefulMessage(error),
+                    error);
+        }
+    }
+
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,
@@ -302,6 +332,46 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         return mFullscreenTaskArea.closeTask(
                 mService, displayId, taskId);
+    }
+
+    int launchTaskInDesktopArea(
+            final int displayId,
+            final String intentUri,
+            final Rect bounds) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        try {
+            final int taskId = mDesktopTaskArea.launch(
+                    displayId, intentUri, bounds);
+            reportDesktopTaskAreaForeground(true);
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch task in desktop area: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    void placeTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        try {
+            mDesktopTaskArea.placeTask(
+                    taskId, sourceDisplayId, targetDisplayId, bounds);
+            reportDesktopTaskAreaForeground(true);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot place task in desktop area: "
+                            + usefulMessage(error),
+                    error);
+        }
     }
 
     void startSelfTestTaskStackGuard(
@@ -366,6 +436,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mInputPanelGuard.onTaskRemoved(taskId);
             mMigrationGuard.forget(taskId);
             mTransientBounds.forget(taskId);
+            mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange("task-removed");
@@ -376,6 +447,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
+            reportDesktopTaskAreaForeground(taskInfo);
             mMigrationGuard.onTaskMovedToFront(taskInfo);
             if (isPhoneTouchpadTask(taskInfo)) {
                 synchronized (this) {
@@ -402,6 +474,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final int newDisplayId) {
         mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
+        mDesktopTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange("display-changed");
     }
@@ -411,6 +484,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final boolean focused) {
         mFocusController.onTaskFocusChanged(taskId, focused);
+        if (focused) {
+            reportDesktopTaskAreaForeground(taskId);
+        }
         signalChange("focus-changed");
     }
 
@@ -444,6 +520,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFreeformCleanup.close();
         mTransientBounds.close();
         mStateMonitor.close();
+        mDesktopTaskArea.close();
         mFullscreenTaskArea.close();
         mSelfTestTaskStackGuard.close();
         if (!mRegistered) {
@@ -486,6 +563,44 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             callCallback(() -> mCallback.onObserverError(
                     "external navigation guard unavailable: " + message));
         }
+    }
+
+    private void reportDesktopTaskAreaForeground(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+        final Boolean foreground = mDesktopTaskArea.foregroundForTask(
+                HiddenTaskApi.getTaskDisplayId(taskInfo), taskInfo.taskId);
+        if (foreground != null) {
+            reportDesktopTaskAreaForeground(foreground.booleanValue());
+        }
+    }
+
+    private void reportDesktopTaskAreaForeground(final int taskId) {
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.INVALID_DISPLAY, taskId);
+            if (task == null) {
+                return;
+            }
+            final Boolean foreground = mDesktopTaskArea.foregroundForTask(
+                    HiddenTaskApi.getTaskDisplayId(task), taskId);
+            if (foreground != null) {
+                reportDesktopTaskAreaForeground(
+                        foreground.booleanValue());
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not resolve focused task area", error);
+        }
+    }
+
+    private synchronized void reportDesktopTaskAreaForeground(
+            final boolean foreground) {
+        if (mDesktopTaskAreaForeground != null
+                && mDesktopTaskAreaForeground.booleanValue() == foreground) {
+            return;
+        }
+        mDesktopTaskAreaForeground = Boolean.valueOf(foreground);
+        callCallback(() -> mCallback
+                .onDesktopTaskAreaForegroundChanged(foreground));
     }
 
     private void preservePhoneTouchpad() {

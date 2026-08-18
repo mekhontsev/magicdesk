@@ -1,12 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -287,6 +289,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public void onDesktopTaskAreaForegroundChanged(
+                            final int generation,
+                            final boolean foreground) {
+                        if (mRunning
+                                && taskAreaPolicy()
+                                        == DesktopTaskAreaPolicy.SESSION) {
+                            DesktopRuntimeBridge
+                                    .setDesktopPlaneForeground(
+                                            mDisplayId, foreground);
+                        }
+                    }
+
+                    @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
                         if (mRunning) {
@@ -313,7 +328,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             scheduleRefresh(0);
             return;
         }
-        stop();
+        // A phone session can pre-create its shell task area before this
+        // controller becomes active. Do not clear that valid configuration on
+        // the initial start; only tear down an earlier controller display.
+        if (mRunning || mDisplayId >= Display.DEFAULT_DISPLAY) {
+            stop();
+        }
         mDisplayId = displayId;
         mRunning = createWindowContext(displayId);
         if (!mRunning) {
@@ -805,8 +825,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
+        final boolean managedTaskArea = taskAreaPolicy()
+                == DesktopTaskAreaPolicy.SESSION;
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final int managedTaskAreaHostTaskId = managedTaskArea
+                && session.activeDisplayId() == mDisplayId
+                ? session.hostTaskId() : -1;
         mTaskWatcher.configure(
-                mDisplayId, displayBounds, workAreaBounds);
+                mDisplayId,
+                displayBounds,
+                workAreaBounds,
+                managedTaskArea,
+                managedTaskAreaHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(
                 shouldProtectExternalSession());
     }
@@ -820,6 +851,46 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 && DesktopDisplayDrivers.forTarget(target)
                         .features().rootTaskTransfer
                 && mWindowing.protectsExternalSessionFromPhoneTaskMigration();
+    }
+
+    private DesktopTaskAreaPolicy taskAreaPolicy() {
+        if (mDisplayId < 0) {
+            return DesktopTaskAreaPolicy.DEFAULT;
+        }
+        return DesktopDisplayDrivers.activeTaskAreaPolicy(mDisplayId);
+    }
+
+    @Override
+    public int launchTaskInDesktopArea(
+            final int displayId,
+            final Intent intent,
+            final Rect bounds) throws IOException {
+        requireSessionTaskArea(displayId);
+        return mTaskWatcher.launchTaskInDesktopArea(
+                displayId, intent, bounds);
+    }
+
+    @Override
+    public void placeTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) throws IOException {
+        requireSessionTaskArea(targetDisplayId);
+        mTaskWatcher.placeTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    private void requireSessionTaskArea(final int displayId)
+            throws IOException {
+        if (!mRunning
+                || !mTaskWatcherReady
+                || displayId != mDisplayId
+                || taskAreaPolicy() != DesktopTaskAreaPolicy.SESSION) {
+            throw new IOException(
+                    "session task area is unavailable for display "
+                            + displayId);
+        }
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {

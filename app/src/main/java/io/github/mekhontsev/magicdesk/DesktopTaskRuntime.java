@@ -1,9 +1,22 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
+import android.graphics.Rect;
+
+import java.io.IOException;
 import java.util.List;
 
 /** Task operations owned by the active process runtime. */
 interface DesktopTaskRuntime {
+    int launchTaskInDesktopArea(
+            int displayId, Intent intent, Rect bounds) throws IOException;
+
+    void placeTaskInDesktopArea(
+            int taskId,
+            int sourceDisplayId,
+            int targetDisplayId,
+            Rect bounds) throws IOException;
+
     List<TaskRepository.TaskEntry> getVisibleFreeformTasks(int displayId);
 
     List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(int displayId);

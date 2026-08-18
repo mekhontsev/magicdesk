@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.RemoteException;
@@ -36,6 +37,8 @@ final class DesktopTaskWatcher {
                 int displayId,
                 Rect bounds);
         void onInputFocusRefreshRequired(int generation);
+        void onDesktopTaskAreaForegroundChanged(
+                int generation, boolean foreground);
         void onDisconnected(int generation);
     }
 
@@ -95,13 +98,20 @@ final class DesktopTaskWatcher {
     boolean configure(
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds) {
+            final Rect workAreaBounds,
+            final boolean managedTaskArea,
+            final int managedTaskAreaHostTaskId) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             return false;
         }
         try {
-            handle.configure(displayId, displayBounds, workAreaBounds);
+            handle.configure(
+                    displayId,
+                    displayBounds,
+                    workAreaBounds,
+                    managedTaskArea,
+                    managedTaskAreaHostTaskId);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
@@ -120,10 +130,37 @@ final class DesktopTaskWatcher {
             return;
         }
         try {
-            handle.configure(-1, new Rect(), new Rect());
+            handle.configure(-1, new Rect(), new Rect(), false, -1);
         } catch (IOException error) {
             Log.w(TAG, "failed to clear task observer configuration", error);
         }
+    }
+
+    int launchTaskInDesktopArea(
+            final int displayId,
+            final Intent intent,
+            final Rect bounds) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || intent == null) {
+            throw new IOException("desktop task area is unavailable");
+        }
+        return handle.launchTaskInDesktopArea(
+                displayId,
+                intent.toUri(Intent.URI_INTENT_SCHEME),
+                bounds);
+    }
+
+    void placeTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final Rect bounds) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            throw new IOException("desktop task area is unavailable");
+        }
+        handle.placeTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
     void sendFocusStack(
@@ -485,6 +522,14 @@ final class DesktopTaskWatcher {
                 mListener.onInputFocusRefreshRequired(generation));
     }
 
+    private void onDesktopTaskAreaForegroundChanged(
+            final int generation,
+            final boolean foreground) {
+        postIfActive(generation, () ->
+                mListener.onDesktopTaskAreaForegroundChanged(
+                        generation, foreground));
+    }
+
     private void onPhoneTaskNormalized(
             final int generation,
             final int taskId) {
@@ -655,6 +700,13 @@ final class DesktopTaskWatcher {
         public void onPhoneTaskNormalized(final int taskId)
                 throws RemoteException {
             mOwner.onPhoneTaskNormalized(mGeneration, taskId);
+        }
+
+        @Override
+        public void onDesktopTaskAreaForegroundChanged(
+                final boolean foreground) throws RemoteException {
+            mOwner.onDesktopTaskAreaForegroundChanged(
+                    mGeneration, foreground);
         }
     }
 }

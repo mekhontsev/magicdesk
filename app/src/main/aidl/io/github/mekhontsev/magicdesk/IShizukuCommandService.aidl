@@ -49,7 +49,9 @@ interface IShizukuCommandService {
         int workLeft,
         int workTop,
         int workRight,
-        int workBottom) = 12;
+        int workBottom,
+        boolean managedTaskArea,
+        int managedTaskAreaHostTaskId) = 12;
 
     void focusTaskStack(
         ITaskObserverCallback callback,
@@ -250,5 +252,26 @@ interface IShizukuCommandService {
         int restoreTop,
         int restoreRight,
         int restoreBottom) = 72;
+
+    int launchTaskInDesktopArea(
+        ITaskObserverCallback callback,
+        int displayId,
+        String intentUri,
+        int left,
+        int top,
+        int right,
+        int bottom) = 73;
+
+    void placeTaskInDesktopArea(
+        ITaskObserverCallback callback,
+        int taskId,
+        int sourceDisplayId,
+        int targetDisplayId,
+        int left,
+        int top,
+        int right,
+        int bottom) = 74;
+
+    int launchDesktopHost(int displayId, String intentUri) = 75;
 
 }
