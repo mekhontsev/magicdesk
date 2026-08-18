@@ -30,21 +30,23 @@ poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
 
 When an application initiates immersive mode itself, the long-lived shell task
-observer places that task in MagicDesk's organizer-owned fullscreen parent and
-retains its freeform bounds. The application's own insets request updates its
-client window; retrying or rebuilding the Activity can discard transient state
-such as the browser's HTML Fullscreen API session. Platforms where that parent
-cannot be created retain the client-preserving one-shot command as a fallback.
+observer retains its freeform bounds while the task stays in the display's
+default task area. The application's own insets request updates its client
+window; retrying or rebuilding the Activity can discard transient state such as
+the browser's HTML Fullscreen API session. Keeping a lone immersive task out of
+the organizer-owned parent also preserves projection displays whose task host
+is invalidated by that reparent operation.
 
 An orientation change can make Android report the saved freeform mode and bounds
 before WMShell has recreated the task decoration. Orientation task callbacks
 wake the shell observer immediately; when system bars become visible again,
-the same observer hides and detaches the task, establishes a real
-fullscreen-to-freeform mode boundary, and reveals the same Activity at its
-saved bounds through the normal WMShell transition. The application process is
-not in the critical path. This restores the desktop surface and native caption
-without using the phone display, restarting the application, or exposing the
-firmware's partial freeform state.
+the same observer hides the task, establishes a real fullscreen-to-freeform
+mode boundary, and reveals the same Activity at its saved bounds through the
+normal WMShell transition. Detachment is required only for tasks owned by
+MagicDesk's multi-window fullscreen parent. The application process is not in
+the critical path. This restores the desktop surface and native caption without
+using the phone display, restarting the application, or exposing the firmware's
+partial freeform state.
 
 The same shell-owned visibility boundary is shared by running-task display
 moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task

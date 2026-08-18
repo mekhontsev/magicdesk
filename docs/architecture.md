@@ -178,15 +178,18 @@ and the client-preserving refresh described in
 
 The default desktop task area is freeform-oriented. Reordering independent
 fullscreen roots there can make a task inherit freeform mode during Alt+Tab,
-even when its final mode is repaired afterward. MagicDesk therefore reparents
-true-fullscreen tasks into one organizer-owned fullscreen `TaskDisplayArea`.
-The same parent holds an application-driven fullscreen task until its immersive
-request ends, preventing firmware from exposing a partial freeform restore.
+even when its final mode is repaired afterward. MagicDesk therefore reparents a
+reordered stack of true-fullscreen tasks into one organizer-owned fullscreen
+`TaskDisplayArea`. A lone application-driven fullscreen task stays in the
+display's default task area: some projection displays remove their task-hosting
+virtual display when that task is moved under an organizer-created parent.
 
 The long-lived shell task observer owns that area. Switching only reorders
 children inside the same parent; restoring a window releases that task to the
 default task area while it is hidden or still fullscreen. Application-driven
 restores are completed in the observer before their result crosses Binder.
+They use a hidden fullscreen-to-freeform mode boundary in the default task area
+to rebuild native decoration without changing parents.
 Closing the final member deletes the area. Platforms without this organizer
 capability use the ordinary focus path and never apply a delayed mode repair.
 
@@ -365,7 +368,9 @@ runtime integration and are not distributed through the same release path.
   fullscreen parent avoids the transient freeform state caused by reordering
   roots in the default desktop task area. A task is synchronously released to
   the default task area while still fullscreen before any restore or snap
-  command changes its mode. The area closes after its final tracked task leaves.
+  command changes its mode. Application-requested immersive tasks remain in
+  the default task area and share only the observer's saved-bounds lifecycle.
+  The area closes after its final tracked task leaves.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `003` verify both task modes, real input
   focus, single-task restore and close, survivor visibility, and abrupt display

@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Keeps true fullscreen tasks in a fullscreen parent while their order changes.
+ * Keeps a reordered stack of true fullscreen tasks in a fullscreen parent.
  *
  * <p>The dedicated parent is the invariant: reordering the same tasks in the
  * default desktop task area lets some firmware resolve them as freeform. Do
@@ -63,7 +63,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             return false;
         }
         try {
-            ensureArea(service, displayId);
+            if (mDisplayId >= 0 && mDisplayId != displayId) {
+                close();
+            }
+            mDisplayId = displayId;
             final Class<?> tokenClass =
                     Class.forName("android.window.WindowContainerToken");
             final Class<?> transactionClass = Class.forName(
@@ -78,27 +81,21 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                             Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
             transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                     .invoke(transaction, taskToken, new Rect());
-            if (!mTaskIds.contains(Integer.valueOf(taskId))) {
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, mArea.token(), Boolean.TRUE);
-            } else {
-                transactionClass.getMethod(
-                        "reorder", tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, Boolean.TRUE);
-            }
+            transactionClass.getMethod(
+                    "reorder", tokenClass, Boolean.TYPE)
+                    .invoke(transaction, taskToken, Boolean.TRUE);
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
                     transactionClass,
                     transaction,
                     tokenClass,
                     taskToken,
                     true);
-            // The long-lived observer owns the parent and the matching restore.
-            // A one-shot command cannot keep this hierarchy stable while the
-            // application later leaves immersive mode.
+            // Keep app-requested fullscreen in the display's default task area.
+            // The dedicated parent is needed only when several fullscreen tasks
+            // are reordered; some projection displays reject a lone task moved
+            // under an organizer-created parent.
             TaskFullscreenTransitionCommand.startTransition(
                     transactionClass, transaction);
-            mTaskIds.add(Integer.valueOf(taskId));
             mAppRestoreBounds.put(
                     Integer.valueOf(taskId), new Rect(restoreBounds));
             Log.i(TAG, "entered app fullscreen task=" + taskId
@@ -127,10 +124,18 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         boolean hidden = false;
         try {
             // Firmware may already have nominally changed the task to freeform.
-            // Re-establish a hidden fullscreen boundary while detaching it from
-            // our parent, then reveal only the canonical freeform geometry.
-            ShellPreparedTaskTransition.prepareDetachedFullscreen(
-                    service, displayId, taskId);
+            // Re-establish a hidden fullscreen boundary, detaching only when
+            // our organizer parent owns the task, then reveal only the
+            // canonical freeform geometry.
+            final boolean detachFromFullscreenParent =
+                    mTaskIds.contains(Integer.valueOf(taskId));
+            if (detachFromFullscreenParent) {
+                ShellPreparedTaskTransition.prepareDetachedFullscreen(
+                        service, displayId, taskId);
+            } else {
+                ShellPreparedTaskTransition.prepareFullscreen(
+                        service, displayId, taskId);
+            }
             hidden = true;
             TaskDisplayAreaLaunchCommand.waitForTaskVisibility(
                     service, displayId, taskId, false);
@@ -367,7 +372,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         if (mArea != null && mDisplayId == displayId) {
             return;
         }
-        close();
+        if (mArea != null || (mDisplayId >= 0 && mDisplayId != displayId)) {
+            close();
+        }
 
         final TaskDisplayAreaHandle area = TaskDisplayAreaHandle.create(
                 displayId, FEATURE_ROOT, "MagicDesk fullscreen stack");
@@ -409,7 +416,8 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     synchronized void onTaskRemoved(final int taskId) {
         mAppRestoreBounds.remove(Integer.valueOf(taskId));
-        if (mTaskIds.remove(Integer.valueOf(taskId)) && mTaskIds.isEmpty()) {
+        mTaskIds.remove(Integer.valueOf(taskId));
+        if (mTaskIds.isEmpty() && mAppRestoreBounds.isEmpty()) {
             close();
         }
     }
