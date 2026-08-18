@@ -828,13 +828,19 @@ public final class TaskDisplayAreaLaunchCommand {
                 observation.sample("before");
             }
             taskHidden = true;
-            ShellPreparedTaskTransition.prepareFreeform(
-                    service, sourceDisplayId, taskId, bounds);
+            // Keep the task hidden in fullscreen while its root crosses the
+            // physical display boundary. Revealing freeform only on the
+            // target gives WMShell a real target-local mode transition, so it
+            // rebuilds caption surfaces and input windows on that display.
+            ShellPreparedTaskTransition.prepareFullscreen(
+                    service, sourceDisplayId, taskId);
             waitForTaskWindowingMode(
                     service,
                     sourceDisplayId,
                     taskId,
-                    WINDOWING_MODE_FREEFORM);
+                    WINDOWING_MODE_FULLSCREEN);
+            waitForTaskVisibility(
+                    service, sourceDisplayId, taskId, false);
             final boolean sourcePreparedVisible =
                     HiddenTaskApi.getBooleanField(
                             HiddenTaskApi.requireTask(
@@ -855,12 +861,30 @@ public final class TaskDisplayAreaLaunchCommand {
                             service,
                             Integer.valueOf(rootTaskId),
                             Integer.valueOf(targetDisplayId));
-            waitForTaskFreeformBounds(
-                    service, targetDisplayId, taskId, bounds);
+            waitForTaskWindowingMode(
+                    service,
+                    targetDisplayId,
+                    taskId,
+                    WINDOWING_MODE_FULLSCREEN);
+            waitForTaskVisibility(
+                    service, targetDisplayId, taskId, false);
+            final boolean targetPreparedVisible =
+                    HiddenTaskApi.getBooleanField(
+                            HiddenTaskApi.requireTask(
+                                    service, targetDisplayId, taskId),
+                            "isVisible");
+            System.out.println("target-prepared-visible="
+                    + targetPreparedVisible);
+            if (targetPreparedVisible) {
+                throw new IllegalStateException(
+                        "prepared target task became visible");
+            }
             if (observation != null) {
                 observation.sample("moved");
             }
             ShellPreparedTaskTransition.showPreparedFreeform(
+                    service, targetDisplayId, taskId, bounds);
+            waitForTaskFreeformBounds(
                     service, targetDisplayId, taskId, bounds);
             waitForTaskVisibility(
                     service, targetDisplayId, taskId, true);

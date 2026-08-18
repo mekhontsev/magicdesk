@@ -190,14 +190,20 @@ final class DesktopSelfTestWindowSuite {
                         "Preserve desktop surface during task transfer",
                         taskTransfer.probeError);
             } else {
+                final boolean hiddenPhysicalPreparation =
+                        taskTransfer.hiddenPhysicalPreparation;
+                final boolean directFreeformFront =
+                        !hiddenPhysicalPreparation
+                                && taskTransfer.firstFront.windowingMode
+                                        == WINDOWING_MODE_FREEFORM
+                                && taskTransfer.firstFront.displayId
+                                        == targetDisplayId
+                                && equalsObservationBounds(
+                                        taskTransfer.firstFront,
+                                        windowBounds);
                 result.add(!taskTransfer.surfaceChanged
-                            && taskTransfer.firstFront.windowingMode
-                                    == WINDOWING_MODE_FREEFORM
-                            && taskTransfer.firstFront.displayId
-                                    == targetDisplayId
-                            && equalsObservationBounds(
-                                    taskTransfer.firstFront,
-                                    windowBounds)
+                            && (hiddenPhysicalPreparation
+                                    || directFreeformFront)
                             ? DesktopSelfTestResult.State.PASS
                             : DesktopSelfTestResult.State.FAIL,
                     "WINDOW-014",
@@ -869,7 +875,11 @@ final class DesktopSelfTestWindowSuite {
             }
             if (!output.contains("source-prepared-visible=false")) {
                 throw new IOException(
-                        "source freeform preparation was not hidden");
+                        "source task preparation was not hidden");
+            }
+            if (!output.contains("target-prepared-visible=false")) {
+                throw new IOException(
+                        "target task preparation was not hidden");
             }
             final DesktopTaskLaunchProbe.Observation firstFront =
                     probe.awaitObservation();
@@ -886,7 +896,7 @@ final class DesktopSelfTestWindowSuite {
                     observation.surfaceChanged,
                     observation.pixelSamples,
                     observation.probeError,
-                    "hidden");
+                    true);
         }
     }
 
@@ -1055,14 +1065,14 @@ final class DesktopSelfTestWindowSuite {
         final boolean surfaceChanged;
         final String pixelSamples;
         final String probeError;
-        final String sourcePreparation;
+        final boolean hiddenPhysicalPreparation;
 
         TaskTransferObservation(
                 final DesktopTaskLaunchProbe.Observation firstFront,
                 final boolean surfaceChanged,
                 final String pixelSamples,
                 final String probeError) {
-            this(firstFront, surfaceChanged, pixelSamples, probeError, "");
+            this(firstFront, surfaceChanged, pixelSamples, probeError, false);
         }
 
         TaskTransferObservation(
@@ -1070,20 +1080,19 @@ final class DesktopSelfTestWindowSuite {
                 final boolean surfaceChanged,
                 final String pixelSamples,
                 final String probeError,
-                final String sourcePreparation) {
+                final boolean hiddenPhysicalPreparation) {
             this.firstFront = firstFront;
             this.surfaceChanged = surfaceChanged;
             this.pixelSamples = pixelSamples == null ? "" : pixelSamples;
             this.probeError = probeError == null ? "" : probeError;
-            this.sourcePreparation = sourcePreparation == null
-                    ? "" : sourcePreparation;
+            this.hiddenPhysicalPreparation = hiddenPhysicalPreparation;
         }
 
         @Override
         public String toString() {
             return firstFront + ", pixels=" + pixelSamples
-                    + (sourcePreparation.isEmpty()
-                            ? "" : ", source-prepared=" + sourcePreparation)
+                    + (hiddenPhysicalPreparation
+                            ? ", source+target-prepared=hidden" : "")
                     + (probeError.isEmpty()
                             ? "" : ", probe-error=" + probeError);
         }

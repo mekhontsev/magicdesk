@@ -182,6 +182,55 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsHiddenSourceModeAfterDisplayTransfer() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("MOVE", snapshot(
+                0,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, 0, 1, true, true, false)));
+        analyzer.sample("display", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false)), true);
+
+        assertEquals(0, analyzer.finish(windowed(2, true)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsVisibleSourceModeAfterDisplayTransfer() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("MOVE", snapshot(
+                0,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, 0, 1, true, true, false)));
+        analyzer.sample("display", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false)), true);
+
+        assertContains(
+                analyzer.finish(windowed(2, true)),
+                "observed=display2/mode1");
+    }
+
+    @Test
+    public void collapsesRepeatedUnchangedCallbacks() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("WINDOW", windowed(0, true));
+        for (int i = 1; i <= 256; i++) {
+            analyzer.sample("stack", windowed(i, true), true);
+        }
+
+        final SelfTestTaskStackReport report =
+                analyzer.finish(windowed(257, true));
+        assertEquals(0, report.droppedSamples);
+        assertEquals(0, report.anomalies.length);
+        assertEquals(256, report.eventCount);
+    }
+
+    @Test
     public void acceptsHiddenDefaultModeDuringTaskCreation() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot absent = snapshot(

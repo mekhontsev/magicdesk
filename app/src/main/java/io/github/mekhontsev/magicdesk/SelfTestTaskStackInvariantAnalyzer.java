@@ -99,6 +99,11 @@ final class SelfTestTaskStackInvariantAnalyzer {
             mEventCount++;
         }
         validateUniversal(reason, snapshot);
+        if (!mStage.samples.isEmpty()
+                && mStage.samples.get(mStage.samples.size() - 1)
+                        .snapshot.sameState(snapshot)) {
+            return;
+        }
         if (mStage.samples.size() >= MAX_STAGE_SAMPLES) {
             mDroppedSamples++;
             return;
@@ -340,8 +345,11 @@ final class SelfTestTaskStackInvariantAnalyzer {
             return true;
         }
         return first.displayId != last.displayId
-                && current.displayId == first.displayId
-                && current.windowingMode == last.windowingMode;
+                && ((current.displayId == first.displayId
+                            && current.windowingMode == last.windowingMode)
+                        || (current.displayId == last.displayId
+                            && current.windowingMode
+                                    == first.windowingMode));
     }
 
     private String formatSample(
@@ -395,6 +403,21 @@ final class SelfTestTaskStackInvariantAnalyzer {
             return null;
         }
 
+        boolean sameState(final Snapshot other) {
+            if (other == null
+                    || visibilityKnown != other.visibilityKnown
+                    || tasks.size() != other.tasks.size()) {
+                return false;
+            }
+            for (final TaskState task : tasks) {
+                final TaskState candidate = other.find(task.taskId);
+                if (candidate == null || !task.sameState(candidate)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         String summary(final int hostTaskId) {
             final StringBuilder output = new StringBuilder();
             for (final TaskState task : tasks) {
@@ -443,6 +466,17 @@ final class SelfTestTaskStackInvariantAnalyzer {
 
         String stateKey() {
             return "display" + displayId + "/mode" + windowingMode;
+        }
+
+        boolean sameState(final TaskState other) {
+            return other != null
+                    && taskId == other.taskId
+                    && displayId == other.displayId
+                    && windowingMode == other.windowingMode
+                    && visible == other.visible
+                    && visibilityKnown == other.visibilityKnown
+                    && fixture == other.fixture
+                    && home == other.home;
         }
     }
 
