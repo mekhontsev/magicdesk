@@ -324,6 +324,21 @@ runtime integration and are not distributed through the same release path.
 - `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
   shell UserService. `ShellTaskObserver` registers the framework listener, and
   `ShellTaskStateMonitor` isolates the supplemental bounds/immersive polling.
+- `ShellWindowedTaskLauncher` owns every fresh windowed launch, independent of
+  display type. It observes the new task through the persistent framework
+  listener and joins mode and bounds to the task's original OPEN transition;
+  an organizer-owned task area is an optional parent, not a separate launch
+  implementation. The standalone shell command remains a diagnostic entry
+  point and is not used by the application launch path.
+- `ShellActivityStartController` is MagicDesk's single owner of Android's global
+  activity-controller slot and dispatches starts to the external-migration and
+  windowed-startup policies. `ShellWindowedTaskActivityGuard` follows only
+  activity handoffs inside a task observed as freeform. If such a handoff
+  changes that task to fullscreen without a client immersive request, it uses
+  the last observed freeform bounds to restore the same task. User fullscreen,
+  independent new-task launches, and application immersive requests are not
+  corrected. The policy is event-driven and has no package allowlist or
+  guessed startup delay.
 - `ShellDesktopFocusController` handles a Nubia mirror-display defect where
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches. The UI process then relayouts the existing,
@@ -367,11 +382,11 @@ runtime integration and are not distributed through the same release path.
   coordinate task actions, Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
   window launches. `WindowedAppLauncher` owns fresh launch/reuse selection and
-  delegates task placement to a short-lived shell command without retaining
-  another Activity. `ExistingTaskController` performs only task discovery and
-  normalization. A single `WindowedTaskLaunchLease` spans each operation so
-  startup-window protection and phone-touchpad preservation cannot be entered
-  twice by the launcher and reuse path.
+  delegates fresh launches to the active persistent shell task observer.
+  `ExistingTaskController` performs only task discovery and normalization. A
+  single `WindowedTaskLaunchLease` spans each operation so startup-window
+  protection and phone-touchpad preservation cannot be entered twice by the
+  launcher and reuse path.
 - `ShellFullscreenTaskArea` owns the organizer-created fullscreen task area
   used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
   fullscreen parent avoids the transient freeform state caused by reordering

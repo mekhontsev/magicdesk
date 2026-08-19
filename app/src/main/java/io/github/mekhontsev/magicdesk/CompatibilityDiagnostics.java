@@ -318,6 +318,10 @@ public final class CompatibilityDiagnostics {
         report.append("Phone task guard: ")
                 .append(PhoneTaskGuardDiagnostics.snapshot().reportLine())
                 .append('\n');
+        report.append("Windowed startup guard: ")
+                .append(WindowedTaskStartupDiagnostics
+                        .snapshot().reportLine())
+                .append('\n');
         final boolean globalInput = ShellAccess.isReady()
                 && audit.platform.features().externalInputBridge
                 && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;

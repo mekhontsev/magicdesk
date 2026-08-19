@@ -153,6 +153,12 @@ final class HiddenTaskApi {
         return component == null ? null : component.getPackageName();
     }
 
+    static ComponentName getTaskTopComponent(final Object task) {
+        final Object topActivity = getOptionalField(task, "topActivity");
+        return topActivity instanceof ComponentName
+                ? (ComponentName) topActivity : getTaskComponent(task);
+    }
+
     static ComponentName getTaskComponent(final Object task) {
         final String[] componentFields = {
                 "baseActivity", "realActivity", "origActivity", "topActivity"

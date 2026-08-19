@@ -8,8 +8,6 @@ import java.io.IOException;
 
 /** Launches or reuses one app task as a native desktop window. */
 final class WindowedAppLauncher {
-    private static final String LAUNCH_RESULT = "task-display-area-launch=";
-
     enum TaskReusePolicy {
         REUSE_EXISTING,
         CREATE_NEW
@@ -82,16 +80,8 @@ final class WindowedAppLauncher {
         }
         try (WindowedTaskLaunchLease launchLease =
                 WindowedTaskLaunchLease.acquire()) {
-            final int taskId;
-            if (taskAreaPolicy == DesktopTaskAreaPolicy.SESSION) {
-                taskId = MagicDeskRuntime.launchTaskInDesktopArea(
-                        displayId, launchIntent, bounds);
-            } else {
-                final String launchCommand = TaskDisplayAreaLaunchCommand
-                        .createDefaultAreaAppLaunchCommand(
-                                launchIntent, displayId, bounds);
-                taskId = parseTaskId(ShellAccess.run(launchCommand));
-            }
+            final int taskId = MagicDeskRuntime.launchWindowedTask(
+                    displayId, launchIntent, bounds);
             if (taskReadyCallback != null) {
                 taskReadyCallback.onTaskReady();
             }
@@ -146,20 +136,4 @@ final class WindowedAppLauncher {
                         launchLease);
     }
 
-    private static int parseTaskId(final String output) throws IOException {
-        final int start = output.indexOf(LAUNCH_RESULT);
-        if (start < 0) {
-            throw new IOException(output.trim());
-        }
-        final int valueStart = start + LAUNCH_RESULT.length();
-        int valueEnd = valueStart;
-        while (valueEnd < output.length()
-                && Character.isDigit(output.charAt(valueEnd))) {
-            valueEnd++;
-        }
-        if (valueEnd == valueStart) {
-            throw new IOException("window launch returned no task id");
-        }
-        return Integer.parseInt(output.substring(valueStart, valueEnd));
-    }
 }

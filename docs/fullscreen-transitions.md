@@ -53,7 +53,8 @@ moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task
 belongs to MagicDesk's fullscreen parent, a manual restore or snap reparents it
 to the display's default task area, applies freeform mode and final bounds, and
 reveals its caption in one WMShell transition. Platforms without that parent
-retain the existing one-shot freeform transition.
+use the same persistent shell observer against the display's default task
+area.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

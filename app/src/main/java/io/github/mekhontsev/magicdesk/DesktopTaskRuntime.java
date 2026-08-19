@@ -8,7 +8,7 @@ import java.util.List;
 
 /** Task operations owned by the active process runtime. */
 interface DesktopTaskRuntime {
-    int launchTaskInDesktopArea(
+    int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
 
     void placeTaskInDesktopArea(

@@ -280,7 +280,7 @@ public final class MagicDeskRuntime {
         return tasks == null ? null : tasks.getVisibleFreeformTasks(displayId);
     }
 
-    static int launchTaskInDesktopArea(
+    static int launchWindowedTask(
             final int displayId,
             final Intent intent,
             final Rect bounds) throws IOException {
@@ -288,7 +288,7 @@ public final class MagicDeskRuntime {
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.launchTaskInDesktopArea(displayId, intent, bounds);
+        return tasks.launchWindowedTask(displayId, intent, bounds);
     }
 
     static void placeTaskInDesktopArea(

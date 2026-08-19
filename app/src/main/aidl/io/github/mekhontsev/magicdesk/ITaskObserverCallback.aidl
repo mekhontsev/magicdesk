@@ -27,4 +27,7 @@ oneway interface ITaskObserverCallback {
     void onPhoneTaskNormalized(int taskId) = 9;
 
     void onDesktopTaskAreaForegroundChanged(boolean foreground) = 10;
+
+    void onWindowedTaskStartupCorrected(
+        int taskId, String activityName) = 11;
 }

@@ -128,14 +128,14 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, taskId, focusTaskId));
     }
 
-    int launchTaskInDesktopArea(
+    int launchWindowedTask(
             final int displayId,
             final String intentUri,
             final Rect bounds) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             throw new IOException("invalid desktop task bounds");
         }
-        return callServiceForResult(() -> mService.launchTaskInDesktopArea(
+        return callServiceForResult(() -> mService.launchWindowedTask(
                 mCallback,
                 displayId,
                 intentUri,

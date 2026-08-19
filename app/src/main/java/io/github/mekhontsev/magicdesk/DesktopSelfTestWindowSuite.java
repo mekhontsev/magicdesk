@@ -771,9 +771,7 @@ final class DesktopSelfTestWindowSuite {
                 bounds,
                 FIXTURE_CLASS,
                 TaskDisplayAreaLaunchCommand.createSelfTestIntent(
-                        displayId, token, false),
-                TaskDisplayAreaLaunchCommand.createSelfTestLaunchCommand(
-                        displayId, token, bounds));
+                        displayId, token, false));
     }
 
     private static DesktopTaskLaunchProbe.Observation
@@ -786,35 +784,20 @@ final class DesktopSelfTestWindowSuite {
                 bounds,
                 BROWSER_FIXTURE_CLASS,
                 TaskDisplayAreaLaunchCommand.createSelfTestIntent(
-                        displayId, token, true),
-                TaskDisplayAreaLaunchCommand
-                        .createBrowserSelfTestLaunchCommand(
-                                displayId, token, bounds));
+                        displayId, token, true));
     }
 
     private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
             final int displayId,
             final Rect bounds,
             final String fixtureClass,
-            final Intent launchIntent,
-            final String launchCommand) throws IOException {
+            final Intent launchIntent) throws IOException {
         final ComponentName component =
                 new ComponentName(PACKAGE_NAME, fixtureClass);
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(-1, component)) {
-            final DesktopTaskAreaPolicy policy =
-                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
-            final int launchedTaskId;
-            if (policy == DesktopTaskAreaPolicy.SESSION) {
-                launchedTaskId = MagicDeskRuntime.launchTaskInDesktopArea(
-                        displayId, launchIntent, bounds);
-            } else {
-                final String output = ShellAccess.run(launchCommand);
-                if (!output.contains("task-display-area-launch=")) {
-                    throw new IOException(output.trim());
-                }
-                launchedTaskId = -1;
-            }
+            final int launchedTaskId = MagicDeskRuntime.launchWindowedTask(
+                    displayId, launchIntent, bounds);
             final DesktopTaskLaunchProbe.Observation observation =
                     probe.awaitObservation();
             if (observation.displayId != displayId

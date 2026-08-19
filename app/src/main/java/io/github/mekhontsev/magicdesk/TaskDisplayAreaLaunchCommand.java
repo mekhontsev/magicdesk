@@ -42,44 +42,6 @@ public final class TaskDisplayAreaLaunchCommand {
     private TaskDisplayAreaLaunchCommand() {
     }
 
-    static String createDefaultAreaAppLaunchCommand(
-            final Intent intent,
-            final int displayId,
-            final Rect bounds) {
-        final ComponentName component = intent == null
-                ? null : intent.getComponent();
-        if (component == null || displayId < 0
-                || !hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException("invalid app launch");
-        }
-        return AppProcessCommand.run(
-                TaskDisplayAreaLaunchCommand.class.getName(),
-                "app " + displayId
-                        + " " + ShellCommandLine.quote(intent.toUri(
-                                Intent.URI_INTENT_SCHEME))
-                        + formatBounds(bounds));
-    }
-
-    static String createSelfTestLaunchCommand(
-            final int displayId,
-            final String token,
-            final Rect bounds) {
-        return createSelfTestLaunchCommand(
-                createSelfTestIntent(displayId, token, false),
-                displayId,
-                bounds);
-    }
-
-    static String createBrowserSelfTestLaunchCommand(
-            final int displayId,
-            final String token,
-            final Rect bounds) {
-        return createSelfTestLaunchCommand(
-                createSelfTestIntent(displayId, token, true),
-                displayId,
-                bounds);
-    }
-
     static Intent createSelfTestIntent(
             final int displayId,
             final String token,
@@ -100,16 +62,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra(
                         DesktopSelfTestActivity.EXTRA_ALLOW_DISPLAY_MOVE,
                         true);
-    }
-
-    private static String createSelfTestLaunchCommand(
-            final Intent intent,
-            final int displayId,
-            final Rect bounds) {
-        if (!hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException("invalid self-test launch");
-        }
-        return createDefaultAreaAppLaunchCommand(intent, displayId, bounds);
     }
 
     static String createMoveCommand(
@@ -336,15 +288,12 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
-        if (areaToken == null) {
+        if (areaToken == null && transitionCallback == null) {
             launchActivity(service, intent, options);
         } else {
-            // An organizer-owned TDA is intentionally outside WMShell's
-            // desktop repository. Starting through ActivityTaskManager lets
-            // a vendor transition handler reinterpret the first requested
-            // freeform task. Supplying the launch as the transition's WCT
-            // keeps its task area, mode and bounds in one authoritative
-            // organizer operation.
+            // Supplying the launch as the transition's WCT lets the persistent
+            // task observer join mode, bounds, and an optional organizer-owned
+            // task area to the same authoritative opening transition.
             final IBinder transitionToken =
                     launchPendingIntentTransition(intent, options);
             if (transitionCallback != null) {

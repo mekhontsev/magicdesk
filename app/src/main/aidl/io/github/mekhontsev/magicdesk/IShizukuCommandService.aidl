@@ -253,7 +253,7 @@ interface IShizukuCommandService {
         int restoreRight,
         int restoreBottom) = 72;
 
-    int launchTaskInDesktopArea(
+    int launchWindowedTask(
         ITaskObserverCallback callback,
         int displayId,
         String intentUri,

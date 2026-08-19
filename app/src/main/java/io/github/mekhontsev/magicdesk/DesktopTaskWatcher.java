@@ -136,7 +136,7 @@ final class DesktopTaskWatcher {
         }
     }
 
-    int launchTaskInDesktopArea(
+    int launchWindowedTask(
             final int displayId,
             final Intent intent,
             final Rect bounds) throws IOException {
@@ -144,7 +144,7 @@ final class DesktopTaskWatcher {
         if (handle == null || intent == null) {
             throw new IOException("desktop task area is unavailable");
         }
-        return handle.launchTaskInDesktopArea(
+        return handle.launchWindowedTask(
                 displayId,
                 intent.toUri(Intent.URI_INTENT_SCHEME),
                 bounds);
@@ -555,6 +555,16 @@ final class DesktopTaskWatcher {
         }
     }
 
+    private void onWindowedTaskStartupCorrected(
+            final int generation,
+            final int taskId,
+            final String activityName) {
+        if (mListener.isActive(generation)) {
+            WindowedTaskStartupDiagnostics.noteCorrection(
+                    taskId, activityName);
+        }
+    }
+
     private void onObserverError(
             final int generation,
             final String error) {
@@ -724,6 +734,14 @@ final class DesktopTaskWatcher {
                 final boolean foreground) throws RemoteException {
             mOwner.onDesktopTaskAreaForegroundChanged(
                     mGeneration, foreground);
+        }
+
+        @Override
+        public void onWindowedTaskStartupCorrected(
+                final int taskId,
+                final String activityName) throws RemoteException {
+            mOwner.onWindowedTaskStartupCorrected(
+                    mGeneration, taskId, activityName);
         }
     }
 }

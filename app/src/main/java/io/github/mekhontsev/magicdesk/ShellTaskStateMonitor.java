@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
@@ -20,7 +21,10 @@ final class ShellTaskStateMonitor implements Closeable {
     private static final String TAG = "MagicDeskTasks";
 
     interface Listener {
-        void onTasksSampled(int displayId, List<?> tasks);
+        void onTasksSampled(
+                int displayId,
+                List<?> tasks,
+                List<TaskWindowState> windowStates);
         void onImmersiveRequest(
                 int taskId, boolean requesting, boolean initialSample);
         void onWindowingModeChanged(
@@ -32,6 +36,49 @@ final class ShellTaskStateMonitor implements Closeable {
         void onFreeformBoundsChanged(
                 int taskId, String packageName, int displayId, Rect bounds);
         void onError(String error);
+    }
+
+    static final class TaskWindowState {
+        final Object task;
+        final int taskId;
+        final boolean visible;
+        final int requestedVisibleTypes;
+        final int windowingMode;
+        final int activityType;
+        final ComponentName rootComponent;
+        final ComponentName topComponent;
+        final String packageName;
+        final String topPackage;
+        final Rect bounds;
+
+        TaskWindowState(
+                final Object rawTask,
+                final int observedTaskId,
+                final boolean observedVisible,
+                final int observedVisibleTypes,
+                final int observedWindowingMode,
+                final int observedActivityType,
+                final ComponentName observedRootComponent,
+                final ComponentName observedTopComponent,
+                final String observedPackageName,
+                final String observedTopPackage,
+                final Rect observedBounds) {
+            task = rawTask;
+            taskId = observedTaskId;
+            visible = observedVisible;
+            requestedVisibleTypes = observedVisibleTypes;
+            windowingMode = observedWindowingMode;
+            activityType = observedActivityType;
+            rootComponent = observedRootComponent;
+            topComponent = observedTopComponent;
+            packageName = observedPackageName;
+            topPackage = observedTopPackage;
+            bounds = new Rect(observedBounds);
+        }
+
+        boolean requestingImmersive() {
+            return isRequestingImmersive(requestedVisibleTypes);
+        }
     }
 
     private static final long POLL_INTERVAL_MILLIS = 150;
@@ -201,9 +248,12 @@ final class ShellTaskStateMonitor implements Closeable {
             }
             try {
                 final List<?> tasks = loadTasks(displayId);
-                mListener.onTasksSampled(displayId, tasks);
-                publishWindowChanges(displayId, tasks);
-                publishImmersiveChanges(displayId, tasks);
+                final List<TaskWindowState> windowStates =
+                        readWindowStates(tasks);
+                mListener.onTasksSampled(
+                        displayId, tasks, windowStates);
+                publishWindowChanges(displayId, windowStates);
+                publishImmersiveChanges(displayId, windowStates);
                 failureReported = false;
             } catch (ReflectiveOperationException | RuntimeException error) {
                 if (!failureReported) {
@@ -234,10 +284,61 @@ final class ShellTaskStateMonitor implements Closeable {
                 mService, displayId, MAX_TASKS_TO_SCAN);
     }
 
+    private List<TaskWindowState> readWindowStates(final List<?> tasks)
+            throws ReflectiveOperationException {
+        final List<TaskWindowState> states = new ArrayList<>();
+        if (tasks == null) {
+            return states;
+        }
+        for (final Object task : tasks) {
+            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final boolean visible =
+                    HiddenTaskApi.getBooleanField(task, "isVisible");
+            final int requestedVisibleTypes = visible
+                    ? mRequestedVisibleTypes.getInt(task) : 0;
+            final int windowingMode =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode");
+            final int activityType =
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getActivityType");
+            final Object windowConfiguration =
+                    HiddenTaskApi.getWindowConfiguration(task);
+            final Rect bounds = (Rect) windowConfiguration.getClass()
+                    .getMethod("getBounds")
+                    .invoke(windowConfiguration);
+            final ComponentName rootComponent =
+                    HiddenTaskApi.getTaskComponent(task);
+            final ComponentName topComponent =
+                    HiddenTaskApi.getTaskTopComponent(task);
+            final String packageName = rootComponent == null
+                    ? null : rootComponent.getPackageName();
+            final Object topActivityInfo = mTopActivityInfo.get(task);
+            final String topPackage = topActivityInfo instanceof ActivityInfo
+                    ? ((ActivityInfo) topActivityInfo).packageName
+                    : topComponent == null
+                            ? null : topComponent.getPackageName();
+            states.add(new TaskWindowState(
+                    task,
+                    taskId,
+                    visible,
+                    requestedVisibleTypes,
+                    windowingMode,
+                    activityType,
+                    rootComponent,
+                    topComponent,
+                    packageName,
+                    topPackage,
+                    bounds));
+        }
+        return states;
+    }
+
     private void publishImmersiveChanges(
             final int displayId,
-            final List<?> tasks) throws ReflectiveOperationException {
-        if (tasks == null) {
+            final List<TaskWindowState> states)
+            throws ReflectiveOperationException {
+        if (states == null) {
             return;
         }
         final Set<Integer> liveTaskIds = new HashSet<>();
@@ -245,17 +346,17 @@ final class ShellTaskStateMonitor implements Closeable {
         final Map<Integer, Integer> processIdsByTask = new HashMap<>();
         final Map<ProcessIdentity, Integer> runningProcesses =
                 loadRunningProcesses();
-        for (final Object task : tasks) {
-            final Integer taskId = Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId"));
+        for (final TaskWindowState state : states) {
+            final Integer taskId = Integer.valueOf(state.taskId);
             liveTaskIds.add(taskId);
-            if (!HiddenTaskApi.getBooleanField(task, "isVisible")) {
+            if (!state.visible) {
                 continue;
             }
             visibleTypesByTask.put(
                     taskId,
-                    Integer.valueOf(mRequestedVisibleTypes.getInt(task)));
-            final Integer processId = findProcessId(task, runningProcesses);
+                    Integer.valueOf(state.requestedVisibleTypes));
+            final Integer processId = findProcessId(
+                    state.task, runningProcesses);
             if (processId != null) {
                 processIdsByTask.put(taskId, processId);
             }
@@ -342,50 +443,38 @@ final class ShellTaskStateMonitor implements Closeable {
 
     private void publishWindowChanges(
             final int displayId,
-            final List<?> tasks) throws ReflectiveOperationException {
+            final List<TaskWindowState> states) {
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Set<Integer> visibleTaskIds = new HashSet<>();
         final Set<String> observedPackages = new HashSet<>();
         final Map<Integer, Integer> windowingModes = new HashMap<>();
         final Map<Integer, FreeformBoundsState> freeformBounds =
                 new HashMap<>();
-        for (final Object task : tasks) {
-            final Object windowConfiguration =
-                    HiddenTaskApi.getWindowConfiguration(task);
-            final int windowingMode =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode");
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
-            final String packageName = HiddenTaskApi.getTaskPackage(task);
-            final int activityType =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType");
-            final Object topActivityInfo = mTopActivityInfo.get(task);
-            final String topPackage = topActivityInfo instanceof ActivityInfo
-                    ? ((ActivityInfo) topActivityInfo).packageName : null;
-            if (activityType != ACTIVITY_TYPE_STANDARD
-                    || !PackageNameValidator.isSafe(packageName)
-                    || MAGICDESK_PACKAGE.equals(packageName)
-                    || (topPackage != null
-                            && !packageName.equals(topPackage))) {
+        for (final TaskWindowState state : states) {
+            if (state.activityType != ACTIVITY_TYPE_STANDARD
+                    || !PackageNameValidator.isSafe(state.packageName)
+                    || MAGICDESK_PACKAGE.equals(state.packageName)
+                    || (state.topPackage != null
+                            && !state.packageName.equals(state.topPackage))) {
                 continue;
             }
-            final Integer taskKey = Integer.valueOf(taskId);
+            final Integer taskKey = Integer.valueOf(state.taskId);
             liveTaskIds.add(taskKey);
-            windowingModes.put(taskKey, Integer.valueOf(windowingMode));
-            if (HiddenTaskApi.getBooleanField(task, "isVisible")) {
+            windowingModes.put(
+                    taskKey, Integer.valueOf(state.windowingMode));
+            if (state.visible) {
                 visibleTaskIds.add(taskKey);
             }
-            if (windowingMode != WINDOWING_MODE_FREEFORM
+            if (state.windowingMode != WINDOWING_MODE_FREEFORM
                     || !visibleTaskIds.contains(taskKey)) {
                 continue;
             }
-            final Rect bounds = (Rect) windowConfiguration.getClass()
-                    .getMethod("getBounds").invoke(windowConfiguration);
-            if (!bounds.isEmpty() && observedPackages.add(packageName)) {
+            if (!state.bounds.isEmpty()
+                    && observedPackages.add(state.packageName)) {
                 freeformBounds.put(
                         taskKey,
-                        new FreeformBoundsState(packageName, bounds));
+                        new FreeformBoundsState(
+                                state.packageName, state.bounds));
             }
         }
 

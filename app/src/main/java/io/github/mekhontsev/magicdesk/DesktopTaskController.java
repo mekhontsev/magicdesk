@@ -927,12 +927,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public int launchTaskInDesktopArea(
+    public int launchWindowedTask(
             final int displayId,
             final Intent intent,
             final Rect bounds) throws IOException {
-        requireSessionTaskArea(displayId);
-        return mTaskWatcher.launchTaskInDesktopArea(
+        requireTaskObserver(displayId);
+        return mTaskWatcher.launchWindowedTask(
                 displayId, intent, bounds);
     }
 
@@ -949,13 +949,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     private void requireSessionTaskArea(final int displayId)
             throws IOException {
-        if (!mRunning
-                || !mTaskWatcherReady
-                || displayId != mDisplayId
-                || taskAreaPolicy() != DesktopTaskAreaPolicy.SESSION) {
+        requireTaskObserver(displayId);
+        if (taskAreaPolicy() != DesktopTaskAreaPolicy.SESSION) {
             throw new IOException(
                     "session task area is unavailable for display "
                             + displayId);
+        }
+    }
+
+    private void requireTaskObserver(final int displayId)
+            throws IOException {
+        if (!mRunning || !mTaskWatcherReady || displayId != mDisplayId) {
+            throw new IOException(
+                    "task observer is unavailable for display " + displayId);
         }
     }
 

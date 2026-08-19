@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
-import android.app.IActivityController;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.util.Log;
@@ -16,7 +15,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Prevents phone-side freeform state from destabilizing Nubia Quickstep. */
-final class ShellExternalTaskMigrationGuard implements Closeable {
+final class ShellExternalTaskMigrationGuard implements
+        Closeable, ShellActivityStartController.Listener {
     interface Listener {
         void onError(String message);
         void onPhoneTaskNormalized(int taskId);
@@ -46,56 +46,8 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
                 thread.setDaemon(true);
                 return thread;
             });
-    private final IActivityController mActivityController =
-            new IActivityController.Stub() {
-                @Override
-                public boolean activityStarting(
-                        final Intent intent,
-                        final String packageName) {
-                    return interceptPhoneLaunch(intent, packageName);
-                }
-
-                @Override
-                public boolean activityResuming(final String packageName) {
-                    return true;
-                }
-
-                @Override
-                public boolean appCrashed(
-                        final String processName,
-                        final int pid,
-                        final String shortMessage,
-                        final String longMessage,
-                        final long timeMillis,
-                        final String stackTrace) {
-                    return true;
-                }
-
-                @Override
-                public int appEarlyNotResponding(
-                        final String processName,
-                        final int pid,
-                        final String annotation) {
-                    return 0;
-                }
-
-                @Override
-                public int appNotResponding(
-                        final String processName,
-                        final int pid,
-                        final String processStats) {
-                    return 0;
-                }
-
-                @Override
-                public int systemNotResponding(final String message) {
-                    return -1;
-                }
-            };
-
     private int mDisplayId = Display.INVALID_DISPLAY;
     private boolean mEnabled;
-    private boolean mControllerRegistered;
 
     ShellExternalTaskMigrationGuard(
             final Object service,
@@ -116,10 +68,7 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         mMigratingTasks.clear();
         if (mEnabled) {
             captureDesktopTasks(mDisplayId);
-            registerActivityController();
             schedulePhoneTaskScan();
-        } else {
-            unregisterActivityController();
         }
     }
 
@@ -265,7 +214,8 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
         return HiddenTaskApi.getTaskComponent(task);
     }
 
-    private boolean interceptPhoneLaunch(
+    @Override
+    public boolean onActivityStarting(
             final Intent intent,
             final String packageName) {
         final TaskState state;
@@ -446,42 +396,6 @@ final class ShellExternalTaskMigrationGuard implements Closeable {
 
     private synchronized boolean isConfiguredFor(final int displayId) {
         return mEnabled && mDisplayId == displayId;
-    }
-
-    private void registerActivityController() {
-        if (mControllerRegistered) {
-            return;
-        }
-        try {
-            setActivityController(mActivityController);
-            mControllerRegistered = true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            report("could not register phone-launch interceptor: "
-                    + usefulMessage(error));
-        }
-    }
-
-    private void unregisterActivityController() {
-        if (!mControllerRegistered) {
-            return;
-        }
-        mControllerRegistered = false;
-        try {
-            setActivityController(null);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            report("could not unregister phone-launch interceptor: "
-                    + usefulMessage(error));
-        }
-    }
-
-    private void setActivityController(
-            final IActivityController controller)
-            throws ReflectiveOperationException {
-        mService.getClass().getMethod(
-                "setActivityController",
-                IActivityController.class,
-                Boolean.TYPE)
-                .invoke(mService, controller, Boolean.FALSE);
     }
 
     private void report(final String message) {

@@ -313,7 +313,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int launchTaskInDesktopArea(
+    public int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
             final String intentUri,
@@ -321,7 +321,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int top,
             final int right,
             final int bottom) {
-        return mTaskObserverManager.launchTaskInDesktopArea(
+        return mTaskObserverManager.launchWindowedTask(
                 callback,
                 displayId,
                 intentUri,
