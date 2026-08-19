@@ -145,8 +145,6 @@
     <string name="action_widget_shorter">Make shorter</string>
     <string name="action_widget_configure">Configure widget</string>
     <string name="action_widget_move">Move widget</string>
-    <string name="action_keep_in_workspace">Keep in workspace</string>
-    <string name="action_remove_from_workspace">Remove from workspace</string>
     <string name="action_device_setup">Device setup</string>
     <string name="action_diagnostics">Diagnostics</string>
     <string name="action_about">About</string>
@@ -269,8 +267,6 @@
     <string name="status_app_unpinned">%1$s unpinned from taskbar</string>
     <string name="status_desktop_shortcut_added">%1$s added to desktop</string>
     <string name="status_desktop_shortcut_removed">%1$s removed from desktop</string>
-    <string name="status_workspace_app_kept">%1$s kept in workspace</string>
-    <string name="status_workspace_app_removed">%1$s removed from workspace</string>
     <string name="status_desktop_folder_failed">Desktop folder unavailable: %1$s</string>
     <string name="status_desktop_folder_open_failed">Cannot open the Desktop folder</string>
     <string name="status_desktop_file_operation_failed">Desktop file operation failed: %1$s</string>

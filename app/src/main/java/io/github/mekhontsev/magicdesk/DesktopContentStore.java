@@ -36,18 +36,7 @@ final class DesktopContentStore {
                 state.content.shortcuts.remove(target)) && removed[0];
     }
 
-    AppLaunchTarget workspaceTarget() {
-        return DesktopStateStore.read(
-                state -> state.content.workspaceTarget, null);
-    }
-
-    boolean setWorkspaceTarget(final AppLaunchTarget target) {
-        return DesktopStateStore.update(state ->
-                state.content.workspaceTarget = target);
-    }
-
     static final class State {
         final List<AppLaunchTarget> shortcuts = new ArrayList<>();
-        AppLaunchTarget workspaceTarget;
     }
 }

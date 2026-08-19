@@ -67,10 +67,6 @@ final class DesktopWorkspaceController {
                 activity, ui, this::onWidgetsChanged);
     }
 
-    DesktopContentStore content() {
-        return mContent;
-    }
-
     DesktopGridLayout createGrid() {
         final DesktopGridLayout grid = new DesktopGridLayout(
                 mActivity,
@@ -661,9 +657,7 @@ final class DesktopWorkspaceController {
             final DesktopPlacement placement) {
         final View view;
         if (entry.app != null) {
-            view = mViews.app(
-                    entry.app,
-                    mActivity.isWorkspaceApp(entry.app.packageName));
+            view = mViews.app(entry.app);
             view.setOnClickListener(target -> {
                 mActivity.hideAllPanels();
                 mActivity.launchDefault(entry.app);

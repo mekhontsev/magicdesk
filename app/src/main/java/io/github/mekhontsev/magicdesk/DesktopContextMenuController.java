@@ -541,20 +541,6 @@ final class DesktopContextMenuController {
                         mActivity.toggleDesktopShortcut(app);
                     });
         }
-        final boolean workspaceApp =
-                mActivity.isWorkspaceApp(app.packageName);
-        addAction(
-                workspaceApp
-                        ? R.string.action_remove_from_workspace
-                        : R.string.action_keep_in_workspace,
-                workspaceApp
-                        ? DesktopUiFactory.COLOR_AMBER
-                        : DesktopUiFactory.COLOR_PANEL_ALT,
-                windowControl && (workspaceApp || app.canFloat),
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.setWorkspaceApp(app, task, !workspaceApp);
-                });
         addAction(
                 R.string.action_close_window,
                 DesktopUiFactory.COLOR_AMBER,

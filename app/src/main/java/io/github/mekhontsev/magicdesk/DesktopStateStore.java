@@ -152,8 +152,6 @@ final class DesktopStateStore {
         }
         final State state = new State();
         readTargets(root.optJSONArray("shortcuts"), state.content.shortcuts);
-        state.content.workspaceTarget = targetFromJson(
-                root.optJSONObject("workspaceTarget"));
         readPackages(root.optJSONArray("taskbar"), state.taskbarPackages);
         readDesktopPlacements(
                 root.optJSONObject("desktopPlacements"),
@@ -214,7 +212,6 @@ final class DesktopStateStore {
     private static State snapshotLocked() {
         final State snapshot = new State();
         snapshot.content.shortcuts.addAll(sState.content.shortcuts);
-        snapshot.content.workspaceTarget = sState.content.workspaceTarget;
         snapshot.taskbarPackages.addAll(sState.taskbarPackages);
         snapshot.desktopPlacements.putAll(sState.desktopPlacements);
         snapshot.appWindows.putAll(sState.appWindows);
@@ -239,11 +236,6 @@ final class DesktopStateStore {
         final JSONObject root = new JSONObject();
         root.put("format", FORMAT);
         root.put("shortcuts", targetsToJson(state.content.shortcuts));
-        if (state.content.workspaceTarget != null) {
-            root.put(
-                    "workspaceTarget",
-                    targetToJson(state.content.workspaceTarget));
-        }
         root.put("taskbar", stringsToJson(state.taskbarPackages));
         root.put(
                 "desktopPlacements",

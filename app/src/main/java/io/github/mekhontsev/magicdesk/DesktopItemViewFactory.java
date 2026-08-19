@@ -18,14 +18,8 @@ final class DesktopItemViewFactory {
         mUi = ui;
     }
 
-    View app(final AppItem app, final boolean workspaceApp) {
+    View app(final AppItem app) {
         final LinearLayout item = iconContainer();
-        if (workspaceApp) {
-            item.setBackground(mUi.rounded(
-                    0x55172033,
-                    dp(8),
-                    DesktopUiFactory.COLOR_AMBER));
-        }
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(app.icon);
         item.addView(icon, iconParams());

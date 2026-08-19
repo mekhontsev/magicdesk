@@ -88,7 +88,6 @@ public abstract class DesktopShellActivity extends Activity
     private TaskbarController mTaskbarController;
     private DesktopTaskbarRevealController mTaskbarRevealController;
     private AltTabController mAltTabController;
-    private WorkspaceAppController mWorkspaceAppController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
     private AppTaskController mAppTasks;
     private DesktopTaskSnapshotController mTaskSnapshots;
@@ -237,11 +236,8 @@ public abstract class DesktopShellActivity extends Activity
         mAltTabController = new AltTabController(this);
         mDesktopWorkspaceController =
                 new DesktopWorkspaceController(this, mUi);
-        mWorkspaceAppController = new WorkspaceAppController(
-                this, mDesktopWorkspaceController.content());
         mAppTasks = new AppTaskController(this);
-        mTaskSnapshots = new DesktopTaskSnapshotController(
-                this, mWorkspaceAppController);
+        mTaskSnapshots = new DesktopTaskSnapshotController(this);
         mDisplayDensityController = new DisplayDensityController(this);
         mDesktopControls = new DesktopControlsController(this, mUi);
         mSystemPanelController = new SystemPanelController(this, mUi);
@@ -466,10 +462,6 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskSnapshots.snapshot();
     }
 
-    String getWorkspacePackage() {
-        return mWorkspaceAppController.getWorkspacePackage();
-    }
-
     void clearInteractionVisibleTasks() {
         mAppTasks.clearInteractionStack();
     }
@@ -480,10 +472,6 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean isAltTabTaskSelected(final TaskRepository.TaskEntry task) {
         return mAltTabController.isSelected(task);
-    }
-
-    boolean isWorkspaceApp(final String packageName) {
-        return mWorkspaceAppController.isWorkspaceApp(packageName);
     }
 
     boolean isPointInside(final View view, final float x, final float y) {
@@ -1319,17 +1307,6 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWorkspaceController.toggleDesktopShortcut(app);
     }
 
-    void setWorkspaceApp(final AppItem app,
-            final TaskRepository.TaskEntry task, final boolean keep) {
-        mWorkspaceAppController.setWorkspaceApp(app, task, keep);
-    }
-
-    void restoreWorkspaceApp(
-            final TaskRepository.Snapshot snapshot,
-            final boolean bringToFront) {
-        mWorkspaceAppController.restore(snapshot, bringToFront);
-    }
-
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
         mAppTasks.focusTask(app, task);
     }
@@ -1577,7 +1554,6 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     public void onDisplayProfileReset() {
-        mWorkspaceAppController.resetProfileState();
         mDesktopWorkspaceController.resetDisplayProfile();
     }
 

@@ -386,8 +386,8 @@ runtime integration and are not distributed through the same release path.
   value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
-- `AppTaskController`, `WorkspaceAppController`, and `AltTabController`
-  coordinate task actions, Show Desktop, restoration, and exact-task
+- `AppTaskController` and `AltTabController` coordinate task actions,
+  Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
   window launches. `WindowedAppLauncher` owns fresh launch/reuse selection and
   delegates fresh launches to the active persistent shell task observer.
@@ -796,8 +796,8 @@ Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI, wired output
 timing, and the Fill display policy. Files under
 `/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
-desktop shortcuts, desktop-item placement, the kept workspace application,
-application window state, and recent-app history are global across displays.
+desktop shortcuts, desktop-item placement, application window state, and
+recent-app history are global across displays.
 Desktop items and freeform windows store fixed-point relative anchors rather
 than monitor pixels, so the same layout follows the user between the phone, a
 tablet, and every monitor while adapting to each viewport.

@@ -370,11 +370,6 @@ final class TaskbarController {
         final List<AppItem> availableApps = apps == null
                 ? new ArrayList<>() : apps;
         final List<String> pinnedPackages = mActivity.getPinnedPackages();
-        final String workspacePackage = mActivity.getWorkspacePackage();
-        if (workspacePackage != null
-                && !pinnedPackages.contains(workspacePackage)) {
-            pinnedPackages.add(workspacePackage);
-        }
         final Set<Integer> renderedTaskIds = new HashSet<>();
         final List<TaskRepository.TaskEntry> orderedTasks =
                 getOrderedTaskbarTasks();
@@ -633,15 +628,11 @@ final class TaskbarController {
         final AppItem app = taskbarItem.app;
         final TaskRepository.TaskEntry task = taskbarItem.task;
         final FrameLayout item = new FrameLayout(mActivity);
-        final boolean workspaceApp =
-                mActivity.isWorkspaceApp(app.packageName);
-        final int borderColor = workspaceApp
-                ? DesktopUiFactory.COLOR_AMBER
-                : (task == null
-                        ? DesktopUiFactory.COLOR_PANEL_ALT
-                        : (task.active
-                                ? DesktopUiFactory.COLOR_AMBER
-                                : DesktopUiFactory.COLOR_CYAN));
+        final int borderColor = task == null
+                ? DesktopUiFactory.COLOR_PANEL_ALT
+                : (task.active
+                        ? DesktopUiFactory.COLOR_AMBER
+                        : DesktopUiFactory.COLOR_CYAN);
         item.setBackground(mUi.rounded(
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 desktopDp(10, 8),

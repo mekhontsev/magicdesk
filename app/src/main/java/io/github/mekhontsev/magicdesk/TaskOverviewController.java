@@ -215,12 +215,10 @@ final class TaskOverviewController {
             final TaskRepository.TaskEntry task,
             final boolean selected) {
         final FrameLayout tile = new FrameLayout(mActivity);
-        final boolean workspaceApp =
-                mActivity.isWorkspaceApp(app.packageName);
         tile.setBackground(mUi.rounded(
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 dp(6),
-                selected || workspaceApp
+                selected
                         ? DesktopUiFactory.COLOR_AMBER
                         : (task.active
                                 ? DesktopUiFactory.COLOR_CYAN

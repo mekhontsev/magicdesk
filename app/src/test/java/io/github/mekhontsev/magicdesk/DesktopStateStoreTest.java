@@ -27,8 +27,6 @@ public final class DesktopStateStoreTest {
                 "example.application",
                 "example.application.MainActivity",
                 "android.intent.action.MAIN"));
-        source.content.workspaceTarget =
-                AppLaunchTarget.packageDefault("example.workspace");
         source.taskbarPackages.add("example.application");
         source.desktopPlacements.put(
                 "app:example.application",
@@ -61,9 +59,6 @@ public final class DesktopStateStoreTest {
                 DesktopStateStore.encode(source));
 
         assertEquals(source.content.shortcuts, decoded.content.shortcuts);
-        assertEquals(
-                source.content.workspaceTarget,
-                decoded.content.workspaceTarget);
         assertEquals(source.taskbarPackages, decoded.taskbarPackages);
         assertEquals(
                 new GlobalDesktopPlacement(7500, 2500, 1, 2),
@@ -105,13 +100,22 @@ public final class DesktopStateStoreTest {
                         + "\"key\":\"display:primary\"}}}" );
 
         assertTrue(decoded.content.shortcuts.isEmpty());
-        assertNull(decoded.content.workspaceTarget);
         assertTrue(decoded.taskbarPackages.isEmpty());
         assertTrue(decoded.desktopPlacements.isEmpty());
         assertTrue(decoded.appWindows.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
         assertFalse(decoded.settings.openFilesWithSingleClick);
+    }
+
+    @Test
+    public void obsoleteWorkspaceTargetIsIgnored() throws Exception {
+        final DesktopStateStore.State decoded = DesktopStateStore.decode(
+                "{\"format\":1,\"workspaceTarget\":{"
+                        + "\"package\":\"example.workspace\"}}");
+
+        assertFalse(DesktopStateStore.encode(decoded)
+                .contains("workspaceTarget"));
     }
 
     @Test

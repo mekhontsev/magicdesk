@@ -670,13 +670,6 @@ final class AppTaskController {
                         displayId);
         if (savedTasks.isEmpty()) {
             mActivity.setStatus(R.string.status_desktop_visible);
-            TaskRepository.load(
-                    displayId,
-                    snapshot -> mActivity.runOnUiThread(() -> {
-                        if (!mActivity.isActivityUnavailable()) {
-                            mActivity.restoreWorkspaceApp(snapshot, true);
-                        }
-                    }));
             return;
         }
         mActivity.setStatus(R.string.status_restoring_windows);
@@ -697,14 +690,6 @@ final class AppTaskController {
                                                     R.string.status_restoring_windows)
                                             : result.message));
                     mActivity.refreshTaskSnapshot();
-                    TaskRepository.load(
-                            displayId,
-                            snapshot -> mActivity.runOnUiThread(() -> {
-                                if (!mActivity.isActivityUnavailable()) {
-                                    mActivity.restoreWorkspaceApp(
-                                            snapshot, false);
-                                }
-                            }));
                 }));
     }
 

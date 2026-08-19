@@ -6,7 +6,6 @@ import java.util.List;
 /** Owns the current task snapshot and serialized asynchronous refreshes. */
 final class DesktopTaskSnapshotController {
     private final DesktopShellActivity mActivity;
-    private final WorkspaceAppController mWorkspace;
 
     private TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(
             java.util.Collections.<TaskRepository.TaskEntry>emptyList(),
@@ -14,11 +13,8 @@ final class DesktopTaskSnapshotController {
             "not loaded");
     private int mRefreshGeneration;
 
-    DesktopTaskSnapshotController(
-            final DesktopShellActivity activity,
-            final WorkspaceAppController workspace) {
+    DesktopTaskSnapshotController(final DesktopShellActivity activity) {
         mActivity = activity;
-        mWorkspace = workspace;
     }
 
     TaskRepository.Snapshot snapshot() {
@@ -56,7 +52,6 @@ final class DesktopTaskSnapshotController {
             DesktopPreferences.recordRecentPackage(
                     mActivity, activeTask.packageName);
         }
-        mWorkspace.syncSnapshot(snapshot);
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
         mActivity.setDesktopWindowFocusable(activeTask == null || desktopActive);
@@ -76,7 +71,6 @@ final class DesktopTaskSnapshotController {
                         sync(snapshot);
                     } else {
                         mSnapshot = snapshot;
-                        mWorkspace.syncSnapshot(snapshot);
                         mActivity.renderTaskbarPins(
                                 mActivity.getLauncherApps());
                     }
