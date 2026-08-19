@@ -422,7 +422,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return false;
         }
         return mFullscreenTaskArea.beginFullscreen(
-                mService, displayId, taskId);
+                mService,
+                displayId,
+                taskId,
+                mWindowing.requiresNativeFullscreenCaptionRefresh());
     }
 
     boolean closeFullscreenTask(

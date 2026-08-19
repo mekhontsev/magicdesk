@@ -205,12 +205,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     synchronized boolean beginFullscreen(
             final Object service,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final boolean refreshCaption) {
         if (mArea == null || mDisplayId != displayId
                 || mTaskIds.isEmpty()) {
             return false;
         }
         try {
+            final int captionSourceId = refreshCaption
+                    ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
+                    : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
             final Class<?> tokenClass =
                     Class.forName("android.window.WindowContainerToken");
             final Class<?> transactionClass = Class.forName(
@@ -244,6 +248,12 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             mTaskIds.add(Integer.valueOf(taskId));
             TaskWindowingCommand.focusTasks(
                     service, displayId, new int[]{taskId});
+            TaskFullscreenTransitionCommand.refreshCaptionIfRequested(
+                    service,
+                    displayId,
+                    taskId,
+                    refreshCaption,
+                    captionSourceId);
             Log.i(TAG, "entered managed fullscreen task=" + taskId
                     + " display=" + displayId);
             return true;
