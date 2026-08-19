@@ -290,6 +290,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 TaskWindowingCommand.focusTasks(
                         mService, displayId, focusTaskIds);
             }
+            // Reordering an existing task area through WCT does not always
+            // produce a TaskStackListener front/focus callback. Publish the
+            // state from the task that this completed operation focused.
+            reportDesktopTaskAreaForeground(
+                    focusTaskIds[focusTaskIds.length - 1]);
             signalFocusStackResult(
                     sequence, true, appliedTaskCount, "");
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -649,6 +654,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private synchronized void reportDesktopTaskAreaForeground(
             final boolean foreground) {
+        try {
+            mDesktopTaskArea.setSessionForeground(foreground);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            final String message = usefulMessage(error);
+            Log.w(TAG, "could not reorder desktop task area: "
+                    + message, error);
+            callCallback(() -> mCallback.onObserverError(
+                    "desktop task area ordering unavailable: " + message));
+            return;
+        }
         if (mDesktopTaskAreaForeground != null
                 && mDesktopTaskAreaForeground.booleanValue() == foreground) {
             return;

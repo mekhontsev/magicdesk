@@ -32,6 +32,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private int mDisplayId = -1;
     private int mHostTaskId = -1;
     private boolean mEnabled;
+    private Boolean mAreaAtTop;
 
     ShellDesktopTaskArea(
             final Object service,
@@ -219,6 +220,33 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 || mTaskIds.contains(Integer.valueOf(taskId)));
     }
 
+    synchronized void setSessionForeground(final boolean foreground)
+            throws ReflectiveOperationException {
+        if (!mEnabled || mArea == null
+                || (mAreaAtTop != null
+                        && mAreaAtTop.booleanValue() == foreground)) {
+            return;
+        }
+
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        // An organizer-created area must remain at an edge of the default
+        // task container. Leaving it between ordinary root tasks breaks task
+        // traversal assumptions in some ActivityTaskManager implementations.
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE)
+                .invoke(transaction, mArea.token(), Boolean.valueOf(foreground));
+        SyncWindowContainerTransaction.applyAsync(
+                mService, transactionClass, transaction);
+        mAreaAtTop = Boolean.valueOf(foreground);
+        Log.d(TAG, "desktop task area foreground=" + foreground
+                + " display=" + mDisplayId);
+    }
+
     synchronized boolean closeTask(
             final int displayId,
             final int taskId,
@@ -367,6 +395,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 .invoke(transaction, mArea.token(), Boolean.TRUE);
         SyncWindowContainerTransaction.applyAsync(
                 mService, transactionClass, transaction);
+        mAreaAtTop = Boolean.TRUE;
         waitForTaskArea(hostTaskId, mArea.featureId(), true);
         Log.i(TAG, "attached desktop host task=" + hostTaskId
                 + " display=" + mDisplayId);
@@ -375,6 +404,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private void releaseTasks() {
         final TaskDisplayAreaHandle area = mArea;
         if (area == null) {
+            mAreaAtTop = null;
             mTaskIds.clear();
             mHostTaskId = -1;
             return;
@@ -431,6 +461,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             Log.w(TAG, "could not release desktop task area", error);
         } finally {
             mArea = null;
+            mAreaAtTop = null;
             mTaskIds.clear();
             mHostTaskId = -1;
             area.close();
