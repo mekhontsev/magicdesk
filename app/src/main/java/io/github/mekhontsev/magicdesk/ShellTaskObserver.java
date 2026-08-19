@@ -43,7 +43,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             new ShellDesktopTaskOwnership();
     private final ShellWindowedTaskLauncher mWindowedTaskLauncher;
     private final ShellFullscreenTaskArea mFullscreenTaskArea =
-            new ShellFullscreenTaskArea();
+            new ShellFullscreenTaskArea(mDesktopOwnership);
     private final ShellDesktopTaskArea mDesktopTaskArea;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
@@ -413,6 +413,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         return mFullscreenTaskArea.beginAppFullscreen(
                 mService, displayId, taskId, restoreBounds);
+    }
+
+    boolean beginFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mClosed || displayId != mConfiguredDisplayId) {
+            return false;
+        }
+        return mFullscreenTaskArea.beginFullscreen(
+                mService, displayId, taskId);
     }
 
     boolean closeFullscreenTask(

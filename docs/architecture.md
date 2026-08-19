@@ -199,6 +199,16 @@ default task area while it is hidden or still fullscreen. Application-driven
 restores are completed in the observer before their result crosses Binder.
 They use a hidden fullscreen-to-freeform mode boundary in the default task area
 to rebuild native decoration without changing parents.
+
+The parent must be established before focusing a freeform task while another
+MagicDesk task is fullscreen. Waiting until both tasks already report
+fullscreen is too late: the focus transition can first demote the existing
+fullscreen root in the default task area. The observer therefore moves existing
+fullscreen peers under the dedicated parent in a synchronous hierarchy
+transaction, then performs normal `TO_FRONT` focus. If that focused task is
+subsequently made fullscreen, its mode change and reparenting are committed
+synchronously into the same parent before input focus is handed over.
+
 Closing the final member deletes the area. Platforms without this organizer
 capability use the ordinary focus path and never apply a delayed mode repair.
 
@@ -408,7 +418,10 @@ runtime integration and are not distributed through the same release path.
 - `ShellFullscreenTaskArea` owns the organizer-created fullscreen task area
   used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
   fullscreen parent avoids the transient freeform state caused by reordering
-  roots in the default desktop task area. A task is synchronously released to
+  roots in the default desktop task area. It preserves an existing fullscreen
+  peer before a mixed fullscreen/freeform focus operation and accepts the next
+  explicit fullscreen transition synchronously; it must not wait for both
+  tasks to become fullscreen first. A task is synchronously released to
   the default task area while still fullscreen before any restore or snap
   command changes its mode. Application-requested immersive tasks remain in
   the default task area and share only the observer's saved-bounds lifecycle.

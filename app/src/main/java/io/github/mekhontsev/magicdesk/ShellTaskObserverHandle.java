@@ -113,6 +113,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 restoreBounds.bottom));
     }
 
+    boolean beginFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        return callServiceForResult(() -> mService.beginFullscreenTask(
+                mCallback, displayId, taskId));
+    }
+
     boolean closeFullscreenTask(
             final int displayId,
             final int taskId) throws IOException {

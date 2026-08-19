@@ -5,8 +5,10 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -29,9 +31,18 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     private final Set<Integer> mTaskIds = new HashSet<>();
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
+    private final ShellDesktopTaskOwnership mOwnership;
 
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = -1;
+
+    ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
+        if (ownership == null) {
+            throw new IllegalArgumentException(
+                    "desktop task ownership is required");
+        }
+        mOwnership = ownership;
+    }
 
     synchronized boolean focusStack(
             final Object service,
@@ -39,6 +50,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int[] taskIds) {
         try {
             if (!isFullscreenStack(service, displayId, taskIds)) {
+                if (focusMixedStack(service, displayId, taskIds)) {
+                    return true;
+                }
                 // A freeform task may be focused while another task remains
                 // in this area. Its own mode/display/removal events own the
                 // area's lifetime; unrelated focus requests do not.
@@ -52,6 +66,82 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             close();
             return false;
         }
+    }
+
+    private boolean focusMixedStack(
+            final Object service,
+            final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        boolean containsNonFullscreenTask = false;
+        for (final int taskId : taskIds) {
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            if (HiddenTaskApi.getWindowConfigurationValue(
+                    task, "getWindowingMode")
+                    != WINDOWING_MODE_FULLSCREEN) {
+                containsNonFullscreenTask = true;
+                break;
+            }
+        }
+        if (!containsNonFullscreenTask) {
+            return false;
+        }
+
+        final List<Integer> fullscreenTaskIds = new ArrayList<>();
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            if (HiddenTaskApi.getWindowConfigurationValue(
+                    task, "getWindowingMode")
+                    != WINDOWING_MODE_FULLSCREEN
+                    || !mOwnership.isDesktopTask(task)) {
+                continue;
+            }
+            fullscreenTaskIds.add(Integer.valueOf(
+                    HiddenTaskApi.getIntField(task, "taskId")));
+        }
+        if (fullscreenTaskIds.isEmpty()) {
+            return false;
+        }
+
+        ensureArea(service, displayId);
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object areaToken = mArea.token();
+        for (final Integer fullscreenTaskId : fullscreenTaskIds) {
+            final int taskId = fullscreenTaskId.intValue();
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod(
+                    "setWindowingMode", tokenClass, Integer.TYPE)
+                    .invoke(transaction, taskToken,
+                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                    .invoke(transaction, taskToken, new Rect());
+            if (mTaskIds.add(fullscreenTaskId)) {
+                transactionClass.getMethod(
+                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                        .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
+            }
+        }
+        for (final int taskId : taskIds) {
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod(
+                    "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                    .invoke(transaction, taskToken,
+                            Boolean.TRUE, Boolean.TRUE);
+        }
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+        // Match the regular fullscreen-area path: commit the hierarchy first,
+        // then let a normal TO_FRONT transition synchronize input focus.
+        TaskWindowingCommand.focusTasks(service, displayId, taskIds);
+        Log.i(TAG, "preserved fullscreen tasks=" + fullscreenTaskIds
+                + " while focusing mixed stack on display=" + displayId);
+        return true;
     }
 
     synchronized boolean beginAppFullscreen(
@@ -108,6 +198,58 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             if (mTaskIds.isEmpty()) {
                 close();
             }
+            return false;
+        }
+    }
+
+    synchronized boolean beginFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) {
+        if (mArea == null || mDisplayId != displayId
+                || mTaskIds.isEmpty()) {
+            return false;
+        }
+        try {
+            final Class<?> tokenClass =
+                    Class.forName("android.window.WindowContainerToken");
+            final Class<?> transactionClass = Class.forName(
+                    "android.window.WindowContainerTransaction");
+            final Object transaction =
+                    transactionClass.getConstructor().newInstance();
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod(
+                    "setWindowingMode", tokenClass, Integer.TYPE)
+                    .invoke(transaction, taskToken,
+                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
+                    .invoke(transaction, taskToken, new Rect());
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, taskToken,
+                            mArea.token(), Boolean.TRUE);
+            TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                    transactionClass,
+                    transaction,
+                    tokenClass,
+                    taskToken,
+                    true);
+            // Reparenting into an organizer-created task area is a hierarchy
+            // change, not just a visual transition. Apply it synchronously so
+            // a pending WMShell focus transition cannot leave the task in the
+            // default area and trigger the firmware's fullscreen demotion.
+            SyncWindowContainerTransaction.apply(
+                    service, transactionClass, transaction);
+            mTaskIds.add(Integer.valueOf(taskId));
+            TaskWindowingCommand.focusTasks(
+                    service, displayId, new int[]{taskId});
+            Log.i(TAG, "entered managed fullscreen task=" + taskId
+                    + " display=" + displayId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "managed fullscreen transition failed task="
+                    + taskId, error);
             return false;
         }
     }

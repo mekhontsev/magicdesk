@@ -256,6 +256,21 @@ final class DesktopTaskWatcher {
         }
     }
 
+    boolean beginFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return false;
+        }
+        try {
+            return handle.beginFullscreenTask(displayId, taskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to begin fullscreen task=" + taskId, error);
+            return false;
+        }
+    }
+
     boolean closeFullscreenTask(
             final int displayId,
             final int taskId) {

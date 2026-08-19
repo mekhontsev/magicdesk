@@ -292,4 +292,9 @@ interface IShizukuCommandService {
         int taskId,
         String intentUri) = 78;
 
+    boolean beginFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 79;
+
 }

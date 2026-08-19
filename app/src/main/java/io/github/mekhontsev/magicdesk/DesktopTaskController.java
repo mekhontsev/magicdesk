@@ -144,6 +144,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public boolean beginFullscreenTask(final int taskId) {
+                        return mTaskWatcherReady
+                                && mTaskWatcher.beginFullscreenTask(
+                                        mDisplayId, taskId);
+                    }
+
+                    @Override
                     public boolean closeFullscreenTask(final int taskId) {
                         return mTaskWatcherReady
                                 && mTaskWatcher.closeFullscreenTask(

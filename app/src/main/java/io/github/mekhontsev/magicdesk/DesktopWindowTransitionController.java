@@ -13,6 +13,7 @@ final class DesktopWindowTransitionController {
     interface RuntimeState {
         int displayId();
         boolean isRunning();
+        boolean beginFullscreenTask(int taskId);
         boolean beginAppFullscreenTask(int taskId, Rect restoreBounds);
         boolean restoreFullscreenTask(int taskId, Rect bounds);
         boolean closeFullscreenTask(int taskId);
@@ -450,6 +451,16 @@ final class DesktopWindowTransitionController {
         if (appRequested && mRuntimeState.beginAppFullscreenTask(
                 taskId, task.bounds)) {
             mRuntimeState.scheduleRefresh();
+            return;
+        }
+        if (!appRequested && mRuntimeState.beginFullscreenTask(taskId)) {
+            state.finishFullscreenTransition();
+            finishWorkspaceTransition(displayId, true);
+            if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
+                AppWindowStateStore.rememberMode(
+                        task.packageName,
+                        AppWindowState.Mode.FULLSCREEN);
+            }
             return;
         }
         if (appRequested) {
