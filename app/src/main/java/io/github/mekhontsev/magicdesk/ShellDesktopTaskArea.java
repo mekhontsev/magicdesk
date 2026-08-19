@@ -1,11 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityManager;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /** Owns the desktop session inside a display's default task container. */
@@ -249,6 +252,42 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             Log.w(TAG, "desktop close handoff failed task="
                     + taskId, error);
             return false;
+        }
+    }
+
+    synchronized void removeOrphanedTransientTasks(
+            final int displayId,
+            final List<?> tasks) {
+        if (!mEnabled || displayId != mDisplayId || tasks == null) {
+            return;
+        }
+        for (final Object task : tasks) {
+            if (!(task instanceof ActivityManager.RunningTaskInfo)) {
+                continue;
+            }
+            final ActivityManager.RunningTaskInfo taskInfo =
+                    (ActivityManager.RunningTaskInfo) task;
+            if (!mTaskIds.contains(Integer.valueOf(taskInfo.taskId))) {
+                continue;
+            }
+            try {
+                final Object topActivityInfo = HiddenTaskApi.getField(
+                        taskInfo, "topActivityInfo");
+                if (!(topActivityInfo instanceof ActivityInfo)
+                        || !OrphanedTransientTaskPolicy.shouldRemove(
+                                taskInfo, (ActivityInfo) topActivityInfo)) {
+                    continue;
+                }
+                // A crashed requester can leave its excluded result UI as the
+                // task's sole activity, causing WMS to rebuild a dead input sink.
+                final boolean removed = TaskControlCommand.removeTask(
+                        mService, taskInfo.taskId);
+                Log.i(TAG, "removed orphaned transient task="
+                        + taskInfo.taskId + " result=" + removed);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                Log.w(TAG, "could not remove orphaned transient task="
+                        + taskInfo.taskId, error);
+            }
         }
     }
 

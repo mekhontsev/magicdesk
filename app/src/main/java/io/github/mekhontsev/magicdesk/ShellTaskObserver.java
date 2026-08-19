@@ -121,6 +121,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             restoreUnexpectedPhoneFreeform(
                                     displayId, taskId.intValue());
                         }
+                        mDesktopTaskArea.removeOrphanedTransientTasks(
+                                displayId, tasks);
                         mTransientBounds.observeTasks(displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }
