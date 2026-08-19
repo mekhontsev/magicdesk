@@ -419,11 +419,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     && closeDesktopTaskInternal(task.taskId);
             if (success) {
                 scheduleRefresh(0);
+                completeActionCallback(callback, true, "");
+                return;
             }
-            completeActionCallback(
-                    callback,
-                    success,
-                    success ? "" : "desktop close transaction failed");
+            // Returning true transfers the whole asynchronous close operation
+            // to this controller. If its hierarchy-preserving path becomes
+            // unavailable later, complete the operation through the normal
+            // task-removal backend instead of losing the caller's fallback.
+            TaskRepository.closeTask(task, callback);
         });
         return true;
     }
