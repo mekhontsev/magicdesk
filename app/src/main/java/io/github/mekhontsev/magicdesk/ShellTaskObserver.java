@@ -448,6 +448,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskCreated(
             final int taskId,
             final ComponentName componentName) {
+        mDesktopTaskArea.onTaskCreated(taskId, componentName);
         if (PHONE_TOUCHPAD_ACTIVITY.equals(componentName)) {
             synchronized (this) {
                 mPhoneTouchpadTaskId = taskId;

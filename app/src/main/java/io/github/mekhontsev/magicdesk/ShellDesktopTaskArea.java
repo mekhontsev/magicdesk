@@ -1,9 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
+import android.os.IBinder;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -33,6 +35,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private int mHostTaskId = -1;
     private boolean mEnabled;
     private Boolean mAreaAtTop;
+    private volatile PendingWindowLaunch mPendingWindowLaunch;
 
     ShellDesktopTaskArea(
             final Object service,
@@ -123,30 +126,48 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         ensureArea();
         final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
                 intentUri);
-        final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
-                mService,
-                displayId,
-                intent,
-                intent.getComponent().getPackageName(),
-                bounds,
-                Class.forName("android.window.WindowContainerToken"),
-                mArea.token(),
-                false);
-        mTaskIds.add(Integer.valueOf(taskId));
-        mOwnership.markDesktop(taskId);
-        // A vendor PendingIntent launch can honor the organizer task area but
-        // inherit fullscreen from its parent. Once the task identity is known,
-        // make the normal OPEN transition authoritative for mode and bounds.
-        ShellPreparedTaskTransition.revealFreeform(
-                mService, displayId, taskId, bounds);
-        waitForTaskArea(taskId, mArea.featureId(), true);
-        // WindowManager may expand the requested bounds to an application's
-        // minimum size. The session contract owns hierarchy and mode; callers
-        // observe the resulting geometry instead of requiring impossible
-        // pixel-exact bounds.
-        TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
-                mService, displayId, taskId, WINDOWING_MODE_FREEFORM);
-        return taskId;
+        final PendingWindowLaunch pending = new PendingWindowLaunch(
+                intent.getComponent(), displayId, bounds);
+        if (mPendingWindowLaunch != null) {
+            throw new IllegalStateException(
+                    "another desktop task launch is in progress");
+        }
+        mPendingWindowLaunch = pending;
+        try {
+            final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
+                    mService,
+                    displayId,
+                    intent,
+                    intent.getComponent().getPackageName(),
+                    bounds,
+                    Class.forName("android.window.WindowContainerToken"),
+                    mArea.token(),
+                    false,
+                    pending::onTransitionStarted);
+            pending.complete(taskId);
+            mTaskIds.add(Integer.valueOf(taskId));
+            mOwnership.markDesktop(taskId);
+            waitForTaskArea(taskId, mArea.featureId(), true);
+            // WindowManager may expand the requested bounds to an
+            // application's minimum size. The session contract owns mode;
+            // callers observe the resulting geometry.
+            TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                    mService, displayId, taskId, WINDOWING_MODE_FREEFORM);
+            return taskId;
+        } finally {
+            if (mPendingWindowLaunch == pending) {
+                mPendingWindowLaunch = null;
+            }
+        }
+    }
+
+    void onTaskCreated(
+            final int taskId,
+            final ComponentName componentName) {
+        final PendingWindowLaunch pending = mPendingWindowLaunch;
+        if (pending != null) {
+            pending.onTaskCreated(taskId, componentName);
+        }
     }
 
     synchronized void placeTask(
@@ -521,5 +542,76 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IllegalStateException(
                 "desktop tasks did not leave display area " + featureId);
+    }
+
+    private final class PendingWindowLaunch {
+        private final ComponentName mComponent;
+        private final int mTargetDisplayId;
+        private final Rect mBounds;
+        private int mObservedTaskId = -1;
+        private IBinder mTransitionToken;
+        private boolean mApplied;
+        private boolean mObservedByCallback;
+
+        PendingWindowLaunch(
+                final ComponentName component,
+                final int targetDisplayId,
+                final Rect bounds) {
+            mComponent = component;
+            mTargetDisplayId = targetDisplayId;
+            mBounds = new Rect(bounds);
+        }
+
+        synchronized void onTaskCreated(
+                final int taskId,
+                final ComponentName componentName) {
+            if (!mApplied
+                    && mObservedTaskId < 0
+                    && mComponent.equals(componentName)) {
+                mObservedTaskId = taskId;
+                mObservedByCallback = true;
+            }
+        }
+
+        synchronized void onTransitionStarted(
+                final IBinder transitionToken)
+                throws ReflectiveOperationException {
+            mTransitionToken = transitionToken;
+            if (mObservedTaskId >= 0) {
+                apply(mObservedTaskId);
+            }
+        }
+
+        synchronized void complete(final int taskId)
+                throws ReflectiveOperationException {
+            if (mObservedTaskId < 0) {
+                mObservedTaskId = taskId;
+            } else if (mObservedTaskId != taskId) {
+                throw new IllegalStateException(
+                        "created task does not match launched task: observed="
+                                + mObservedTaskId + ", launched=" + taskId);
+            }
+            apply(taskId);
+        }
+
+        private void apply(final int taskId)
+                throws ReflectiveOperationException {
+            if (mApplied) {
+                return;
+            }
+            if (mTransitionToken == null) {
+                throw new IllegalStateException(
+                        "launch transition token is unavailable");
+            }
+            ShellPreparedTaskTransition.joinOpenAsFreeform(
+                    mService,
+                    mTargetDisplayId,
+                    taskId,
+                    mBounds,
+                    mTransitionToken);
+            mApplied = true;
+            Log.i(TAG, "joined initial transition task=" + taskId
+                    + " early=" + mObservedByCallback);
+        }
     }
 }

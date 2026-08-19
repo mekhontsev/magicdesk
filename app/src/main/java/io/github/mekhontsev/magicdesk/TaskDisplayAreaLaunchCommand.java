@@ -23,6 +23,11 @@ import java.util.Set;
 /** Launches or moves a task directly into its requested freeform state. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
+    interface TransitionStartedCallback {
+        void onTransitionStarted(IBinder transitionToken)
+                throws ReflectiveOperationException;
+    }
+
     private static final String PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk";
     private static final String ACTIVITY_CLASS =
@@ -251,7 +256,8 @@ public final class TaskDisplayAreaLaunchCommand {
                         bounds,
                         null,
                         null,
-                        true);
+                        true,
+                        null);
                 // Keep the desktop surface visible until the cold task has
                 // drawn its first freeform frame.
                 ShellPreparedTaskTransition.revealFreeform(
@@ -310,7 +316,8 @@ public final class TaskDisplayAreaLaunchCommand {
             final Rect bounds,
             final Class<?> containerTokenClass,
             final Object areaToken,
-            final boolean launchBehind)
+            final boolean launchBehind,
+            final TransitionStartedCallback transitionCallback)
             throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
@@ -338,7 +345,11 @@ public final class TaskDisplayAreaLaunchCommand {
             // freeform task. Supplying the launch as the transition's WCT
             // keeps its task area, mode and bounds in one authoritative
             // organizer operation.
-            launchPendingIntentTransition(intent, options);
+            final IBinder transitionToken =
+                    launchPendingIntentTransition(intent, options);
+            if (transitionCallback != null) {
+                transitionCallback.onTransitionStarted(transitionToken);
+            }
         }
         return waitForTask(
                 service,
@@ -379,7 +390,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 existingTaskIds);
     }
 
-    private static void launchPendingIntentTransition(
+    private static IBinder launchPendingIntentTransition(
             final Intent intent,
             final ActivityOptions options) throws ReflectiveOperationException {
         ActivityOptions.class.getMethod(
@@ -404,7 +415,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 Intent.class,
                 Bundle.class)
                 .invoke(transaction, pendingIntent, intent, options.toBundle());
-        TaskFullscreenTransitionCommand.startTransition(
+        return TaskFullscreenTransitionCommand.startTransition(
                 TRANSIT_OPEN, transactionClass, transaction);
     }
 
@@ -555,7 +566,7 @@ public final class TaskDisplayAreaLaunchCommand {
                                     task, "getWindowingMode");
                     final Object windowConfiguration =
                             HiddenTaskApi.getWindowConfiguration(task);
-                    final Object bounds = windowConfiguration.getClass()
+                    final Rect bounds = (Rect) windowConfiguration.getClass()
                             .getMethod("getBounds")
                             .invoke(windowConfiguration);
                     observedState = "mode=" + windowingMode
@@ -563,7 +574,7 @@ public final class TaskDisplayAreaLaunchCommand {
                     if (windowingMode != WINDOWING_MODE_FREEFORM) {
                         continue;
                     }
-                    if (expectedBounds.equals(bounds)) {
+                    if (satisfiesRequestedBounds(bounds, expectedBounds)) {
                         return;
                     }
                 }
@@ -573,6 +584,44 @@ public final class TaskDisplayAreaLaunchCommand {
         throw new IllegalStateException(
                 "task did not reach the requested freeform bounds; observed "
                         + observedState + ", requested=" + expectedBounds);
+    }
+
+    static boolean satisfiesRequestedBounds(
+            final Rect observedBounds,
+            final Rect requestedBounds) {
+        return observedBounds != null
+                && requestedBounds != null
+                && satisfiesRequestedBounds(
+                        observedBounds.left,
+                        observedBounds.top,
+                        observedBounds.right,
+                        observedBounds.bottom,
+                        requestedBounds.left,
+                        requestedBounds.top,
+                        requestedBounds.right,
+                        requestedBounds.bottom);
+    }
+
+    static boolean satisfiesRequestedBounds(
+            final int observedLeft,
+            final int observedTop,
+            final int observedRight,
+            final int observedBottom,
+            final int requestedLeft,
+            final int requestedTop,
+            final int requestedRight,
+            final int requestedBottom) {
+        return observedRight > observedLeft
+                && observedBottom > observedTop
+                && requestedRight > requestedLeft
+                && requestedBottom > requestedTop
+                // WindowManager may enlarge an app window to satisfy its
+                // declared minimum dimensions while preserving the requested
+                // area. Treat that constrained result as a successful move.
+                && observedLeft <= requestedLeft
+                && observedTop <= requestedTop
+                && observedRight >= requestedRight
+                && observedBottom >= requestedBottom;
     }
 
     private static Set<Integer> taskIdsOnDisplay(

@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
+import android.os.IBinder;
 
 /**
  * Owns task visibility boundaries used while shell changes window hierarchy.
@@ -22,7 +23,8 @@ final class ShellPreparedTaskTransition {
         OPEN_TRANSITION,
         HIDE_SYNC,
         SHOW_TRANSITION,
-        DETACH_AND_SHOW_TRANSITION
+        DETACH_AND_SHOW_TRANSITION,
+        EXISTING_OPEN_TRANSITION
     }
 
     private enum FullscreenApplication {
@@ -59,6 +61,22 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 FreeformApplication.OPEN_TRANSITION);
+    }
+
+    static void joinOpenAsFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final IBinder transitionToken)
+            throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.EXISTING_OPEN_TRANSITION,
+                transitionToken);
     }
 
     static void prepareFreeform(
@@ -214,6 +232,23 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final FreeformApplication application)
             throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                application,
+                null);
+    }
+
+    private static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final FreeformApplication application,
+            final IBinder transitionToken)
+            throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
         final Class<?> tokenClass =
@@ -267,6 +302,10 @@ final class ShellPreparedTaskTransition {
         if (application == FreeformApplication.HIDE_SYNC) {
             SyncWindowContainerTransaction.apply(
                     service, transactionClass, transaction);
+        } else if (application
+                == FreeformApplication.EXISTING_OPEN_TRANSITION) {
+            TaskFullscreenTransitionCommand.continueTransition(
+                    transitionToken, transactionClass, transaction);
         } else if (application == FreeformApplication.OPEN_TRANSITION) {
             TaskFullscreenTransitionCommand.startTransition(
                     TRANSIT_OPEN, transactionClass, transaction);

@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
+import android.os.IBinder;
 
 import java.util.concurrent.TimeUnit;
 
@@ -111,18 +112,38 @@ public final class TaskFullscreenTransitionCommand {
         }
     }
 
-    static void startTransition(final Class<?> transactionClass,
+    static IBinder startTransition(final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
-        startTransition(TRANSIT_CHANGE, transactionClass, transaction);
+        return startTransition(
+                TRANSIT_CHANGE, transactionClass, transaction);
     }
 
-    static void startTransition(final int transitionType,
+    static IBinder startTransition(final int transitionType,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
         final Class<?> organizerClass = Class.forName("android.window.WindowOrganizer");
         final Object organizer = organizerClass.getConstructor().newInstance();
-        organizerClass.getMethod("startNewTransition", Integer.TYPE, transactionClass)
-                .invoke(organizer, Integer.valueOf(transitionType), transaction);
+        return (IBinder) organizerClass.getMethod(
+                "startNewTransition", Integer.TYPE, transactionClass)
+                .invoke(
+                        organizer,
+                        Integer.valueOf(transitionType),
+                        transaction);
+    }
+
+    static void continueTransition(
+            final IBinder transitionToken,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
+        if (transitionToken == null) {
+            throw new IllegalArgumentException("missing transition token");
+        }
+        final Class<?> organizerClass =
+                Class.forName("android.window.WindowOrganizer");
+        final Object organizer = organizerClass.getConstructor().newInstance();
+        organizerClass.getMethod(
+                "startTransition", IBinder.class, transactionClass)
+                .invoke(organizer, transitionToken, transaction);
     }
 
     static void awaitFullscreen(final Object service, final int displayId,
