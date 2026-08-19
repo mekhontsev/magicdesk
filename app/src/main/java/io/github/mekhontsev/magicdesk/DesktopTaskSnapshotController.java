@@ -39,7 +39,7 @@ final class DesktopTaskSnapshotController {
             }
         }
         final boolean desktopActive =
-                DesktopTaskController.isDesktopHostTask(activeTask);
+                isDesktopHostForeground(snapshot.tasks);
         final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
                 mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
                 activeTask != null,
@@ -55,6 +55,19 @@ final class DesktopTaskSnapshotController {
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
         mActivity.setDesktopWindowFocusable(activeTask == null || desktopActive);
+    }
+
+    static boolean isDesktopHostForeground(
+            final List<TaskRepository.TaskEntry> tasks) {
+        if (tasks == null) {
+            return false;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && task.visible) {
+                return DesktopTaskController.isDesktopHostTask(task);
+            }
+        }
+        return false;
     }
 
     void refresh() {
