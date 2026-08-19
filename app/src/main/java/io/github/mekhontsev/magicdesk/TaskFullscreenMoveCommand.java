@@ -100,7 +100,7 @@ public final class TaskFullscreenMoveCommand {
                     taskId,
                     WINDOWING_MODE_FULLSCREEN,
                     false);
-            ShellPreparedTaskTransition.showPreparedFullscreen(
+            ShellPreparedTaskTransition.showMovedFullscreen(
                     service, targetDisplayId, taskId);
             waitForTaskState(
                     service,

@@ -29,6 +29,7 @@ final class ShellPreparedTaskTransition {
 
     private enum FullscreenApplication {
         HIDE_SYNC,
+        SHOW_SYNC,
         SHOW_TRANSITION,
         DETACH_HIDE_SYNC,
         DETACH_SYNC
@@ -170,6 +171,23 @@ final class ShellPreparedTaskTransition {
                 displayId,
                 taskId,
                 FullscreenApplication.SHOW_TRANSITION);
+    }
+
+    static void showMovedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        // The display move already committed the hidden task's hierarchy.
+        // Reveal that state synchronously before a normal focus transition;
+        // an independent asynchronous reveal can be dropped while WMShell is
+        // still finishing the cross-display transition.
+        applyPreparedFullscreen(
+                service,
+                displayId,
+                taskId,
+                FullscreenApplication.SHOW_SYNC);
+        TaskWindowingCommand.focusTasks(
+                service, displayId, new int[]{taskId});
     }
 
     static void detachFullscreenParent(
