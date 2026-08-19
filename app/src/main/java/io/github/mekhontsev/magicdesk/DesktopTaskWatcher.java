@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 final class DesktopTaskWatcher {
     interface Listener {
@@ -270,6 +271,41 @@ final class DesktopTaskWatcher {
         } catch (IOException error) {
             Log.w(TAG, "failed to close desktop task=" + taskId, error);
             return false;
+        }
+    }
+
+    void removeDesktopPackageTasks(
+            final int displayId,
+            final String packageName,
+            final int focusTaskId,
+            final TaskRepository.ActionCallback callback) {
+        try {
+            mExecutor.execute(() -> {
+                final ShellTaskObserverHandle handle = currentHandle();
+                boolean success = false;
+                String message = "task observer unavailable";
+                if (handle != null) {
+                    try {
+                        success = handle.removeDesktopPackageTasks(
+                                displayId, packageName, focusTaskId);
+                        message = success
+                                ? "desktop package tasks removed"
+                                : "desktop package task removal rejected";
+                    } catch (IOException error) {
+                        message = ShellAccess.usefulMessage(error);
+                        Log.w(TAG,
+                                "failed to remove desktop package tasks",
+                                error);
+                    }
+                }
+                final boolean result = success;
+                final String resultMessage = message;
+                mHandler.post(() -> completeFocusCallback(
+                        callback, result, resultMessage));
+            });
+        } catch (RejectedExecutionException error) {
+            mHandler.post(() -> completeFocusCallback(
+                    callback, false, "task observer stopped"));
         }
     }
 

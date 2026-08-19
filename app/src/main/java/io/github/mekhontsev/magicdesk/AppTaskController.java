@@ -643,7 +643,7 @@ final class AppTaskController {
         mActivity.hideAllPanels();
         mActivity.setStatus(mActivity.getString(
                 R.string.status_force_stopping, app.label));
-        TaskRepository.forceStop(
+        MagicDeskRuntime.forceStopPackage(
                 app.packageName,
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {

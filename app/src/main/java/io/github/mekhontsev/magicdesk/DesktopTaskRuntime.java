@@ -21,6 +21,10 @@ interface DesktopTaskRuntime {
             TaskRepository.TaskEntry task,
             TaskRepository.ActionCallback callback);
 
+    boolean forceStopPackage(
+            String packageName,
+            TaskRepository.ActionCallback callback);
+
     List<TaskRepository.TaskEntry> getVisibleFreeformTasks(int displayId);
 
     List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(int displayId);

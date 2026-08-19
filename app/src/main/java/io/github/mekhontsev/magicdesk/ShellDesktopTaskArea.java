@@ -7,6 +7,7 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -269,6 +270,68 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         }
     }
 
+    synchronized boolean removePackageTasks(
+            final int displayId,
+            final String packageName,
+            final int focusTaskId) {
+        if (!mEnabled || mArea == null || displayId != mDisplayId
+                || !PackageNameValidator.isSafe(packageName)) {
+            return false;
+        }
+        try {
+            final Object focusTask = HiddenTaskApi.findTask(
+                    mService, displayId, focusTaskId);
+            if (focusTask == null
+                    || (focusTaskId != mHostTaskId
+                            && !mOwnership.isDesktopTask(focusTask))) {
+                return false;
+            }
+
+            final List<Integer> removedTaskIds = new ArrayList<>();
+            for (final Integer taskId : mTaskIds) {
+                if (taskId == null || taskId.intValue() == focusTaskId) {
+                    continue;
+                }
+                final Object task = HiddenTaskApi.findTask(
+                        mService, displayId, taskId.intValue());
+                if (task != null
+                        && mOwnership.isDesktopTask(task)
+                        && packageName.equals(HiddenTaskApi.getTaskPackage(task))) {
+                    removedTaskIds.add(taskId);
+                }
+            }
+            if (removedTaskIds.isEmpty()) {
+                return false;
+            }
+
+            final int[] taskIds = new int[removedTaskIds.size()];
+            for (int index = 0; index < removedTaskIds.size(); index++) {
+                taskIds[index] = removedTaskIds.get(index).intValue();
+            }
+            // Use the same WMShell close transition as an ordinary task close.
+            // A synchronous organizer removal makes SystemUI launch HOME on
+            // some firmware even when the host is focused in that transaction.
+            // The package action already originates inside this session area,
+            // so raising the survivor's parents is unnecessary and can place
+            // this child area between ordinary root tasks on vendor firmware.
+            TaskWindowingCommand.closeDesktopTasks(
+                    mService,
+                    displayId,
+                    taskIds,
+                    focusTaskId,
+                    false);
+            waitForTasksRemoved(removedTaskIds);
+            mTaskIds.removeAll(removedTaskIds);
+            Log.i(TAG, "removed desktop package tasks=" + removedTaskIds
+                    + " survivor=" + focusTaskId + " display=" + displayId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "desktop package task removal failed package="
+                    + packageName + " survivor=" + focusTaskId, error);
+            return false;
+        }
+    }
+
     synchronized void removeOrphanedTransientTasks(
             final int displayId,
             final List<?> tasks) {
@@ -507,6 +570,28 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IllegalStateException(
                 "desktop tasks did not leave display area " + featureId);
+    }
+
+    private void waitForTasksRemoved(final List<Integer> taskIds)
+            throws ReflectiveOperationException {
+        final long deadline = SystemClock.uptimeMillis()
+                + HIERARCHY_TIMEOUT_MILLIS;
+        do {
+            boolean allRemoved = true;
+            for (final Integer taskId : taskIds) {
+                if (HiddenTaskApi.findTask(
+                        mService, mDisplayId, taskId.intValue()) != null) {
+                    allRemoved = false;
+                    break;
+                }
+            }
+            if (allRemoved) {
+                return;
+            }
+            SystemClock.sleep(HIERARCHY_POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IllegalStateException(
+                "desktop package tasks were not removed: " + taskIds);
     }
 
 }

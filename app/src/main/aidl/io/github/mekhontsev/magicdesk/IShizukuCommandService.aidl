@@ -280,4 +280,10 @@ interface IShizukuCommandService {
         int taskId,
         int focusTaskId) = 76;
 
+    boolean removeDesktopPackageTasks(
+        ITaskObserverCallback callback,
+        int displayId,
+        String packageName,
+        int focusTaskId) = 77;
+
 }

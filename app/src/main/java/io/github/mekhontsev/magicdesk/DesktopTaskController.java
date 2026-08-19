@@ -421,6 +421,73 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return true;
     }
 
+    @Override
+    public boolean forceStopPackage(
+            final String packageName,
+            final TaskRepository.ActionCallback callback) {
+        if (!PackageNameValidator.isSafe(packageName)
+                || MAGICDESK_PACKAGE.equals(packageName)
+                || !mRunning
+                || !mTaskWatcherReady) {
+            return false;
+        }
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                mDisplayTaskState.visibleTasks();
+        if (!containsPackageTask(visibleTasks, packageName)) {
+            return false;
+        }
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final int hostTaskId = session.activeDisplayId() == mDisplayId
+                ? session.hostTaskId() : -1;
+        final int focusTaskId = selectPackageRemovalSurvivorTaskId(
+                visibleTasks, packageName, hostTaskId);
+        if (focusTaskId < 0) {
+            return false;
+        }
+
+        final int displayId = mDisplayId;
+        final int generation = mGeneration;
+        mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || displayId != mDisplayId || !mTaskWatcherReady) {
+                TaskRepository.forceStop(packageName, callback);
+                return;
+            }
+            // Remove the package's desktop tasks with the survivor handoff in
+            // one committed hierarchy update. A later process stop then has
+            // no foreground task whose death could make Android launch HOME.
+            DesktopRuntimeBridge.prepareTaskFocus(displayId, focusTaskId);
+            mTaskWatcher.removeDesktopPackageTasks(
+                    displayId,
+                    packageName,
+                    focusTaskId,
+                    removal -> {
+                        if (!removal.success) {
+                            Log.w(TAG, "desktop force-stop removal failed: "
+                                    + removal.message);
+                            completeActionCallback(
+                                    callback, false, removal.message);
+                            return;
+                        }
+                        TaskRepository.forceStop(
+                                packageName,
+                                result -> {
+                                    if (mRunning
+                                            && generation == mGeneration
+                                            && displayId == mDisplayId) {
+                                        scheduleRefresh(0);
+                                    }
+                                    completeActionCallback(
+                                            callback,
+                                            result.success,
+                                            result.message);
+                                });
+                    });
+        });
+        return true;
+    }
+
     private boolean closeDesktopTaskInternal(final int taskId) {
         if (!mRunning || !mTaskWatcherReady || taskId < 0) {
             return false;
@@ -454,6 +521,35 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
         }
         return hostTaskId;
+    }
+
+    static int selectPackageRemovalSurvivorTaskId(
+            final List<TaskRepository.TaskEntry> visibleTasks,
+            final String packageName,
+            final int hostTaskId) {
+        if (visibleTasks != null) {
+            for (final TaskRepository.TaskEntry task : visibleTasks) {
+                if (task != null
+                        && !packageName.equals(task.packageName)) {
+                    return task.taskId;
+                }
+            }
+        }
+        return hostTaskId;
+    }
+
+    private static boolean containsPackageTask(
+            final List<TaskRepository.TaskEntry> visibleTasks,
+            final String packageName) {
+        if (visibleTasks == null) {
+            return false;
+        }
+        for (final TaskRepository.TaskEntry task : visibleTasks) {
+            if (task != null && packageName.equals(task.packageName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(

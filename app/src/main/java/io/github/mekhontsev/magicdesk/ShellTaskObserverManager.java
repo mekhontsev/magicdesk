@@ -137,6 +137,16 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, taskId, focusTaskId);
     }
 
+    boolean removeDesktopPackageTasks(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String packageName,
+            final int focusTaskId) {
+        return requireSession(callback).observer
+                .removeDesktopPackageTasks(
+                        displayId, packageName, focusTaskId);
+    }
+
     int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,

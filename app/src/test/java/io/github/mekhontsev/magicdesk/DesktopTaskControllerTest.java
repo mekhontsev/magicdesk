@@ -71,6 +71,38 @@ public final class DesktopTaskControllerTest {
                 99));
     }
 
+    @Test
+    public void forceStopSkipsEveryTaskOwnedByPackage() {
+        final TaskRepository.TaskEntry firstPackageTask = task(
+                10, "com.example.target/.FirstActivity", true, true);
+        final TaskRepository.TaskEntry secondPackageTask = task(
+                11, "com.example.target/.SecondActivity", true, false);
+        final TaskRepository.TaskEntry survivor = task(
+                12, "com.example.other/.MainActivity", true, false);
+
+        assertEquals(12,
+                DesktopTaskController.selectPackageRemovalSurvivorTaskId(
+                        Arrays.asList(
+                                firstPackageTask,
+                                secondPackageTask,
+                                survivor),
+                        "com.example.target",
+                        99));
+    }
+
+    @Test
+    public void forceStopFallsBackToDesktopHostForLastPackage() {
+        assertEquals(99,
+                DesktopTaskController.selectPackageRemovalSurvivorTaskId(
+                        Arrays.asList(task(
+                                10,
+                                "com.example.target/.MainActivity",
+                                true,
+                                true)),
+                        "com.example.target",
+                        99));
+    }
+
     private static TaskRepository.TaskEntry task(final String componentName) {
         return new TaskRepository.TaskEntry(
                 1,

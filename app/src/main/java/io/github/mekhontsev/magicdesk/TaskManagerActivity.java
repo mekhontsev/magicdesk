@@ -202,7 +202,7 @@ public final class TaskManagerActivity extends Activity
                         R.string.task_manager_force_stop_message,
                         mView.labelForPackage(task.packageName)))
                 .setPositiveButton(R.string.task_manager_force_stop,
-                        (dialog, which) -> TaskRepository.forceStop(
+                        (dialog, which) -> MagicDeskRuntime.forceStopPackage(
                                 task.packageName,
                                 result -> {
                                     showActionResult(result);

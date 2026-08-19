@@ -313,6 +313,16 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void forceStopPackage(
+            final String packageName,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null
+                || !tasks.forceStopPackage(packageName, callback)) {
+            TaskRepository.forceStop(packageName, callback);
+        }
+    }
+
     static List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
         final DesktopTaskRuntime tasks = desktopTasks();

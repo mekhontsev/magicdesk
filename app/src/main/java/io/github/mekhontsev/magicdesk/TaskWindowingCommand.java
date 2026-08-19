@@ -246,9 +246,22 @@ public final class TaskWindowingCommand {
             final int displayId,
             final int taskId,
             final int focusTaskId) throws ReflectiveOperationException {
-        if (taskId == focusTaskId) {
-            throw new IllegalArgumentException(
-                    "closed and focused task match");
+        closeDesktopTasks(
+                service,
+                displayId,
+                new int[] {taskId},
+                focusTaskId,
+                true);
+    }
+
+    static void closeDesktopTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final int focusTaskId,
+            final boolean reorderParents) throws ReflectiveOperationException {
+        if (taskIds == null || taskIds.length == 0) {
+            throw new IllegalArgumentException("missing tasks to close");
         }
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
@@ -256,8 +269,6 @@ public final class TaskWindowingCommand {
                 "android.window.WindowContainerTransaction");
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
         final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, focusTaskId);
         transactionClass.getMethod(
@@ -266,9 +277,17 @@ public final class TaskWindowingCommand {
                         transaction,
                         focusTaskToken,
                         Boolean.TRUE,
-                        Boolean.TRUE);
-        transactionClass.getMethod("removeTask", tokenClass)
-                .invoke(transaction, taskToken);
+                        Boolean.valueOf(reorderParents));
+        for (final int taskId : taskIds) {
+            if (taskId == focusTaskId) {
+                throw new IllegalArgumentException(
+                        "closed and focused task match");
+            }
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod("removeTask", tokenClass)
+                    .invoke(transaction, taskToken);
+        }
         TaskFullscreenTransitionCommand.startTransition(
                 TRANSIT_TO_FRONT, transactionClass, transaction);
     }

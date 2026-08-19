@@ -313,6 +313,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean removeDesktopPackageTasks(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String packageName,
+            final int focusTaskId) {
+        return mTaskObserverManager.removeDesktopPackageTasks(
+                callback, displayId, packageName, focusTaskId);
+    }
+
+    @Override
     public int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
