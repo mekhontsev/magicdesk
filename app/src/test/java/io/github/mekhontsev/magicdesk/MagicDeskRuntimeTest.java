@@ -151,6 +151,10 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
+        public void prepareForStop() {
+        }
+
+        @Override
         public void refreshNotification() {
         }
 

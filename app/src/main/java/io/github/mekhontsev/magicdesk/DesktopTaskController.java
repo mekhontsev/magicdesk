@@ -151,6 +151,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public boolean closeDesktopTask(final int taskId) {
+                        return closeDesktopTaskInternal(taskId);
+                    }
+
+                    @Override
                     public void focusTask(final int taskId) {
                         if (!mRunning || taskId < 0) {
                             return;
@@ -390,6 +395,67 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 ? mDisplayTaskState.visibleTasks() : null;
     }
 
+    @Override
+    public boolean closeTask(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        if (task == null || task.taskId < 0
+                || !isActiveOnDisplay(task.displayId)
+                || !task.isFreeform()) {
+            return false;
+        }
+        final int generation = mGeneration;
+        mHandler.post(() -> {
+            final boolean success = mRunning && generation == mGeneration
+                    && mDisplayId == task.displayId
+                    && mTaskWatcherReady
+                    && closeDesktopTaskInternal(task.taskId);
+            if (success) {
+                scheduleRefresh(0);
+            }
+            completeActionCallback(
+                    callback,
+                    success,
+                    success ? "" : "desktop close transaction failed");
+        });
+        return true;
+    }
+
+    private boolean closeDesktopTaskInternal(final int taskId) {
+        if (!mRunning || !mTaskWatcherReady || taskId < 0) {
+            return false;
+        }
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final int hostTaskId = session.activeDisplayId() == mDisplayId
+                ? session.hostTaskId() : -1;
+        final int focusTaskId = selectCloseSurvivorTaskId(
+                mDisplayTaskState.visibleTasks(), taskId, hostTaskId);
+        if (focusTaskId < 0) {
+            return false;
+        }
+        // Relayout the host before the shell-side focus transaction. A
+        // non-focusable host makes SystemUI start HOME when the last
+        // freeform task disappears on the phone display.
+        DesktopRuntimeBridge.prepareTaskFocus(mDisplayId, focusTaskId);
+        return mTaskWatcher.closeDesktopTask(
+                mDisplayId, taskId, focusTaskId);
+    }
+
+    static int selectCloseSurvivorTaskId(
+            final List<TaskRepository.TaskEntry> visibleTasks,
+            final int closingTaskId,
+            final int hostTaskId) {
+        if (visibleTasks != null) {
+            for (final TaskRepository.TaskEntry task : visibleTasks) {
+                if (task != null && task.taskId != closingTaskId) {
+                    return task.taskId;
+                }
+            }
+        }
+        return hostTaskId;
+    }
+
     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(
             final TaskRepository.Snapshot snapshot) {
         if (snapshot == null || !snapshot.available) {
@@ -464,7 +530,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!result.success && mFocusingTaskId == focusedTaskId) {
                 mFocusingTaskId = -1;
             }
-            completeFocusCallback(callback, result.success, result.message);
+            completeActionCallback(callback, result.success, result.message);
         };
 
         final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
@@ -482,7 +548,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         if (orderedTaskIds.isEmpty()) {
             mFocusingTaskId = -1;
-            completeFocusCallback(callback, true, "no tasks");
+            completeActionCallback(callback, true, "no tasks");
             return;
         }
         sendFocusTasks(
@@ -497,7 +563,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
         if (taskIds == null || taskIds.isEmpty()) {
-            completeFocusCallback(callback, false, "no tasks");
+            completeActionCallback(callback, false, "no tasks");
             return;
         }
         if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
@@ -772,7 +838,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         .isControllableApplicationTask(task);
     }
 
-    private static void completeFocusCallback(final TaskRepository.ActionCallback callback,
+    private static void completeActionCallback(final TaskRepository.ActionCallback callback,
             final boolean success, final String message) {
         if (callback != null) {
             callback.onComplete(new TaskRepository.ActionResult(success, message));

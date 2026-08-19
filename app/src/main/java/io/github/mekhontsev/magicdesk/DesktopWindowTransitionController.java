@@ -16,6 +16,7 @@ final class DesktopWindowTransitionController {
         boolean beginAppFullscreenTask(int taskId, Rect restoreBounds);
         boolean restoreFullscreenTask(int taskId, Rect bounds);
         boolean closeFullscreenTask(int taskId);
+        boolean closeDesktopTask(int taskId);
         void focusTask(int taskId);
         void scheduleRefresh();
     }
@@ -265,6 +266,12 @@ final class DesktopWindowTransitionController {
     private void close(final TaskRepository.TaskEntry task) {
         if (task.isFullscreen()
                 && mRuntimeState.closeFullscreenTask(task.taskId)) {
+            return;
+        }
+        if (task.isFreeform()) {
+            if (!mRuntimeState.closeDesktopTask(task.taskId)) {
+                Log.w(TAG, "desktop close failed task=" + task.taskId);
+            }
             return;
         }
         TaskRepository.closeTask(task, result -> {

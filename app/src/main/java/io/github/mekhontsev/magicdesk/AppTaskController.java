@@ -622,8 +622,7 @@ final class AppTaskController {
         mActivity.hideAllPanels();
         mActivity.setStatus(mActivity.getString(
                 R.string.status_closing_window, app.label));
-        TaskRepository.closeTask(
-                task,
+        final TaskRepository.ActionCallback callback =
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;
@@ -636,7 +635,8 @@ final class AppTaskController {
                                     ? app.label
                                     : result.message));
                     mActivity.refreshTaskSnapshot();
-                }));
+                });
+        MagicDeskRuntime.closeTask(task, callback);
     }
 
     void forceStop(final AppItem app) {

@@ -120,6 +120,14 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, taskId));
     }
 
+    boolean closeDesktopTask(
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) throws IOException {
+        return callServiceForResult(() -> mService.closeDesktopTask(
+                mCallback, displayId, taskId, focusTaskId));
+    }
+
     int launchTaskInDesktopArea(
             final int displayId,
             final String intentUri,

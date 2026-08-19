@@ -17,6 +17,10 @@ interface DesktopTaskRuntime {
             int targetDisplayId,
             Rect bounds) throws IOException;
 
+    boolean closeTask(
+            TaskRepository.TaskEntry task,
+            TaskRepository.ActionCallback callback);
+
     List<TaskRepository.TaskEntry> getVisibleFreeformTasks(int displayId);
 
     List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(int displayId);

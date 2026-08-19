@@ -256,6 +256,23 @@ final class DesktopTaskWatcher {
         }
     }
 
+    boolean closeDesktopTask(
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return false;
+        }
+        try {
+            return handle.closeDesktopTask(
+                    displayId, taskId, focusTaskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to close desktop task=" + taskId, error);
+            return false;
+        }
+    }
+
     boolean startSelfTestTaskStackGuard(
             final int displayId,
             final int hostTaskId,

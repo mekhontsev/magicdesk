@@ -241,6 +241,38 @@ public final class TaskWindowingCommand {
                 TRANSIT_TO_FRONT, transactionClass, transaction);
     }
 
+    static void closeDesktopTask(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) throws ReflectiveOperationException {
+        if (taskId == focusTaskId) {
+            throw new IllegalArgumentException(
+                    "closed and focused task match");
+        }
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, focusTaskId);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(
+                        transaction,
+                        focusTaskToken,
+                        Boolean.TRUE,
+                        Boolean.TRUE);
+        transactionClass.getMethod("removeTask", tokenClass)
+                .invoke(transaction, taskToken);
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_TO_FRONT, transactionClass, transaction);
+    }
+
     static void focusFullscreenTask(
             final Object service,
             final int displayId,

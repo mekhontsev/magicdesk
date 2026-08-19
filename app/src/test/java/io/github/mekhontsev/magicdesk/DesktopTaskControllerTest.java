@@ -46,6 +46,31 @@ public final class DesktopTaskControllerTest {
                 Arrays.asList(visibleTop, visibleBehind), true));
     }
 
+    @Test
+    public void closeSelectsNextVisibleTaskBeforeDesktopHost() {
+        final TaskRepository.TaskEntry closing = task(
+                10, "com.example.top/.MainActivity", true, true);
+        final TaskRepository.TaskEntry survivor = task(
+                11, "com.example.behind/.MainActivity", true, false);
+
+        assertEquals(11, DesktopTaskController.selectCloseSurvivorTaskId(
+                Arrays.asList(closing, survivor), 10, 99));
+    }
+
+    @Test
+    public void closeFallsBackToDesktopHostWithoutAnotherVisibleTask() {
+        assertEquals(99, DesktopTaskController.selectCloseSurvivorTaskId(
+                null, 10, 99));
+        assertEquals(99, DesktopTaskController.selectCloseSurvivorTaskId(
+                Arrays.asList(task(
+                        10,
+                        "com.example.top/.MainActivity",
+                        true,
+                        true)),
+                10,
+                99));
+    }
+
     private static TaskRepository.TaskEntry task(final String componentName) {
         return new TaskRepository.TaskEntry(
                 1,

@@ -186,12 +186,13 @@ public final class TaskManagerActivity extends Activity
     }
 
     private void closeTask(final TaskRepository.TaskEntry task) {
-        TaskRepository.closeTask(task, result -> {
+        final TaskRepository.ActionCallback callback = result -> {
             showActionResult(result);
             if (result.success) {
                 runOnUiThread(this::refresh);
             }
-        });
+        };
+        MagicDeskRuntime.closeTask(task, callback);
     }
 
     private void confirmForceStop(final TaskRepository.TaskEntry task) {

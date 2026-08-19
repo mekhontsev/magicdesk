@@ -326,6 +326,13 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public void prepareForStop() {
+        if (!mDestroyed && mDesktopTaskRuntime != null) {
+            mDesktopTaskRuntime.releaseSession();
+        }
+    }
+
+    @Override
     public DesktopTaskParkingRuntime desktopTaskParking() {
         return mDestroyed || mDesktopTaskRuntime == null
                 ? null : mDesktopTaskRuntime.parking();
@@ -665,12 +672,9 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void openPhoneControlPanel() {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
-        startActivity(
-                ControlActivity.createLaunchIntent(this),
-                options.toBundle());
-        Log.i(TAG, "opened phone control panel from notification");
+        if (PhoneControlPanelLauncher.openWithAndroidApi(this)) {
+            Log.i(TAG, "opened phone control panel from notification");
+        }
     }
 
     private static int pendingIntentFlags() {

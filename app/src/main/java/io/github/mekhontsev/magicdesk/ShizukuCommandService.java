@@ -303,6 +303,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean closeDesktopTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) {
+        return mTaskObserverManager.closeDesktopTask(
+                callback, displayId, taskId, focusTaskId);
+    }
+
+    @Override
     public int launchTaskInDesktopArea(
             final ITaskObserverCallback callback,
             final int displayId,

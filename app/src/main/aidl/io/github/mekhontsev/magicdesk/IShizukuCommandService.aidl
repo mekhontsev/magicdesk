@@ -274,4 +274,10 @@ interface IShizukuCommandService {
 
     int launchDesktopHost(int displayId, String intentUri) = 75;
 
+    boolean closeDesktopTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        int focusTaskId) = 76;
+
 }

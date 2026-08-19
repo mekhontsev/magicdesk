@@ -24,6 +24,10 @@ public final class MagicDeskRuntime {
     }
 
     public static void stop(final Context context) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) {
+            backend.prepareForStop();
+        }
         context.stopService(
                 new Intent(context, MagicDeskRuntimeService.class));
     }
@@ -298,6 +302,15 @@ public final class MagicDeskRuntime {
         }
         tasks.placeTaskInDesktopArea(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    static void closeTask(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null || !tasks.closeTask(task, callback)) {
+            TaskRepository.closeTask(task, callback);
+        }
     }
 
     static List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(

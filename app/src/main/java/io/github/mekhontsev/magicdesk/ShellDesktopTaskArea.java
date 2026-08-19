@@ -216,6 +216,42 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 || mTaskIds.contains(Integer.valueOf(taskId)));
     }
 
+    synchronized boolean closeTask(
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) {
+        if (!mEnabled || mArea == null || displayId != mDisplayId
+                || focusTaskId == taskId) {
+            return false;
+        }
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, displayId, taskId);
+            final Object focusTask = HiddenTaskApi.findTask(
+                    mService, displayId, focusTaskId);
+            if (!mOwnership.isDesktopTask(task)
+                    || focusTask == null
+                    || (focusTaskId != mHostTaskId
+                            && !mOwnership.isDesktopTask(focusTask))) {
+                return false;
+            }
+
+            // Keep the handoff and removal in one WMShell transition. Two
+            // transactions can overlap and make SystemUI animate the close
+            // to HOME even after the desktop host became foreground.
+            TaskWindowingCommand.closeDesktopTask(
+                    mService, displayId, taskId, focusTaskId);
+            Log.i(TAG, "closed desktop task=" + taskId
+                    + " survivor=" + focusTaskId
+                    + " display=" + displayId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "desktop close handoff failed task="
+                    + taskId, error);
+            return false;
+        }
+    }
+
     @Override
     public synchronized void close() {
         releaseTasks();
