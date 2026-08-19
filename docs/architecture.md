@@ -339,6 +339,11 @@ runtime integration and are not distributed through the same release path.
   independent new-task launches, and application immersive requests are not
   corrected. The policy is event-driven and has no package allowlist or
   guessed startup delay.
+- `ShellDesktopProcessFailureTracker` passively correlates framework crash and
+  ANR callbacks with the latest typed task snapshot for the active desktop
+  display. It preserves Android's normal crash/ANR response and reports only a
+  bounded process summary, task/display context, and top activity; third-party
+  stack traces and ANR process dumps do not cross into application diagnostics.
 - `ShellDesktopFocusController` handles a Nubia mirror-display defect where
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches. The UI process then relayouts the existing,

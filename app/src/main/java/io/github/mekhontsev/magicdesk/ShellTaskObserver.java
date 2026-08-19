@@ -33,6 +33,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
+    private final ShellDesktopProcessFailureTracker mProcessFailureTracker;
     private final ShellWindowedTaskActivityGuard mWindowedActivityGuard;
     private final ShellActivityStartController mActivityStartController;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
@@ -124,9 +125,23 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 mCallback.onPhoneTaskNormalized(taskId));
                     }
                 });
+        mProcessFailureTracker = new ShellDesktopProcessFailureTracker(
+                (type, processName, pid, taskId, displayId,
+                        windowingMode, topActivity, reason) ->
+                        callCallback(() ->
+                                mCallback.onDesktopProcessFailure(
+                                        type,
+                                        processName,
+                                        pid,
+                                        taskId,
+                                        displayId,
+                                        windowingMode,
+                                        topActivity,
+                                        reason)));
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
+                mProcessFailureTracker,
                 mMigrationGuard,
                 mWindowedActivityGuard);
         mTransientBounds = new ShellTransientTaskBoundsController(mService);
@@ -147,6 +162,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final java.util.List<
                                     ShellTaskStateMonitor.TaskWindowState>
                                     windowStates) {
+                        mProcessFailureTracker.observeTasks(
+                                displayId, windowStates);
                         mWindowedActivityGuard.observeTasks(
                                 displayId, windowStates);
                         for (final Integer taskId
@@ -281,6 +298,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mInputPanelGuard.configure(-1);
             mTransientBounds.clearConfiguration();
             mWindowedActivityGuard.configure(Display.INVALID_DISPLAY);
+            mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
             return;
         }
@@ -296,6 +314,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mInputPanelGuard.configure(displayId);
         mTransientBounds.configure(displayId, displayBounds);
         mWindowedActivityGuard.configure(displayId);
+        mProcessFailureTracker.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
     }
 
@@ -614,6 +633,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mFocusController.close();
         mInputPanelGuard.close();
+        mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
         mActivityStartController.close();
         mMigrationGuard.close();
         mFreeformCleanup.close();

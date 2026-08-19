@@ -30,4 +30,9 @@ oneway interface ITaskObserverCallback {
 
     void onWindowedTaskStartupCorrected(
         int taskId, String activityName) = 11;
+
+    void onDesktopProcessFailure(
+        int type, String processName, int pid, int taskId,
+        int displayId, int windowingMode, String topActivity,
+        String reason) = 12;
 }

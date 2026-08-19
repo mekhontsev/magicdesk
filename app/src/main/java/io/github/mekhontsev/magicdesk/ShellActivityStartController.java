@@ -14,11 +14,20 @@ final class ShellActivityStartController implements AutoCloseable {
         void onError(String message);
     }
 
+    interface ProcessFailureListener {
+        void onProcessCrashed(
+                String processName, int pid, String shortMessage);
+        void onProcessEarlyNotResponding(
+                String processName, int pid, String annotation);
+        void onProcessNotResponding(String processName, int pid);
+    }
+
     private static final String TAG = "MagicDeskTasks";
 
     private final Object mService;
     private final Listener[] mListeners;
     private final ErrorListener mErrorListener;
+    private final ProcessFailureListener mProcessFailureListener;
     private final IActivityController mController =
             new IActivityController.Stub() {
                 @Override
@@ -52,6 +61,9 @@ final class ShellActivityStartController implements AutoCloseable {
                         final String longMessage,
                         final long timeMillis,
                         final String stackTrace) {
+                    notifyProcessFailure(() ->
+                            mProcessFailureListener.onProcessCrashed(
+                                    processName, pid, shortMessage));
                     return true;
                 }
 
@@ -60,6 +72,10 @@ final class ShellActivityStartController implements AutoCloseable {
                         final String processName,
                         final int pid,
                         final String annotation) {
+                    notifyProcessFailure(() ->
+                            mProcessFailureListener
+                                    .onProcessEarlyNotResponding(
+                                            processName, pid, annotation));
                     return 0;
                 }
 
@@ -68,6 +84,9 @@ final class ShellActivityStartController implements AutoCloseable {
                         final String processName,
                         final int pid,
                         final String processStats) {
+                    notifyProcessFailure(() ->
+                            mProcessFailureListener.onProcessNotResponding(
+                                    processName, pid));
                     return 0;
                 }
 
@@ -82,9 +101,11 @@ final class ShellActivityStartController implements AutoCloseable {
     ShellActivityStartController(
             final Object service,
             final ErrorListener errorListener,
+            final ProcessFailureListener processFailureListener,
             final Listener... listeners) {
         mService = service;
         mErrorListener = errorListener;
+        mProcessFailureListener = processFailureListener;
         mListeners = listeners == null ? new Listener[0] : listeners.clone();
     }
 
@@ -123,6 +144,18 @@ final class ShellActivityStartController implements AutoCloseable {
         Log.w(TAG, message);
         if (mErrorListener != null) {
             mErrorListener.onError(message);
+        }
+    }
+
+    private void notifyProcessFailure(final Runnable callback) {
+        if (mProcessFailureListener == null) {
+            return;
+        }
+        try {
+            callback.run();
+        } catch (RuntimeException error) {
+            report("process-failure observer failed: "
+                    + usefulMessage(error));
         }
     }
 

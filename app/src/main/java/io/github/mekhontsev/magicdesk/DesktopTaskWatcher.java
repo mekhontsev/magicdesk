@@ -565,6 +565,37 @@ final class DesktopTaskWatcher {
         }
     }
 
+    private void onDesktopProcessFailure(
+            final int generation,
+            final int type,
+            final String processName,
+            final int pid,
+            final int taskId,
+            final int displayId,
+            final int windowingMode,
+            final String topActivity,
+            final String reason) {
+        postIfActive(generation, () -> {
+            final String code = DesktopProcessFailure.code(type);
+            final String message = DesktopProcessFailure.message(type);
+            if (code.isEmpty() || message.isEmpty()) {
+                Log.w(TAG, "ignored unknown process failure type=" + type);
+                return;
+            }
+            CompatibilityDiagnostics.record(
+                    code,
+                    message,
+                    DesktopProcessFailure.technicalDetail(
+                            processName,
+                            pid,
+                            taskId,
+                            displayId,
+                            windowingMode,
+                            topActivity,
+                            reason));
+        });
+    }
+
     private void onObserverError(
             final int generation,
             final String error) {
@@ -742,6 +773,28 @@ final class DesktopTaskWatcher {
                 final String activityName) throws RemoteException {
             mOwner.onWindowedTaskStartupCorrected(
                     mGeneration, taskId, activityName);
+        }
+
+        @Override
+        public void onDesktopProcessFailure(
+                final int type,
+                final String processName,
+                final int pid,
+                final int taskId,
+                final int displayId,
+                final int windowingMode,
+                final String topActivity,
+                final String reason) throws RemoteException {
+            mOwner.onDesktopProcessFailure(
+                    mGeneration,
+                    type,
+                    processName,
+                    pid,
+                    taskId,
+                    displayId,
+                    windowingMode,
+                    topActivity,
+                    reason);
         }
     }
 }
