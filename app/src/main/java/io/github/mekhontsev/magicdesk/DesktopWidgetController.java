@@ -8,6 +8,7 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Process;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -119,6 +120,49 @@ final class DesktopWidgetController {
     void addWidget() {
         mActivity.hideAllPanels();
         mPicker.show(mManager.getInstalledProviders(), this::bindWidget);
+    }
+
+    boolean hasWidgets(final String packageName) {
+        return !providersForPackage(packageName).isEmpty();
+    }
+
+    void addWidgets(final String packageName) {
+        final List<AppWidgetProviderInfo> providers =
+                providersForPackage(packageName);
+        if (providers.isEmpty()) {
+            return;
+        }
+        mActivity.hideAllPanels();
+        mPicker.show(providers, this::bindWidget);
+    }
+
+    private List<AppWidgetProviderInfo> providersForPackage(
+            final String packageName) {
+        if (!PackageNameValidator.isSafe(packageName)) {
+            return Collections.emptyList();
+        }
+        final List<AppWidgetProviderInfo> installed;
+        try {
+            installed = mManager.getInstalledProvidersForPackage(
+                    packageName, Process.myUserHandle());
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Cannot list widgets for " + packageName, error);
+            return Collections.emptyList();
+        }
+        if (installed == null || installed.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<AppWidgetProviderInfo> visible = new ArrayList<>();
+        for (final AppWidgetProviderInfo info : installed) {
+            if (info != null
+                    && info.provider != null
+                    && (info.widgetFeatures
+                            & AppWidgetProviderInfo.WIDGET_FEATURE_HIDE_FROM_PICKER)
+                            == 0) {
+                visible.add(info);
+            }
+        }
+        return visible;
     }
 
     private void bindWidget(final AppWidgetProviderInfo info) {

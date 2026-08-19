@@ -63,7 +63,7 @@ final class ExistingTaskController {
             setFullscreen(task, targetDisplayId);
         }
         bringTaskStackToFrontBestEffort(task, null);
-        return ReuseResult.reused(task.packageName);
+        return ReuseResult.reused(task.taskId, task.packageName);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(
@@ -260,7 +260,7 @@ final class ExistingTaskController {
             }
 
             bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
-            return ReuseResult.reused(task.packageName);
+            return ReuseResult.reused(task.taskId, task.packageName);
         } finally {
             if (outerLaunchLease == null) {
                 launchLease.close();
@@ -454,19 +454,26 @@ final class ExistingTaskController {
 
     static final class ReuseResult {
         final boolean found;
+        final int taskId;
         final String packageName;
 
-        private ReuseResult(final boolean found, final String packageName) {
+        private ReuseResult(
+                final boolean found,
+                final int taskId,
+                final String packageName) {
             this.found = found;
+            this.taskId = taskId;
             this.packageName = packageName;
         }
 
-        static ReuseResult reused(final String packageName) {
-            return new ReuseResult(true, packageName);
+        static ReuseResult reused(
+                final int taskId,
+                final String packageName) {
+            return new ReuseResult(true, taskId, packageName);
         }
 
         static ReuseResult notFound() {
-            return new ReuseResult(false, null);
+            return new ReuseResult(false, -1, null);
         }
     }
 

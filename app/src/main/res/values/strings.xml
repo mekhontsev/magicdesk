@@ -25,6 +25,8 @@
     <string name="action_close_window">Close window</string>
     <string name="action_new_window">New window</string>
     <string name="action_force_stop">Force stop app</string>
+    <string name="action_app_widgets">Widgets</string>
+    <string name="action_app_info">App info</string>
     <string name="action_show_desktop">Show desktop</string>
     <string name="action_open_tasks">Open tasks</string>
     <string name="action_notifications">Notifications</string>

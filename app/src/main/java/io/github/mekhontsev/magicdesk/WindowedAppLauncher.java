@@ -39,7 +39,7 @@ final class WindowedAppLauncher {
                 taskReadyCallback);
     }
 
-    static void launch(
+    static int launch(
             final Intent launchIntent,
             final AppLaunchTarget launchTarget,
             final int displayId,
@@ -67,9 +67,9 @@ final class WindowedAppLauncher {
                     bounds,
                     null);
             if (existing.found) {
-                return;
+                return existing.taskId;
             }
-        } else {
+        } else if (createNew) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                     | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
         }
@@ -104,7 +104,9 @@ final class WindowedAppLauncher {
                 if (!launched.found) {
                     throw new IOException("launched task not found");
                 }
+                return launched.taskId;
             }
+            return taskId;
         }
     }
 

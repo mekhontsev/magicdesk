@@ -237,6 +237,14 @@ final class DesktopWorkspaceController {
         mWidgets.addWidget();
     }
 
+    boolean hasWidgets(final String packageName) {
+        return mWidgets.hasWidgets(packageName);
+    }
+
+    void addWidgets(final String packageName) {
+        mWidgets.addWidgets(packageName);
+    }
+
     void configureWidget(final int appWidgetId) {
         mWidgets.configure(appWidgetId);
     }

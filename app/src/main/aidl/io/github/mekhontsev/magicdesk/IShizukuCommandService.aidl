@@ -286,4 +286,10 @@ interface IShizukuCommandService {
         String packageName,
         int focusTaskId) = 77;
 
+    void launchTaskAction(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        String intentUri) = 78;
+
 }

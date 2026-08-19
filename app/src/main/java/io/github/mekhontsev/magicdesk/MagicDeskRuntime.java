@@ -291,6 +291,17 @@ public final class MagicDeskRuntime {
         return tasks.launchWindowedTask(displayId, intent, bounds);
     }
 
+    static void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final Intent intent) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        tasks.launchTaskAction(displayId, taskId, intent);
+    }
+
     static void placeTaskInDesktopArea(
             final int taskId,
             final int sourceDisplayId,

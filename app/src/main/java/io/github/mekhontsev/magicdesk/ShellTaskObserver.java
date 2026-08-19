@@ -476,6 +476,27 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final String intentUri) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalArgumentException(
+                    "display is not configured: " + displayId);
+        }
+        try {
+            TaskDisplayAreaLaunchCommand.launchTaskAction(
+                    mService, displayId, taskId, intentUri);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch task action: " + usefulMessage(error),
+                    error);
+        }
+    }
+
     void placeTaskInDesktopArea(
             final int taskId,
             final int sourceDisplayId,

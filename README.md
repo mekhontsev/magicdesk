@@ -74,6 +74,8 @@ that can run on the device itself or on a secondary display:
   MagicDesk Files supports this directly; other Android applications may
   reject the request through their own activity launch mode.
 - Pin applications to the taskbar or place shortcuts on the desktop.
+- Use an application's published quick actions, widget picker, and Android app
+  information directly from its MagicDesk context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
 - Keep live application tasks available when the external desktop is closed,
   then restore their desktop mode and layout when the desktop is started

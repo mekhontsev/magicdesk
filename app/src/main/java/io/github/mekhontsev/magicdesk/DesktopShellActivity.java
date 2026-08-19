@@ -874,6 +874,14 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWorkspaceController.addWidget();
     }
 
+    boolean hasDesktopWidgets(final String packageName) {
+        return mDesktopWorkspaceController.hasWidgets(packageName);
+    }
+
+    void addDesktopWidgets(final String packageName) {
+        mDesktopWorkspaceController.addWidgets(packageName);
+    }
+
     void chooseDesktopWallpaper() {
         hideAllPanels();
         final AppItem files = findOrLoadApp(
@@ -1571,6 +1579,16 @@ public abstract class DesktopShellActivity extends Activity
 
     void launchNewWindow(final AppItem app) {
         mAppTasks.launchNewWindow(app);
+    }
+
+    void launchShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut) {
+        mAppTasks.launchShortcut(app, shortcut);
+    }
+
+    void openAppInfo(final AppItem app) {
+        mAppTasks.openAppInfo(app);
     }
 
     void launchFullscreen(final AppItem app) {

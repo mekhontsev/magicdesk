@@ -151,6 +151,20 @@ final class DesktopTaskWatcher {
                 bounds);
     }
 
+    void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final Intent intent) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || intent == null) {
+            throw new IOException("desktop task area is unavailable");
+        }
+        handle.launchTaskAction(
+                displayId,
+                taskId,
+                intent.toUri(Intent.URI_INTENT_SCHEME));
+    }
+
     void placeTaskInDesktopArea(
             final int taskId,
             final int sourceDisplayId,

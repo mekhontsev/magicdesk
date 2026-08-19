@@ -1033,6 +1033,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final Intent intent) throws IOException {
+        requireTaskObserver(displayId);
+        mTaskWatcher.launchTaskAction(displayId, taskId, intent);
+    }
+
+    @Override
     public void placeTaskInDesktopArea(
             final int taskId,
             final int sourceDisplayId,

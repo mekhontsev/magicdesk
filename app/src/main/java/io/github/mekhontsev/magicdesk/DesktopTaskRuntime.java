@@ -11,6 +11,9 @@ interface DesktopTaskRuntime {
     int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
 
+    void launchTaskAction(
+            int displayId, int taskId, Intent intent) throws IOException;
+
     void placeTaskInDesktopArea(
             int taskId,
             int sourceDisplayId,

@@ -389,7 +389,17 @@ runtime integration and are not distributed through the same release path.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
-  window launches. `WindowedAppLauncher` owns fresh launch/reuse selection and
+  window launches. `AppShortcutRepository` reads the standard static shortcut
+  metadata published by each launch activity without taking Android's HOME
+  role. Only single-intent actions targeting the publisher's own package enter
+  the menu; their original action, data, extras, and task flags are preserved.
+  Dynamic shortcuts remain owned by the system launcher because Android does
+  not expose them to an ordinary non-HOME application. Before dispatching an
+  action, MagicDesk prepares the application's normal task in the selected
+  desktop mode, then starts the published intent with that task's ID. This
+  keeps trampoline activities inside the application task instead of treating
+  a short-lived redirect task as the launched desktop window.
+  `WindowedAppLauncher` owns fresh launch/reuse selection and
   delegates fresh launches to the active persistent shell task observer.
   `ExistingTaskController` performs only task discovery and normalization. A
   single `WindowedTaskLaunchLease` spans each operation so startup-window

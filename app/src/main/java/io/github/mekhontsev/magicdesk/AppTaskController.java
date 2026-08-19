@@ -1,7 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityOptions;
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 
@@ -12,6 +16,10 @@ import java.util.List;
 
 final class AppTaskController {
     private static final String TAG = "MagicDesk";
+
+    private interface PreparedTaskAction {
+        void run(int displayId, int taskId) throws IOException;
+    }
 
     private final DesktopShellActivity mActivity;
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
@@ -59,6 +67,80 @@ final class AppTaskController {
         }
     }
 
+    void launchShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut) {
+        if (app == null || shortcut == null) {
+            return;
+        }
+        final AppWindowState saved = remembersWindowState(app)
+                ? AppWindowStateStore.load(app.packageName) : null;
+        if (saved != null
+                && saved.mode == AppWindowState.Mode.WINDOWED
+                && canControlWindowing()) {
+            launchShortcutWindowed(
+                    app, shortcut, true, saved.windowBounds);
+        } else if (saved != null
+                && saved.mode == AppWindowState.Mode.FULLSCREEN) {
+            launchShortcutFullscreen(app, shortcut);
+        } else if (canControlWindowing()
+                && app.canFloat
+                && AppItem.FULLSCREEN_REASON_NONE.equals(
+                        app.fullscreenReason)) {
+            launchShortcutWindowed(app, shortcut, false, null);
+        } else {
+            launchShortcutFullscreen(app, shortcut);
+        }
+    }
+
+    private void launchShortcutWindowed(
+            final AppItem app,
+            final AppShortcutAction shortcut,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds) {
+        if (!canControlWindowing()) {
+            launchShortcutFullscreen(app, shortcut);
+            return;
+        }
+        Log.i(TAG, "launch app shortcut package=" + app.packageName
+                + " shortcut=" + shortcut.id
+                + " display=" + mActivity.getCurrentDisplayId());
+        final Intent appIntent = app.launchTarget.resolve(
+                mActivity.getPackageManager());
+        if (appIntent == null) {
+            showMissingLauncher(app);
+            return;
+        }
+        launchWindow(
+                appIntent,
+                app.launchTarget,
+                shortcut.label,
+                explicitWindowed,
+                preferredBounds,
+                WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                (displayId, taskId) -> MagicDeskRuntime.launchTaskAction(
+                        displayId,
+                        taskId,
+                        shortcut.launchIntent()));
+    }
+
+    private void launchShortcutFullscreen(
+            final AppItem app,
+            final AppShortcutAction shortcut) {
+        Log.i(TAG, "launch fullscreen app shortcut package="
+                + app.packageName
+                + " shortcut=" + shortcut.id
+                + " display=" + mActivity.getCurrentDisplayId());
+        launchFullscreen(
+                app,
+                false,
+                shortcut.label,
+                (displayId, taskId) -> MagicDeskRuntime.launchTaskAction(
+                        displayId,
+                        taskId,
+                        shortcut.launchIntent()));
+    }
+
     void launchFloating(final AppItem app) {
         launchFloating(app, false);
     }
@@ -78,6 +160,48 @@ final class AppTaskController {
                 true,
                 null,
                 WindowedAppLauncher.TaskReusePolicy.CREATE_NEW);
+    }
+
+    void openAppInfo(final AppItem app) {
+        if (app == null) {
+            return;
+        }
+        final Intent intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", app.packageName, null));
+        final ResolveInfo resolved = mActivity.getPackageManager()
+                .resolveActivity(intent, 0);
+        if (resolved == null || resolved.activityInfo == null) {
+            mActivity.setErrorStatus(
+                    "APP-INFO-001",
+                    mActivity.getString(
+                            R.string.status_launch_failed,
+                            mActivity.getString(R.string.action_app_info)));
+            return;
+        }
+        final ComponentName component = new ComponentName(
+                resolved.activityInfo.packageName,
+                resolved.activityInfo.name);
+        intent.setComponent(component);
+        final AppLaunchTarget target = AppLaunchTarget.explicit(
+                component.getPackageName(),
+                component.getClassName(),
+                intent.getAction());
+        if (!canControlWindowing()) {
+            final ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            mActivity.startActivity(intent, options.toBundle());
+            return;
+        }
+        launchWindow(
+                intent,
+                target,
+                mActivity.getString(R.string.action_app_info),
+                true,
+                null,
+                WindowedAppLauncher.TaskReusePolicy.CREATE_NEW,
+                null);
     }
 
     void launchInternalWindow(
@@ -152,16 +276,7 @@ final class AppTaskController {
         final Intent launchIntent = app.launchTarget.resolve(
                 mActivity.getPackageManager());
         if (launchIntent == null) {
-            final List<TaskRepository.TaskEntry> visibleTasks =
-                    takeInteractionVisibleTasks();
-            TaskRepository.bringStackToFront(visibleTasks, null, null);
-            mActivity.setErrorStatus(
-                    "APP-LAUNCH-002",
-                    mActivity.getString(
-                            R.string.status_launch_failed,
-                            "no launcher activity"),
-                    "package=" + app.packageName,
-                    null);
+            showMissingLauncher(app);
             return;
         }
         Log.i(TAG, "launch floating package=" + app.packageName
@@ -174,7 +289,7 @@ final class AppTaskController {
                 explicitWindowed,
                 preferredBounds,
                 reusePolicy,
-                () -> {
+                (displayId, taskId) -> {
                     if (explicitWindowed && remembersWindowState(app)) {
                         AppWindowStateStore.rememberMode(
                                 app.packageName,
@@ -190,7 +305,7 @@ final class AppTaskController {
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
             final WindowedAppLauncher.TaskReusePolicy reusePolicy,
-            final Runnable afterLaunch) {
+            final PreparedTaskAction afterLaunch) {
         mActivity.setTaskbarVisible(true);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_window, label));
@@ -199,7 +314,7 @@ final class AppTaskController {
         final int displayId = mActivity.getCurrentDisplayId();
         TaskCommandQueue.execute(() -> {
             try {
-                WindowedAppLauncher.launch(
+                final int taskId = WindowedAppLauncher.launch(
                         launchIntent,
                         launchTarget,
                         displayId,
@@ -209,7 +324,7 @@ final class AppTaskController {
                         reusePolicy,
                         () -> publishConfirmedLaunchSnapshot(displayId));
                 if (afterLaunch != null) {
-                    afterLaunch.run();
+                    afterLaunch.run(displayId, taskId);
                 }
                 mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
@@ -252,61 +367,30 @@ final class AppTaskController {
     private void launchFullscreen(
             final AppItem app,
             final boolean rememberMode) {
+        launchFullscreen(
+                app,
+                rememberMode,
+                app.label,
+                null);
+    }
+
+    private void launchFullscreen(
+            final AppItem app,
+            final boolean rememberMode,
+            final String label,
+            final PreparedTaskAction afterLaunch) {
         Log.i(TAG, "launch fullscreen package=" + app.packageName
                 + " display=" + mActivity.getCurrentDisplayId());
         final int displayId =
                 beginFullscreenTransition(app.packageName);
         mActivity.setTaskbarVisible(false);
         mActivity.setStatus(mActivity.getString(
-                R.string.status_launching_fullscreen, app.label));
+                R.string.status_launching_fullscreen, label));
         try {
-            if (ShellAccess.isReady()) {
-                final ExistingTaskController.ReuseResult reuseResult =
-                        ExistingTaskController.reuseIfExists(
-                                app.launchTarget,
-                                mActivity.getCurrentDisplayId(),
-                                false);
-                if (reuseResult.found) {
-                    if (rememberMode && remembersWindowState(app)) {
-                        AppWindowStateStore.rememberMode(
-                                app.packageName,
-                                AppWindowState.Mode.FULLSCREEN);
-                    }
-                    MagicDeskRuntime.finishFullscreenTransition(
-                            displayId, true);
-                    Log.i(TAG,
-                            "reused fullscreen package="
-                                    + app.packageName);
-                    mActivity.setStatus(mActivity.getString(
-                            R.string.status_switch_done, app.label));
-                    return;
-                }
+            final int taskId = prepareFullscreenTask(app, displayId);
+            if (afterLaunch != null) {
+                afterLaunch.run(displayId, taskId);
             }
-
-            Log.i(TAG,
-                    "fresh fullscreen launch package="
-                            + app.packageName);
-            final Intent launchIntent = app.launchTarget.resolve(
-                    mActivity.getPackageManager());
-            if (launchIntent == null) {
-                MagicDeskRuntime.finishFullscreenTransition(
-                        displayId, false);
-                mActivity.setTaskbarVisible(true);
-                mActivity.setErrorStatus(
-                        "APP-LAUNCH-002",
-                        mActivity.getString(
-                                R.string.status_launch_failed,
-                                "no launcher activity"),
-                        "package=" + app.packageName,
-                        null);
-                return;
-            }
-            launchIntent.addFlags(getFullscreenLaunchFlags());
-            FullscreenAppLauncher.launch(
-                    launchIntent, mActivity.getCurrentDisplayId());
-            ExistingTaskController.normalizeLaunchedFullscreen(
-                    app.launchTarget,
-                    mActivity.getCurrentDisplayId());
             if (rememberMode && remembersWindowState(app)) {
                 AppWindowStateStore.rememberMode(
                         app.packageName,
@@ -332,6 +416,44 @@ final class AppTaskController {
             mActivity.setTaskbarVisible(true);
             mActivity.showLaunchFailure(e);
         }
+    }
+
+    private int prepareFullscreenTask(
+            final AppItem app,
+            final int displayId) throws IOException {
+        if (ShellAccess.isReady()) {
+            final ExistingTaskController.ReuseResult reuseResult =
+                    ExistingTaskController.reuseIfExists(
+                            app.launchTarget, displayId, false);
+            if (reuseResult.found) {
+                Log.i(TAG, "reused fullscreen package=" + app.packageName);
+                return reuseResult.taskId;
+            }
+        }
+
+        Log.i(TAG, "fresh fullscreen launch package=" + app.packageName);
+        final Intent launchIntent = app.launchTarget.resolve(
+                mActivity.getPackageManager());
+        if (launchIntent == null) {
+            throw new IOException("no launcher activity");
+        }
+        launchIntent.addFlags(getFullscreenLaunchFlags());
+        FullscreenAppLauncher.launch(launchIntent, displayId);
+        return ExistingTaskController.normalizeLaunchedFullscreen(
+                app.launchTarget, displayId).taskId;
+    }
+
+    private void showMissingLauncher(final AppItem app) {
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                takeInteractionVisibleTasks();
+        TaskRepository.bringStackToFront(visibleTasks, null, null);
+        mActivity.setErrorStatus(
+                "APP-LAUNCH-002",
+                mActivity.getString(
+                        R.string.status_launch_failed,
+                        "no launcher activity"),
+                "package=" + app.packageName,
+                null);
     }
 
     private static boolean canControlWindowing() {

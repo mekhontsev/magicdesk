@@ -156,6 +156,15 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, intentUri, bounds);
     }
 
+    void launchTaskAction(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final String intentUri) {
+        requireSession(callback).observer.launchTaskAction(
+                displayId, taskId, intentUri);
+    }
+
     void placeTaskInDesktopArea(
             final ITaskObserverCallback callback,
             final int taskId,

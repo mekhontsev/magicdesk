@@ -339,6 +339,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void launchTaskAction(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId,
+            final String intentUri) {
+        mTaskObserverManager.launchTaskAction(
+                callback, displayId, taskId, intentUri);
+    }
+
+    @Override
     public void placeTaskInDesktopArea(
             final ITaskObserverCallback callback,
             final int taskId,

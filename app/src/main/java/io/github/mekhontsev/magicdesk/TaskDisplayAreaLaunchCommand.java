@@ -339,6 +339,35 @@ public final class TaskDisplayAreaLaunchCommand {
                 existingTaskIds);
     }
 
+    static void launchTaskAction(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final String intentUri) throws ReflectiveOperationException {
+        if (service == null || displayId < 0 || taskId < 0) {
+            throw new IllegalArgumentException("invalid task action target");
+        }
+        final Intent intent = createExactAppIntent(intentUri);
+        final Object task = HiddenTaskApi.findTask(service, displayId, taskId);
+        if (task == null) {
+            throw new IllegalArgumentException("task is unavailable: " + taskId);
+        }
+        final String packageName = intent.getComponent().getPackageName();
+        if (!packageName.equals(HiddenTaskApi.getTaskPackage(task))) {
+            throw new IllegalArgumentException(
+                    "task does not belong to " + packageName);
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        // Shortcut entry activities often redirect and finish immediately.
+        // Starting them inside the prepared app task keeps that redirect from
+        // becoming a short-lived desktop root task.
+        ActivityOptions.class.getMethod(
+                "setLaunchTaskId", Integer.TYPE)
+                .invoke(options, Integer.valueOf(taskId));
+        launchActivity(service, intent, options);
+    }
+
     private static IBinder launchPendingIntentTransition(
             final Intent intent,
             final ActivityOptions options) throws ReflectiveOperationException {
@@ -585,6 +614,12 @@ public final class TaskDisplayAreaLaunchCommand {
     }
 
     static Intent createAppIntent(final String intentUri) {
+        final Intent intent = createExactAppIntent(intentUri);
+        return intent.addFlags(additionalLaunchFlags(intent.getFlags()))
+                .putExtra("start_from_heartservice_app_lock", true);
+    }
+
+    static Intent createExactAppIntent(final String intentUri) {
         final Intent intent;
         try {
             intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME);
@@ -601,8 +636,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 || className.isEmpty()) {
             throw new IllegalArgumentException("invalid app launch target");
         }
-        return intent.addFlags(additionalLaunchFlags(intent.getFlags()))
-                .putExtra("start_from_heartservice_app_lock", true);
+        return intent.putExtra("start_from_heartservice_app_lock", true);
     }
 
     static int additionalLaunchFlags(final int intentFlags) {

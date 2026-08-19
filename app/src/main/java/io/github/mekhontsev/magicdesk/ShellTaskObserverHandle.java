@@ -154,6 +154,14 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.bottom));
     }
 
+    void launchTaskAction(
+            final int displayId,
+            final int taskId,
+            final String intentUri) throws IOException {
+        callService(() -> mService.launchTaskAction(
+                mCallback, displayId, taskId, intentUri));
+    }
+
     void placeTaskInDesktopArea(
             final int taskId,
             final int sourceDisplayId,
