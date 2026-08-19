@@ -28,7 +28,7 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        DesktopDisplayDriverSupport.showConnectedExternal(this, displayId);
+        DesktopDisplayDriverSupport.showReadySecondary(this, displayId);
     }
 
     @Override

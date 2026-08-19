@@ -81,7 +81,7 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "no connected wired display was reported");
             return;
         }
-        DesktopDisplayDriverSupport.showConnectedExternal(
+        DesktopDisplayDriverSupport.showReadySecondary(
                 this, connectedDisplayId);
     }
 

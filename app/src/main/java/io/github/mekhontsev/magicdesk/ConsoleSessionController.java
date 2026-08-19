@@ -25,12 +25,16 @@ final class ConsoleSessionController {
                 MagicDeskApplication.applicationContext();
         int consoleDisplayId = displayId > 0
                 ? displayId : projection.activeDesktopDisplayId(context);
-        boolean startedConsoleMode = false;
+        final boolean adoptedConsoleMode =
+                consoleDisplayId > android.view.Display.DEFAULT_DISPLAY;
         boolean seedStarted = false;
         int physicalDisplayId = -1;
         PlatformProjectionDriver.PreparedMode preparedMode = null;
         DisplayProfileStore.Profile displayProfile = null;
         try {
+            // A published Console display was already configured by the
+            // firmware. Only a missing display may enter output preparation
+            // and request a new expand transition.
             if (consoleDisplayId <= 0) {
                 physicalDisplayId =
                         ConsoleDisplayController.findExternalDisplayId();
@@ -97,12 +101,14 @@ final class ConsoleSessionController {
                         physicalDisplayId = currentDisplayId;
                     }
                 }
-                startedConsoleMode = true;
+            }
+            if (adoptedConsoleMode) {
+                Log.i(TAG, "adopting existing Console display="
+                        + consoleDisplayId
+                        + " without changing the output mode");
             }
             ConsoleDisplayController.ensureLandscape(consoleDisplayId);
-            if (startedConsoleMode) {
-                applyConsoleDisplayDensity(consoleDisplayId, displayProfile);
-            } else {
+            if (displayProfile == null) {
                 physicalDisplayId =
                         ConsoleDisplayController.findExternalDisplayId();
                 displayProfile = DisplayProfileController
@@ -116,11 +122,7 @@ final class ConsoleSessionController {
                 target = target.withProfile(
                         physicalDisplayId, displayProfile.key);
             }
-            final DesktopSessionController.ShowResult desktopResult =
-                    DesktopSessionController.show(target);
-            if (desktopResult.ready && desktopResult.created) {
-                PhoneTouchpadController.open(consoleDisplayId);
-            }
+            DesktopDisplayDriverSupport.showReadySecondary(target);
         } catch (IOException error) {
             Log.w(TAG, "Shell MagicDesk launch failed", error);
             CompatibilityDiagnostics.record(
@@ -173,19 +175,6 @@ final class ConsoleSessionController {
     private static void finishConsoleSeedTask(final boolean seedStarted) {
         if (seedStarted) {
             ConsoleSeedActivity.finishActive();
-        }
-    }
-
-    private static void applyConsoleDisplayDensity(
-            final int displayId,
-            final DisplayProfileStore.Profile profile) {
-        try {
-            if (profile != null) {
-                ConsoleDisplayController.applyStartupDensity(
-                        displayId, profile.dpi);
-            }
-        } catch (RuntimeException error) {
-            Log.w(TAG, "Cannot prepare Console display profile", error);
         }
     }
 

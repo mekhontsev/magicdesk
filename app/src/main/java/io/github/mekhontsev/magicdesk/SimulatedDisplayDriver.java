@@ -28,7 +28,7 @@ final class SimulatedDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public void show(final Activity source, final int displayId) {
-        DesktopDisplayDriverSupport.showPrepared(this, displayId);
+        DesktopDisplayDriverSupport.showReadySecondary(this, displayId);
     }
 
     @Override

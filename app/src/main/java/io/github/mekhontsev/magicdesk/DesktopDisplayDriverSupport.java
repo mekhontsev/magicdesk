@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.util.Log;
+import android.view.Display;
 
 import java.io.IOException;
 
@@ -12,26 +13,35 @@ final class DesktopDisplayDriverSupport {
     private DesktopDisplayDriverSupport() {
     }
 
-    static void showPrepared(
+    static void showReadySecondary(
             final DesktopDisplayDriver driver,
             final int displayId) {
-        showPrepared(driver.target(displayId));
+        showReadySecondary(driver.target(displayId));
     }
 
-    static void showConnectedExternal(
-            final DesktopDisplayDriver driver,
-            final int displayId) {
-        final Context context = MagicDeskApplication.applicationContext();
-        final DesktopDisplayTarget target =
-                DisplayProfileController.prepareTarget(
-                        context, driver.target(displayId));
-        final DisplayProfileStore.Profile profile =
-                DisplayProfileController.loadPreparedProfile(context, target);
-        if (profile != null) {
-            ConsoleDisplayController.applyStartupDensity(
-                    displayId, profile.dpi);
+    static void showReadySecondary(final DesktopDisplayTarget target) {
+        if (target == null
+                || target.displayId <= Display.DEFAULT_DISPLAY) {
+            throw new IllegalArgumentException(
+                    "a ready secondary display target is required");
         }
-        showPrepared(target);
+        final Context context = MagicDeskApplication.applicationContext();
+        final DesktopDisplayTarget preparedTarget =
+                DisplayProfileController.prepareTarget(
+                        context, target);
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileController.loadPreparedProfile(
+                        context, preparedTarget);
+        if (profile != null) {
+            try {
+                ConsoleDisplayController.applyStartupDensity(
+                        preparedTarget.displayId, profile.dpi);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Could not prepare secondary display density",
+                        error);
+            }
+        }
+        showPrepared(preparedTarget);
     }
 
     static void showPrepared(final DesktopDisplayTarget target) {
