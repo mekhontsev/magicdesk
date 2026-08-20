@@ -210,6 +210,9 @@ public final class CompatibilityDiagnostics {
             final Context context, final DeviceSetupManager.Audit audit) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
+        final DesktopSessionSnapshot desktopSession =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final DesktopDisplayTarget desktopTarget = desktopSession.target();
         report.append("## Runtime profile\n")
                 .append("Platform driver: ")
                 .append(audit.platform.name())
@@ -219,6 +222,18 @@ public final class CompatibilityDiagnostics {
                 .append("Shizuku runtime: ")
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
+                .append("Desktop session: ")
+                .append(desktopTarget == null
+                        ? "inactive"
+                        : (desktopSession.hasHost() ? "active" : "starting")
+                                + ", kind="
+                                + desktopTarget.kind.name()
+                                        .toLowerCase(Locale.ROOT)
+                                + ", display=" + desktopTarget.displayId
+                                + ", activation="
+                                + desktopTarget.activationSource
+                                        .diagnosticLabel)
+                .append('\n')
                 .append("System provisioning: ")
                 .append(audit.configurationReady ? "ready" : "incomplete").append('\n')
                 .append("Reboot pending: ").append(audit.rebootRequired).append('\n')

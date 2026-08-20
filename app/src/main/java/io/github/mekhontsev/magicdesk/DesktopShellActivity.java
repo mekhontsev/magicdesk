@@ -59,6 +59,8 @@ public abstract class DesktopShellActivity extends Activity
             "magicdesk_profile_display_id";
     static final String EXTRA_PROFILE_KEY = "magicdesk_profile_key";
     static final String EXTRA_TARGET_KIND = "magicdesk_target_kind";
+    static final String EXTRA_ACTIVATION_SOURCE =
+            "magicdesk_activation_source";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
@@ -68,6 +70,8 @@ public abstract class DesktopShellActivity extends Activity
             "profile_display_id";
     private static final String STATE_PROFILE_KEY = "profile_key";
     private static final String STATE_TARGET_KIND = "target_kind";
+    private static final String STATE_ACTIVATION_SOURCE =
+            "activation_source";
     private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
             new HashMap<>();
     static final int TASKBAR_HEIGHT_DP = 64;
@@ -109,6 +113,8 @@ public abstract class DesktopShellActivity extends Activity
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
     private DesktopDisplayTarget.Kind mDesktopTargetKind;
+    private DesktopDisplayTarget.ActivationSource mActivationSource =
+            DesktopDisplayTarget.ActivationSource.UNKNOWN;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -141,6 +147,11 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopTargetKind = parseTargetKind(source.getString(
                     savedInstanceState == null
                             ? EXTRA_TARGET_KIND : STATE_TARGET_KIND,
+                    ""));
+            mActivationSource = parseActivationSource(source.getString(
+                    savedInstanceState == null
+                            ? EXTRA_ACTIVATION_SOURCE
+                            : STATE_ACTIVATION_SOURCE,
                     ""));
         }
         final DisplayManager displayManager =
@@ -175,7 +186,8 @@ public abstract class DesktopShellActivity extends Activity
                             mDesktopTargetKind,
                             mExpectedDisplayId,
                             mDesktopProfileDisplayId,
-                            mDesktopProfileKey));
+                            mDesktopProfileKey,
+                            mActivationSource));
         }
         mUi = new DesktopUiFactory(this);
         mDesktopLayout = new DesktopLayoutController(
@@ -282,6 +294,9 @@ public abstract class DesktopShellActivity extends Activity
         outState.putString(
                 STATE_TARGET_KIND,
                 mDesktopTargetKind == null ? "" : mDesktopTargetKind.name());
+        outState.putString(
+                STATE_ACTIVATION_SOURCE,
+                mActivationSource.name());
         outState.putBoolean(
                 STATE_TOOLS_VISIBLE,
                 mStartMenuController != null
@@ -298,6 +313,18 @@ public abstract class DesktopShellActivity extends Activity
             return DesktopDisplayTarget.Kind.valueOf(value);
         } catch (IllegalArgumentException ignored) {
             return null;
+        }
+    }
+
+    private static DesktopDisplayTarget.ActivationSource
+            parseActivationSource(final String value) {
+        if (value == null || value.isEmpty()) {
+            return DesktopDisplayTarget.ActivationSource.UNKNOWN;
+        }
+        try {
+            return DesktopDisplayTarget.ActivationSource.valueOf(value);
+        } catch (IllegalArgumentException ignored) {
+            return DesktopDisplayTarget.ActivationSource.UNKNOWN;
         }
     }
 

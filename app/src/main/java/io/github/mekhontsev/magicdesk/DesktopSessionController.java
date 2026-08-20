@@ -94,6 +94,9 @@ final class DesktopSessionController {
                             + " --es "
                             + DesktopShellActivity.EXTRA_TARGET_KIND
                             + " " + preparedTarget.kind.name()
+                            + " --es "
+                            + DesktopShellActivity.EXTRA_ACTIVATION_SOURCE
+                            + " " + preparedTarget.activationSource.name()
                             + (restoreWindows
                                     ? " --es " + DesktopShellActivity.EXTRA_ACTION
                                             + " "

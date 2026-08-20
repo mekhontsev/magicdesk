@@ -82,7 +82,10 @@ public final class DesktopActivity extends DesktopShellActivity {
                 .putExtra(EXTRA_EXPECTED_DISPLAY_ID, displayId)
                 .putExtra(EXTRA_PROFILE_DISPLAY_ID, target.profileDisplayId)
                 .putExtra(EXTRA_PROFILE_KEY, target.profileKey)
-                .putExtra(EXTRA_TARGET_KIND, target.kind.name());
+                .putExtra(EXTRA_TARGET_KIND, target.kind.name())
+                .putExtra(
+                        EXTRA_ACTIVATION_SOURCE,
+                        target.activationSource.name());
         LAUNCH_EXECUTOR.execute(() -> {
             try {
                 ShellAccess.launchDesktopHost(displayId, intent);

@@ -26,11 +26,31 @@ public final class DesktopDisplayTargetTest {
     @Test
     public void profileMetadataIsExplicitAndImmutable() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7)
+                .withActivationSource(
+                        DesktopDisplayTarget.ActivationSource
+                                .MAGICDESK_REQUESTED)
                 .withProfile(3, "display:wired:local:123");
 
         assertEquals(7, target.displayId);
         assertEquals(3, target.profileDisplayId);
         assertEquals("display:wired:local:123", target.profileKey);
+        assertEquals(
+                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED,
+                target.activationSource);
+    }
+
+    @Test
+    public void restorePreservesActivationSource() {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.restore(
+                DesktopDisplayTarget.Kind.WIRED,
+                7,
+                3,
+                "display:wired:local:123",
+                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED);
+
+        assertEquals(
+                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED,
+                target.activationSource);
     }
 
     @Test(expected = IllegalArgumentException.class)

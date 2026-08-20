@@ -9,18 +9,33 @@ final class DesktopDisplayTarget {
         SIMULATED
     }
 
+    enum ActivationSource {
+        MAGICDESK_REQUESTED("magicdesk-requested"),
+        ADOPTED_EXISTING("adopted-existing"),
+        UNKNOWN("unknown");
+
+        final String diagnosticLabel;
+
+        ActivationSource(final String diagnosticLabel) {
+            this.diagnosticLabel = diagnosticLabel;
+        }
+    }
+
     final Kind kind;
     final int displayId;
     final int profileDisplayId;
     final String profileKey;
+    final ActivationSource activationSource;
 
     private DesktopDisplayTarget(
             final Kind kind,
             final int displayId,
             final int profileDisplayId,
-            final String profileKey) {
-        if (kind == null) {
-            throw new IllegalArgumentException("display kind is required");
+            final String profileKey,
+            final ActivationSource activationSource) {
+        if (kind == null || activationSource == null) {
+            throw new IllegalArgumentException(
+                    "display kind and activation source are required");
         }
         if (kind == Kind.PHONE
                 ? displayId != android.view.Display.DEFAULT_DISPLAY
@@ -31,6 +46,7 @@ final class DesktopDisplayTarget {
         this.displayId = displayId;
         this.profileDisplayId = profileDisplayId;
         this.profileKey = profileKey == null ? "" : profileKey;
+        this.activationSource = activationSource;
     }
 
     static DesktopDisplayTarget phone() {
@@ -38,21 +54,35 @@ final class DesktopDisplayTarget {
                 Kind.PHONE,
                 android.view.Display.DEFAULT_DISPLAY,
                 android.view.Display.DEFAULT_DISPLAY,
-                "");
+                "",
+                ActivationSource.MAGICDESK_REQUESTED);
     }
 
     static DesktopDisplayTarget wired(final int displayId) {
-        return new DesktopDisplayTarget(Kind.WIRED, displayId, displayId, "");
+        return new DesktopDisplayTarget(
+                Kind.WIRED,
+                displayId,
+                displayId,
+                "",
+                ActivationSource.ADOPTED_EXISTING);
     }
 
     static DesktopDisplayTarget wireless(final int displayId) {
         return new DesktopDisplayTarget(
-                Kind.WIRELESS, displayId, displayId, "");
+                Kind.WIRELESS,
+                displayId,
+                displayId,
+                "",
+                ActivationSource.ADOPTED_EXISTING);
     }
 
     static DesktopDisplayTarget simulated(final int displayId) {
         return new DesktopDisplayTarget(
-                Kind.SIMULATED, displayId, displayId, "");
+                Kind.SIMULATED,
+                displayId,
+                displayId,
+                "",
+                ActivationSource.MAGICDESK_REQUESTED);
     }
 
     static DesktopDisplayTarget restore(
@@ -60,8 +90,27 @@ final class DesktopDisplayTarget {
             final int displayId,
             final int profileDisplayId,
             final String profileKey) {
+        return restore(
+                kind,
+                displayId,
+                profileDisplayId,
+                profileKey,
+                defaultActivationSource(kind));
+    }
+
+    static DesktopDisplayTarget restore(
+            final Kind kind,
+            final int displayId,
+            final int profileDisplayId,
+            final String profileKey,
+            final ActivationSource activationSource) {
         final DesktopDisplayTarget target = new DesktopDisplayTarget(
-                kind, displayId, displayId, "");
+                kind,
+                displayId,
+                displayId,
+                "",
+                activationSource == null
+                        ? ActivationSource.UNKNOWN : activationSource);
         return kind != Kind.PHONE
                         && profileDisplayId > 0
                         && profileKey != null
@@ -79,10 +128,37 @@ final class DesktopDisplayTarget {
             throw new IllegalArgumentException("invalid display profile");
         }
         return new DesktopDisplayTarget(
-                kind, displayId, newProfileDisplayId, newProfileKey);
+                kind,
+                displayId,
+                newProfileDisplayId,
+                newProfileKey,
+                activationSource);
+    }
+
+    DesktopDisplayTarget withActivationSource(
+            final ActivationSource newActivationSource) {
+        if (newActivationSource == null) {
+            throw new IllegalArgumentException(
+                    "activation source is required");
+        }
+        return new DesktopDisplayTarget(
+                kind,
+                displayId,
+                profileDisplayId,
+                profileKey,
+                newActivationSource);
     }
 
     boolean hasProfile() {
         return profileDisplayId > 0 && !profileKey.isEmpty();
+    }
+
+    private static ActivationSource defaultActivationSource(final Kind kind) {
+        if (kind == Kind.WIRED || kind == Kind.WIRELESS) {
+            return ActivationSource.ADOPTED_EXISTING;
+        }
+        return kind == null
+                ? ActivationSource.UNKNOWN
+                : ActivationSource.MAGICDESK_REQUESTED;
     }
 }

@@ -117,7 +117,12 @@ final class ConsoleSessionController {
                                 physicalDisplayId);
             }
             DesktopDisplayTarget target =
-                    DesktopDisplayTarget.wired(consoleDisplayId);
+                    DesktopDisplayTarget.wired(consoleDisplayId)
+                            .withActivationSource(adoptedConsoleMode
+                                    ? DesktopDisplayTarget.ActivationSource
+                                            .ADOPTED_EXISTING
+                                    : DesktopDisplayTarget.ActivationSource
+                                            .MAGICDESK_REQUESTED);
             if (displayProfile != null && physicalDisplayId > 0) {
                 target = target.withProfile(
                         physicalDisplayId, displayProfile.key);
