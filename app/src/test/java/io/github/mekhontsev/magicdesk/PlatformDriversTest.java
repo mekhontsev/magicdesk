@@ -10,8 +10,8 @@ import org.junit.Test;
 public final class PlatformDriversTest {
     @Test
     public void selectsNubiaDriverFromDeviceFamilyIdentity() {
-        final PlatformDriver driver = PlatformDrivers.resolve(device(
-                "nubia", "nubia", "NX809J", "NX809J", "NX809J"));
+        final PlatformDriver driver = resolve(device(
+                "nubia", "nubia", "NX809J", "NX809J", "NX809J"), true);
 
         assertEquals("nubia", driver.id());
         assertTrue(driver.features().wiredDesktop);
@@ -46,8 +46,8 @@ public final class PlatformDriversTest {
 
     @Test
     public void genericDriverUsesDirectAndroidExternalDisplays() {
-        final PlatformDriver driver = PlatformDrivers.resolve(device(
-                "Google", "google", "Pixel", "pixel", "pixel"));
+        final PlatformDriver driver = resolve(device(
+                "Google", "google", "Pixel", "pixel", "pixel"), false);
 
         assertEquals("android", driver.id());
         assertTrue(driver.features().supportsDisplay(
@@ -89,10 +89,25 @@ public final class PlatformDriversTest {
 
     @Test
     public void zteBrandedDeviceDoesNotAssumeNubiaFirmware() {
-        final PlatformDriver driver = PlatformDrivers.resolve(device(
-                "ZTE", "zte", "ZTE A2026", "zte_device", "zte_product"));
+        final PlatformDriver driver = resolve(device(
+                "ZTE", "zte", "ZTE A2026", "zte_device", "zte_product"),
+                true);
 
         assertEquals("android", driver.id());
+    }
+
+    @Test
+    public void nubiaHardwareOnCustomRomUsesGenericAndroid() {
+        final PlatformDevice evolutionX = new PlatformDevice(
+                "nubia",
+                "nubia",
+                "NX809J",
+                "NX809J",
+                "NX809J-UN",
+                "google/mustang_beta/mustang:16/build:user/release-keys",
+                36);
+
+        assertEquals("android", resolve(evolutionX, false).id());
     }
 
     @Test
@@ -100,10 +115,10 @@ public final class PlatformDriversTest {
         final PlatformDevice device = device(
                 "nubia", "nubia", "NX809J", "NX809J", "NX809J");
 
-        assertEquals("nubia", PlatformDrivers.resolve(device).id());
+        assertEquals("nubia", resolve(device, true).id());
         assertEquals(
                 "android",
-                PlatformDrivers.resolve(device, "android").id());
+                PlatformDrivers.resolve(device, "android", true).id());
     }
 
     @Test
@@ -115,11 +130,11 @@ public final class PlatformDriversTest {
                 "nubia", "nubia", "NX769J", "NX769J", "NX769J",
                 "fingerprint", 35);
 
-        assertTrue(PlatformDrivers.resolve(genericDevice).supports(
+        assertTrue(resolve(genericDevice, false).supports(
                 genericDevice));
-        assertTrue(PlatformDrivers.resolve(nubiaDevice).supports(
+        assertTrue(resolve(nubiaDevice, true).supports(
                 nubiaDevice));
-        assertEquals("nubia", PlatformDrivers.resolve(nubiaDevice).id());
+        assertEquals("nubia", resolve(nubiaDevice, true).id());
     }
 
     @Test
@@ -127,7 +142,7 @@ public final class PlatformDriversTest {
         final PlatformDevice device = new PlatformDevice(
                 "Google", "google", "Pixel", "pixel", "pixel",
                 "fingerprint", 34);
-        final PlatformDriver driver = PlatformDrivers.resolve(device);
+        final PlatformDriver driver = resolve(device, false);
 
         assertFalse(driver.supports(device));
     }
@@ -141,5 +156,11 @@ public final class PlatformDriversTest {
         return new PlatformDevice(
                 manufacturer, brand, model, device, product,
                 "fingerprint", 36);
+    }
+
+    private static PlatformDriver resolve(
+            final PlatformDevice device,
+            final boolean nubiaFirmwareAvailable) {
+        return PlatformDrivers.resolve(device, "", nubiaFirmwareAvailable);
     }
 }

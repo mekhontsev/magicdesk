@@ -482,8 +482,15 @@ Do not introduce per-model build variants or forks for differences that can be
 isolated behind these boundaries.
 
 - `PlatformDrivers` selects one firmware platform for the process from an
-  immutable `PlatformDevice` identity. `PlatformDriver` exposes only existing
-  variation points. `PlatformWindowingDriver` owns provisioning properties;
+  immutable `PlatformDevice` identity and a platform-owned firmware capability
+  probe. Hardware family names alone do not select a vendor driver: for
+  example, Nubia hardware running an AOSP-derived custom ROM uses the standard
+  Android driver when both the vendor platform service and an official Nubia or
+  REDMAGIC firmware fingerprint are absent. The service probe runs under the
+  ordinary application UID and does not depend on Shizuku being ready; the
+  fingerprint fallback keeps stock Nubia firmware independent of a
+  RedMagic-named service. `PlatformDriver` exposes only existing variation
+  points. `PlatformWindowingDriver` owns provisioning properties;
   `PlatformProjectionDriver` owns projection state, output modes, and caption
   transport; `PlatformPhoneUiDriver` owns phone-screen controls, input-panel
   guards, launcher reconciliation, and local-navigation policy;

@@ -6,7 +6,9 @@ already connected secondary-display sessions. A platform-driver boundary
 separates that baseline from optional Nubia/REDMAGIC integration. A device
 branded ZTE is not automatically treated as Nubia-compatible; until its
 firmware interfaces are verified, it uses the standard Android driver.
-Vendor branding is not a baseline requirement.
+Likewise, Nubia hardware running an AOSP-derived custom ROM uses the standard
+Android driver when the stock firmware markers are absent. Vendor branding is
+not a baseline requirement.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, phone UI recovery, absolute-pointer access, optional
