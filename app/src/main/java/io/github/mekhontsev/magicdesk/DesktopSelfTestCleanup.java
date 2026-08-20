@@ -31,10 +31,11 @@ final class DesktopSelfTestCleanup {
             final SimulatedDisplayLease lease,
             final boolean restoreExternalMirror) {
         final StringBuilder detail = new StringBuilder();
+        final Set<Integer> phoneFixtureTaskIds = new LinkedHashSet<>();
         boolean clean = true;
         if (ShellAccess.isReady()) {
             try {
-                removeFixtureTasks();
+                removeFixtureTasks(phoneFixtureTaskIds);
                 waitForTaskAbsent(DesktopSelfTestComponents.FIXTURE_CLASS);
                 waitForTaskAbsent(
                         DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS);
@@ -144,7 +145,14 @@ final class DesktopSelfTestCleanup {
         }
         if (ShellAccess.isReady()) {
             try {
-                removeFixtureTasks();
+                removeFixtureTasks(phoneFixtureTaskIds);
+                if (target == DesktopSelfTestTarget.PHONE) {
+                    for (final Integer taskId : phoneFixtureTaskIds) {
+                        waitForTaskAbsentFromDesktopRepository(
+                                Display.DEFAULT_DISPLAY,
+                                taskId.intValue());
+                    }
+                }
             } catch (IOException error) {
                 clean = false;
                 detail.append("stale fixture cleanup: ")
@@ -174,11 +182,20 @@ final class DesktopSelfTestCleanup {
     }
 
     static void removeFixtureTasks() throws IOException {
+        removeFixtureTasks(null);
+    }
+
+    private static void removeFixtureTasks(
+            final Set<Integer> phoneFixtureTaskIds) throws IOException {
         final String stack = ShellAccess.run(
                 "/system/bin/cmd activity stack list");
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
             if (!DesktopSelfTestComponents.isFixtureTask(task)) {
                 continue;
+            }
+            if (phoneFixtureTaskIds != null
+                    && task.displayId == Display.DEFAULT_DISPLAY) {
+                phoneFixtureTaskIds.add(Integer.valueOf(task.taskId));
             }
             if (requiresPhoneDesktopExitBeforeRemoval(
                     task,

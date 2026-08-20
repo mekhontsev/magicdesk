@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.util.Log;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Executor;
 
@@ -60,6 +62,55 @@ final class TaskDisplayAreaHandle implements AutoCloseable {
 
     int featureId() {
         return mFeatureId;
+    }
+
+    /** Reparents any live child tasks before this organizer area is deleted. */
+    void detachChildTasks(
+            final Object service,
+            final int displayId,
+            final Collection<Integer> ownedTaskIds)
+            throws ReflectiveOperationException {
+        if (service == null || displayId < 0
+                || ownedTaskIds == null || ownedTaskIds.isEmpty()) {
+            return;
+        }
+        final List<Integer> childTaskIds = new ArrayList<>();
+        final List<Object> childTaskTokens = new ArrayList<>();
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final Integer taskId = Integer.valueOf(
+                    HiddenTaskApi.getIntField(task, "taskId"));
+            if (!ownedTaskIds.contains(taskId)) {
+                continue;
+            }
+            if (HiddenTaskApi.getIntField(
+                    task, "displayAreaFeatureId") == mFeatureId) {
+                childTaskIds.add(taskId);
+                childTaskTokens.add(HiddenTaskApi.requireTaskToken(
+                        service, displayId, taskId.intValue()));
+            }
+        }
+        if (childTaskIds.isEmpty()) {
+            return;
+        }
+
+        final Class<?> tokenClass = Class.forName(
+                "android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        // Running tasks are returned top-first. Reparent bottom-first so their
+        // relative z-order remains unchanged in the default task area.
+        for (int index = childTaskTokens.size() - 1; index >= 0; index--) {
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, new Object[]{
+                            childTaskTokens.get(index), null, Boolean.TRUE});
+        }
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+        Log.i(TAG, "detached tasks=" + childTaskIds
+                + " from feature=" + mFeatureId);
     }
 
     @Override

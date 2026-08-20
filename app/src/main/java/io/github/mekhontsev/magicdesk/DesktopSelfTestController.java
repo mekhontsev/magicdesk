@@ -6,6 +6,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 
 import android.app.KeyguardManager;
 import android.content.Context;
@@ -14,6 +15,7 @@ import android.os.SystemClock;
 import android.view.Display;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -47,6 +49,14 @@ final class DesktopSelfTestController {
             final Context context,
             final DesktopSelfTestTarget requestedTarget,
             final boolean restoreExternalMirror) {
+        return run(context, requestedTarget, restoreExternalMirror, -1);
+    }
+
+    static DesktopSelfTestResult run(
+            final Context context,
+            final DesktopSelfTestTarget requestedTarget,
+            final boolean restoreExternalMirror,
+            final int resultTaskId) {
         final DesktopSelfTestResult result =
                 new DesktopSelfTestResult(System.currentTimeMillis());
         if (context == null) {
@@ -161,9 +171,37 @@ final class DesktopSelfTestController {
                     displayId,
                     lease,
                     restoreExternalMirror);
+            restoreResultTask(result, target, resultTaskId);
             RUNNING.set(false);
         }
         return finish(result, appContext);
+    }
+
+    private static void restoreResultTask(
+            final DesktopSelfTestResult result,
+            final DesktopSelfTestTarget target,
+            final int resultTaskId) {
+        if (target != DesktopSelfTestTarget.PHONE || resultTaskId < 0) {
+            return;
+        }
+        try {
+            // The phone desktop owns a temporary task display area. Focus the
+            // report only after cleanup, through the same shell transition as
+            // other tasks, so a stale vendor parent cannot crash the app UI.
+            ShellAccess.run(TaskFocusCommands.createShellCommand(
+                    Display.DEFAULT_DISPLAY,
+                    Collections.singletonList(Integer.valueOf(resultTaskId))));
+            waitForFrontTask(Display.DEFAULT_DISPLAY, resultTaskId);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-UI-001",
+                    "Return to diagnostics after phone self-test",
+                    "task=" + resultTaskId);
+        } catch (IOException | RuntimeException error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-UI-001",
+                    "Return to diagnostics after phone self-test",
+                    usefulMessage(error));
+        }
     }
 
     static String phoneUiUnavailableReason(final Context context) {

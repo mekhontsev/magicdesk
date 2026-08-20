@@ -34,6 +34,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private final ShellDesktopTaskOwnership mOwnership;
 
     private TaskDisplayAreaHandle mArea;
+    private Object mAreaService;
     private int mDisplayId = -1;
 
     ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
@@ -49,8 +50,22 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int[] taskIds) {
         try {
-            if (!isFullscreenStack(service, displayId, taskIds)) {
-                if (focusMixedStack(service, displayId, taskIds)) {
+            if (taskIds == null || taskIds.length == 0) {
+                return false;
+            }
+            final int targetTaskId = taskIds[taskIds.length - 1];
+            final Object targetTask = HiddenTaskApi.requireTask(
+                    service, displayId, targetTaskId);
+            if (mOwnership.isDesktopHostTask(targetTaskId)
+                    || !mOwnership.isDesktopTask(targetTask)) {
+                return false;
+            }
+            final int[] focusTaskIds = desktopFocusTasks(
+                    service, displayId, taskIds);
+            final int[] appTaskIds = withoutDesktopHost(focusTaskIds);
+            if (!isFullscreenStack(service, displayId, appTaskIds)) {
+                if (focusMixedStack(
+                        service, displayId, appTaskIds, focusTaskIds)) {
                     return true;
                 }
                 // A freeform task may be focused while another task remains
@@ -59,7 +74,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 return false;
             }
             ensureArea(service, displayId);
-            applyFocus(service, displayId, taskIds);
+            applyFocus(service, displayId, appTaskIds, focusTaskIds);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "fullscreen task area unavailable", error);
@@ -71,9 +86,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private boolean focusMixedStack(
             final Object service,
             final int displayId,
-            final int[] taskIds) throws ReflectiveOperationException {
+            final int[] appTaskIds,
+            final int[] focusTaskIds) throws ReflectiveOperationException {
         boolean containsNonFullscreenTask = false;
-        for (final int taskId : taskIds) {
+        for (final int taskId : focusTaskIds) {
             final Object task = HiddenTaskApi.requireTask(
                     service, displayId, taskId);
             if (HiddenTaskApi.getWindowConfigurationValue(
@@ -89,14 +105,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
         final List<Integer> fullscreenTaskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             if (HiddenTaskApi.getWindowConfigurationValue(
                     task, "getWindowingMode")
                     != WINDOWING_MODE_FULLSCREEN
-                    || !mOwnership.isDesktopTask(task)) {
+                    || !mOwnership.isDesktopTask(task)
+                    || mOwnership.isDesktopHostTask(taskId)) {
                 continue;
             }
-            fullscreenTaskIds.add(Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId")));
+            fullscreenTaskIds.add(Integer.valueOf(taskId));
         }
         if (fullscreenTaskIds.isEmpty()) {
             return false;
@@ -126,7 +143,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                         .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
             }
         }
-        for (final int taskId : taskIds) {
+        for (final int taskId : appTaskIds) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             transactionClass.getMethod(
@@ -138,10 +155,50 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 service, transactionClass, transaction);
         // Match the regular fullscreen-area path: commit the hierarchy first,
         // then let a normal TO_FRONT transition synchronize input focus.
-        TaskWindowingCommand.focusTasks(service, displayId, taskIds);
+        TaskWindowingCommand.focusTasks(service, displayId, focusTaskIds);
         Log.i(TAG, "preserved fullscreen tasks=" + fullscreenTaskIds
                 + " while focusing mixed stack on display=" + displayId);
         return true;
+    }
+
+    private int[] desktopFocusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        final List<Integer> desktopTaskIds = new ArrayList<>();
+        for (final int taskId : taskIds) {
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            if (mOwnership.isDesktopHostTask(taskId)
+                    || mOwnership.isDesktopTask(task)) {
+                desktopTaskIds.add(Integer.valueOf(taskId));
+            }
+        }
+        final int[] output = new int[desktopTaskIds.size()];
+        for (int index = 0; index < desktopTaskIds.size(); index++) {
+            output[index] = desktopTaskIds.get(index).intValue();
+        }
+        return output;
+    }
+
+    private int[] withoutDesktopHost(final int[] taskIds) {
+        int appTaskCount = 0;
+        for (final int taskId : taskIds) {
+            if (!mOwnership.isDesktopHostTask(taskId)) {
+                appTaskCount++;
+            }
+        }
+        if (appTaskCount == taskIds.length) {
+            return taskIds;
+        }
+        final int[] appTaskIds = new int[appTaskCount];
+        int outputIndex = 0;
+        for (final int taskId : taskIds) {
+            if (!mOwnership.isDesktopHostTask(taskId)) {
+                appTaskIds[outputIndex++] = taskId;
+            }
+        }
+        return appTaskIds;
     }
 
     synchronized boolean beginAppFullscreen(
@@ -332,14 +389,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private void applyFocus(
             final Object service,
             final int displayId,
-            final int[] taskIds) throws ReflectiveOperationException {
+            final int[] appTaskIds,
+            final int[] focusTaskIds) throws ReflectiveOperationException {
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
         final Class<?> transactionClass =
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction = transactionClass.getConstructor().newInstance();
         final Object areaToken = mArea.token();
-        for (final int taskId : taskIds) {
+        for (final int taskId : appTaskIds) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             transactionClass.getMethod(
@@ -364,7 +422,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         // InputDispatcher focus. Once every task has the fullscreen parent,
         // a normal TO_FRONT activation can synchronize input without letting
         // the default freeform task area change either task's mode.
-        TaskWindowingCommand.focusTasks(service, displayId, taskIds);
+        TaskWindowingCommand.focusTasks(service, displayId, focusTaskIds);
     }
 
     private boolean isFullscreenStack(
@@ -452,7 +510,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             // task. This reuses the proven fullscreen-area focus path and
             // makes the subsequent removal a background operation.
             applyFocus(
-                    service, displayId, new int[]{survivorTaskId});
+                    service,
+                    displayId,
+                    new int[]{survivorTaskId},
+                    new int[]{survivorTaskId});
             waitForVisibleTask(service, displayId, survivorTaskId);
 
             final Class<?> tokenClass =
@@ -550,6 +611,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
 
         mArea = area;
+        mAreaService = service;
         mDisplayId = displayId;
         Log.i(TAG, "created fullscreen task area display=" + displayId);
     }
@@ -591,11 +653,27 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     @Override
     public synchronized void close() {
         final TaskDisplayAreaHandle area = mArea;
+        final Object service = mAreaService;
+        final int displayId = mDisplayId;
+        final Set<Integer> ownedTaskIds = new HashSet<>(mTaskIds);
         mArea = null;
+        mAreaService = null;
         mDisplayId = -1;
         mTaskIds.clear();
         mAppRestoreBounds.clear();
         if (area != null) {
+            try {
+                // A failed or interrupted window transition can leave a task
+                // under this organizer area. Deleting a non-empty area
+                // corrupts parent links on some firmware.
+                // Dynamic feature IDs are reused and can remain in stale
+                // Recents metadata. Only this area's own live task IDs are
+                // safe to inspect and detach.
+                area.detachChildTasks(service, displayId, ownedTaskIds);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                Log.w(TAG, "could not detach fullscreen tasks before cleanup",
+                        error);
+            }
             area.close();
         }
     }

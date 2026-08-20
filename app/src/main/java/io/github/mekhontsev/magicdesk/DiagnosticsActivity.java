@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -546,7 +545,8 @@ public final class DiagnosticsActivity extends Activity {
                     DesktopSelfTestController.run(
                             getApplicationContext(),
                             target,
-                            restoreExternalMirror);
+                            restoreExternalMirror,
+                            getTaskId());
             final String report =
                     CompatibilityDiagnostics.buildReport(getApplicationContext());
             runOnUiThread(() -> {
@@ -559,13 +559,6 @@ public final class DiagnosticsActivity extends Activity {
                         R.string.diagnostics_self_test_complete,
                         result.summary()));
                 finishSelfTestPreparation();
-                if (target == DesktopSelfTestTarget.PHONE) {
-                    final ActivityManager activityManager =
-                            getSystemService(ActivityManager.class);
-                    if (activityManager != null) {
-                        activityManager.moveTaskToFront(getTaskId(), 0);
-                    }
-                }
             });
         }, "MagicDeskDesktopSelfTest").start();
     }

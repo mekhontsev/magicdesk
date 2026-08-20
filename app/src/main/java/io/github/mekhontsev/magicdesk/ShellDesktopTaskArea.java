@@ -108,7 +108,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                             Class.forName(
                                     "android.window.WindowContainerToken"),
                             mArea.token());
-            mOwnership.markDesktop(taskId);
+            mOwnership.markDesktopHost(taskId);
             attachHost(taskId);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {

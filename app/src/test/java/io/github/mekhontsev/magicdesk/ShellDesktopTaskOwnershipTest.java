@@ -6,6 +6,24 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class ShellDesktopTaskOwnershipTest {
+    @Test
+    public void desktopHostIdentityFollowsSessionAndTaskLifecycle() {
+        final ShellDesktopTaskOwnership ownership =
+                new ShellDesktopTaskOwnership();
+
+        ownership.configure(4);
+        ownership.markDesktopHost(41);
+        assertTrue(ownership.isDesktopHostTask(41));
+        assertFalse(ownership.isDesktopHostTask(42));
+
+        ownership.forget(41);
+        assertFalse(ownership.isDesktopHostTask(41));
+
+        ownership.markDesktopHost(43);
+        ownership.configure(5);
+        assertFalse(ownership.isDesktopHostTask(43));
+    }
+
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 

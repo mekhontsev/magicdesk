@@ -251,7 +251,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             HiddenTaskApi.registerTaskStackListener(mService, this);
             mRegistered = true;
-            mActivityStartController.start();
             mStateMonitor.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mActivityStartController.close();
@@ -277,19 +276,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        mFullscreenTaskArea.configure(displayId);
-        mDesktopOwnership.configure(displayId);
-        if (managedTaskArea && managedTaskAreaHostTaskId >= 0) {
-            mDesktopOwnership.markDesktop(managedTaskAreaHostTaskId);
-        }
-        mDesktopTaskArea.configure(
-                displayId,
-                managedTaskArea,
-                managedTaskAreaHostTaskId);
-        if (!managedTaskArea) {
-            mDesktopTaskAreaForeground = null;
-        }
         if (displayId < 0) {
+            // IActivityController can cancel starts system-wide. Keep task
+            // observation alive between sessions, but never retain launch
+            // interception after the desktop configuration is cleared.
+            mActivityStartController.close();
             updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             mFocusController.configure(-1);
@@ -300,7 +291,34 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mWindowedActivityGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
+            // Organizer cleanup can fail on malformed vendor hierarchy. Run
+            // it only after every system-wide policy has been disabled.
+            mFullscreenTaskArea.configure(Display.INVALID_DISPLAY);
+            mDesktopTaskArea.configure(
+                    Display.INVALID_DISPLAY, false, -1);
+            mDesktopOwnership.configure(Display.INVALID_DISPLAY);
+            mDesktopTaskAreaForeground = null;
             return;
+        }
+        try {
+            mActivityStartController.start();
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException(
+                    "cannot enable desktop activity-start observation: "
+                            + usefulMessage(error),
+                    error);
+        }
+        mFullscreenTaskArea.configure(displayId);
+        mDesktopOwnership.configure(displayId);
+        if (managedTaskArea && managedTaskAreaHostTaskId >= 0) {
+            mDesktopOwnership.markDesktopHost(managedTaskAreaHostTaskId);
+        }
+        mDesktopTaskArea.configure(
+                displayId,
+                managedTaskArea,
+                managedTaskAreaHostTaskId);
+        if (!managedTaskArea) {
+            mDesktopTaskAreaForeground = null;
         }
         updateExternalNavigationGuard(displayId != Display.DEFAULT_DISPLAY);
         mConfiguredDisplayId = displayId;

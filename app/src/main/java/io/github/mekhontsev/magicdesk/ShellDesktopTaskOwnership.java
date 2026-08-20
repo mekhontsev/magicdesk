@@ -21,14 +21,24 @@ final class ShellDesktopTaskOwnership {
             new LinkedHashSet<>();
 
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
+    private int mDesktopHostTaskId = -1;
 
     synchronized void configure(final int displayId) {
         if (mDesktopDisplayId == displayId) {
             return;
         }
         mDesktopDisplayId = displayId;
+        mDesktopHostTaskId = -1;
         mDesktopTaskIds.clear();
         mPhoneFullscreenTaskIds.clear();
+    }
+
+    synchronized void markDesktopHost(final int taskId) {
+        if (taskId < 0) {
+            return;
+        }
+        mDesktopHostTaskId = taskId;
+        markDesktop(taskId);
     }
 
     synchronized void markDesktop(final int taskId) {
@@ -42,6 +52,13 @@ final class ShellDesktopTaskOwnership {
     synchronized void forget(final int taskId) {
         mDesktopTaskIds.remove(Integer.valueOf(taskId));
         mPhoneFullscreenTaskIds.remove(Integer.valueOf(taskId));
+        if (mDesktopHostTaskId == taskId) {
+            mDesktopHostTaskId = -1;
+        }
+    }
+
+    synchronized boolean isDesktopHostTask(final int taskId) {
+        return taskId >= 0 && taskId == mDesktopHostTaskId;
     }
 
     synchronized List<Integer> observeTasks(
