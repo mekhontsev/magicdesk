@@ -90,6 +90,30 @@ final class AppTaskController {
         }
     }
 
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final Runnable onPrepared) {
+        if (mode == DesktopLaunchMode.WINDOWED) {
+            final AppWindowState saved = remembersWindowState(app)
+                    ? AppWindowStateStore.load(app.packageName) : null;
+            launchFloating(
+                    app,
+                    true,
+                    saved == null ? null : saved.windowBounds,
+                    WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                    onPrepared);
+        } else if (mode == DesktopLaunchMode.FULLSCREEN) {
+            launchFullscreen(
+                    app,
+                    true,
+                    app.label,
+                    preparedTaskAction(onPrepared));
+        } else {
+            launchDefault(app, onPrepared);
+        }
+    }
+
     void launchShortcut(
             final AppItem app,
             final AppShortcutAction shortcut) {

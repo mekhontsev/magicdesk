@@ -55,6 +55,8 @@ final class DesktopWebShortcut extends DesktopEntry {
                 target,
                 intent.toUri(Intent.URI_INTENT_SCHEME),
                 DesktopLaunchMode.AUTO,
+                false,
+                DesktopExecBackend.SHELL,
                 false);
     }
 

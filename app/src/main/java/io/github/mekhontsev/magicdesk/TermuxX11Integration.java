@@ -36,12 +36,28 @@ final class TermuxX11Integration {
     }
 
     static void startOrReconnect(final Activity activity) {
-        final String command = MagicDeskSettings.load()
-                .termuxX11StartupCommand;
+        startOrReconnect(
+                activity,
+                MagicDeskSettings.load().termuxX11StartupCommand);
+    }
+
+    static void startOrReconnect(
+            final Activity activity,
+            final String command) {
         TermuxIntegration.runBackgroundShellCommand(
                 activity,
                 TermuxX11StartupCommand.startOrReconnect(command),
                 "MagicDesk Termux:X11");
+    }
+
+    static boolean handlesExecLaunch(
+            final AppItem app,
+            final DesktopApplicationShortcut shortcut) {
+        return app != null
+                && PACKAGE_NAME.equals(app.packageName)
+                && shortcut != null
+                && shortcut.hasExecLaunch()
+                && shortcut.execBackend == DesktopExecBackend.TERMUX;
     }
 
     static String diagnostics(final Context context) {

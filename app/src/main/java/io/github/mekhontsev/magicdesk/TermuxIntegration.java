@@ -66,7 +66,31 @@ final class TermuxIntegration {
             final Activity activity,
             final String command,
             final String label) {
-        final Intent intent = new Intent(ACTION_RUN_COMMAND)
+        activity.startForegroundService(commandIntent(command, label)
+                .putExtra(EXTRA_BACKGROUND, true));
+    }
+
+    static void runForegroundShellCommand(
+            final Activity activity,
+            final String command,
+            final String label) {
+        final String shellName = SHELL_NAME_PREFIX + label + " ["
+                + Integer.toHexString(command.hashCode()) + "]";
+        activity.startForegroundService(commandIntent(command, label)
+                .putExtra(EXTRA_BACKGROUND, false)
+                // Select the session but let MagicDesk place the Termux task.
+                .putExtra(EXTRA_SESSION_ACTION, "2")
+                .putExtra(EXTRA_SHELL_NAME, shellName)
+                .putExtra(
+                        EXTRA_SHELL_CREATE_MODE,
+                        SHELL_CREATE_MODE_REUSE_NAMED));
+    }
+
+    @SuppressLint("SdCardPath")
+    private static Intent commandIntent(
+            final String command,
+            final String label) {
+        return new Intent(ACTION_RUN_COMMAND)
                 .setComponent(new ComponentName(
                         PACKAGE_NAME, RUN_COMMAND_SERVICE))
                 .putExtra(
@@ -76,9 +100,7 @@ final class TermuxIntegration {
                 .putExtra(
                         EXTRA_WORKDIR,
                         "/data/data/com.termux/files/home")
-                .putExtra(EXTRA_BACKGROUND, true)
                 .putExtra(EXTRA_COMMAND_LABEL, label);
-        activity.startForegroundService(intent);
     }
 
     @SuppressLint("SdCardPath")

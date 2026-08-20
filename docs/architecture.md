@@ -889,8 +889,17 @@ in any directory shown by built-in Files. `Type=Link` holds a local folder URL.
 `Type=Application` stores standard `Name`, `Icon`, and `Exec` fields plus a
 full Android Intent URI and launch-mode metadata in `X-MagicDesk-*` keys. The
 Intent URI preserves extras, categories, flags, actions, and explicit
-components. `Exec` is retained for Desktop Entry compatibility and future
-console integration; MagicDesk does not execute it yet.
+components and always takes precedence over its executable `am start`
+fallback, preventing duplicate launches. An entry without an Intent or a
+default Android launch executes `Exec`. `DesktopExecController` coordinates
+that request with desktop task preparation, while `DesktopExecRunner` owns the
+execution-backend boundary. Android shell is the default backend;
+`X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend
+names invalidate the entry instead of silently running a command in the wrong
+environment. `Terminal=true` opens shell commands in the built-in Console and
+foreground Termux commands in a named Termux session. A future PTY-backed
+Console remains an implementation of the shell backend and therefore does not
+require another Desktop Entry format or migration.
 
 ## Desktop Surface And Widgets
 
@@ -1029,6 +1038,16 @@ separate Tools action, fixed startup delay, or duplicate server process.
 MagicDesk neither embeds the GPL-licensed X server nor models individual X11
 client windows as Android tasks. Closing or parking the viewer does not claim
 ownership of the independently running X server.
+A `Type=Application` entry with a Termux:X11 Android package, no Android Intent,
+an `Exec` command, and `X-MagicDesk-ExecBackend=termux` uses the same lifecycle
+with the entry's command and requested window mode. The ordinary Start icon
+continues to use the global command from Settings. Desktop Entry files are the
+launch-preset representation; MagicDesk does not maintain a parallel X11
+profile database. Creating the default Termux:X11 desktop shortcut captures
+the current Settings command in that file, so later global changes do not
+silently alter an existing preset.
+The user-visible file format and examples are documented in
+[Desktop Entry files](desktop-entries.md).
 Shell scripts can be handed to Console as a safely quoted initial command.
 Console still requires its normal explicit Run action; opening a script from
 Files never executes it automatically.

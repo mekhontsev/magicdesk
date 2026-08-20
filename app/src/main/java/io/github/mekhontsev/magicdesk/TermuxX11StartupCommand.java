@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 /** Pure command handling for the optional Termux:X11 session. */
 final class TermuxX11StartupCommand {
     static final String DEFAULT = "termux-x11 :1";
-    static final int MAX_LENGTH = 4096;
+    static final int MAX_LENGTH = DesktopExecCommand.MAX_LENGTH;
 
     private TermuxX11StartupCommand() {
     }
@@ -12,13 +12,9 @@ final class TermuxX11StartupCommand {
         if (command == null) {
             return DEFAULT;
         }
-        final String normalized = command.trim();
+        final String normalized = DesktopExecCommand.normalize(command);
         if (normalized.isEmpty()) {
             return DEFAULT;
-        }
-        if (normalized.length() > MAX_LENGTH
-                || normalized.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("invalid Termux:X11 command");
         }
         return normalized;
     }

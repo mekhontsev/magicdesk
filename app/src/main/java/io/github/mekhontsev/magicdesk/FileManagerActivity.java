@@ -534,6 +534,10 @@ public final class FileManagerActivity extends Activity
             }
             return;
         }
+        if (StandaloneDesktopExecLauncher.launch(
+                this, shortcut, displayId)) {
+            return;
+        }
         final Intent intent = shortcut.resolveIntent(getPackageManager());
         if (intent == null) {
             mView.setStatus(getString(R.string.desktop_shortcut_unavailable));

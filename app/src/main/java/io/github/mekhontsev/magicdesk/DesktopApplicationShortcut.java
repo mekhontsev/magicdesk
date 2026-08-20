@@ -13,6 +13,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
     final String intentUri;
     final DesktopLaunchMode launchMode;
     final boolean defaultLaunch;
+    final DesktopExecBackend execBackend;
+    final boolean terminal;
 
     DesktopApplicationShortcut(
             final String name,
@@ -21,7 +23,9 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final AppLaunchTarget launchTarget,
             final String intentUri,
             final DesktopLaunchMode launchMode,
-            final boolean defaultLaunch) {
+            final boolean defaultLaunch,
+            final DesktopExecBackend execBackend,
+            final boolean terminal) {
         super(name, icon, exec);
         if ((intentUri == null || intentUri.isEmpty()) && this.exec.isEmpty()) {
             throw new IllegalArgumentException(
@@ -36,6 +40,20 @@ final class DesktopApplicationShortcut extends DesktopEntry {
                     "default launch requires an application target");
         }
         this.defaultLaunch = defaultLaunch;
+        this.execBackend = execBackend == null
+                ? DesktopExecBackend.SHELL : execBackend;
+        this.terminal = terminal;
+        if (hasExecLaunch()) {
+            DesktopExecCommand.normalize(this.exec);
+        }
+    }
+
+    boolean hasIntentLaunch() {
+        return !intentUri.isEmpty();
+    }
+
+    boolean hasExecLaunch() {
+        return !exec.isEmpty() && !hasIntentLaunch() && !defaultLaunch;
     }
 
     Intent resolveIntent(final PackageManager packageManager) {

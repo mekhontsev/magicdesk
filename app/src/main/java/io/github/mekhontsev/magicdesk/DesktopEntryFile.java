@@ -127,6 +127,9 @@ final class DesktopEntryFile {
                 .append("Name=").append(escape(shortcut.name)).append('\n');
         append(encoded, "Icon", shortcut.icon);
         append(encoded, "Exec", shortcut.exec);
+        if (shortcut.terminal) {
+            append(encoded, "Terminal", "true");
+        }
         if (shortcut.launchTarget != null) {
             append(encoded, "X-MagicDesk-Package",
                     shortcut.launchTarget.packageName);
@@ -138,6 +141,10 @@ final class DesktopEntryFile {
         append(encoded, "X-MagicDesk-Intent", shortcut.intentUri);
         append(encoded, "X-MagicDesk-WindowMode",
                 shortcut.launchMode.wireName);
+        if (shortcut.execBackend != DesktopExecBackend.SHELL) {
+            append(encoded, "X-MagicDesk-ExecBackend",
+                    shortcut.execBackend.wireName);
+        }
         if (shortcut.defaultLaunch) {
             append(encoded, "X-MagicDesk-Default", "true");
         }
@@ -287,7 +294,11 @@ final class DesktopEntryFile {
                     DesktopLaunchMode.parse(
                             values.get("X-MagicDesk-WindowMode")),
                     "true".equalsIgnoreCase(
-                            value(values, "X-MagicDesk-Default")));
+                            value(values, "X-MagicDesk-Default")),
+                    DesktopExecBackend.parse(
+                            values.get("X-MagicDesk-ExecBackend")),
+                    "true".equalsIgnoreCase(
+                            value(values, "Terminal")));
         } catch (IllegalArgumentException error) {
             return null;
         }

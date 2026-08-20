@@ -243,8 +243,10 @@ final class DesktopWorkspaceController {
             final DesktopApplicationShortcut shortcut =
                     file.applicationShortcut();
             if (shortcut != null
-                    && shortcut.defaultLaunch
-                    && app.launchTarget.equals(shortcut.launchTarget)) {
+                    && app.launchTarget.equals(shortcut.launchTarget)
+                    && (shortcut.defaultLaunch
+                            || TermuxX11Integration.handlesExecLaunch(
+                                    app, shortcut))) {
                 return file;
             }
         }
@@ -259,16 +261,33 @@ final class DesktopWorkspaceController {
         if (app == null || intent == null) {
             return;
         }
-        final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
-        final DesktopApplicationShortcut shortcut =
-                new DesktopApplicationShortcut(
-                        name,
-                        app.packageName,
-                        DesktopEntryFile.applicationExec(intentUri),
-                        app.launchTarget,
-                        intentUri,
-                        DesktopLaunchMode.AUTO,
-                        defaultLaunch);
+        final DesktopApplicationShortcut shortcut;
+        if (defaultLaunch
+                && TermuxX11Integration.handlesDefaultLaunch(
+                        mActivity, app)) {
+            shortcut = new DesktopApplicationShortcut(
+                    name,
+                    app.packageName,
+                    MagicDeskSettings.load().termuxX11StartupCommand,
+                    app.launchTarget,
+                    "",
+                    DesktopLaunchMode.AUTO,
+                    false,
+                    DesktopExecBackend.TERMUX,
+                    false);
+        } else {
+            final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
+            shortcut = new DesktopApplicationShortcut(
+                    name,
+                    app.packageName,
+                    DesktopEntryFile.applicationExec(intentUri),
+                    app.launchTarget,
+                    intentUri,
+                    DesktopLaunchMode.AUTO,
+                    defaultLaunch,
+                    DesktopExecBackend.SHELL,
+                    false);
+        }
         mFolder.createApplicationShortcut(shortcut, created ->
                 mActivity.setStatus(mActivity.getString(
                         R.string.status_desktop_shortcut_added,

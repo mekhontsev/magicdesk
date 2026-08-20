@@ -102,6 +102,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopInputController mInputController;
     private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
+    private DesktopExecController mDesktopExec;
     private final OnBackInvokedCallback mDesktopBackCallback =
             this::handleDesktopBack;
     private boolean mDesktopWindowFocusable = true;
@@ -259,6 +260,7 @@ public abstract class DesktopShellActivity extends Activity
         mInputController = new DesktopInputController(this);
         mHostWindowController = new DesktopHostWindowController(this);
         mSystemActions = new DesktopSystemActionsController(this);
+        mDesktopExec = new DesktopExecController(this);
         registerDesktopBackCallback();
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
@@ -1606,7 +1608,7 @@ public abstract class DesktopShellActivity extends Activity
 
     void launchDefault(final AppItem app) {
         if (TermuxX11Integration.handlesDefaultLaunch(this, app)) {
-            mSystemActions.openTermuxX11(app);
+            mDesktopExec.openTermuxX11(app);
             return;
         }
         mAppTasks.launchDefault(app);
@@ -1614,6 +1616,13 @@ public abstract class DesktopShellActivity extends Activity
 
     void launchDefault(final AppItem app, final Runnable onPrepared) {
         mAppTasks.launchDefault(app, onPrepared);
+    }
+
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final Runnable onPrepared) {
+        mAppTasks.launchForMode(app, mode, onPrepared);
     }
 
     void launchFloating(final AppItem app) {
@@ -1637,20 +1646,28 @@ public abstract class DesktopShellActivity extends Activity
     void launchDesktopShortcut(
             final AppItem app,
             final DesktopApplicationShortcut shortcut) {
+        if (mDesktopExec.open(app, shortcut)) {
+            return;
+        }
         mAppTasks.launchDesktopShortcut(app, shortcut);
     }
 
     boolean launchDesktopShortcut(
             final DesktopApplicationShortcut shortcut) {
-        if (shortcut == null || shortcut.launchTarget == null) {
+        if (shortcut == null) {
             return false;
+        }
+        if (shortcut.launchTarget == null) {
+            return mDesktopExec.open(null, shortcut);
         }
         final AppItem app = findOrLoadApp(
                 getLauncherApps(), shortcut.launchTarget);
         if (app == null) {
             return false;
         }
-        launchDesktopShortcut(app, shortcut);
+        if (!mDesktopExec.open(app, shortcut)) {
+            mAppTasks.launchDesktopShortcut(app, shortcut);
+        }
         return true;
     }
 

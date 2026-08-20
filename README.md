@@ -109,9 +109,12 @@ that can run on the device itself or on a secondary display:
 - Keep [freedesktop `.desktop` folder, website, and application shortcuts](https://specifications.freedesktop.org/desktop-entry/latest/)
   in the Desktop directory or any folder opened by Files. A browser's Android
   Share action can add an HTTP(S) page to the MagicDesk desktop. Android
-  application shortcuts retain their full Intent parameters; the standard
-  `Exec` field is preserved for future console integration but is not executed
-  yet.
+  application shortcuts retain their full Intent parameters and an executable
+  `am start` fallback. For command entries, MagicDesk executes the standard
+  `Exec` field in Android shell by default; `Terminal=true` opens the command
+  in Console, while `X-MagicDesk-ExecBackend=termux` selects Termux's documented
+  command service instead. The supported fields, launch precedence, window
+  modes, and examples are documented in [Desktop Entry files](docs/desktop-entries.md).
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
   has been enabled. Reopening the same directory returns to its existing named
@@ -120,7 +123,11 @@ that can run on the device itself or on a secondary display:
   **Start** also starts or reconnects its X server through Termux's documented
   command API. The viewer remains a normal desktop task with the same window
   placement and launch-mode behavior as other applications. Its startup
-  command can be changed in **Settings**.
+  command can be changed in **Settings**. A `.desktop` entry can combine a
+  Termux `Exec` command with the Termux:X11 Android package to provide a named
+  launch preset without introducing a separate profile database. Creating a
+  desktop shortcut for Termux:X11 captures the current command in that file;
+  launching its ordinary Start icon continues to use the live Settings value.
 - Prepare a selected `.sh` file in Console from its context menu. The command
   is quoted and shown for review; it is never executed automatically.
 - Drop Files or Desktop items onto Console to insert safely quoted paths at the
@@ -566,6 +573,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 ## Technical Documentation
 
 - [Architecture](docs/architecture.md)
+- [Desktop Entry files](docs/desktop-entries.md)
 - [Shell access and display modes](docs/privilege-modes.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Compatibility and issue reports](docs/compatibility.md)

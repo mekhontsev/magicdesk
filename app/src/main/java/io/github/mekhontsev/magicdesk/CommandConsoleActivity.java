@@ -114,6 +114,13 @@ public final class CommandConsoleActivity extends Activity
                 initialDirectory);
     }
 
+    static Intent createCommandIntent(
+            final Context context, final String command) {
+        return createIntent(context).putExtra(
+                EXTRA_AUTO_RUN_COMMAND,
+                DesktopExecCommand.prepare(command));
+    }
+
     static Intent createScriptIntent(
             final Context context, final String absolutePath) {
         return new Intent(context, CommandConsoleActivity.class)
