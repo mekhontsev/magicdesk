@@ -114,8 +114,7 @@ final class ShellActivityStartController implements AutoCloseable {
     }
 
     synchronized void start() throws ReflectiveOperationException {
-        if (mInstalled) {
-            mEnabled = true;
+        if (mEnabled) {
             return;
         }
         installController();
@@ -126,19 +125,33 @@ final class ShellActivityStartController implements AutoCloseable {
     @Override
     public synchronized void close() {
         mEnabled = false;
-        // Android exposes no compare-and-clear operation for this global
-        // slot. Clearing it here could remove a controller installed later by
-        // another tool. Keep this Binder inert; ActivityManager releases it
-        // safely when the shell service process exits.
+        if (!mInstalled) {
+            return;
+        }
+        try {
+            setController(null);
+            mInstalled = false;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            // A stale controller can block Home and Recents even after the
+            // shell process exits on vendor firmware. Report the failed
+            // release, but let the rest of desktop cleanup continue.
+            report("activity-start observer release failed: "
+                    + usefulMessage(error));
+        }
     }
 
     private void installController()
+            throws ReflectiveOperationException {
+        setController(mController);
+    }
+
+    private void setController(final IActivityController controller)
             throws ReflectiveOperationException {
         mService.getClass().getMethod(
                 "setActivityController",
                 IActivityController.class,
                 Boolean.TYPE)
-                .invoke(mService, mController, Boolean.FALSE);
+                .invoke(mService, controller, Boolean.FALSE);
     }
 
     private void report(final String message) {
