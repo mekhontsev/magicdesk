@@ -486,7 +486,11 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_desktop">Desktop</string>
     <string name="settings_section_session">Session</string>
+    <string name="settings_section_integrations">Integrations</string>
     <string name="settings_section_support">Support</string>
+    <string name="settings_termux_x11_command">Termux:X11 startup command</string>
+    <string name="status_termux_x11_unavailable">Termux:X11 is unavailable</string>
+    <string name="status_termux_x11_failed">Could not open Termux:X11</string>
     <string name="settings_taskbar_auto_hide">Automatically hide taskbar</string>
     <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>

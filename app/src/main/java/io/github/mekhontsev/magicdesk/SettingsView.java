@@ -23,6 +23,8 @@ final class SettingsView {
 
         void setOpenFilesWithSingleClick(boolean enabled);
 
+        void configureTermuxX11();
+
         void openDeviceSetup();
 
         void openDiagnostics();
@@ -97,6 +99,15 @@ final class SettingsView {
                 mActions.setKeepDesktopAwake(checked);
             }
         });
+
+        if (TermuxX11Integration.isAvailable(mActivity)) {
+            addSection(content, R.string.settings_section_integrations, 14);
+            addAction(
+                    content,
+                    android.R.drawable.ic_menu_edit,
+                    R.string.settings_termux_x11_command,
+                    mActions::configureTermuxX11);
+        }
 
         addSection(content, R.string.settings_section_support, 14);
         addAction(content,

@@ -1605,7 +1605,15 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void launchDefault(final AppItem app) {
+        if (TermuxX11Integration.handlesDefaultLaunch(this, app)) {
+            mSystemActions.openTermuxX11(app);
+            return;
+        }
         mAppTasks.launchDefault(app);
+    }
+
+    void launchDefault(final AppItem app, final Runnable onPrepared) {
+        mAppTasks.launchDefault(app, onPrepared);
     }
 
     void launchFloating(final AppItem app) {

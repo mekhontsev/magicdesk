@@ -1018,6 +1018,17 @@ Files. The normalized directory path becomes a stable Termux shell name, and
 the `no-shell-with-name` creation mode atomically selects that session or
 creates it when absent. MagicDesk does not mirror Termux's session registry or
 force an existing shell back to its original working directory.
+Optional Termux:X11 integration uses the same permission boundary. MagicDesk
+intercepts the ordinary default launch of the exported Termux:X11 viewer, then
+prepares it through the same `AppTaskController` path as any other application.
+It starts the configured X server command only after that task is ready, or
+uses Termux:X11's loopback handshake to reconnect the prepared viewer to an
+existing server. The viewer therefore remains a single Android task governed
+by normal window state, focus, taskbar, and session parking. There is no
+separate Tools action, fixed startup delay, or duplicate server process.
+MagicDesk neither embeds the GPL-licensed X server nor models individual X11
+client windows as Android tasks. Closing or parking the viewer does not claim
+ownership of the independently running X server.
 Shell scripts can be handed to Console as a safely quoted initial command.
 Console still requires its normal explicit Run action; opening a script from
 Files never executes it automatically.

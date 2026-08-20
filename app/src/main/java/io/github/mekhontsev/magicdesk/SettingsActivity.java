@@ -2,9 +2,14 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.InputFilter;
+import android.text.InputType;
+import android.widget.EditText;
 import android.widget.Toast;
 
 public final class SettingsActivity extends Activity
@@ -63,6 +68,34 @@ public final class SettingsActivity extends Activity
     @Override
     public void setOpenFilesWithSingleClick(final boolean enabled) {
         saveSetting(MagicDeskSettings.setOpenFilesWithSingleClick(enabled));
+    }
+
+    @Override
+    public void configureTermuxX11() {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setTypeface(Typeface.MONOSPACE);
+        input.setMaxLines(4);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(
+                TermuxX11StartupCommand.MAX_LENGTH)});
+        input.setText(MagicDeskSettings.load().termuxX11StartupCommand);
+        input.setSelection(input.length());
+
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_termux_x11_command)
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(R.string.action_reset, (dialog, which) ->
+                        saveSetting(MagicDeskSettings
+                                .setTermuxX11StartupCommand(
+                                        TermuxX11StartupCommand.DEFAULT)))
+                .setPositiveButton(android.R.string.ok, (dialog, which) ->
+                        saveSetting(MagicDeskSettings
+                                .setTermuxX11StartupCommand(
+                                        input.getText().toString())))
+                .show();
     }
 
     @Override

@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 
@@ -19,6 +20,8 @@ final class TermuxIntegration {
     private static final String ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND";
     private static final String EXTRA_COMMAND_PATH =
             "com.termux.RUN_COMMAND_PATH";
+    private static final String EXTRA_ARGUMENTS =
+            "com.termux.RUN_COMMAND_ARGUMENTS";
     private static final String EXTRA_WORKDIR =
             "com.termux.RUN_COMMAND_WORKDIR";
     private static final String EXTRA_BACKGROUND =
@@ -38,23 +41,50 @@ final class TermuxIntegration {
     private TermuxIntegration() {
     }
 
-    static boolean isInstalled(final Activity activity) {
+    static boolean isInstalled(final Context context) {
         try {
-            activity.getPackageManager().getPackageInfo(PACKAGE_NAME, 0);
+            context.getPackageManager().getPackageInfo(PACKAGE_NAME, 0);
             return true;
         } catch (PackageManager.NameNotFoundException error) {
             return false;
         }
     }
 
+    static boolean ensureRunCommandPermission(final Activity activity) {
+        if (activity.checkSelfPermission(RUN_COMMAND_PERMISSION)
+                == PackageManager.PERMISSION_GRANTED) {
+            return true;
+        }
+        activity.requestPermissions(
+                new String[]{RUN_COMMAND_PERMISSION},
+                PERMISSION_REQUEST_CODE);
+        return false;
+    }
+
+    @SuppressLint("SdCardPath")
+    static void runBackgroundShellCommand(
+            final Activity activity,
+            final String command,
+            final String label) {
+        final Intent intent = new Intent(ACTION_RUN_COMMAND)
+                .setComponent(new ComponentName(
+                        PACKAGE_NAME, RUN_COMMAND_SERVICE))
+                .putExtra(
+                        EXTRA_COMMAND_PATH,
+                        "/data/data/com.termux/files/usr/bin/bash")
+                .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc", command})
+                .putExtra(
+                        EXTRA_WORKDIR,
+                        "/data/data/com.termux/files/home")
+                .putExtra(EXTRA_BACKGROUND, true)
+                .putExtra(EXTRA_COMMAND_LABEL, label);
+        activity.startForegroundService(intent);
+    }
+
     @SuppressLint("SdCardPath")
     static boolean openDirectory(
             final Activity activity, final String absolutePath) {
-        if (activity.checkSelfPermission(RUN_COMMAND_PERMISSION)
-                != PackageManager.PERMISSION_GRANTED) {
-            activity.requestPermissions(
-                    new String[]{RUN_COMMAND_PERMISSION},
-                    PERMISSION_REQUEST_CODE);
+        if (!ensureRunCommandPermission(activity)) {
             return false;
         }
         final String directory =

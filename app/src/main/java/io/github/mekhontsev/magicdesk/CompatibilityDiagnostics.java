@@ -362,6 +362,9 @@ public final class CompatibilityDiagnostics {
                 .append(", openItemsWithSingleClick=")
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
+        report.append("Termux:X11 integration: ")
+                .append(TermuxX11Integration.diagnostics(context))
+                .append('\n');
         report.append("Desktop wake lock held: ")
                 .append(MagicDeskRuntime
                         .isSessionWakeLockHeld())

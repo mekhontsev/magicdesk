@@ -116,6 +116,11 @@ that can run on the device itself or on a secondary display:
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
   has been enabled. Reopening the same directory returns to its existing named
   Termux session without resetting that session's current state.
+- When Termux and Termux:X11 are installed, launching Termux:X11 from
+  **Start** also starts or reconnects its X server through Termux's documented
+  command API. The viewer remains a normal desktop task with the same window
+  placement and launch-mode behavior as other applications. Its startup
+  command can be changed in **Settings**.
 - Prepare a selected `.sh` file in Console from its context menu. The command
   is quoted and shown for review; it is never executed automatically.
 - Drop Files or Desktop items onto Console to insert safely quoted paths at the

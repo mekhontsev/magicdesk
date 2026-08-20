@@ -11,6 +11,7 @@
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.termux" />
+        <package android:name="com.termux.x11" />
         <package android:name="cn.nubia.keymapcenter" />
         <package android:name="cn.nubia.redmagickyi" />
         <package android:name="cn.zte.chargeseparation" />

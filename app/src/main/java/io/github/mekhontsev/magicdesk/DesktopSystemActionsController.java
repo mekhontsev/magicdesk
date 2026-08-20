@@ -88,6 +88,33 @@ final class DesktopSystemActionsController {
         }
     }
 
+    void openTermuxX11(final AppItem app) {
+        mActivity.hideAllPanels();
+        if (!TermuxX11Integration.handlesDefaultLaunch(mActivity, app)) {
+            mActivity.setErrorStatus(
+                    "TERMUX-X11-001",
+                    mActivity.getString(R.string.status_termux_x11_unavailable));
+            return;
+        }
+        try {
+            if (!TermuxX11Integration.ensureRunCommandPermission(mActivity)) {
+                return;
+            }
+            // The viewer remains a normal AppItem so every window transition,
+            // taskbar action, and saved launch mode follows the shared path.
+            mActivity.launchDefault(
+                    app,
+                    () -> TaskCommandQueue.execute(() ->
+                            TermuxX11Integration.startOrReconnect(mActivity)));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "TERMUX-X11-002",
+                    mActivity.getString(R.string.status_termux_x11_failed),
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     void openTaskManager() {
         mActivity.hideAllPanels();
         try {

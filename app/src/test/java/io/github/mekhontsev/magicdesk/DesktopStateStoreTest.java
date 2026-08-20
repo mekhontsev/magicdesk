@@ -41,6 +41,8 @@ public final class DesktopStateStoreTest {
         source.settings.keepDesktopAwake = true;
         source.settings.openTouchpadAutomatically = false;
         source.settings.openFilesWithSingleClick = true;
+        source.settings.termuxX11StartupCommand =
+                "termux-x11 :2 -xstartup \"openbox-session\"";
 
         final DisplayProfileStore.Profile profile =
                 new DisplayProfileStore.Profile("display:primary");
@@ -72,6 +74,9 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.keepDesktopAwake);
         assertFalse(decoded.settings.openTouchpadAutomatically);
         assertTrue(decoded.settings.openFilesWithSingleClick);
+        assertEquals(
+                source.settings.termuxX11StartupCommand,
+                decoded.settings.termuxX11StartupCommand);
         final DisplayProfileStore.Profile decodedProfile =
                 decoded.displayProfiles.get("display:primary");
         assertEquals(160, decodedProfile.dpi);
@@ -99,6 +104,9 @@ public final class DesktopStateStoreTest {
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
         assertFalse(decoded.settings.openFilesWithSingleClick);
+        assertEquals(
+                TermuxX11StartupCommand.DEFAULT,
+                decoded.settings.termuxX11StartupCommand);
     }
 
     @Test

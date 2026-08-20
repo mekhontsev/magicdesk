@@ -21,6 +21,10 @@ final class AppTaskController {
         void run(int displayId, int taskId) throws IOException;
     }
 
+    private interface TaskFocusCompletion {
+        void run(boolean success);
+    }
+
     private final DesktopShellActivity mActivity;
     private List<TaskRepository.TaskEntry> mInteractionVisibleTasks =
             Collections.emptyList();
@@ -40,6 +44,11 @@ final class AppTaskController {
     }
 
     void launchDefault(final AppItem app) {
+        launchDefault(app, null);
+    }
+
+    /** Runs {@code onPrepared} only after the target task is ready for use. */
+    void launchDefault(final AppItem app, final Runnable onPrepared) {
         final AppWindowState saved = remembersWindowState(app)
                 ? AppWindowStateStore.load(app.packageName) : null;
         Log.i(TAG, "launch default package=" + app.packageName
@@ -53,17 +62,31 @@ final class AppTaskController {
                     app,
                     true,
                     saved.windowBounds,
-                    WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING);
+                    WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                    onPrepared);
         } else if (saved != null
                 && saved.mode == AppWindowState.Mode.FULLSCREEN) {
-            launchFullscreen(app, false);
+            launchFullscreen(
+                    app,
+                    false,
+                    app.label,
+                    preparedTaskAction(onPrepared));
         } else if (canControlWindowing()
                 && app.canFloat
                 && AppItem.FULLSCREEN_REASON_NONE.equals(
                         app.fullscreenReason)) {
-            launchFloating(app);
+            launchFloating(
+                    app,
+                    false,
+                    null,
+                    WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
+                    onPrepared);
         } else {
-            launchFullscreen(app, false);
+            launchFullscreen(
+                    app,
+                    false,
+                    app.label,
+                    preparedTaskAction(onPrepared));
         }
     }
 
@@ -105,7 +128,7 @@ final class AppTaskController {
             } else if (shortcut.launchMode == DesktopLaunchMode.FULLSCREEN) {
                 launchFullscreen(app);
             } else {
-                launchDefault(app);
+                mActivity.launchDefault(app);
             }
             return;
         }
@@ -304,8 +327,26 @@ final class AppTaskController {
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
             final WindowedAppLauncher.TaskReusePolicy reusePolicy) {
+        launchFloating(
+                app,
+                explicitWindowed,
+                preferredBounds,
+                reusePolicy,
+                null);
+    }
+
+    private void launchFloating(
+            final AppItem app,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds,
+            final WindowedAppLauncher.TaskReusePolicy reusePolicy,
+            final Runnable onPrepared) {
         if (!canControlWindowing()) {
-            launchFullscreen(app, false);
+            launchFullscreen(
+                    app,
+                    false,
+                    app.label,
+                    preparedTaskAction(onPrepared));
             return;
         }
         final TaskRepository.TaskEntry existingTask =
@@ -319,7 +360,7 @@ final class AppTaskController {
                         app.packageName,
                         AppWindowState.Mode.WINDOWED);
             }
-            focusTask(app, existingTask);
+            focusTaskOnSuccess(app, existingTask, onPrepared);
             return;
         }
         final Intent launchIntent = app.launchTarget.resolve(
@@ -344,7 +385,16 @@ final class AppTaskController {
                                 app.packageName,
                                 AppWindowState.Mode.WINDOWED);
                     }
+                    runIfPresent(onPrepared);
                 });
+    }
+
+    private static PreparedTaskAction preparedTaskAction(
+            final Runnable onPrepared) {
+        if (onPrepared == null) {
+            return null;
+        }
+        return (displayId, taskId) -> onPrepared.run();
     }
 
     private void launchWindow(
@@ -525,6 +575,35 @@ final class AppTaskController {
             final TaskRepository.TaskEntry task,
             final List<TaskRepository.TaskEntry> focusStack,
             final Runnable completion) {
+        focusTaskWithResult(
+                app,
+                task,
+                focusStack,
+                completion == null
+                        ? null
+                        : success -> completion.run());
+    }
+
+    private void focusTaskOnSuccess(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final Runnable onPrepared) {
+        focusTaskWithResult(
+                app,
+                task,
+                null,
+                success -> {
+                    if (success) {
+                        runIfPresent(onPrepared);
+                    }
+                });
+    }
+
+    private void focusTaskWithResult(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final List<TaskRepository.TaskEntry> focusStack,
+            final TaskFocusCompletion completion) {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_switching_to, app.label));
         final List<TaskRepository.TaskEntry> visibleTasks;
@@ -541,7 +620,7 @@ final class AppTaskController {
                         return;
                     }
                     if (displayId != mActivity.getCurrentDisplayId()) {
-                        runCompletion(completion);
+                        runFocusCompletion(completion, false);
                         return;
                     }
                     if (!snapshot.available) {
@@ -550,7 +629,7 @@ final class AppTaskController {
                                 snapshot.error.length() == 0
                                         ? app.label
                                         : snapshot.error));
-                        runCompletion(completion);
+                        runFocusCompletion(completion, false);
                         return;
                     }
                     mActivity.setTaskSnapshot(snapshot);
@@ -562,7 +641,7 @@ final class AppTaskController {
                                 R.string.status_switch_failed,
                                 app.label));
                         mActivity.refreshTaskSnapshot();
-                        runCompletion(completion);
+                        runFocusCompletion(completion, false);
                         return;
                     }
                     MagicDeskRuntime.focusStack(
@@ -579,20 +658,28 @@ final class AppTaskController {
                                                     result.message.length() == 0
                                                             ? app.label
                                                             : result.message));
-                                    runCompletion(completion);
+                                    runFocusCompletion(completion, false);
                                     return;
                                 }
                                 mActivity.setTaskbarVisible(
                                         currentTask.isFreeform());
                                 mActivity.refreshTaskSnapshot();
-                                runCompletion(completion);
+                                runFocusCompletion(completion, true);
                             }));
                 }));
     }
 
-    private static void runCompletion(final Runnable completion) {
+    private static void runFocusCompletion(
+            final TaskFocusCompletion completion,
+            final boolean success) {
         if (completion != null) {
-            completion.run();
+            completion.run(success);
+        }
+    }
+
+    private static void runIfPresent(final Runnable action) {
+        if (action != null) {
+            action.run();
         }
     }
 

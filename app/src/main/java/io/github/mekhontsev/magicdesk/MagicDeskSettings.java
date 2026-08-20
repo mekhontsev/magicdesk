@@ -32,6 +32,17 @@ final class MagicDeskSettings {
                 state -> state.settings.openFilesWithSingleClick = enabled);
     }
 
+    static boolean setTermuxX11StartupCommand(final String command) {
+        final String normalized;
+        try {
+            normalized = TermuxX11StartupCommand.normalize(command);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
+        return DesktopStateStore.update(
+                state -> state.settings.termuxX11StartupCommand = normalized);
+    }
+
     static final class Values {
         private static final String TASKBAR_AUTO_HIDE = "taskbarAutoHide";
         private static final String KEEP_DESKTOP_AWAKE = "keepDesktopAwake";
@@ -39,15 +50,19 @@ final class MagicDeskSettings {
                 "openTouchpadAutomatically";
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
                 "openFilesWithSingleClick";
+        private static final String TERMUX_X11_STARTUP_COMMAND =
+                "termuxX11StartupCommand";
 
         boolean taskbarAutoHide;
         boolean keepDesktopAwake;
         boolean openTouchpadAutomatically;
         boolean openFilesWithSingleClick;
+        String termuxX11StartupCommand;
 
         static Values defaults() {
             final Values values = new Values();
             values.openTouchpadAutomatically = true;
+            values.termuxX11StartupCommand = TermuxX11StartupCommand.DEFAULT;
             return values;
         }
 
@@ -62,6 +77,15 @@ final class MagicDeskSettings {
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
                 values.openFilesWithSingleClick = json.optBoolean(
                         OPEN_FILES_WITH_SINGLE_CLICK, false);
+                try {
+                    values.termuxX11StartupCommand =
+                            TermuxX11StartupCommand.normalize(json.optString(
+                                    TERMUX_X11_STARTUP_COMMAND,
+                                    TermuxX11StartupCommand.DEFAULT));
+                } catch (IllegalArgumentException error) {
+                    values.termuxX11StartupCommand =
+                            TermuxX11StartupCommand.DEFAULT;
+                }
             }
             return values;
         }
@@ -72,6 +96,7 @@ final class MagicDeskSettings {
             copy.keepDesktopAwake = keepDesktopAwake;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
             copy.openFilesWithSingleClick = openFilesWithSingleClick;
+            copy.termuxX11StartupCommand = termuxX11StartupCommand;
             return copy;
         }
 
@@ -85,6 +110,9 @@ final class MagicDeskSettings {
             json.put(
                     OPEN_FILES_WITH_SINGLE_CLICK,
                     openFilesWithSingleClick);
+            json.put(
+                    TERMUX_X11_STARTUP_COMMAND,
+                    termuxX11StartupCommand);
             return json;
         }
     }
