@@ -13,8 +13,11 @@ final class NubiaMouseController {
     private static final int MOUSE_CMD_SHOW = 2;
     private static final String INPUT_MANAGER_DESCRIPTOR =
             "android.hardware.input.IInputManager";
+    private static final String SEND_MOUSE_COMMAND_TRANSACTION =
+            "sendMouseCmd";
     private static final String SET_POINTER_POSITION_TRANSACTION =
             "setPointerPosition";
+    private static volatile int sSendMouseCommandTransaction;
     private static volatile int sSetPointerPositionTransaction;
     private static volatile MousePositionAccess sMousePositionAccess;
     private static int sKnownMouseDisplayId = -1;
@@ -76,10 +79,27 @@ final class NubiaMouseController {
 
     static void createOrUpdateViewport()
             throws ReflectiveOperationException {
-        final MousePositionAccess access = mousePositionAccess();
-        access.sendMouseCommand.invoke(
-                access.inputManager,
-                Integer.valueOf(MOUSE_CMD_CREATE_OR_UPDATE));
+        final IBinder binder = getInputManagerBinder();
+        final int transaction = getSendMouseCommandTransaction();
+        final Parcel data = Parcel.obtain();
+        final Parcel reply = Parcel.obtain();
+        try {
+            data.writeInterfaceToken(INPUT_MANAGER_DESCRIPTOR);
+            data.writeInt(MOUSE_CMD_CREATE_OR_UPDATE);
+            // Nubia declares sendMouseCmd oneway. A synchronous transaction
+            // keeps capture from overtaking the service-side viewport request;
+            // InputReader may still apply the accepted update asynchronously.
+            if (!binder.transact(transaction, data, reply, 0)) {
+                throw new IllegalStateException(
+                        "vendor input service rejected viewport refresh");
+            }
+        } catch (RemoteException error) {
+            throw new IllegalStateException(
+                    "vendor input service is unavailable", error);
+        } finally {
+            reply.recycle();
+            data.recycle();
+        }
     }
 
     static Point getPosition() throws ReflectiveOperationException {
@@ -223,6 +243,23 @@ final class NubiaMouseController {
                 transaction = findTransactionCode(
                         SET_POINTER_POSITION_TRANSACTION);
                 sSetPointerPositionTransaction = transaction;
+            }
+        }
+        return transaction;
+    }
+
+    private static int getSendMouseCommandTransaction()
+            throws ReflectiveOperationException {
+        int transaction = sSendMouseCommandTransaction;
+        if (transaction != 0) {
+            return transaction;
+        }
+        synchronized (NubiaMouseController.class) {
+            transaction = sSendMouseCommandTransaction;
+            if (transaction == 0) {
+                transaction = findTransactionCode(
+                        SEND_MOUSE_COMMAND_TRANSACTION);
+                sSendMouseCommandTransaction = transaction;
             }
         }
         return transaction;

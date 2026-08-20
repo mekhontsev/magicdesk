@@ -181,9 +181,10 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
 
         mPlatformSession = mInputRouting.open(target.platformConsole);
-        if (!target.platformConsole) {
-            mPointer.refreshViewport();
-        }
+        // InputManager rebuilds pointer viewports when associations change.
+        // Finalize that rebuild after both the Android associations and the
+        // optional vendor route exist, before the caller enables capture.
+        mPointer.refreshViewport();
     }
 
     synchronized int refreshAssociations() throws Exception {

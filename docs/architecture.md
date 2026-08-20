@@ -86,10 +86,20 @@ Android secondary click, bypassing RedMagic's conversion to Back.
 
 The pointer helper starts passively. The runtime first waits until its virtual
 mouse is visible in EventHub, establishes the display associations, and only
-then enables physical capture. Teardown reverses that order: the helper
+then enables physical capture. Pointer viewport finalization belongs to that
+same routing transaction: it runs after both Android associations and optional
+vendor routing exist. Nubia's oneway viewport command is issued synchronously
+here so capture cannot overtake the service-side request; firmware may apply the
+accepted InputReader update while the desktop surface is becoming visible. An
+early phone-pointer handoff remains queued until the native helper is ready.
+Teardown reverses that order: the helper
 releases every `EVIOCGRAB` and acknowledges completion before the routing
 session removes its associations. A helper restart repeats the same protocol
 instead of inheriting capture permission from a destroyed virtual device.
+After a desktop display is removed, the runtime finalizes the phone pointer
+viewport from the external-ownership transition itself. Configuration broadcasts
+are not used as an ordering barrier because firmware may deliver one before the
+display ownership callback.
 This ordering prevents physical and virtual cursor mappers from observing a
 partially constructed or partially removed route.
 

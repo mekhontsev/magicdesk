@@ -97,15 +97,7 @@ final class RuntimeDesktopInputCoordinator {
 
     void onConfigurationChanged() {
         scheduleDeviceRefresh();
-        if (mPointerViewportRecoveryDisplayId <= Display.DEFAULT_DISPLAY
-                || ownsExternalDesktop()) {
-            return;
-        }
-        if (ShellAccess.refreshPointerViewport()) {
-            Log.i(TAG, "phone pointer viewport finalized after display removal="
-                    + mPointerViewportRecoveryDisplayId);
-            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
-        }
+        finalizePointerViewportRecovery();
     }
 
     void onDesktopDisplayRemoved(final int displayId) {
@@ -115,6 +107,7 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         mPointerViewportRecoveryDisplayId = displayId;
+        finalizePointerViewportRecovery();
     }
 
     void onConsoleModeChanged() {
@@ -140,6 +133,7 @@ final class RuntimeDesktopInputCoordinator {
         clearCompletedMouseBridgeSuspension(displayId);
         if (!ownershipChanged) {
             updateExternalImePolicy();
+            finalizePointerViewportRecovery();
             return;
         }
         updateShowImeOverride();
@@ -148,6 +142,7 @@ final class RuntimeDesktopInputCoordinator {
         if (ownsExternalDesktop()) {
             refreshDesktopInputSources();
         }
+        finalizePointerViewportRecovery();
     }
 
     void reconcileRuntime(final int displayId) {
@@ -427,6 +422,21 @@ final class RuntimeDesktopInputCoordinator {
         if (mMouseBridgeSuspendedDisplayId != Display.INVALID_DISPLAY
                 && mMouseBridgeSuspendedDisplayId != displayId) {
             mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
+        }
+    }
+
+    private void finalizePointerViewportRecovery() {
+        if (mPointerViewportRecoveryDisplayId <= Display.DEFAULT_DISPLAY
+                || ownsExternalDesktop()) {
+            return;
+        }
+        // The display callback and configuration broadcast have no stable
+        // ordering. Complete recovery from the ownership transition itself,
+        // after the removed desktop can no longer be selected as a viewport.
+        if (ShellAccess.refreshPointerViewport()) {
+            Log.i(TAG, "phone pointer viewport finalized after display removal="
+                    + mPointerViewportRecoveryDisplayId);
+            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         }
     }
 
