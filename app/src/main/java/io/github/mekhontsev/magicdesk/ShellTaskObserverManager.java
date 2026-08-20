@@ -333,7 +333,11 @@ final class ShellTaskObserverManager implements Closeable {
                 ownerToken.unlinkToDeath(ownerDeathRecipient, 0);
                 ownerLinked = false;
             }
-            observer.close();
+            try {
+                observer.close();
+            } catch (RuntimeException error) {
+                Log.w(TAG, "task observer cleanup failed", error);
+            }
         }
 
         private void ownerDisconnected() {

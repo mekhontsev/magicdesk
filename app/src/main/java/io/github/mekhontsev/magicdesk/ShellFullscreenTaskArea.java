@@ -606,7 +606,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             SyncWindowContainerTransaction.apply(
                     service, transactionClass, transaction);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            area.close();
+            area.closeIfEmpty(service, displayId);
             throw error;
         }
 
@@ -674,7 +674,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 Log.w(TAG, "could not detach fullscreen tasks before cleanup",
                         error);
             }
-            area.close();
+            if (!area.closeIfEmpty(service, displayId)) {
+                Log.w(TAG, "fullscreen task area retained after unsafe cleanup"
+                        + " feature=" + area.featureId());
+            }
         }
     }
 }

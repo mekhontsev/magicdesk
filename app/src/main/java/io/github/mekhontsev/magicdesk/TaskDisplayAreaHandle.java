@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 /** Owns an organizer-created task display area and its Binder lifetime. */
-final class TaskDisplayAreaHandle implements AutoCloseable {
+final class TaskDisplayAreaHandle {
     private static final String TAG = "MagicDeskDisplayArea";
 
     private final Object mOrganizer;
@@ -113,12 +113,23 @@ final class TaskDisplayAreaHandle implements AutoCloseable {
                 + " from feature=" + mFeatureId);
     }
 
-    @Override
-    public void close() {
+    synchronized boolean closeIfEmpty(
+            final Object service,
+            final int displayId) {
         if (mClosed) {
-            return;
+            return true;
         }
-        mClosed = true;
+        try {
+            if (!isEmpty(service, displayId)) {
+                Log.w(TAG, "refusing to remove non-empty task display area"
+                        + " feature=" + mFeatureId);
+                return false;
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not verify task display area feature="
+                    + mFeatureId, error);
+            return false;
+        }
         final Throwable directFailure;
         try {
             final Class<?> tokenClass =
@@ -126,7 +137,8 @@ final class TaskDisplayAreaHandle implements AutoCloseable {
             mOrganizer.getClass().getMethod(
                     "deleteTaskDisplayArea", tokenClass)
                     .invoke(mOrganizer, mToken);
-            return;
+            mClosed = true;
+            return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             directFailure = error;
         }
@@ -137,15 +149,32 @@ final class TaskDisplayAreaHandle implements AutoCloseable {
         // cleanup instead of leaving an empty area in the task hierarchy.
         try {
             recoverOrphanedArea();
+            mClosed = true;
             Log.w(TAG, "recovered task display area feature=" + mFeatureId
                     + " after direct removal failed: "
                     + usefulMessage(directFailure));
+            return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             error.addSuppressed(directFailure);
-            throw new IllegalStateException(
-                    "cannot remove task display area feature=" + mFeatureId,
-                    error);
+            Log.w(TAG, "cannot remove task display area feature="
+                    + mFeatureId, error);
+            return false;
         }
+    }
+
+    private boolean isEmpty(
+            final Object service,
+            final int displayId) throws ReflectiveOperationException {
+        if (service == null || displayId < 0) {
+            return false;
+        }
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            if (HiddenTaskApi.getIntField(
+                    task, "displayAreaFeatureId") == mFeatureId) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void recoverOrphanedArea() throws ReflectiveOperationException {

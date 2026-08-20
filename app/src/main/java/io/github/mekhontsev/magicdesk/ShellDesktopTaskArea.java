@@ -513,7 +513,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             mAreaAtTop = null;
             mTaskIds.clear();
             mHostTaskId = -1;
-            area.close();
+            if (!area.closeIfEmpty(mService, mDisplayId)) {
+                Log.w(TAG, "desktop task area retained after unsafe cleanup"
+                        + " feature=" + area.featureId());
+            }
         }
     }
 

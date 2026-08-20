@@ -688,30 +688,44 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             return;
         }
-        updateExternalNavigationGuard(false);
         mClosed = true;
+        final boolean registered = mRegistered;
+        mRegistered = false;
+        closeSafely("navigation guard", () ->
+                updateExternalNavigationGuard(false));
         synchronized (this) {
             mPreservePhoneTouchpad = false;
         }
-        mFocusController.close();
-        mInputPanelGuard.close();
-        mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
-        mActivityStartController.close();
-        mMigrationGuard.close();
-        mFreeformCleanup.close();
-        mTransientBounds.close();
-        mStateMonitor.close();
-        mDesktopTaskArea.close();
-        mFullscreenTaskArea.close();
-        mSelfTestTaskStackGuard.close();
-        if (!mRegistered) {
-            return;
+        closeSafely("focus controller", mFocusController::close);
+        closeSafely("input panel guard", mInputPanelGuard::close);
+        closeSafely("process failure tracker", () ->
+                mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
+        closeSafely("activity start controller",
+                mActivityStartController::close);
+        closeSafely("migration guard", mMigrationGuard::close);
+        closeSafely("freeform cleanup", mFreeformCleanup::close);
+        closeSafely("transient bounds", mTransientBounds::close);
+        closeSafely("state monitor", mStateMonitor::close);
+        closeSafely("desktop task area", mDesktopTaskArea::close);
+        closeSafely("fullscreen task area", mFullscreenTaskArea::close);
+        closeSafely("self-test task stack guard",
+                mSelfTestTaskStackGuard::close);
+        if (registered) {
+            try {
+                HiddenTaskApi.unregisterTaskStackListener(mService, this);
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                Log.w(TAG, "failed to unregister task observer", error);
+            }
         }
-        mRegistered = false;
+    }
+
+    private static void closeSafely(
+            final String component,
+            final Runnable cleanup) {
         try {
-            HiddenTaskApi.unregisterTaskStackListener(mService, this);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "failed to unregister task observer", error);
+            cleanup.run();
+        } catch (RuntimeException error) {
+            Log.w(TAG, "failed to close " + component, error);
         }
     }
 
