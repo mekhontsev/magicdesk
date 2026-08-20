@@ -25,6 +25,7 @@ public final class QualcommDisplayConfigBridge {
     private static final String STATUS_PREFIX = "status=";
     private static final String ACTIVE_PREFIX = "active=";
     private static final String MODE_PREFIX = "mode=";
+    // DisplayType.EXTERNAL is 2 in every published stable AIDL revision.
     private static final int EXTERNAL_DISPLAY = 2;
     private static final int TRANSACTION_IS_DISPLAY_CONNECTED = 1;
     private static final int TRANSACTION_GET_CONFIG_COUNT = 4;
@@ -94,13 +95,20 @@ public final class QualcommDisplayConfigBridge {
         if (transactInt(
                 service,
                 TRANSACTION_IS_DISPLAY_CONNECTED,
-                EXTERNAL_DISPLAY) == 0) {
+                EXTERNAL_DISPLAY,
+                "isDisplayConnected") == 0) {
             return Snapshot.disconnected();
         }
         final int count = transactInt(
-                service, TRANSACTION_GET_CONFIG_COUNT, EXTERNAL_DISPLAY);
+                service,
+                TRANSACTION_GET_CONFIG_COUNT,
+                EXTERNAL_DISPLAY,
+                "getConfigCount");
         final int active = transactInt(
-                service, TRANSACTION_GET_ACTIVE_CONFIG, EXTERNAL_DISPLAY);
+                service,
+                TRANSACTION_GET_ACTIVE_CONFIG,
+                EXTERNAL_DISPLAY,
+                "getActiveConfig");
         if (count < 0 || count > MAX_CONFIGS) {
             throw new IllegalStateException(
                     "invalid external config count: " + count);
@@ -212,6 +220,8 @@ public final class QualcommDisplayConfigBridge {
                     request,
                     reply);
             reply.readException();
+        } catch (RemoteException | RuntimeException error) {
+            throw operationFailure("setActiveConfig", error);
         } finally {
             reply.recycle();
             request.recycle();
@@ -229,7 +239,8 @@ public final class QualcommDisplayConfigBridge {
     private static int transactInt(
             final IBinder service,
             final int transaction,
-            final int argument) throws RemoteException {
+            final int argument,
+            final String operation) throws RemoteException {
         final Parcel request = Parcel.obtain();
         final Parcel reply = Parcel.obtain();
         try {
@@ -238,6 +249,8 @@ public final class QualcommDisplayConfigBridge {
             transact(service, transaction, request, reply);
             reply.readException();
             return reply.readInt();
+        } catch (RemoteException | RuntimeException error) {
+            throw operationFailure(operation, error);
         } finally {
             reply.recycle();
             request.recycle();
@@ -279,6 +292,10 @@ public final class QualcommDisplayConfigBridge {
                     : (int) Math.round(
                             1_000_000_000d / vsyncPeriodNanos);
             return new Config(config, width, height, refreshRate);
+        } catch (RemoteException | RuntimeException error) {
+            throw operationFailure(
+                    "getDisplayAttributes(" + config + ")",
+                    error);
         } finally {
             reply.recycle();
             request.recycle();
@@ -294,6 +311,14 @@ public final class QualcommDisplayConfigBridge {
             throw new IllegalStateException(
                     "unsupported display-config transaction " + transaction);
         }
+    }
+
+    private static IllegalStateException operationFailure(
+            final String operation,
+            final Throwable error) {
+        return new IllegalStateException(
+                operation + " failed: " + usefulMessage(error),
+                error);
     }
 
     private static boolean isTimingKey(final String timingKey) {
