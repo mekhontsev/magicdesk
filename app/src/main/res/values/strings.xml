@@ -12,6 +12,7 @@
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>
     <string name="action_close">Close</string>
+    <string name="action_back">Back</string>
     <string name="action_previous">Prev</string>
     <string name="action_next">Next</string>
     <string name="action_open">Open</string>
@@ -27,6 +28,8 @@
     <string name="action_force_stop">Force stop app</string>
     <string name="action_app_widgets">Widgets</string>
     <string name="action_app_info">App info</string>
+    <string name="action_app_actions">App actions</string>
+    <string name="action_window">Window</string>
     <string name="action_show_desktop">Show desktop</string>
     <string name="action_open_tasks">Open tasks</string>
     <string name="action_notifications">Notifications</string>
@@ -393,6 +396,8 @@
     </plurals>
     <string name="context_desktop">Desktop</string>
     <string name="context_task_status">Task %1$d | %2$s</string>
+    <string name="context_app_actions_title">%1$s actions</string>
+    <string name="context_window_title">%1$s window</string>
     <string name="open_tasks_title">Open tasks (%1$d)</string>
     <string name="open_tasks_empty">No open applications</string>
     <string name="notifications_title">Notifications (%1$d)</string>

@@ -8,6 +8,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -429,6 +430,185 @@ final class DesktopContextMenuController {
         if (mPanel == null || overlays == null) {
             return;
         }
+        final TaskRepository.TaskEntry task = exactTask != null
+                ? exactTask
+                : mActivity.findFirstTask(app.launchTarget);
+        showAppMenu(new AppMenuState(
+                x,
+                y,
+                app,
+                task,
+                desktopItem,
+                mShortcuts.load(app)));
+    }
+
+    private void showAppMenu(final AppMenuState state) {
+        prepareAppMenuTitle(state.app, state.task);
+
+        addAction(
+                state.task == null
+                        ? R.string.action_open
+                        : R.string.action_switch_to,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> {
+                    mActivity.hideAllPanels();
+                    if (state.task == null) {
+                        mActivity.launchDefault(state.app);
+                    } else {
+                        mActivity.focusTask(state.app, state.task);
+                    }
+                });
+        if (!state.shortcuts.isEmpty()) {
+            addSubmenuAction(
+                    R.string.action_app_actions,
+                    view -> showAppActionsMenu(state));
+        }
+        addSubmenuAction(
+                R.string.action_window,
+                view -> showWindowMenu(state));
+
+        if (BuiltInDesktopAppCatalog.isPinnable(state.app.launchTarget)) {
+            final boolean pinned = mActivity.getPinnedPackages()
+                    .contains(state.app.packageName);
+            addAction(
+                    pinned ? R.string.action_unpin : R.string.action_pin,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.togglePinned(state.app);
+                    });
+        }
+        if (state.desktopItem) {
+            addAction(
+                    R.string.action_delete,
+                    DesktopUiFactory.COLOR_RED,
+                    true,
+                    view -> mActivity.deleteDesktopShortcut(state.app));
+        } else {
+            final boolean desktopShortcut =
+                    mActivity.isDesktopShortcut(state.app);
+            addAction(
+                    desktopShortcut
+                            ? R.string.action_remove_from_desktop
+                            : R.string.action_add_to_desktop,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.toggleDesktopShortcut(state.app);
+                    });
+        }
+        if (mActivity.hasDesktopWidgets(state.app.packageName)) {
+            addAction(
+                    R.string.action_app_widgets,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> mActivity.addDesktopWidgets(
+                            state.app.packageName));
+        }
+        addAction(
+                R.string.action_app_info,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> {
+                    mActivity.hideAllPanels();
+                    mActivity.openAppInfo(state.app);
+                });
+        addAction(
+                R.string.action_close_window,
+                DesktopUiFactory.COLOR_AMBER,
+                state.task != null,
+                view -> mActivity.closeTask(state.app, state.task));
+        addAction(
+                R.string.action_force_stop,
+                DesktopUiFactory.COLOR_RED,
+                ShellAccess.isReady(),
+                view -> mActivity.confirmForceStop(state.app));
+        positionAndShow(state.x, state.y);
+    }
+
+    private void showAppActionsMenu(final AppMenuState state) {
+        prepareSubmenuTitle(
+                mActivity.getString(
+                        R.string.context_app_actions_title,
+                        state.app.label),
+                view -> showAppMenu(state));
+        for (final AppShortcutAction shortcut : state.shortcuts) {
+            addAction(
+                    shortcut.label,
+                    shortcut.icon,
+                    DesktopUiFactory.COLOR_CYAN,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.launchShortcut(state.app, shortcut);
+                    });
+        }
+        positionAndShow(state.x, state.y);
+    }
+
+    private void showWindowMenu(final AppMenuState state) {
+        prepareSubmenuTitle(
+                mActivity.getString(
+                        R.string.context_window_title,
+                        state.app.label),
+                view -> showAppMenu(state));
+
+        final boolean windowControl = ShellAccess.isReady();
+        if (state.app.canFloat && windowControl) {
+            addAction(
+                    R.string.action_open_floating,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.launchWindowed(state.app);
+                    });
+            if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
+                    state.app.launchTarget)) {
+                addAction(
+                        R.string.action_new_window,
+                        DesktopUiFactory.COLOR_PANEL_ALT,
+                        true,
+                        view -> {
+                            mActivity.hideAllPanels();
+                            mActivity.launchNewWindow(state.app);
+                        });
+            }
+        }
+        addAction(
+                R.string.action_open_fullscreen,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> {
+                    mActivity.hideAllPanels();
+                    if (state.task == null) {
+                        mActivity.launchFullscreen(state.app);
+                    } else {
+                        mActivity.openTaskFullscreen(
+                                state.app, state.task);
+                    }
+                });
+        final int otherDisplayId = mActivity.getOtherDisplayId(state.task);
+        if (state.task != null && otherDisplayId >= 0) {
+            addAction(
+                    otherDisplayId == 0
+                            ? R.string.action_send_to_phone
+                            : R.string.action_send_to_external_display,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    ShellAccess.isReady(),
+                    view -> mActivity.moveTaskToOtherDisplay(
+                            state.app, state.task));
+        }
+        positionAndShow(state.x, state.y);
+    }
+
+    private void prepareAppMenuTitle(
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
 
@@ -443,9 +623,6 @@ final class DesktopContextMenuController {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        final TaskRepository.TaskEntry task = exactTask != null
-                ? exactTask
-                : mActivity.findFirstTask(app.launchTarget);
         if (task != null) {
             final TextView taskInfo = new TextView(mActivity);
             taskInfo.setText(mActivity.getString(
@@ -463,150 +640,50 @@ final class DesktopContextMenuController {
             taskInfoParams.setMargins(0, dp(2), 0, dp(6));
             mPanel.addView(taskInfo, taskInfoParams);
         }
-
-        final List<AppShortcutAction> shortcuts = mShortcuts.load(app);
-        for (final AppShortcutAction shortcut : shortcuts) {
-            addAction(
-                    shortcut.label,
-                    shortcut.icon,
-                    DesktopUiFactory.COLOR_CYAN,
-                    true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.launchShortcut(app, shortcut);
-                    });
-        }
-        if (!shortcuts.isEmpty()) {
-            addDivider();
-        }
-
-        addAction(
-                task == null
-                        ? R.string.action_open
-                        : R.string.action_switch_to,
-                DesktopUiFactory.COLOR_CYAN,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    if (task == null) {
-                        mActivity.launchDefault(app);
-                    } else {
-                        mActivity.focusTask(app, task);
-                    }
-                });
-        final boolean windowControl = ShellAccess.isReady();
-        if (app.canFloat && windowControl) {
-            addAction(
-                    R.string.action_open_floating,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.launchWindowed(app);
-                    });
-            if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
-                    app.launchTarget)) {
-                addAction(
-                        R.string.action_new_window,
-                        DesktopUiFactory.COLOR_PANEL_ALT,
-                        true,
-                        view -> {
-                            mActivity.hideAllPanels();
-                            mActivity.launchNewWindow(app);
-                        });
-            }
-        }
-        addAction(
-                R.string.action_open_fullscreen,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    if (task == null) {
-                        mActivity.launchFullscreen(app);
-                    } else {
-                        mActivity.openTaskFullscreen(app, task);
-                    }
-                });
-        final int otherDisplayId =
-                mActivity.getOtherDisplayId(task);
-        if (task != null && otherDisplayId >= 0) {
-            addAction(
-                    otherDisplayId == 0
-                            ? R.string.action_send_to_phone
-                            : R.string.action_send_to_external_display,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    ShellAccess.isReady(),
-                    view -> mActivity.moveTaskToOtherDisplay(
-                            app, task));
-        }
-
-        if (BuiltInDesktopAppCatalog.isPinnable(app.launchTarget)) {
-            final boolean pinned =
-                    mActivity.getPinnedPackages().contains(app.packageName);
-            addAction(
-                    pinned ? R.string.action_unpin : R.string.action_pin,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.togglePinned(app);
-                    });
-        }
-        if (desktopItem) {
-            addAction(
-                    R.string.action_delete,
-                    DesktopUiFactory.COLOR_RED,
-                    true,
-                    view -> mActivity.deleteDesktopShortcut(app));
-        } else {
-            final boolean desktopShortcut =
-                    mActivity.isDesktopShortcut(app);
-            addAction(
-                    desktopShortcut
-                            ? R.string.action_remove_from_desktop
-                            : R.string.action_add_to_desktop,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.toggleDesktopShortcut(app);
-                });
-        }
-        if (mActivity.hasDesktopWidgets(app.packageName)) {
-            addAction(
-                    R.string.action_app_widgets,
-                    DesktopUiFactory.COLOR_PANEL_ALT,
-                    true,
-                    view -> mActivity.addDesktopWidgets(app.packageName));
-        }
-        addAction(
-                R.string.action_app_info,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.openAppInfo(app);
-                });
-        addAction(
-                R.string.action_close_window,
-                DesktopUiFactory.COLOR_AMBER,
-                task != null,
-                view -> mActivity.closeTask(app, task));
-        addAction(
-                R.string.action_force_stop,
-                DesktopUiFactory.COLOR_RED,
-                ShellAccess.isReady(),
-                view -> mActivity.confirmForceStop(app));
-        positionAndShow(x, y);
     }
 
-    private void addAction(
+    private void prepareSubmenuTitle(
+            final CharSequence text,
+            final View.OnClickListener backListener) {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        overlays.hide(mMenuRoot);
+        mPanel.removeAllViews();
+
+        final LinearLayout header = new LinearLayout(mActivity);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        final ImageButton back = mUi.taskbarIconButton(
+                R.drawable.ic_file_back,
+                R.string.action_back,
+                true);
+        back.setOnClickListener(backListener);
+        header.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        final TextView title = new TextView(mActivity);
+        title.setText(text);
+        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        title.setTextSize(16);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        final LinearLayout.LayoutParams titleParams =
+                new LinearLayout.LayoutParams(
+                        0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        1f);
+        titleParams.setMargins(dp(8), 0, 0, 0);
+        header.addView(title, titleParams);
+        mPanel.addView(header, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    private Button addAction(
             final int textResId,
             final int color,
             final boolean enabled,
             final View.OnClickListener listener) {
-        addAction(
+        return addAction(
                 mActivity.getString(textResId),
                 null,
                 color,
@@ -614,7 +691,7 @@ final class DesktopContextMenuController {
                 listener);
     }
 
-    private void addAction(
+    private Button addAction(
             final String text,
             final Drawable icon,
             final int color,
@@ -637,17 +714,22 @@ final class DesktopContextMenuController {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(4), 0, 0);
         mPanel.addView(button, params);
+        return button;
     }
 
-    private void addDivider() {
-        final View divider = new View(mActivity);
-        divider.setBackgroundColor(0x5564748B);
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dp(1));
-        params.setMargins(dp(4), dp(8), dp(4), dp(4));
-        mPanel.addView(divider, params);
+    private void addSubmenuAction(
+            final int textResId,
+            final View.OnClickListener listener) {
+        final Button button = addAction(
+                textResId,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                listener);
+        final Drawable arrow = mActivity.getDrawable(
+                R.drawable.ic_file_forward).mutate();
+        final int size = dp(20);
+        arrow.setBounds(0, 0, size, size);
+        button.setCompoundDrawables(null, null, arrow, null);
     }
 
     private void positionAndShow(
@@ -709,5 +791,29 @@ final class DesktopContextMenuController {
 
     private int dp(final int value) {
         return mUi.dp(value);
+    }
+
+    private static final class AppMenuState {
+        final float x;
+        final float y;
+        final AppItem app;
+        final TaskRepository.TaskEntry task;
+        final boolean desktopItem;
+        final List<AppShortcutAction> shortcuts;
+
+        AppMenuState(
+                final float x,
+                final float y,
+                final AppItem app,
+                final TaskRepository.TaskEntry task,
+                final boolean desktopItem,
+                final List<AppShortcutAction> shortcuts) {
+            this.x = x;
+            this.y = y;
+            this.app = app;
+            this.task = task;
+            this.desktopItem = desktopItem;
+            this.shortcuts = shortcuts;
+        }
     }
 }
