@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Stable process-local entry point for the optional runtime service. */
 public final class MagicDeskRuntime {
@@ -24,12 +25,34 @@ public final class MagicDeskRuntime {
     }
 
     public static void stop(final Context context) {
+        stop(context, null);
+    }
+
+    static void stop(
+            final Context context,
+            final Runnable completion) {
+        final AtomicBoolean finished = new AtomicBoolean();
+        final Runnable finish = () -> {
+            if (!finished.compareAndSet(false, true)) {
+                return;
+            }
+            context.stopService(
+                    new Intent(context, MagicDeskRuntimeService.class));
+            if (completion != null) {
+                completion.run();
+            }
+        };
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
-            backend.prepareForStop();
+            try {
+                backend.prepareForStop(finish);
+            } catch (RuntimeException error) {
+                finish.run();
+                throw error;
+            }
+        } else {
+            finish.run();
         }
-        context.stopService(
-                new Intent(context, MagicDeskRuntimeService.class));
     }
 
     public static void refreshNotification() {

@@ -151,7 +151,8 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public void prepareForStop() {
+        public void prepareForStop(final Runnable completion) {
+            completion.run();
         }
 
         @Override

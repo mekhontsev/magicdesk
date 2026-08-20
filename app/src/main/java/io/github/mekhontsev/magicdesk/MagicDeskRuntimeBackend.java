@@ -6,7 +6,7 @@ import android.graphics.Point;
 interface MagicDeskRuntimeBackend {
     boolean isAvailable();
 
-    void prepareForStop();
+    void prepareForStop(Runnable completion);
 
     void refreshNotification();
 

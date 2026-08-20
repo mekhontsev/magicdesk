@@ -193,10 +193,17 @@ final class MagicDeskSessionController {
                 "EXIT-007",
                 "Could not stop the keyboard input bridge",
                 KeyboardShortcutWatcher::stop);
-        runExitFinalizer(
-                "EXIT-008",
-                "Could not stop the MagicDesk runtime",
-                () -> MagicDeskRuntime.stop(mActivity));
+        try {
+            MagicDeskRuntime.stop(mActivity, this::finishRuntimeExit);
+        } catch (RuntimeException error) {
+            reportExitFailure(
+                    "EXIT-008",
+                    "Could not stop the MagicDesk runtime",
+                    error);
+        }
+    }
+
+    private void finishRuntimeExit() {
         runExitFinalizer(
                 "EXIT-009",
                 "Could not disconnect the Shizuku service",

@@ -53,6 +53,7 @@ final class DesktopTaskWatcher {
             new HashMap<>();
 
     private long mNextFocusSequence;
+    private long mLifecycleGeneration;
     private ShellTaskObserverHandle mHandle;
     private TaskObserverCallback mCallback;
     private boolean mDestroyed;
@@ -67,22 +68,41 @@ final class DesktopTaskWatcher {
             if (mDestroyed) {
                 throw new IllegalStateException("task watcher is destroyed");
             }
-            mExecutor.execute(() -> open(generation));
+            final long lifecycleGeneration = ++mLifecycleGeneration;
+            mExecutor.execute(() -> open(generation, lifecycleGeneration));
         }
     }
 
     void stop() {
+        stop(null);
+    }
+
+    void stop(final Runnable completion) {
         final List<TaskRepository.ActionCallback> callbacks;
         final ShellTaskObserverHandle handle;
         synchronized (this) {
+            mLifecycleGeneration++;
             callbacks = drainPendingFocusCallbacksLocked();
             handle = detachHandleLocked();
         }
-        if (handle != null) {
-            handle.close();
-        }
         completeFocusCallbacks(
                 callbacks, false, "task observer stopped");
+        try {
+            mExecutor.execute(() -> {
+                try {
+                    if (handle != null) {
+                        handle.close();
+                    }
+                } catch (RuntimeException error) {
+                    Log.w(TAG, "failed to close task observer", error);
+                } finally {
+                    completeStop(completion);
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            Log.w(TAG, "task observer cleanup executor stopped", error);
+            completeStop(completion);
+        }
     }
 
     void destroy() {
@@ -93,7 +113,8 @@ final class DesktopTaskWatcher {
             mDestroyed = true;
         }
         stop();
-        mExecutor.shutdownNow();
+        // Let the serialized observer close queued by stop() finish.
+        mExecutor.shutdown();
     }
 
     boolean configure(
@@ -131,9 +152,23 @@ final class DesktopTaskWatcher {
             return;
         }
         try {
-            handle.configure(-1, new Rect(), new Rect(), false, -1);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to clear task observer configuration", error);
+            mExecutor.execute(() -> {
+                try {
+                    handle.configure(-1, new Rect(), new Rect(), false, -1);
+                } catch (IOException error) {
+                    Log.w(TAG,
+                            "failed to clear task observer configuration",
+                            error);
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            Log.w(TAG, "task observer cleanup executor stopped", error);
+        }
+    }
+
+    private static void completeStop(final Runnable completion) {
+        if (completion != null) {
+            completion.run();
         }
     }
 
@@ -439,7 +474,9 @@ final class DesktopTaskWatcher {
         }
     }
 
-    private void open(final int generation) {
+    private void open(
+            final int generation,
+            final long lifecycleGeneration) {
         final TaskObserverCallback callback =
                 new TaskObserverCallback(this, generation);
         ShellTaskObserverHandle handle = null;
@@ -455,7 +492,10 @@ final class DesktopTaskWatcher {
             final boolean destroyed;
             synchronized (this) {
                 destroyed = mDestroyed;
-                installed = !destroyed && active && !handle.isClosed();
+                installed = !destroyed
+                        && lifecycleGeneration == mLifecycleGeneration
+                        && active
+                        && !handle.isClosed();
                 if (installed) {
                     mHandle = handle;
                     mCallback = callback;

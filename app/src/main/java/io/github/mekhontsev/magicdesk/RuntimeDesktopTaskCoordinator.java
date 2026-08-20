@@ -62,13 +62,14 @@ final class RuntimeDesktopTaskCoordinator {
         mTasks.destroy();
     }
 
-    void releaseSession() {
+    void releaseSession(final Runnable completion) {
         if (mDestroyed || mMode == Mode.DISABLED) {
+            completion.run();
             return;
         }
         mMode = Mode.DISABLED;
         mTasks.stop();
-        mTasks.setTaskWatcherEnabled(false);
+        mTasks.setTaskWatcherEnabled(false, completion);
     }
 
     DesktopTaskRuntime operations() {

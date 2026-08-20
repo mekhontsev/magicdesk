@@ -382,7 +382,16 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     void setTaskWatcherEnabled(final boolean enabled) {
+        setTaskWatcherEnabled(enabled, null);
+    }
+
+    void setTaskWatcherEnabled(
+            final boolean enabled,
+            final Runnable completion) {
         if (enabled == mTaskWatcherRunning) {
+            if (completion != null) {
+                completion.run();
+            }
             return;
         }
         mTaskWatcherRunning = enabled;
@@ -390,8 +399,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mTaskWatcherGeneration++;
         if (enabled) {
             startTaskWatcher(mTaskWatcherGeneration);
+            if (completion != null) {
+                completion.run();
+            }
         } else {
-            mTaskWatcher.stop();
+            mTaskWatcher.stop(completion);
         }
     }
 

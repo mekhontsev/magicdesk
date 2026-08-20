@@ -326,9 +326,24 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public void prepareForStop() {
-        if (!mDestroyed && mDesktopTaskRuntime != null) {
-            mDesktopTaskRuntime.releaseSession();
+    public void prepareForStop(final Runnable completion) {
+        final Runnable finish = completion == null ? () -> { } : completion;
+        final Handler handler = mHandler;
+        if (mDestroyed || handler == null) {
+            finish.run();
+            return;
+        }
+        final Runnable release = () -> {
+            if (!mDestroyed && mDesktopTaskRuntime != null) {
+                mDesktopTaskRuntime.releaseSession(finish);
+            } else {
+                finish.run();
+            }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            release.run();
+        } else if (!handler.post(release)) {
+            finish.run();
         }
     }
 
