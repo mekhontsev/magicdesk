@@ -35,6 +35,27 @@ Expanded values are shell-quoted individually. Multi-value codes must occupy a
 complete argument. Unknown codes, malformed quoting, and an expanded command
 over the size limit reject that launch.
 
+An executable entry placed directly in `/storage/emulated/0/Desktop` can also
+act as an **Open with** target. It must accept at least one file or URI field
+code and declare the standard semicolon-separated `MimeType` list:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=View text
+Icon=utilities-terminal
+Exec=/system/bin/cat %f
+MimeType=text/plain;application/json;
+Terminal=true
+```
+
+Exact MIME types, major-type wildcards such as `image/*`, and `*/*` are
+supported. Matching is case-insensitive. Entries without `MimeType` do not
+clutter the chooser. A command selected this way is a one-time launch target;
+the chooser's **Always** action remains limited to Android activities because
+it writes Android's real preferred-handler record rather than a MagicDesk-only
+association.
+
 Commands without field codes keep their raw shell syntax, including pipes,
 redirections, and command separators. A literal percent in such a Desktop
 Entry must still be written as `%%` according to the Desktop Entry format.

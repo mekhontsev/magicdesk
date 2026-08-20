@@ -1035,7 +1035,11 @@ The in-task **Open with** dialog avoids Android ResolverActivity hiding the
 desktop taskbar. It reads Android's current preferred handler. Its **Always**
 action asks the shell UserService to write the same PackageManager preferred
 activity record used by the system resolver; MagicDesk does not maintain a
-second file-association database.
+second file-association database. The same dialog can include executable
+Desktop Entries from the MagicDesk desktop when their standard `MimeType`
+list matches and `Exec` accepts a file or URI field code. These command
+profiles are one-time launch targets: they never enter Android's preferred
+activity record and therefore cannot be selected with **Always**.
 
 Incoming global Android URI drops are copied into the visible Files directory.
 Incomplete imports are removed, conflicts gain a numeric suffix, and the

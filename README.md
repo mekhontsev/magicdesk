@@ -102,7 +102,10 @@ that can run on the device itself or on a secondary display:
   preference, and process-local copy/cut buffer; Properties reports the actual
   owner and mode. Files uses the Android system default application when one
   exists, and its in-window **Open with** dialog can set the same system-wide
-  default. Multiple Files windows share the same process-local copy/cut buffer.
+  default. Executable `.desktop` entries on the MagicDesk desktop can also
+  appear there when their standard `MimeType` list matches the selected file;
+  command entries remain explicit one-time choices. Multiple Files windows
+  share the same process-local copy/cut buffer.
   Shell copy, move, and delete operations continue if their initiating Files
   window is closed; reopening Files reconnects to progress and cancellation.
   An APK can be installed or updated only after an explicit confirmation.
@@ -114,7 +117,8 @@ that can run on the device itself or on a secondary display:
   `Exec` field in Android shell by default; `Terminal=true` opens the command
   in Console, while `X-MagicDesk-ExecBackend=termux` selects Termux's documented
   command service instead. Executable shortcuts accept dropped files through
-  `%f/%F/%u/%U`, and `Path` selects their working directory. The supported
+  `%f/%F/%u/%U`, and `Path` selects their working directory. The standard
+  `MimeType` field can expose such a command in **Open with**. The supported
   fields, launch precedence, window modes, and examples are documented in
   [Desktop Entry files](docs/desktop-entries.md).
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
