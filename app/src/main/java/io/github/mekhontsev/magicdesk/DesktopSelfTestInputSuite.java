@@ -5,6 +5,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForDesktopHostFront;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
@@ -995,7 +996,10 @@ final class DesktopSelfTestInputSuite {
         ShellAccess.run("/system/bin/input -d " + displayId
                 + " keyevent KEYCODE_BACK");
         waitForTaskAbsent(taskId);
-        waitForFrontTask(displayId, hostTaskId);
+        // External drivers host DesktopActivity as Home, while the phone
+        // session keeps it as a regular fullscreen task. Verify the active
+        // host through the representation selected by the display driver.
+        waitForDesktopHostFront(displayId, hostTaskId);
 
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;

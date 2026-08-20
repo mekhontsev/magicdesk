@@ -62,6 +62,34 @@ final class DesktopSelfTestTasks {
                 + " did not receive front focus on display " + displayId);
     }
 
+    static TaskStackParser.Entry waitForDesktopHostFront(
+            final int displayId,
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskStackParser.Entry lastHost = null;
+        TaskStackParser.Entry lastApp = null;
+        do {
+            final String stack = ShellAccess.run(
+                    "/system/bin/cmd activity stack list");
+            lastHost = findTaskById(stack, taskId);
+            lastApp = findFrontTask(stack, displayId);
+            if (lastHost != null
+                    && lastHost.displayId == displayId
+                    && lastHost.visible
+                    && (lastHost.isHome()
+                            ? lastApp == null
+                            : lastApp != null
+                                    && lastApp.taskId == taskId)) {
+                return lastHost;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("desktop host " + taskId
+                + " did not become the front desktop task on display "
+                + displayId + "; host=" + describe(lastHost)
+                + ", front-app=" + describe(lastApp));
+    }
+
     static void waitForTaskAbsent(final int taskId) throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
         do {
