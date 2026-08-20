@@ -175,6 +175,40 @@ MagicDesk instead keeps native WMShell captions visible by controlling Nubia's
 external-layer privacy filter. MagicDesk overlays are reserved for shell-owned
 UI such as the taskbar, Start menu, and notification center.
 
+### Keep WMShell desktop decorations enabled as a unit
+
+Android's fullscreen **App Handle** and a freeform task's native caption are
+different decorations, but the tested Nubia SystemUI creates both through its
+WMShell desktop-window-decoration module. The handle is the small control at
+the top of an otherwise fullscreen task; dragging it is a firmware-provided
+way to enter desktop windowing. It is not a stale freeform caption and cannot
+be removed through MagicDesk's task-local caption-inset repair.
+
+Two configuration experiments establish the boundary on this firmware:
+
+| Configuration at SystemUI startup | Fullscreen App Handle | Freeform mode | Native freeform caption |
+| --- | --- | --- | --- |
+| Desktop features enabled and device restrictions disabled | Shown | Works | Shown |
+| `override_desktop_mode_features=0` | Hidden | Works | Not created |
+| Device restrictions enforced | Hidden | Works | Not created |
+
+These values are cached by SystemUI. Changing them for only a MagicDesk
+session therefore requires restarting SystemUI both when entering and leaving
+the session. That restart also rebuilds WMShell task repositories and briefly
+removes system bars and decorations. It is unsafe during interrupted wired or
+wireless projection and can disturb system dialogs, capture UI, and the phone
+launcher. The narrower firmware flags for handle animation, hold-to-drag input,
+input fixes, and immersive hiding do not disable the fullscreen handle while
+retaining freeform captions.
+
+MagicDesk consequently provisions native desktop decorations as one firmware
+capability and accepts the fullscreen App Handle when the firmware couples the
+two surfaces. It must not restart SystemUI at desktop-session boundaries,
+patch or overlay SystemUI, or replace the native caption merely to hide that
+handle. A future platform backend may expose a narrower supported control, but
+absence of such a control is a cosmetic firmware limitation rather than a task
+transition failure.
+
 ### Do not recreate application tasks through display 0
 
 Do not use the phone display as a window-mode trampoline, force-stop a target
