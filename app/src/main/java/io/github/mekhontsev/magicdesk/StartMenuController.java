@@ -652,6 +652,9 @@ final class StartMenuController {
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(view -> openSearchResult(result));
+        if (result.app != null) {
+            mActivity.registerContextTarget(row, result.app, null);
+        }
 
         final ImageView icon = new ImageView(mActivity);
         if (result.app != null) {
