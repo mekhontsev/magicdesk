@@ -4,7 +4,7 @@ import android.app.IActivityController;
 import android.content.Intent;
 import android.util.Log;
 
-/** Owns Android's single system-wide activity-controller slot. */
+/** Claims Android's single system-wide activity-controller slot when needed. */
 final class ShellActivityStartController implements AutoCloseable {
     interface Listener {
         boolean onActivityStarting(Intent intent, String packageName);
@@ -34,6 +34,9 @@ final class ShellActivityStartController implements AutoCloseable {
                 public boolean activityStarting(
                         final Intent intent,
                         final String packageName) {
+                    if (!mEnabled) {
+                        return true;
+                    }
                     for (final Listener listener : mListeners) {
                         try {
                             if (!listener.onActivityStarting(
@@ -96,7 +99,8 @@ final class ShellActivityStartController implements AutoCloseable {
                 }
             };
 
-    private boolean mRegistered;
+    private boolean mInstalled;
+    private volatile boolean mEnabled;
 
     ShellActivityStartController(
             final Object service,
@@ -109,35 +113,32 @@ final class ShellActivityStartController implements AutoCloseable {
         mListeners = listeners == null ? new Listener[0] : listeners.clone();
     }
 
-    void start() throws ReflectiveOperationException {
-        if (mRegistered) {
+    synchronized void start() throws ReflectiveOperationException {
+        if (mInstalled) {
+            mEnabled = true;
             return;
         }
-        setController(mController);
-        mRegistered = true;
+        installController();
+        mInstalled = true;
+        mEnabled = true;
     }
 
     @Override
-    public void close() {
-        if (!mRegistered) {
-            return;
-        }
-        mRegistered = false;
-        try {
-            setController(null);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            report("could not unregister activity-start observer: "
-                    + usefulMessage(error));
-        }
+    public synchronized void close() {
+        mEnabled = false;
+        // Android exposes no compare-and-clear operation for this global
+        // slot. Clearing it here could remove a controller installed later by
+        // another tool. Keep this Binder inert; ActivityManager releases it
+        // safely when the shell service process exits.
     }
 
-    private void setController(final IActivityController controller)
+    private void installController()
             throws ReflectiveOperationException {
         mService.getClass().getMethod(
                 "setActivityController",
                 IActivityController.class,
                 Boolean.TYPE)
-                .invoke(mService, controller, Boolean.FALSE);
+                .invoke(mService, mController, Boolean.FALSE);
     }
 
     private void report(final String message) {
@@ -148,7 +149,7 @@ final class ShellActivityStartController implements AutoCloseable {
     }
 
     private void notifyProcessFailure(final Runnable callback) {
-        if (mProcessFailureListener == null) {
+        if (!mEnabled || mProcessFailureListener == null) {
             return;
         }
         try {
