@@ -362,7 +362,7 @@ final class DesktopSelfTestWindowSuite {
             final DesktopSelfTestInputSuite.CaptionReference captionReference)
             throws AbortSelfTest {
         final String token = Long.toHexString(System.nanoTime());
-        final DesktopTaskLaunchProbe.Observation launch = require(
+        final SettledWindowLaunch launch = require(
                 result,
                 "WINDOW-017",
                 "Launch application fullscreen test window",
@@ -377,9 +377,17 @@ final class DesktopSelfTestWindowSuite {
                         throw new IOException(
                                 "Android reused the primary test task");
                     }
-                    return observation;
+                    final TaskStackParser.Entry settled = waitForTask(
+                            displayId,
+                            BROWSER_FIXTURE_CLASS,
+                            entry -> entry.taskId == observation.taskId
+                                    && "freeform".equals(
+                                            entry.windowingMode)
+                                    && DesktopSelfTestGeometry.matches(
+                                            entry.bounds, expectedBounds));
+                    return new SettledWindowLaunch(observation, settled);
                 });
-        final int immersiveTaskId = launch.taskId;
+        final int immersiveTaskId = launch.settled.taskId;
         DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
                 immersiveTaskId);
         boolean restored = false;
@@ -1158,6 +1166,28 @@ final class DesktopSelfTestWindowSuite {
                             ? ", source+target-prepared=hidden" : "")
                     + (probeError.isEmpty()
                             ? "" : ", probe-error=" + probeError);
+        }
+    }
+
+    private static final class SettledWindowLaunch {
+        final DesktopTaskLaunchProbe.Observation firstFront;
+        final TaskStackParser.Entry settled;
+
+        SettledWindowLaunch(
+                final DesktopTaskLaunchProbe.Observation observedFirstFront,
+                final TaskStackParser.Entry observedSettled) {
+            firstFront = observedFirstFront;
+            settled = observedSettled;
+        }
+
+        @Override
+        public String toString() {
+            return "first-front=" + firstFront
+                    + ", settled=task=" + settled.taskId
+                    + "/display=" + settled.displayId
+                    + "/mode=" + settled.windowingMode
+                    + "/bounds="
+                    + DesktopSelfTestGeometry.format(settled.bounds);
         }
     }
 
