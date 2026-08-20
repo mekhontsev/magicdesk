@@ -191,6 +191,14 @@ public final class DesktopTransitionSurfaceProbe {
             mSamples.add("start:" + formatColor(reference.color));
         }
 
+        void sample(final String stage, final int color) {
+            if (!mError.isEmpty()) {
+                return;
+            }
+            mSamples.add(stage + ":" + formatColor(color));
+            mChanged |= !sameColor(mReference.color, color);
+        }
+
         void sample(final String stage) {
             if (!mError.isEmpty()) {
                 return;
@@ -200,10 +208,15 @@ public final class DesktopTransitionSurfaceProbe {
                         mReference.captureSource,
                         mReference.x,
                         mReference.y);
-                mSamples.add(stage + ":" + formatColor(color));
-                mChanged |= !sameColor(mReference.color, color);
+                sample(stage, color);
             } catch (IOException error) {
                 mError = usefulMessage(error);
+            }
+        }
+
+        void recordError(final String error) {
+            if (mError.isEmpty()) {
+                mError = error == null ? "" : error;
             }
         }
 

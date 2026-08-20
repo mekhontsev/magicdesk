@@ -90,11 +90,10 @@ final class DesktopSelfTestWindowSuite {
             return "ready";
         });
         final SurfaceReferenceResult surfaceReference =
-                target == DesktopSelfTestTarget.PHONE
-                        ? SurfaceReferenceResult.unavailable(
-                                "the selected desktop uses display 0")
-                        : captureSurfaceReference(
-                                captureSource, geometry);
+                captureSurfaceReference(captureSource, geometry);
+        final DesktopTransitionSurfaceProbe.Observation
+                initialSurfaceObservation = beginSurfaceObservation(
+                        surfaceReference);
         DesktopSelfTestFixtureState.clearLaunchMarkers(appContext);
         final String token = Long.toHexString(System.nanoTime());
         final Rect requestedWindowBounds = geometry.primaryWindow();
@@ -111,6 +110,8 @@ final class DesktopSelfTestWindowSuite {
                         targetDisplayId,
                         token,
                         requestedWindowBounds)));
+        sampleDesktopSurface(
+                initialSurfaceObservation, surfaceReference, "front");
         final int targetFixtureTaskId = initialLaunch.taskId;
         DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
                 targetFixtureTaskId);
@@ -122,6 +123,10 @@ final class DesktopSelfTestWindowSuite {
                             + targetDisplayId + "|freeform";
                     DesktopSelfTestFixtureState.awaitFirstFrame(
                             appContext, token, targetDisplayId);
+                    sampleDesktopSurface(
+                            initialSurfaceObservation,
+                            surfaceReference,
+                            "first-frame");
                     return "first-frame=" + expected
                             + ", first-callback=" + initialLaunch
                             + ", requested="
@@ -141,8 +146,18 @@ final class DesktopSelfTestWindowSuite {
                                     && geometry.containsWindow(
                                             DesktopSelfTestGeometry.toRect(
                                                     entry.bounds)));
+                    sampleDesktopSurface(
+                            initialSurfaceObservation,
+                            surfaceReference,
+                            "settled");
                     return task;
                 });
+        recordDesktopSurfaceObservation(
+                result,
+                "WINDOW-SURFACE-001",
+                "Keep desktop background during initial window launch",
+                surfaceReference,
+                initialSurfaceObservation);
         final Rect windowBounds = DesktopSelfTestGeometry.toRect(
                 settledWindow.bounds);
         final DesktopSelfTestGeometry settledGeometry =
@@ -329,6 +344,7 @@ final class DesktopSelfTestWindowSuite {
                 appContext,
                 result,
                 targetDisplayId,
+                captureSource,
                 targetFixtureTaskId,
                 token,
                 settledGeometry);
@@ -425,7 +441,7 @@ final class DesktopSelfTestWindowSuite {
                             expectedBounds,
                             2));
             restored = true;
-            verifyDesktopSurfaceRestored(
+            verifyDesktopSurfaceMatches(
                     result,
                     "WINDOW-018",
                     "Restore desktop surface after application fullscreen",
@@ -500,7 +516,7 @@ final class DesktopSelfTestWindowSuite {
                 + DesktopSelfTestGeometry.format(expectedBounds);
     }
 
-    private static void verifyDesktopSurfaceRestored(
+    private static void verifyDesktopSurfaceMatches(
             final DesktopSelfTestResult result,
             final String code,
             final String label,
@@ -543,11 +559,74 @@ final class DesktopSelfTestWindowSuite {
         }
     }
 
+    private static DesktopTransitionSurfaceProbe.Observation
+            beginSurfaceObservation(
+                    final SurfaceReferenceResult surfaceReference) {
+        return surfaceReference.reference == null
+                ? null : DesktopTransitionSurfaceProbe.begin(
+                        surfaceReference.reference);
+    }
+
+    private static void sampleDesktopSurface(
+            final DesktopTransitionSurfaceProbe.Observation observation,
+            final SurfaceReferenceResult surfaceReference,
+            final String stage) {
+        if (observation == null || surfaceReference.reference == null) {
+            return;
+        }
+        final DesktopTransitionSurfaceProbe.Reference expected =
+                surfaceReference.reference;
+        try {
+            final String output = ShellAccess.run(
+                    DesktopTransitionSurfaceProbe.createCaptureCommand(
+                            expected.captureSource,
+                            expected.x,
+                            expected.y));
+            final DesktopTransitionSurfaceProbe.Reference actual =
+                    DesktopTransitionSurfaceProbe.parseReference(
+                            expected.captureSource,
+                            expected.x,
+                            expected.y,
+                            output);
+            observation.sample(stage, actual.color);
+        } catch (IOException | IllegalArgumentException error) {
+            observation.recordError(usefulMessage(error));
+        }
+    }
+
+    private static void recordDesktopSurfaceObservation(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final SurfaceReferenceResult surfaceReference,
+            final DesktopTransitionSurfaceProbe.Observation observation) {
+        DesktopSelfTestHostObserver.stage(code);
+        if (observation == null || surfaceReference.reference == null) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    code, label, surfaceReference.error);
+            return;
+        }
+        final DesktopTransitionSurfaceProbe.Result captured =
+                observation.finish();
+        final String details = String.join(",", captured.samples);
+        if (!captured.error.isEmpty()) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    code, label, captured.error + "; " + details);
+            return;
+        }
+        result.add(captured.surfaceChanged
+                        ? DesktopSelfTestResult.State.FAIL
+                        : DesktopSelfTestResult.State.PASS,
+                code,
+                label,
+                details);
+    }
+
     private static boolean isStableDesktopPixel(
             final int expected,
             final int actual) {
         // A recomposed wallpaper can move a few RGB levels through color
-        // conversion. The broken Firefox path replaces it with a different
+        // conversion. A broken task transition replaces it with a different
         // solid surface, which is far outside this tolerance.
         final int tolerance = 12;
         return Math.abs(((expected >>> 16) & 0xFF)
@@ -1087,9 +1166,9 @@ final class DesktopSelfTestWindowSuite {
             final DesktopSelfTestGeometry geometry) {
         return captureSurfaceReference(
                 captureSource,
-                geometry.displayBounds.left
-                        + geometry.displayBounds.width() * 3 / 4,
-                geometry.workArea.centerY());
+                geometry.workArea.centerX(),
+                geometry.workArea.top
+                        + geometry.workArea.height() * 90 / 100);
     }
 
     private static SurfaceReferenceResult captureSurfaceReferenceOutsideWindow(
@@ -1152,11 +1231,16 @@ final class DesktopSelfTestWindowSuite {
             final Context context,
             final DesktopSelfTestResult result,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final int firstTaskId,
             final String firstToken,
             final DesktopSelfTestGeometry geometry) throws AbortSelfTest {
         final Rect leftBounds = geometry.leftWindow();
         final Rect rightBounds = geometry.rightWindow();
+        final SurfaceReferenceResult surfaceReference =
+                captureSurfaceReference(captureSource, geometry);
+        final DesktopTransitionSurfaceProbe.Observation surfaceObservation =
+                beginSurfaceObservation(surfaceReference);
         final String secondToken = Long.toHexString(System.nanoTime());
         final DesktopTaskLaunchProbe.Observation secondLaunch = require(
                 result,
@@ -1175,8 +1259,14 @@ final class DesktopSelfTestWindowSuite {
                     }
                     return observation;
                 });
+        sampleDesktopSurface(
+                surfaceObservation, surfaceReference, "front");
         final int secondTaskId = secondLaunch.taskId;
         require(result, "WINDOW-012", "Place two freeform test windows", () -> {
+            DesktopSelfTestFixtureState.awaitFirstFrame(
+                    context, secondToken, displayId);
+            sampleDesktopSurface(
+                    surfaceObservation, surfaceReference, "first-frame");
             ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
                     displayId, firstTaskId, leftBounds));
             ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
@@ -1193,8 +1283,16 @@ final class DesktopSelfTestWindowSuite {
                             && entry.visible
                             && DesktopSelfTestGeometry.matches(
                                     entry.bounds, rightBounds));
+            sampleDesktopSurface(
+                    surfaceObservation, surfaceReference, "settled");
             return "left=" + firstTaskId + ", right=" + secondTaskId;
         });
+        recordDesktopSurfaceObservation(
+                result,
+                "WINDOW-SURFACE-002",
+                "Keep desktop background during second window launch",
+                surfaceReference,
+                surfaceObservation);
 
         DesktopSelfTestInputSuite.runWindowFocusTests(
                 context,

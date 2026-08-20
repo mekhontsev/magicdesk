@@ -455,7 +455,8 @@ reported by Android callbacks. It detects intermediate display or windowing-
 mode detours, a freeform task reaching the phone, an unexpected HOME task,
 desktop-host visibility loss, and a gap where neither fullscreen task is
 visible. Capability-gated in-memory pixel probes separately check the desktop
-background and native caption rendering without writing screenshots to files.
+background during window launches and later task transitions, plus native
+caption rendering, without writing screenshots to files.
 
 The external target uses an already connected HDMI or Miracast display. If no
 external display is present and the selected platform exposes a verified

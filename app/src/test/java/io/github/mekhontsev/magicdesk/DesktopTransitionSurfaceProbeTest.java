@@ -73,4 +73,26 @@ public final class DesktopTransitionSurfaceProbeTest {
         assertFalse(DesktopTransitionSurfaceProbe.sameColor(
                 0xFF102030, 0xFF303030));
     }
+
+    @Test
+    public void recordsExternallyCapturedTransitionSamples() {
+        final DesktopTransitionSurfaceProbe.Observation observation =
+                DesktopTransitionSurfaceProbe.begin(
+                        new DesktopTransitionSurfaceProbe.Reference(
+                                DisplayCaptureSource.logical(0),
+                                900,
+                                500,
+                                0xFF102030));
+
+        observation.sample("front", 0xFF102030);
+        observation.sample("first-frame", 0xFF606060);
+        final DesktopTransitionSurfaceProbe.Result result =
+                observation.finish();
+
+        assertTrue(result.surfaceChanged);
+        assertEquals(
+                "[start:ff102030, front:ff102030, first-frame:ff606060]",
+                result.samples.toString());
+        assertEquals("", result.error);
+    }
 }

@@ -47,7 +47,7 @@ firmware task, display, input, or capture behavior.
   simulated, wired, or wireless targets. It verifies initial window mode,
   native caption and resize geometry, focus with injected text, snap,
   fullscreen restore, true-fullscreen Alt+Tab, display removal, phone-task
-  isolation, wallpaper continuity, and owned cleanup.
+  isolation, window-launch wallpaper continuity, and owned cleanup.
 - A task-stack invariant guard rejects visible intermediate display or
   windowing-mode detours, freeform tasks on display 0, and wallpaper-only gaps.
   It records snapshots only during an explicit self-test.
