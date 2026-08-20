@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<appfunctions>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getDesktopState</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#startDesktop</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#closeDesktop</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#launchApp</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+</appfunctions>

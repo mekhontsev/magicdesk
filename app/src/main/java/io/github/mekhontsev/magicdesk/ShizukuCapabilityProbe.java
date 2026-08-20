@@ -44,7 +44,8 @@ public final class ShizukuCapabilityProbe {
             "android.permission.RECORD_AUDIO",
             "android.permission.READ_FRAME_BUFFER",
             "android.permission.REBOOT",
-            "android.permission.CHANGE_COMPONENT_ENABLED_STATE"
+            "android.permission.CHANGE_COMPONENT_ENABLED_STATE",
+            "android.permission.EXECUTE_APP_FUNCTIONS"
     };
 
     private ShizukuCapabilityProbe() {
@@ -76,6 +77,7 @@ public final class ShizukuCapabilityProbe {
         appendInputControlAccess(report);
         appendInputMonitor(report);
         appendTaskAccess(report);
+        AppFunctionCapabilityProbe.append(report, context);
         SocDisplayModeBackends.appendCapabilityProbe(report);
         PlatformDrivers.current().diagnostics()
                 .appendCapabilityProbe(report, context);

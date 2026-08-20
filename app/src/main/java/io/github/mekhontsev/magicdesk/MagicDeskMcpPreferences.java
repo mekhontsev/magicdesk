@@ -36,9 +36,12 @@ final class MagicDeskMcpPreferences {
 
     static boolean setEnabled(
             final Context context, final boolean enabled) {
-        return preferences(context).edit()
-                .putBoolean(ENABLED, enabled)
-                .commit();
+        final SharedPreferences.Editor editor = preferences(context).edit()
+                .putBoolean(ENABLED, enabled);
+        if (!enabled) {
+            editor.putBoolean(DEVELOPER_TOOLS, false);
+        }
+        return editor.commit();
     }
 
     static boolean setDeveloperTools(

@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
@@ -71,6 +73,58 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setMcpEnabled(final boolean enabled) {
+        saveSetting(MagicDeskMcpPreferences.setEnabled(this, enabled));
+    }
+
+    @Override
+    public void setMcpDeveloperTools(final boolean enabled) {
+        saveSetting(MagicDeskMcpPreferences.setDeveloperTools(this, enabled));
+    }
+
+    @Override
+    public void copyMcpConnection() {
+        final MagicDeskMcpPreferences.Values settings =
+                MagicDeskMcpPreferences.load(this);
+        final ClipboardManager clipboard =
+                getSystemService(ClipboardManager.class);
+        if (clipboard == null || settings.token.isEmpty()) {
+            Toast.makeText(this, R.string.settings_mcp_copy_failed,
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String value = "Endpoint: " + settings.endpoint()
+                + "\nAuthorization: Bearer " + settings.token
+                + "\nADB: adb forward tcp:"
+                + MagicDeskMcpPreferences.PORT + " tcp:"
+                + MagicDeskMcpPreferences.PORT;
+        clipboard.setPrimaryClip(ClipData.newPlainText(
+                getString(R.string.settings_mcp_connection), value));
+        Toast.makeText(this, R.string.settings_mcp_copied,
+                Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void regenerateMcpToken() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_mcp_regenerate_token)
+                .setMessage(R.string.settings_mcp_regenerate_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.action_reset, (dialog, which) -> {
+                    final boolean saved =
+                            MagicDeskMcpPreferences.regenerateToken(this);
+                    saveSetting(saved);
+                    if (saved) {
+                        Toast.makeText(
+                                this,
+                                R.string.settings_mcp_token_regenerated,
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .show();
+    }
+
+    @Override
     public void configureTermuxX11() {
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT
@@ -125,8 +179,7 @@ public final class SettingsActivity extends Activity
             return;
         }
         DesktopRuntimeBridge.refreshSettings();
-        MagicDeskRuntime.refreshSettings();
-        render();
+        MagicDeskRuntime.refreshSettings(this::render);
     }
 
     private void startActivityOnCurrentDisplay(final Intent intent) {
@@ -140,7 +193,10 @@ public final class SettingsActivity extends Activity
 
     private void render() {
         if (mView != null) {
-            mView.render(MagicDeskSettings.load());
+            mView.render(
+                    MagicDeskSettings.load(),
+                    MagicDeskMcpPreferences.load(this),
+                    MagicDeskMcpRuntime.snapshot());
         }
     }
 }

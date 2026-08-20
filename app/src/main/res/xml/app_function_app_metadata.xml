@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppFunctionAppMetadata
+    xmlns:appfn="http://schemas.android.com/apk/androidx.appfunctions"
+    appfn:description="MagicDesk provides a desktop workspace and native Android window management across phone, external and simulated displays. Use these functions to inspect or control a MagicDesk session."
+    appfn:displayDescription="MagicDesk desktop automation" />

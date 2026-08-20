@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<appfunctions>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getDesktopState</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Read the current MagicDesk runtime, desktop session, display and shell state.</description>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getDesktopState</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#startDesktop</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Start MagicDesk on an available phone, simulated, wired or wireless display.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>target</name>
+            <description>Optional target: auto, phone, simulated, wired or wireless.</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#startDesktop</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#closeDesktop</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Close the active MagicDesk session through its normal cleanup procedure.</description>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#closeDesktop</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#launchApp</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Launch an Android application through the native MagicDesk window pipeline.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>false</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>true</isRequired><name>packageName</name>
+            <description>Android application package name.</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>mode</name>
+            <description>Optional launch mode: auto, windowed or fullscreen.</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#launchApp</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Open MagicDesk settings on the current desktop or phone display.</description>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</functionId>
+    </appfunction>
+</appfunctions>

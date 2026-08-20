@@ -84,9 +84,15 @@ public final class MagicDeskRuntime {
     }
 
     static void refreshSettings() {
+        refreshSettings(null);
+    }
+
+    static void refreshSettings(final Runnable completion) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
-            backend.refreshSettings();
+            backend.refreshSettings(completion);
+        } else if (completion != null) {
+            completion.run();
         }
     }
 

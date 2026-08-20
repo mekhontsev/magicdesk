@@ -101,8 +101,13 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public void refreshSettings() {
-        postIfAlive(this::refreshRuntimeSettings);
+    public void refreshSettings(final Runnable completion) {
+        postIfAlive(() -> {
+            refreshRuntimeSettings();
+            if (completion != null) {
+                completion.run();
+            }
+        });
     }
 
     @Override

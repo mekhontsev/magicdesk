@@ -375,6 +375,28 @@ public final class CompatibilityDiagnostics {
                 .append(MagicDeskRuntime
                         .isSessionWakeLockHeld())
                 .append('\n');
+        final MagicDeskMcpRuntime.Snapshot mcp =
+                MagicDeskMcpRuntime.snapshot();
+        report.append("MCP automation: enabled=")
+                .append(mcp.enabled)
+                .append(", running=").append(mcp.running)
+                .append(", developerTools=").append(mcp.developerTools)
+                .append(", endpoint=").append(mcp.endpoint)
+                .append(", connections=").append(mcp.connections)
+                .append(", requests=").append(mcp.requests)
+                .append(", rejected=").append(mcp.rejected);
+        if (!mcp.lastError.isEmpty()) {
+            report.append(", error=")
+                    .append(cleanSingleLine(mcp.lastError, 240));
+        }
+        report.append('\n');
+        report.append("Android App Functions: available=")
+                .append(android.os.Build.VERSION.SDK_INT >= 36
+                        && context.getResources().getBoolean(
+                                R.bool.app_functions_available))
+                .append(", declared=")
+                .append(MagicDeskAppFunctionCatalog.all().length)
+                .append('\n');
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
                 audit.platform.features().externalInputBridge

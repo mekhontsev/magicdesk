@@ -491,6 +491,7 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_desktop">Desktop</string>
     <string name="settings_section_session">Session</string>
+    <string name="settings_section_automation">Automation</string>
     <string name="settings_section_integrations">Integrations</string>
     <string name="settings_section_support">Support</string>
     <string name="settings_termux_x11_command">Termux:X11 startup command</string>
@@ -504,6 +505,17 @@
     <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>
     <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
+    <string name="settings_mcp_enabled">Local MCP automation server</string>
+    <string name="settings_mcp_developer_tools">Developer automation tools</string>
+    <string name="settings_mcp_connection">Copy MCP connection</string>
+    <string name="settings_mcp_regenerate_token">Replace MCP access token</string>
+    <string name="settings_mcp_regenerate_confirm">Existing MCP clients will lose access immediately.</string>
+    <string name="settings_mcp_token_regenerated">MCP access token replaced</string>
+    <string name="settings_mcp_copied">MCP connection copied</string>
+    <string name="settings_mcp_copy_failed">MCP connection unavailable</string>
+    <string name="settings_mcp_status_running">Running at %1$s</string>
+    <string name="settings_mcp_status_waiting">Enabled; waiting for the MagicDesk runtime at %1$s</string>
+    <string name="settings_mcp_status_disabled">Disabled; endpoint %1$s</string>
     <string name="settings_save_failed">Could not save MagicDesk settings</string>
     <string name="setup_title">Device setup</string>
     <string name="setup_title_onboarding">Set up MagicDesk</string>

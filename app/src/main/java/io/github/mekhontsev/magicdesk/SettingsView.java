@@ -23,6 +23,14 @@ final class SettingsView {
 
         void setOpenFilesWithSingleClick(boolean enabled);
 
+        void setMcpEnabled(boolean enabled);
+
+        void setMcpDeveloperTools(boolean enabled);
+
+        void copyMcpConnection();
+
+        void regenerateMcpToken();
+
         void configureTermuxX11();
 
         void openDeviceSetup();
@@ -41,6 +49,9 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mOpenTouchpadAutomatically;
     private Switch mOpenFilesWithSingleClick;
+    private Switch mMcpEnabled;
+    private Switch mMcpDeveloperTools;
+    private TextView mMcpStatus;
     private boolean mRendering;
 
     SettingsView(final Activity activity, final Actions actions) {
@@ -100,6 +111,38 @@ final class SettingsView {
             }
         });
 
+        addSection(content, R.string.settings_section_automation, 14);
+        mMcpEnabled = addSwitch(content, R.string.settings_mcp_enabled);
+        mMcpEnabled.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setMcpEnabled(checked);
+            }
+        });
+        mMcpDeveloperTools = addSwitch(
+                content, R.string.settings_mcp_developer_tools);
+        mMcpDeveloperTools.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setMcpDeveloperTools(checked);
+            }
+        });
+        mMcpStatus = new TextView(mActivity);
+        mMcpStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mMcpStatus.setTextSize(12);
+        mMcpStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
+        content.addView(mMcpStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        addAction(
+                content,
+                android.R.drawable.ic_menu_set_as,
+                R.string.settings_mcp_connection,
+                mActions::copyMcpConnection);
+        addAction(
+                content,
+                android.R.drawable.ic_popup_sync,
+                R.string.settings_mcp_regenerate_token,
+                mActions::regenerateMcpToken);
+
         if (TermuxX11Integration.isAvailable(mActivity)) {
             addSection(content, R.string.settings_section_integrations, 14);
             addAction(
@@ -146,11 +189,17 @@ final class SettingsView {
         return page;
     }
 
-    void render(final MagicDeskSettings.Values settings) {
+    void render(
+            final MagicDeskSettings.Values settings,
+            final MagicDeskMcpPreferences.Values mcp,
+            final MagicDeskMcpRuntime.Snapshot runtime) {
         if (settings == null || mTaskbarAutoHide == null
                 || mKeepDesktopAwake == null
                 || mOpenTouchpadAutomatically == null
-                || mOpenFilesWithSingleClick == null) {
+                || mOpenFilesWithSingleClick == null
+                || mcp == null || runtime == null
+                || mMcpEnabled == null || mMcpDeveloperTools == null
+                || mMcpStatus == null) {
             return;
         }
         mRendering = true;
@@ -160,6 +209,16 @@ final class SettingsView {
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
         mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
+        mMcpEnabled.setChecked(mcp.enabled);
+        mMcpDeveloperTools.setChecked(mcp.developerTools);
+        mMcpDeveloperTools.setEnabled(mcp.enabled);
+        mMcpDeveloperTools.setAlpha(mcp.enabled ? 1f : 0.5f);
+        final int status = runtime.running
+                ? R.string.settings_mcp_status_running
+                : mcp.enabled
+                        ? R.string.settings_mcp_status_waiting
+                        : R.string.settings_mcp_status_disabled;
+        mMcpStatus.setText(mActivity.getString(status, mcp.endpoint()));
         mRendering = false;
     }
 
@@ -230,7 +289,11 @@ final class SettingsView {
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         toggleParams.setMargins(dp(16), 0, 0, 0);
         row.addView(toggle, toggleParams);
-        row.setOnClickListener(view -> toggle.toggle());
+        row.setOnClickListener(view -> {
+            if (toggle.isEnabled()) {
+                toggle.toggle();
+            }
+        });
         parent.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));

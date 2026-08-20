@@ -16,7 +16,7 @@ interface MagicDeskRuntimeBackend {
 
     void refreshPlatformState();
 
-    void refreshSettings();
+    void refreshSettings(Runnable completion);
 
     boolean isSessionWakeLockHeld();
 

@@ -50,6 +50,8 @@ public final class MagicDeskRuntimeTest {
 
         MagicDeskRuntime.refreshDesktopTasks();
         MagicDeskRuntime.refreshPlatformState();
+        MagicDeskRuntime.refreshSettings(
+                () -> mAttached.settingsRefreshCompleted = true);
         MagicDeskRuntime.reactivatePointerOnNextMotion();
         MagicDeskRuntime.preparePhysicalPointerHandoff(7);
         assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
@@ -68,6 +70,8 @@ public final class MagicDeskRuntimeTest {
         assertTrue(MagicDeskRuntime.openSettings());
         assertTrue(mAttached.desktopTasksRefreshed);
         assertTrue(mAttached.platformStateRefreshed);
+        assertTrue(mAttached.settingsRefreshed);
+        assertTrue(mAttached.settingsRefreshCompleted);
         assertTrue(mAttached.pointerReactivationRequested);
         assertEquals(7, mAttached.pointerHandoffDisplayId);
         assertEquals(7, mAttached.pointerSuspensionDisplayId);
@@ -108,6 +112,8 @@ public final class MagicDeskRuntimeTest {
         private final boolean mAvailable;
         private boolean desktopTasksRefreshed;
         private boolean platformStateRefreshed;
+        private boolean settingsRefreshed;
+        private boolean settingsRefreshCompleted;
         private boolean pointerReactivationRequested;
         private int pointerHandoffDisplayId = -1;
         private int pointerSuspensionDisplayId = -1;
@@ -174,7 +180,11 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public void refreshSettings() {
+        public void refreshSettings(final Runnable completion) {
+            settingsRefreshed = true;
+            if (completion != null) {
+                completion.run();
+            }
         }
 
         @Override

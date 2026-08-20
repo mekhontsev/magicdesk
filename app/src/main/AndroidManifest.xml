@@ -55,6 +55,29 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:resizeableActivity="true"
         android:theme="@style/AppTheme">
+        <service
+            android:name=".MagicDeskAppFunctionService"
+            android:enabled="@bool/app_functions_available"
+            android:exported="true"
+            android:permission="android.permission.BIND_APP_FUNCTION_SERVICE"
+            tools:targetApi="36">
+            <property
+                android:name="android.app.appfunctions"
+                android:value="magicdesk_app_functions_v1.xml" />
+            <property
+                android:name="android.app.appfunctions.schema"
+                android:value="app_functions_schema.xsd" />
+            <property
+                android:name="android.app.appfunctions.v2"
+                android:value="magicdesk_app_functions.xml" />
+            <intent-filter>
+                <action android:name="android.app.appfunctions.AppFunctionService" />
+            </intent-filter>
+        </service>
+        <property
+            android:name="android.app.appfunctions.app_metadata"
+            android:resource="@xml/app_function_app_metadata" />
+
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
