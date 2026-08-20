@@ -186,6 +186,18 @@ final class DesktopTaskWatcher {
                 bounds);
     }
 
+    int launchFullscreenTaskInDesktopArea(
+            final int displayId,
+            final Intent intent) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || intent == null) {
+            throw new IOException("desktop task area is unavailable");
+        }
+        return handle.launchFullscreenTaskInDesktopArea(
+                displayId,
+                intent.toUri(Intent.URI_INTENT_SCHEME));
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -211,6 +223,18 @@ final class DesktopTaskWatcher {
         }
         handle.placeTaskInDesktopArea(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    void placeFullscreenTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            throw new IOException("desktop task area is unavailable");
+        }
+        handle.placeFullscreenTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId);
     }
 
     void sendFocusStack(

@@ -159,20 +159,27 @@ final class ExistingTaskController {
                     MODE_FULLSCREEN.equals(task.windowingMode);
             boolean movedAsFreeform = false;
             boolean movedDisplay = false;
-            final boolean sessionTaskArea = targetFreeform
-                    && DesktopDisplayDrivers.activeTaskAreaPolicy(
+            final boolean sessionTaskArea =
+                    DesktopDisplayDrivers.activeTaskAreaPolicy(
                             targetDisplayId)
                             == DesktopTaskAreaPolicy.SESSION;
             if (sessionTaskArea) {
                 final int sourceDisplayId = task.displayId;
-                final Rect bounds = resolveTargetBounds(
-                        targetDisplayId, targetBounds);
-                MagicDeskRuntime.placeTaskInDesktopArea(
-                        task.taskId,
-                        sourceDisplayId,
-                        targetDisplayId,
-                        bounds);
-                movedAsFreeform = true;
+                if (targetFreeform) {
+                    final Rect bounds = resolveTargetBounds(
+                            targetDisplayId, targetBounds);
+                    MagicDeskRuntime.placeTaskInDesktopArea(
+                            task.taskId,
+                            sourceDisplayId,
+                            targetDisplayId,
+                            bounds);
+                    movedAsFreeform = true;
+                } else {
+                    MagicDeskRuntime.placeFullscreenTaskInDesktopArea(
+                            task.taskId,
+                            sourceDisplayId,
+                            targetDisplayId);
+                }
                 movedDisplay = sourceDisplayId != targetDisplayId;
                 final TaskInfo movedTask = findTask(task.taskId);
                 if (movedTask == null) {

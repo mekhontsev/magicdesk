@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.Locale;
@@ -22,10 +23,14 @@ public final class DebugSelfTestActivity extends Activity {
             finish();
             return;
         }
-        if (DeviceSetupManager.isRuntimeAuthorized()) {
+        if (runtimeReady()) {
             launchDiagnostics(target);
             return;
         }
+        prepareRuntime(target);
+    }
+
+    private void prepareRuntime(final LaunchTarget target) {
         new Thread(() -> {
             final DeviceSetupManager.Audit audit;
             try {
@@ -53,9 +58,39 @@ public final class DebugSelfTestActivity extends Activity {
                 // setup screen. Restore it after a cold ADB debug launch only
                 // after the same setup audit has accepted the device state.
                 DeviceSetupManager.authorizeRuntime(this);
-                launchDiagnostics(target);
+                waitForRuntime(target);
             });
         }, "MagicDeskDebugSelfTestSetup").start();
+    }
+
+    private void waitForRuntime(final LaunchTarget target) {
+        new Thread(() -> {
+            final long deadline = SystemClock.uptimeMillis()
+                    + ConsoleDisplayController.START_TIMEOUT_MS;
+            do {
+                if (runtimeReady()) {
+                    runOnUiThread(() -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            launchDiagnostics(target);
+                        }
+                    });
+                    return;
+                }
+                SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+            } while (SystemClock.uptimeMillis() < deadline);
+            Log.e(TAG, "self-test runtime did not become ready");
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    finish();
+                }
+            });
+        }, "MagicDeskDebugSelfTestRuntime").start();
+    }
+
+    private static boolean runtimeReady() {
+        return DeviceSetupManager.isRuntimeAuthorized()
+                && ShellAccess.isReady()
+                && MagicDeskRuntime.isTaskObserverReady();
     }
 
     private void launchDiagnostics(final LaunchTarget target) {

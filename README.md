@@ -445,8 +445,10 @@ caption and resize input, native left/right placement, and keyboard focus
 switching between two windows. It verifies that Alt+Tab between two true
 fullscreen tasks never converts either task to freeform, then restores and
 closes one task while checking the fullscreen survivor's real input focus. It
-also recreates the desktop Activity and checks available hidden Android,
-platform, and SoC APIs that can be inspected safely.
+also verifies direct fullscreen placement in the phone session and system-Back
+removal without exposing Android HOME, recreates the desktop Activity, and
+checks available hidden Android, platform, and SoC APIs that can be inspected
+safely.
 
 While those stages run, an event-driven task-stack guard records the hierarchy
 reported by Android callbacks. It detects intermediate display or windowing-

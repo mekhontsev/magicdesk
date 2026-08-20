@@ -185,26 +185,28 @@ and the client-preserving refresh described in
 
 ### Keep true-fullscreen tasks under one fullscreen parent
 
-The default desktop task area is freeform-oriented. Reordering independent
-fullscreen roots there can make a task inherit freeform mode during Alt+Tab,
-even when its final mode is repaired afterward. MagicDesk therefore reparents a
-reordered stack of true-fullscreen tasks into one organizer-owned fullscreen
-`TaskDisplayArea`. A lone application-driven fullscreen task stays in the
-display's default task area: some projection displays remove their task-hosting
-virtual display when that task is moved under an organizer-created parent.
+The active desktop task parent is freeform-oriented: it is the display's
+default task area on external displays and the shell-owned session task area
+on the phone. Reordering independent fullscreen roots there can make a task
+inherit freeform mode during Alt+Tab, even when its final mode is repaired
+afterward. MagicDesk therefore reparents a reordered stack of true-fullscreen
+tasks into one organizer-owned fullscreen `TaskDisplayArea` nested under that
+active parent. A lone application-driven fullscreen task stays directly under
+the active parent: some projection displays remove their task-hosting virtual
+display when that task is moved under an organizer-created parent.
 
 The long-lived shell task observer owns that area. Switching only reorders
 children inside the same parent; restoring a window releases that task to the
-default task area while it is hidden or still fullscreen. Application-driven
-restores are completed in the observer before their result crosses Binder.
-They use a hidden fullscreen-to-freeform mode boundary in the default task area
-to rebuild native decoration without changing parents.
+active desktop parent while it is hidden or still fullscreen. Application-
+driven restores are completed in the observer before their result crosses
+Binder. They use a hidden fullscreen-to-freeform mode boundary in the active
+parent to rebuild native decoration without changing desktop sessions.
 
 The parent must be established before focusing a freeform task while another
 MagicDesk task is fullscreen. Waiting until both tasks already report
 fullscreen is too late: the focus transition can first demote the existing
-fullscreen root in the default task area. The observer therefore moves existing
-fullscreen peers under the dedicated parent in a synchronous hierarchy
+fullscreen root in the active parent. The observer therefore moves existing
+fullscreen peers under the dedicated child in a synchronous hierarchy
 transaction, then performs normal `TO_FRONT` focus. If that focused task is
 subsequently made fullscreen, its mode change and reparenting are committed
 synchronously into the same parent before input focus is handed over.
@@ -422,14 +424,15 @@ runtime integration and are not distributed through the same release path.
   peer before a mixed fullscreen/freeform focus operation and accepts the next
   explicit fullscreen transition synchronously; it must not wait for both
   tasks to become fullscreen first. A task is synchronously released to
-  the default task area while still fullscreen before any restore or snap
-  command changes its mode. Application-requested immersive tasks remain in
-  the default task area and share only the observer's saved-bounds lifecycle.
+  the active desktop parent while still fullscreen before any restore or snap
+  command changes its mode. Application-requested immersive tasks remain
+  directly under that parent and share only the observer's saved-bounds
+  lifecycle.
   The area closes after its final tracked task leaves.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
-  `FULLSCREEN-LIFECYCLE-001` through `003` verify both task modes, real input
-  focus, single-task restore and close, survivor visibility, and abrupt display
-  removal.
+  `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
+  focus, single-task restore and close, direct fullscreen session launches,
+  system-Back removal, survivor visibility, and abrupt display removal.
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -701,13 +704,15 @@ task container before launching its host and starts `DesktopActivity` directly
 inside it. Keeping the session inside that container lets SystemUI place later
 caption menus and other transient task decorations above it. It also avoids a
 cross-root host transition that would resume and raise the phone control panel.
-The fullscreen MagicDesk host is the bottom task in the session area and its
-freeform windows are siblings above it. Android 16 may still create its native
-desktop wallpaper in display 0's default area, but the session child remains
-above that task instead of replacing the host. Session shutdown reparents the
-owned live tasks to the default area as fullscreen before deleting the area.
-Production launches, existing-task moves, and self-test fixtures resolve the
-same display policy.
+The fullscreen MagicDesk host is the bottom task in the session area. Its
+freeform windows and lone fullscreen tasks are siblings above it; the managed
+multi-fullscreen stack is a nested child of the same session area. Child
+cleanup therefore releases its tasks back to the session parent before the
+session itself reparents owned live tasks to Android's default area as
+fullscreen. Android 16 may still create its native desktop wallpaper in
+display 0's default area, but the session child remains above that task instead
+of replacing the host. Production launches, existing-task moves, and self-test
+fixtures resolve the same display policy.
 The shell observer also reports whether the focused phone task belongs to the
 session area. This gates the overlay taskbar without changing its normal
 fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone

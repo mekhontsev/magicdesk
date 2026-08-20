@@ -9,6 +9,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
@@ -858,6 +859,18 @@ final class DesktopSelfTestInputSuite {
                     "FULLSCREEN-LIFECYCLE-003",
                     "Keep the surviving fullscreen task focused",
                     "fullscreen close failed");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-004",
+                    "Return to the desktop after system Back",
+                    "fullscreen close failed");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-005",
+                    "Launch a fullscreen task directly in the session",
+                    "fullscreen close failed");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-006",
+                    "Return from a directly launched session fullscreen task",
+                    "fullscreen close failed");
             return;
         }
 
@@ -882,6 +895,12 @@ final class DesktopSelfTestInputSuite {
                     return "task=" + survivor.taskId
                             + "/fullscreen/visible";
                 });
+        check(result,
+                "FULLSCREEN-LIFECYCLE-004",
+                "Return to the desktop after system Back",
+                () -> finishFullscreenTaskThroughSystemBack(
+                        displayId, secondTaskId));
+        runDirectSessionFullscreenBackTest(result, displayId);
     }
 
     private static void addSkippedFullscreenLifecycleResults(
@@ -895,6 +914,103 @@ final class DesktopSelfTestInputSuite {
                 "FULLSCREEN-LIFECYCLE-003",
                 "Keep the surviving fullscreen task focused",
                 reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-004",
+                "Return to the desktop after system Back",
+                reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-005",
+                "Launch a fullscreen task directly in the session",
+                reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FULLSCREEN-LIFECYCLE-006",
+                "Return from a directly launched session fullscreen task",
+                reason);
+    }
+
+    private static void runDirectSessionFullscreenBackTest(
+            final DesktopSelfTestResult result,
+            final int displayId) {
+        if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
+                != DesktopTaskAreaPolicy.SESSION) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-005",
+                    "Launch a fullscreen task directly in the session",
+                    "the selected display does not use a session task area");
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-006",
+                    "Return from a directly launched session fullscreen task",
+                    "the selected display does not use a session task area");
+            return;
+        }
+        final String launchCode = "FULLSCREEN-LIFECYCLE-005";
+        DesktopSelfTestHostObserver.stage(launchCode);
+        final int taskId;
+        try {
+            final String token = "session-fullscreen-"
+                    + Long.toHexString(System.nanoTime());
+            final Intent intent = TaskDisplayAreaLaunchCommand
+                    .createSelfTestIntent(displayId, token, false);
+            taskId = MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
+                    displayId, intent);
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    task -> task.taskId == taskId
+                            && task.visible
+                            && "fullscreen".equals(task.windowingMode));
+            waitForFrontTask(displayId, taskId);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    launchCode,
+                    "Launch a fullscreen task directly in the session",
+                    "task=" + taskId + "/fullscreen/visible");
+        } catch (Exception error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    launchCode,
+                    "Launch a fullscreen task directly in the session",
+                    usefulMessage(error));
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "FULLSCREEN-LIFECYCLE-006",
+                    "Return from a directly launched session fullscreen task",
+                    "direct fullscreen launch failed");
+            return;
+        }
+        check(result,
+                "FULLSCREEN-LIFECYCLE-006",
+                "Return from a directly launched session fullscreen task",
+                () -> finishFullscreenTaskThroughSystemBack(
+                        displayId, taskId));
+    }
+
+    private static String finishFullscreenTaskThroughSystemBack(
+            final int displayId,
+            final int taskId) throws IOException {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        if (session.activeDisplayId() != displayId
+                || session.hostTaskId() < 0) {
+            throw new IOException("desktop host is unavailable");
+        }
+        final int hostTaskId = session.hostTaskId();
+        ShellAccess.run("/system/bin/input -d " + displayId
+                + " keyevent KEYCODE_BACK");
+        waitForTaskAbsent(taskId);
+        waitForFrontTask(displayId, hostTaskId);
+
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
+                    && DesktopRuntimeBridge.isTaskbarVisibleOnDisplay(
+                            displayId)) {
+                return "closed=" + taskId
+                        + ", host=" + hostTaskId
+                        + ", taskbar=visible";
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "desktop host returned without a visible taskbar");
     }
 
     private static String prepareFullscreenPair(
@@ -1373,16 +1489,19 @@ final class DesktopSelfTestInputSuite {
             final int displayId, final int taskId) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
+        String lastDump = "";
         do {
-            final String dump = ShellAccess.run("/system/bin/dumpsys input");
+            lastDump = ShellAccess.run("/system/bin/dumpsys input");
             if (TaskInputWindowParser.isTaskFocused(
-                    dump, displayId, taskId)) {
+                    lastDump, displayId, taskId)) {
                 return;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("input focus did not settle on task "
-                + taskId + " on display " + displayId);
+                + taskId + " on display " + displayId + "; "
+                + TaskInputWindowParser.describeFocus(
+                        lastDump, displayId));
     }
 
     private static void waitForCaptionInputFrame(

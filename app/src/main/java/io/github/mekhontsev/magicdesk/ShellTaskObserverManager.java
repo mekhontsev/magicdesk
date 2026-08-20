@@ -164,6 +164,15 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, intentUri, bounds);
     }
 
+    int launchFullscreenTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String intentUri) {
+        return requireSession(callback).observer
+                .launchFullscreenTaskInDesktopArea(
+                displayId, intentUri);
+    }
+
     void launchTaskAction(
             final ITaskObserverCallback callback,
             final int displayId,
@@ -181,6 +190,15 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect bounds) {
         requireSession(callback).observer.placeTaskInDesktopArea(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    void placeFullscreenTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) {
+        requireSession(callback).observer.placeFullscreenTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId);
     }
 
     void startSelfTestTaskStackGuard(

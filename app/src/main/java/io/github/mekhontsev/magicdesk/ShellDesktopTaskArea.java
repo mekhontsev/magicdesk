@@ -132,8 +132,52 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         return taskId;
     }
 
+    synchronized int launchFullscreen(
+            final int displayId,
+            final String intentUri) throws ReflectiveOperationException {
+        requireConfigured(displayId);
+        ensureArea();
+        final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
+                intentUri);
+        final int taskId = TaskDisplayAreaLaunchCommand.launchFullscreenTask(
+                mService,
+                displayId,
+                intent,
+                intent.getComponent().getPackageName(),
+                Class.forName("android.window.WindowContainerToken"),
+                mArea.token());
+        mOwnership.markDesktop(taskId);
+        mTaskIds.add(Integer.valueOf(taskId));
+        waitForTaskArea(taskId, mArea.featureId(), true);
+        TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                mService,
+                displayId,
+                taskId,
+                WINDOWING_MODE_FULLSCREEN);
+        return taskId;
+    }
+
     synchronized boolean manages(final int displayId) {
         return mEnabled && mDisplayId == displayId;
+    }
+
+    synchronized boolean matchesConfiguration(
+            final int displayId,
+            final boolean enabled,
+            final int hostTaskId) {
+        return mEnabled == enabled
+                && (!enabled || (mDisplayId == displayId
+                        && mHostTaskId == hostTaskId));
+    }
+
+    synchronized int childAreaParentFeatureId(final int displayId) {
+        return manages(displayId) && mArea != null
+                ? mArea.featureId() : 0;
+    }
+
+    synchronized Object childTaskParentToken(final int displayId) {
+        return manages(displayId) && mArea != null
+                ? mArea.token() : null;
     }
 
     synchronized void placeTask(
@@ -142,6 +186,41 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             final int targetDisplayId,
             final Rect bounds) throws ReflectiveOperationException {
         requireConfigured(targetDisplayId, bounds);
+        placeTaskInArea(
+                taskId,
+                sourceDisplayId,
+                WINDOWING_MODE_FREEFORM,
+                bounds,
+                false);
+        TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+                mService, targetDisplayId, taskId, bounds);
+    }
+
+    synchronized void placeFullscreenTask(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws ReflectiveOperationException {
+        requireConfigured(targetDisplayId);
+        placeTaskInArea(
+                taskId,
+                sourceDisplayId,
+                WINDOWING_MODE_FULLSCREEN,
+                new Rect(),
+                true);
+        TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                mService,
+                targetDisplayId,
+                taskId,
+                WINDOWING_MODE_FULLSCREEN);
+    }
+
+    private void placeTaskInArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int windowingMode,
+            final Rect bounds,
+            final boolean excludeCaptionInset)
+            throws ReflectiveOperationException {
         ensureArea();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 mService, sourceDisplayId, taskId);
@@ -156,7 +235,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 .invoke(
                         transaction,
                         taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
+                        Integer.valueOf(windowingMode));
         transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                 .invoke(transaction, taskToken, new Rect(bounds));
         transactionClass.getMethod(
@@ -170,16 +249,14 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 transaction,
                 tokenClass,
                 taskToken,
-                false);
-        // This transition is explicitly owned by MagicDesk. Mark it before
-        // WMShell publishes the resulting fullscreen-to-freeform change.
+                excludeCaptionInset);
+        // Mark ownership before WMShell can publish the resulting mode or
+        // parent change to the long-lived task observer.
         mOwnership.markDesktop(taskId);
         TaskFullscreenTransitionCommand.startTransition(
                 transactionClass, transaction);
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, mArea.featureId(), true);
-        TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
-                mService, targetDisplayId, taskId, bounds);
     }
 
     synchronized void onTaskRemoved(final int taskId) {
@@ -378,13 +455,17 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private void requireConfigured(
             final int displayId,
             final Rect bounds) {
+        requireConfigured(displayId);
+        if (bounds == null || bounds.isEmpty()) {
+            throw new IllegalArgumentException("invalid task bounds");
+        }
+    }
+
+    private void requireConfigured(final int displayId) {
         if (!mEnabled || displayId != mDisplayId) {
             throw new IllegalStateException(
                     "desktop task area is not configured for display "
                             + displayId);
-        }
-        if (bounds == null || bounds.isEmpty()) {
-            throw new IllegalArgumentException("invalid task bounds");
         }
         if (mHostTaskId < 0) {
             throw new IllegalStateException(

@@ -161,6 +161,14 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.bottom));
     }
 
+    int launchFullscreenTaskInDesktopArea(
+            final int displayId,
+            final String intentUri) throws IOException {
+        return callServiceForResult(() ->
+                mService.launchFullscreenTaskInDesktopArea(
+                mCallback, displayId, intentUri));
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -186,6 +194,17 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.top,
                 bounds.right,
                 bounds.bottom));
+    }
+
+    void placeFullscreenTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws IOException {
+        callService(() -> mService.placeFullscreenTaskInDesktopArea(
+                mCallback,
+                taskId,
+                sourceDisplayId,
+                targetDisplayId));
     }
 
     void startSelfTestTaskStackGuard(

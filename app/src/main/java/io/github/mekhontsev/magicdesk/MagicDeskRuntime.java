@@ -303,6 +303,11 @@ public final class MagicDeskRuntime {
         return tasks == null ? null : tasks.getVisibleFreeformTasks(displayId);
     }
 
+    static boolean isTaskObserverReady() {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks != null && tasks.isTaskObserverReady();
+    }
+
     static int launchWindowedTask(
             final int displayId,
             final Intent intent,
@@ -312,6 +317,16 @@ public final class MagicDeskRuntime {
             throw new IOException("desktop task runtime unavailable");
         }
         return tasks.launchWindowedTask(displayId, intent, bounds);
+    }
+
+    static int launchFullscreenTaskInDesktopArea(
+            final int displayId,
+            final Intent intent) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.launchFullscreenTaskInDesktopArea(displayId, intent);
     }
 
     static void launchTaskAction(
@@ -336,6 +351,18 @@ public final class MagicDeskRuntime {
         }
         tasks.placeTaskInDesktopArea(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    static void placeFullscreenTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        tasks.placeFullscreenTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId);
     }
 
     static void closeTask(

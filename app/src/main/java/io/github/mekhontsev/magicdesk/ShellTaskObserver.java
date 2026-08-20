@@ -293,7 +293,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mStateMonitor.clearConfiguration();
             // Organizer cleanup can fail on malformed vendor hierarchy. Run
             // it only after every system-wide policy has been disabled.
-            mFullscreenTaskArea.configure(Display.INVALID_DISPLAY);
+            mFullscreenTaskArea.configure(
+                    Display.INVALID_DISPLAY, 0, null);
             mDesktopTaskArea.configure(
                     Display.INVALID_DISPLAY, false, -1);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
@@ -308,15 +309,27 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + usefulMessage(error),
                     error);
         }
-        mFullscreenTaskArea.configure(displayId);
         mDesktopOwnership.configure(displayId);
         if (managedTaskArea && managedTaskAreaHostTaskId >= 0) {
             mDesktopOwnership.markDesktopHost(managedTaskAreaHostTaskId);
+        }
+        if (!mDesktopTaskArea.matchesConfiguration(
+                displayId,
+                managedTaskArea,
+                managedTaskAreaHostTaskId)) {
+            // A fullscreen stack can be nested under the phone session area.
+            // Release that child before replacing its parent.
+            mFullscreenTaskArea.configure(
+                    Display.INVALID_DISPLAY, 0, null);
         }
         mDesktopTaskArea.configure(
                 displayId,
                 managedTaskArea,
                 managedTaskAreaHostTaskId);
+        mFullscreenTaskArea.configure(
+                displayId,
+                mDesktopTaskArea.childAreaParentFeatureId(displayId),
+                mDesktopTaskArea.childTaskParentToken(displayId));
         if (!managedTaskArea) {
             mDesktopTaskAreaForeground = null;
         }
@@ -507,6 +520,30 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    int launchFullscreenTaskInDesktopArea(
+            final int displayId,
+            final String intentUri) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId
+                || !mDesktopTaskArea.manages(displayId)) {
+            throw new IllegalArgumentException(
+                    "session task area is not configured: " + displayId);
+        }
+        try {
+            final int taskId = mDesktopTaskArea.launchFullscreen(
+                    displayId, intentUri);
+            reportDesktopTaskAreaForeground(true);
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch fullscreen task: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -543,6 +580,25 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot place task in desktop area: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    void placeFullscreenTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        try {
+            mDesktopTaskArea.placeFullscreenTask(
+                    taskId, sourceDisplayId, targetDisplayId);
+            reportDesktopTaskAreaForeground(true);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot place fullscreen task in desktop area: "
                             + usefulMessage(error),
                     error);
         }
@@ -706,8 +762,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("freeform cleanup", mFreeformCleanup::close);
         closeSafely("transient bounds", mTransientBounds::close);
         closeSafely("state monitor", mStateMonitor::close);
-        closeSafely("desktop task area", mDesktopTaskArea::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
+        closeSafely("desktop task area", mDesktopTaskArea::close);
         closeSafely("self-test task stack guard",
                 mSelfTestTaskStackGuard::close);
         if (registered) {

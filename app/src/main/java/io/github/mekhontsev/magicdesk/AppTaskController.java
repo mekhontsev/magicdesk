@@ -438,6 +438,11 @@ final class AppTaskController {
             throw new IOException("no launcher activity");
         }
         launchIntent.addFlags(getFullscreenLaunchFlags());
+        if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
+                == DesktopTaskAreaPolicy.SESSION) {
+            return MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
+                    displayId, launchIntent);
+        }
         FullscreenAppLauncher.launch(launchIntent, displayId);
         return ExistingTaskController.normalizeLaunchedFullscreen(
                 app.launchTarget, displayId).taskId;

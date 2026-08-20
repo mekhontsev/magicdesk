@@ -8,8 +8,13 @@ import java.util.List;
 
 /** Task operations owned by the active process runtime. */
 interface DesktopTaskRuntime {
+    boolean isTaskObserverReady();
+
     int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
+
+    int launchFullscreenTaskInDesktopArea(
+            int displayId, Intent intent) throws IOException;
 
     void launchTaskAction(
             int displayId, int taskId, Intent intent) throws IOException;
@@ -19,6 +24,11 @@ interface DesktopTaskRuntime {
             int sourceDisplayId,
             int targetDisplayId,
             Rect bounds) throws IOException;
+
+    void placeFullscreenTaskInDesktopArea(
+            int taskId,
+            int sourceDisplayId,
+            int targetDisplayId) throws IOException;
 
     boolean closeTask(
             TaskRepository.TaskEntry task,

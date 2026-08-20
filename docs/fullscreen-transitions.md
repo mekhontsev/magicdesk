@@ -30,12 +30,14 @@ poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
 
 When an application initiates immersive mode itself, the long-lived shell task
-observer retains its freeform bounds while the task stays in the display's
-default task area. The application's own insets request updates its client
-window; retrying or rebuilding the Activity can discard transient state such as
-the browser's HTML Fullscreen API session. Keeping a lone immersive task out of
-the organizer-owned parent also preserves projection displays whose task host
-is invalidated by that reparent operation.
+observer retains its freeform bounds while the task stays directly under the
+active desktop parent. That parent is Android's default task area on external
+displays and MagicDesk's shell-owned session area on the phone. The
+application's own insets request updates its client window; retrying or
+rebuilding the Activity can discard transient state such as the browser's HTML
+Fullscreen API session. Keeping a lone immersive task out of the managed
+multi-fullscreen child also preserves projection displays whose task host is
+invalidated by that reparent operation.
 
 An orientation change can make Android report the saved freeform mode and bounds
 before WMShell has recreated the task decoration. Orientation task callbacks
@@ -51,10 +53,10 @@ partial freeform state.
 The same shell-owned visibility boundary is shared by running-task display
 moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task
 belongs to MagicDesk's fullscreen parent, a manual restore or snap reparents it
-to the display's default task area, applies freeform mode and final bounds, and
-reveals its caption in one WMShell transition. Platforms without that parent
-use the same persistent shell observer against the display's default task
-area.
+to the active desktop parent, applies freeform mode and final bounds, and
+reveals its caption in one WMShell transition. Platforms without that child
+use the same persistent shell observer directly against their active desktop
+parent.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

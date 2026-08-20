@@ -268,6 +268,88 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsHiddenPreparationDuringFullscreenCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LAUNCH", hostOnly(0, true));
+        analyzer.sample("created", fullscreen(1, false, true), true);
+
+        assertEquals(0,
+                analyzer.finish(fullscreen(2, true, false)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsVisibleFreeformDuringFullscreenCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LAUNCH", hostOnly(0, true));
+        analyzer.sample("visible-freeform", windowed(1, false), true);
+
+        assertContains(
+                analyzer.finish(fullscreen(2, true, false)),
+                "observed=display2/mode5");
+    }
+
+    @Test
+    public void acceptsDirectFullscreenRemoval() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-BACK", fullscreen(0, true, false));
+
+        assertEquals(0,
+                analyzer.finish(hostOnly(1, true)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsHiddenFullscreenBeforeRemoval() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-BACK", fullscreen(0, true, false));
+        analyzer.sample("hidden", fullscreen(1, false, true), true);
+
+        assertContains(
+                analyzer.finish(hostOnly(2, true)),
+                "became hidden before removal");
+    }
+
+    @Test
+    public void acceptsHiddenFullscreenWhileVisiblePeerSurvives() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-CLOSE", fullscreenPair(
+                0, 1, true, 1, false, false));
+        analyzer.sample("peer-visible", fullscreenPair(
+                1, 1, false, 1, true, false), true);
+
+        assertEquals(0, analyzer.finish(snapshot(
+                2,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false),
+                task(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false))).anomalies.length);
+    }
+
+    @Test
+    public void rejectsMissingHostDuringFullscreenCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LAUNCH", hostOnly(0, true));
+        analyzer.sample("host-missing", snapshot(
+                1,
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false)), true);
+
+        assertContains(
+                analyzer.finish(fullscreen(2, true, false)),
+                "desktop host is missing");
+    }
+
+    @Test
+    public void rejectsVisibilityGapDuringFullscreenCreation() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LAUNCH", hostOnly(0, true));
+        analyzer.sample("gap", fullscreen(1, false, false), true);
+
+        assertContains(
+                analyzer.finish(fullscreen(2, true, false)),
+                "no task is visible on the desktop display");
+    }
+
+    @Test
     public void acceptsDesktopHostReportedAsHomeActivity() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot = snapshot(
@@ -312,6 +394,27 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                 analyzer.finish(phoneDesktop).anomalies.length);
     }
 
+    @Test
+    public void rejectsPhoneHomeAbovePhoneDesktop() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot phoneHomeOnTop =
+                snapshot(
+                        0,
+                        task(20, 0, 1,
+                                true, false, true),
+                        task(FIXTURE_TASK_ID, 0, 1,
+                                true, true, false),
+                        task(HOST_TASK_ID, 0, 1,
+                                true, false, true));
+        analyzer.begin("FULLSCREEN-BACK", phoneHomeOnTop);
+
+        assertContains(
+                analyzer.finish(phoneHomeOnTop),
+                "Home task 20 became visible");
+    }
+
     private static SelfTestTaskStackInvariantAnalyzer analyzer() {
         return new SelfTestTaskStackInvariantAnalyzer(
                 DISPLAY_ID, HOST_TASK_ID, 0);
@@ -326,6 +429,15 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         hostVisible, false, false),
                 task(FIXTURE_TASK_ID, DISPLAY_ID, 5,
                         true, true, false));
+    }
+
+    private static SelfTestTaskStackInvariantAnalyzer.Snapshot hostOnly(
+            final long time,
+            final boolean hostVisible) {
+        return snapshot(
+                time,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        hostVisible, false, false));
     }
 
     private static SelfTestTaskStackInvariantAnalyzer.Snapshot fullscreen(

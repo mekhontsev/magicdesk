@@ -408,6 +408,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public boolean isTaskObserverReady() {
+        return mTaskWatcherRunning && mTaskWatcherReady;
+    }
+
+    @Override
     public List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
         return isActiveOnDisplay(displayId)
@@ -1055,6 +1060,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public int launchFullscreenTaskInDesktopArea(
+            final int displayId,
+            final Intent intent) throws IOException {
+        requireSessionTaskArea(displayId);
+        return mTaskWatcher.launchFullscreenTaskInDesktopArea(
+                displayId, intent);
+    }
+
+    @Override
     public void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -1072,6 +1086,16 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         requireSessionTaskArea(targetDisplayId);
         mTaskWatcher.placeTaskInDesktopArea(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
+    }
+
+    @Override
+    public void placeFullscreenTaskInDesktopArea(
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws IOException {
+        requireSessionTaskArea(targetDisplayId);
+        mTaskWatcher.placeFullscreenTaskInDesktopArea(
+                taskId, sourceDisplayId, targetDisplayId);
     }
 
     private void requireSessionTaskArea(final int displayId)

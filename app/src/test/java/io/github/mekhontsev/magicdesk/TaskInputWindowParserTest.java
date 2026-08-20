@@ -188,6 +188,11 @@ public final class TaskInputWindowParserTest {
                 TaskInputWindowParser.findFocusedTaskId(focusDump, 155));
         assertEquals(-1,
                 TaskInputWindowParser.findFocusedTaskId(focusDump, 0));
+        assertEquals(
+                "applicationTask=12, windowTask=6362, focusedWindow=true, "
+                        + "bytes=" + focusDump.length()
+                        + ", truncated=false",
+                TaskInputWindowParser.describeFocus(focusDump, 155));
     }
 
     @Test

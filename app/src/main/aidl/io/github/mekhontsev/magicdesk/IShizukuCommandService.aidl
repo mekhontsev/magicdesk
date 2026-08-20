@@ -297,4 +297,15 @@ interface IShizukuCommandService {
         int displayId,
         int taskId) = 79;
 
+    int launchFullscreenTaskInDesktopArea(
+        ITaskObserverCallback callback,
+        int displayId,
+        String intentUri) = 80;
+
+    void placeFullscreenTaskInDesktopArea(
+        ITaskObserverCallback callback,
+        int taskId,
+        int sourceDisplayId,
+        int targetDisplayId) = 81;
+
 }

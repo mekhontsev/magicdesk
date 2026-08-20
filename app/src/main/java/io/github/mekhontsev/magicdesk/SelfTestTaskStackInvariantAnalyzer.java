@@ -151,9 +151,13 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " entered display " + task.displayId);
             }
             if (task.taskId != mHostTaskId
-                    && mDisplayId != 0
                     && task.home && task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
+                if (mDisplayId == 0
+                        && !isPhoneHomeAboveDesktopContent(
+                                snapshot, task.taskId)) {
+                    continue;
+                }
                 addAnomaly("visible-home:" + mStage.name + ':' + task.taskId,
                         formatSample(reason, snapshot)
                                 + " Home task " + task.taskId
@@ -170,6 +174,28 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     formatSample(reason, snapshot)
                             + " no task is visible on the desktop display");
         }
+    }
+
+    private boolean isPhoneHomeAboveDesktopContent(
+            final Snapshot snapshot,
+            final int homeTaskId) {
+        // ActivityTaskManager returns running tasks top-first. Nubia keeps its
+        // phone HOME task marked visible below the local desktop, so visibility
+        // alone is not an error; crossing the desktop content in Z-order is.
+        for (final TaskState task : snapshot.tasks) {
+            if (task.displayId != mDisplayId
+                    || !task.visibilityKnown
+                    || !task.visible) {
+                continue;
+            }
+            if (task.taskId == homeTaskId) {
+                return true;
+            }
+            if (task.taskId == mHostTaskId || task.fixture) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private void analyzeStage(final Stage stage) {
@@ -202,6 +228,17 @@ final class SelfTestTaskStackInvariantAnalyzer {
         for (final Sample sample : stage.samples) {
             final TaskState currentState = sample.snapshot.find(taskId);
             final String current = stateKey(currentState);
+            if (becameHiddenBeforeRemoval(
+                    firstState, lastState, currentState)
+                    && !hasVisibleFullscreenFixture(sample.snapshot)) {
+                addAnomaly(
+                        "task-hidden-before-removal:"
+                                + stage.name + ':' + taskId,
+                        formatSample(sample.reason, sample.snapshot)
+                                + " task=" + taskId
+                                + " became hidden before removal");
+                return;
+            }
             if (first.equals(last)) {
                 if (!first.equals(current)) {
                     addTaskTransitionAnomaly(
@@ -224,6 +261,19 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     stage, sample, taskId, first, last, current);
             return;
         }
+    }
+
+    private static boolean becameHiddenBeforeRemoval(
+            final TaskState first,
+            final TaskState last,
+            final TaskState current) {
+        return first != null
+                && last == null
+                && current != null
+                && first.visibilityKnown
+                && first.visible
+                && current.visibilityKnown
+                && !current.visible;
     }
 
     private void addTaskTransitionAnomaly(

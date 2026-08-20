@@ -70,6 +70,16 @@ final class TaskDisplayAreaHandle {
             final int displayId,
             final Collection<Integer> ownedTaskIds)
             throws ReflectiveOperationException {
+        detachChildTasks(service, displayId, ownedTaskIds, null);
+    }
+
+    /** Reparents live child tasks to a specific parent or the default area. */
+    void detachChildTasks(
+            final Object service,
+            final int displayId,
+            final Collection<Integer> ownedTaskIds,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         if (service == null || displayId < 0
                 || ownedTaskIds == null || ownedTaskIds.isEmpty()) {
             return;
@@ -100,12 +110,14 @@ final class TaskDisplayAreaHandle {
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
         // Running tasks are returned top-first. Reparent bottom-first so their
-        // relative z-order remains unchanged in the default task area.
+        // relative z-order remains unchanged in the destination parent.
         for (int index = childTaskTokens.size() - 1; index >= 0; index--) {
             transactionClass.getMethod(
                     "reparent", tokenClass, tokenClass, Boolean.TYPE)
                     .invoke(transaction, new Object[]{
-                            childTaskTokens.get(index), null, Boolean.TRUE});
+                            childTaskTokens.get(index),
+                            targetParentToken,
+                            Boolean.TRUE});
         }
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);

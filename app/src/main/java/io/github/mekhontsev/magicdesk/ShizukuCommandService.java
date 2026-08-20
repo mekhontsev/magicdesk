@@ -348,6 +348,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public int launchFullscreenTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String intentUri) {
+        return mTaskObserverManager.launchFullscreenTaskInDesktopArea(
+                callback, displayId, intentUri);
+    }
+
+    @Override
     public void launchTaskAction(
             final ITaskObserverCallback callback,
             final int displayId,
@@ -373,6 +382,19 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 sourceDisplayId,
                 targetDisplayId,
                 new Rect(left, top, right, bottom));
+    }
+
+    @Override
+    public void placeFullscreenTaskInDesktopArea(
+            final ITaskObserverCallback callback,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) {
+        mTaskObserverManager.placeFullscreenTaskInDesktopArea(
+                callback,
+                taskId,
+                sourceDisplayId,
+                targetDisplayId);
     }
 
     @Override

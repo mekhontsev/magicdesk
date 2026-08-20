@@ -16,8 +16,8 @@ import java.util.Set;
  * Keeps a reordered stack of true fullscreen tasks in a fullscreen parent.
  *
  * <p>The dedicated parent is the invariant: reordering the same tasks in the
- * default desktop task area lets some firmware resolve them as freeform. Do
- * not replace this with a delayed fullscreen repair. See
+ * active freeform-oriented desktop parent lets some firmware resolve them as
+ * freeform. Do not replace this with a delayed fullscreen repair. See
  * {@code docs/architecture.md#keep-true-fullscreen-tasks-under-one-fullscreen-parent}.
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -36,6 +36,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private TaskDisplayAreaHandle mArea;
     private Object mAreaService;
     private int mDisplayId = -1;
+    private int mConfiguredDisplayId = -1;
+    private int mParentFeatureId = FEATURE_ROOT;
+    private Object mReleaseParentToken;
 
     ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
         if (ownership == null) {
@@ -237,10 +240,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                     tokenClass,
                     taskToken,
                     true);
-            // Keep app-requested fullscreen in the display's default task area.
-            // The dedicated parent is needed only when several fullscreen tasks
-            // are reordered; some projection displays reject a lone task moved
-            // under an organizer-created parent.
+            // Keep app-requested fullscreen directly under the active desktop
+            // parent. The dedicated child is needed only when several
+            // fullscreen tasks are reordered; some projection displays reject
+            // a lone task moved under an organizer-created child.
             TaskFullscreenTransitionCommand.startTransition(
                     transactionClass, transaction);
             mAppRestoreBounds.put(
@@ -299,7 +302,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             // Reparenting into an organizer-created task area is a hierarchy
             // change, not just a visual transition. Apply it synchronously so
             // a pending WMShell focus transition cannot leave the task in the
-            // default area and trigger the firmware's fullscreen demotion.
+            // active parent and trigger the firmware's fullscreen demotion.
             SyncWindowContainerTransaction.apply(
                     service, transactionClass, transaction);
             mTaskIds.add(Integer.valueOf(taskId));
@@ -340,7 +343,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                     mTaskIds.contains(Integer.valueOf(taskId));
             if (detachFromFullscreenParent) {
                 ShellPreparedTaskTransition.prepareDetachedFullscreen(
-                        service, displayId, taskId);
+                        service,
+                        displayId,
+                        taskId,
+                        mReleaseParentToken);
             } else {
                 ShellPreparedTaskTransition.prepareFullscreen(
                         service, displayId, taskId);
@@ -457,7 +463,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
         try {
             ShellPreparedTaskTransition.detachAndShowFreeform(
-                    service, displayId, taskId, bounds);
+                    service,
+                    displayId,
+                    taskId,
+                    bounds,
+                    mReleaseParentToken);
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
             mTaskIds.remove(Integer.valueOf(taskId));
             // The detach is part of an asynchronous WMShell transition. Keep
@@ -472,7 +482,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 // Preserve the old two-step fallback only when the atomic
                 // detach-and-restore transaction itself is unavailable.
                 ShellPreparedTaskTransition.detachFullscreenParent(
-                        service, displayId, taskId);
+                        service,
+                        displayId,
+                        taskId,
+                        mReleaseParentToken);
                 mAppRestoreBounds.remove(Integer.valueOf(taskId));
                 mTaskIds.remove(Integer.valueOf(taskId));
                 if (mTaskIds.isEmpty()) {
@@ -589,8 +602,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             close();
         }
 
+        if (mConfiguredDisplayId >= 0
+                && displayId != mConfiguredDisplayId) {
+            throw new IllegalStateException(
+                    "fullscreen parent is not configured for display "
+                            + displayId);
+        }
         final TaskDisplayAreaHandle area = TaskDisplayAreaHandle.create(
-                displayId, FEATURE_ROOT, "MagicDesk fullscreen stack");
+                displayId,
+                mParentFeatureId,
+                "MagicDesk fullscreen stack");
         final Object areaToken = area.token();
         try {
             final Class<?> tokenClass =
@@ -644,10 +665,29 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
     }
 
-    synchronized void configure(final int displayId) {
-        if (mDisplayId >= 0 && displayId != mDisplayId) {
+    synchronized void configure(
+            final int displayId,
+            final int parentFeatureId,
+            final Object releaseParentToken) {
+        if (displayId < 0) {
+            close();
+            mConfiguredDisplayId = -1;
+            mParentFeatureId = FEATURE_ROOT;
+            mReleaseParentToken = null;
+            return;
+        }
+        if (parentFeatureId < 0) {
+            throw new IllegalArgumentException(
+                    "invalid fullscreen parent feature");
+        }
+        if (mConfiguredDisplayId != displayId
+                || mParentFeatureId != parentFeatureId
+                || mReleaseParentToken != releaseParentToken) {
             close();
         }
+        mConfiguredDisplayId = displayId;
+        mParentFeatureId = parentFeatureId;
+        mReleaseParentToken = releaseParentToken;
     }
 
     @Override
@@ -669,7 +709,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 // Dynamic feature IDs are reused and can remain in stale
                 // Recents metadata. Only this area's own live task IDs are
                 // safe to inspect and detach.
-                area.detachChildTasks(service, displayId, ownedTaskIds);
+                area.detachChildTasks(
+                        service,
+                        displayId,
+                        ownedTaskIds,
+                        mReleaseParentToken);
             } catch (ReflectiveOperationException | RuntimeException error) {
                 Log.w(TAG, "could not detach fullscreen tasks before cleanup",
                         error);

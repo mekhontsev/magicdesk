@@ -429,6 +429,13 @@ final class DesktopUiGateway {
                 && activity.hasWindowFocus();
     }
 
+    boolean isTaskbarVisibleOnDisplay(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.isTaskbarVisible();
+    }
+
     boolean focusDesktopOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null

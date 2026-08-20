@@ -111,12 +111,24 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final Rect bounds) throws ReflectiveOperationException {
+        detachAndShowFreeform(service, displayId, taskId, bounds, null);
+    }
+
+    static void detachAndShowFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         applyFreeform(
                 service,
                 displayId,
                 taskId,
                 bounds,
-                FreeformApplication.DETACH_AND_SHOW_TRANSITION);
+                FreeformApplication.DETACH_AND_SHOW_TRANSITION,
+                null,
+                targetParentToken);
     }
 
     static void prepareFullscreen(
@@ -155,11 +167,21 @@ final class ShellPreparedTaskTransition {
             final Object service,
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
+        prepareDetachedFullscreen(service, displayId, taskId, null);
+    }
+
+    static void prepareDetachedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         applyPreparedFullscreen(
                 service,
                 displayId,
                 taskId,
-                FullscreenApplication.DETACH_HIDE_SYNC);
+                FullscreenApplication.DETACH_HIDE_SYNC,
+                targetParentToken);
     }
 
     static void showPreparedFullscreen(
@@ -194,11 +216,21 @@ final class ShellPreparedTaskTransition {
             final Object service,
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
+        detachFullscreenParent(service, displayId, taskId, null);
+    }
+
+    static void detachFullscreenParent(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         applyPreparedFullscreen(
                 service,
                 displayId,
                 taskId,
-                FullscreenApplication.DETACH_SYNC);
+                FullscreenApplication.DETACH_SYNC,
+                targetParentToken);
     }
 
     static void restorePreparedTask(
@@ -256,6 +288,7 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 application,
+                null,
                 null);
     }
 
@@ -266,6 +299,25 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final FreeformApplication application,
             final IBinder transitionToken)
+            throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                application,
+                transitionToken,
+                null);
+    }
+
+    private static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final FreeformApplication application,
+            final IBinder transitionToken,
+            final Object targetParentToken)
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
@@ -306,7 +358,7 @@ final class ShellPreparedTaskTransition {
             transactionClass.getMethod(
                     "reparent", tokenClass, tokenClass, Boolean.TYPE)
                     .invoke(transaction, new Object[]{
-                            taskToken, null, Boolean.TRUE});
+                            taskToken, targetParentToken, Boolean.TRUE});
         }
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
@@ -338,6 +390,17 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final FullscreenApplication application)
+            throws ReflectiveOperationException {
+        applyPreparedFullscreen(
+                service, displayId, taskId, application, null);
+    }
+
+    private static void applyPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final FullscreenApplication application,
+            final Object targetParentToken)
             throws ReflectiveOperationException {
         final boolean hidden = application == FullscreenApplication.HIDE_SYNC
                 || application == FullscreenApplication.DETACH_HIDE_SYNC;
@@ -376,7 +439,7 @@ final class ShellPreparedTaskTransition {
             transactionClass.getMethod(
                     "reparent", tokenClass, tokenClass, Boolean.TYPE)
                     .invoke(transaction, new Object[]{
-                            taskToken, null, Boolean.TRUE});
+                            taskToken, targetParentToken, Boolean.TRUE});
         } else {
             transactionClass.getMethod(
                     "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)

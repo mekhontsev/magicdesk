@@ -166,6 +166,10 @@ public final class DesktopRuntimeBridge {
         return UI.isDesktopWindowFocused(displayId);
     }
 
+    static boolean isTaskbarVisibleOnDisplay(final int displayId) {
+        return UI.isTaskbarVisibleOnDisplay(displayId);
+    }
+
     static boolean focusDesktopOnDisplay(final int displayId) {
         return UI.focusDesktopOnDisplay(displayId);
     }

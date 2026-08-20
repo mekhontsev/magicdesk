@@ -39,16 +39,9 @@ final class TaskInputWindowParser {
         }
         final String applications = section(
                 dispatcher, "FocusedApplications:", "FocusedWindows:");
-        final Matcher applicationMatcher =
-                FOCUSED_APPLICATION_PATTERN.matcher(applications);
-        boolean focusedApplication = false;
-        while (applicationMatcher.find()) {
-            if (Integer.parseInt(applicationMatcher.group(1)) == displayId
-                    && Integer.parseInt(applicationMatcher.group(2)) == taskId) {
-                focusedApplication = true;
-                break;
-            }
-        }
+        final boolean focusedApplication =
+                findFocusedApplicationTaskId(applications, displayId)
+                        == taskId;
         final String windows = section(
                 dispatcher, "FocusedWindows:", "FocusRequests:");
         final int windowTaskId = findFocusedWindowTaskId(
@@ -68,6 +61,40 @@ final class TaskInputWindowParser {
                 dispatcher,
                 section(dispatcher, "FocusedWindows:", "FocusRequests:"),
                 displayId);
+    }
+
+    static String describeFocus(final String dump, final int displayId) {
+        final String dispatcher = currentDispatcherState(dump);
+        if (dispatcher.isEmpty()) {
+            return "dispatcher=missing, bytes="
+                    + (dump == null ? 0 : dump.length());
+        }
+        final String applications = section(
+                dispatcher, "FocusedApplications:", "FocusedWindows:");
+        final int applicationTaskId =
+                findFocusedApplicationTaskId(applications, displayId);
+        final String windows = section(
+                dispatcher, "FocusedWindows:", "FocusRequests:");
+        return "applicationTask=" + applicationTaskId
+                + ", windowTask=" + findFocusedWindowTaskId(
+                        dispatcher, windows, displayId)
+                + ", focusedWindow=" + hasFocusedWindow(windows, displayId)
+                + ", bytes=" + (dump == null ? 0 : dump.length())
+                + ", truncated=" + (dump != null && dump.contains(
+                        "[MagicDesk: command output truncated]"));
+    }
+
+    private static int findFocusedApplicationTaskId(
+            final String applications,
+            final int displayId) {
+        final Matcher matcher =
+                FOCUSED_APPLICATION_PATTERN.matcher(applications);
+        while (matcher.find()) {
+            if (Integer.parseInt(matcher.group(1)) == displayId) {
+                return Integer.parseInt(matcher.group(2));
+            }
+        }
+        return -1;
     }
 
     private static int findFocusedWindowTaskId(
