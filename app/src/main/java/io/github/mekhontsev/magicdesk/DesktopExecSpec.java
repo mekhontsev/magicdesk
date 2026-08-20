@@ -1,0 +1,25 @@
+package io.github.mekhontsev.magicdesk;
+
+/** Immutable command portion of a desktop launch request. */
+final class DesktopExecSpec {
+    final DesktopExecBackend backend;
+    final String command;
+    final boolean terminal;
+
+    DesktopExecSpec(
+            final DesktopExecBackend backend,
+            final String command,
+            final boolean terminal) {
+        this.backend = backend == null
+                ? DesktopExecBackend.SHELL : backend;
+        this.command = DesktopExecCommand.normalize(command);
+        if (this.command.isEmpty()) {
+            throw new IllegalArgumentException("missing desktop Exec command");
+        }
+        this.terminal = terminal;
+    }
+
+    DesktopExecSpec withCommand(final String value) {
+        return new DesktopExecSpec(backend, value, terminal);
+    }
+}

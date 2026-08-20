@@ -82,6 +82,7 @@ public final class FileManagerActivity extends Activity
     private ShellDirectoryObserverHandle mDirectoryObserver;
     private int mDirectoryObserverGeneration;
     private FileOpenWithController mOpenWith;
+    private DesktopLaunchCoordinator mLaunchCoordinator;
     private PopupWindow mItemMenu;
     private OnBackInvokedCallback mBackCallback;
     private String mCurrentPath = DEFAULT_PATH;
@@ -147,6 +148,8 @@ public final class FileManagerActivity extends Activity
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
         mOpenWith = new FileOpenWithController(this);
+        mLaunchCoordinator = new DesktopLaunchCoordinator(
+                new StandaloneDesktopLaunchContext(this));
         mOperations = new FileManagerOperationController(
                 this,
                 new FileManagerOperationController.Listener() {
@@ -534,23 +537,8 @@ public final class FileManagerActivity extends Activity
             }
             return;
         }
-        if (StandaloneDesktopExecLauncher.launch(
-                this, shortcut, displayId)) {
-            return;
-        }
-        final Intent intent = shortcut.resolveIntent(getPackageManager());
-        if (intent == null) {
+        if (!mLaunchCoordinator.launchShortcut(shortcut)) {
             mView.setStatus(getString(R.string.desktop_shortcut_unavailable));
-            return;
-        }
-        try {
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            options.setLaunchDisplayId(displayId);
-            startActivity(intent, options.toBundle());
-        } catch (RuntimeException error) {
-            mView.setStatus(getString(
-                    R.string.file_manager_open_failed,
-                    ShellAccess.usefulMessage(error)));
         }
     }
 

@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 
@@ -21,43 +20,6 @@ final class TermuxX11Integration {
 
     static boolean isAvailable(final Context context) {
         return TermuxIntegration.isInstalled(context) && isInstalled(context);
-    }
-
-    static boolean handlesDefaultLaunch(
-            final Context context,
-            final AppItem app) {
-        return app != null
-                && PACKAGE_NAME.equals(app.packageName)
-                && isAvailable(context);
-    }
-
-    static boolean ensureRunCommandPermission(final Activity activity) {
-        return TermuxIntegration.ensureRunCommandPermission(activity);
-    }
-
-    static void startOrReconnect(final Activity activity) {
-        startOrReconnect(
-                activity,
-                MagicDeskSettings.load().termuxX11StartupCommand);
-    }
-
-    static void startOrReconnect(
-            final Activity activity,
-            final String command) {
-        TermuxIntegration.runBackgroundShellCommand(
-                activity,
-                TermuxX11StartupCommand.startOrReconnect(command),
-                "MagicDesk Termux:X11");
-    }
-
-    static boolean handlesExecLaunch(
-            final AppItem app,
-            final DesktopApplicationShortcut shortcut) {
-        return app != null
-                && PACKAGE_NAME.equals(app.packageName)
-                && shortcut != null
-                && shortcut.hasExecLaunch()
-                && shortcut.execBackend == DesktopExecBackend.TERMUX;
     }
 
     static String diagnostics(final Context context) {

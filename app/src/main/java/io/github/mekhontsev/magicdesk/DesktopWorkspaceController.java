@@ -245,8 +245,9 @@ final class DesktopWorkspaceController {
             if (shortcut != null
                     && app.launchTarget.equals(shortcut.launchTarget)
                     && (shortcut.defaultLaunch
-                            || TermuxX11Integration.handlesExecLaunch(
-                                    app, shortcut))) {
+                            || DesktopLaunchIntegrationRegistry
+                                    .isDefaultShortcut(
+                                            mActivity, app, shortcut))) {
                 return file;
             }
         }
@@ -261,21 +262,11 @@ final class DesktopWorkspaceController {
         if (app == null || intent == null) {
             return;
         }
-        final DesktopApplicationShortcut shortcut;
-        if (defaultLaunch
-                && TermuxX11Integration.handlesDefaultLaunch(
-                        mActivity, app)) {
-            shortcut = new DesktopApplicationShortcut(
-                    name,
-                    app.packageName,
-                    MagicDeskSettings.load().termuxX11StartupCommand,
-                    app.launchTarget,
-                    "",
-                    DesktopLaunchMode.AUTO,
-                    false,
-                    DesktopExecBackend.TERMUX,
-                    false);
-        } else {
+        DesktopApplicationShortcut shortcut = defaultLaunch
+                ? DesktopLaunchIntegrationRegistry.defaultShortcut(
+                        mActivity, app, name)
+                : null;
+        if (shortcut == null) {
             final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
             shortcut = new DesktopApplicationShortcut(
                     name,
@@ -288,10 +279,11 @@ final class DesktopWorkspaceController {
                     DesktopExecBackend.SHELL,
                     false);
         }
+        final DesktopApplicationShortcut createdShortcut = shortcut;
         mFolder.createApplicationShortcut(shortcut, created ->
                 mActivity.setStatus(mActivity.getString(
                         R.string.status_desktop_shortcut_added,
-                        shortcut.name)));
+                        createdShortcut.name)));
     }
 
     private void deleteApplicationShortcut(

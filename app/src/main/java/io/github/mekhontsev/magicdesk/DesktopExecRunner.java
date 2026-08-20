@@ -31,6 +31,21 @@ final class DesktopExecRunner {
     private DesktopExecRunner() {
     }
 
+    static StartResult prepareBackend(
+            final Activity activity,
+            final DesktopExecBackend backend) {
+        if (backend == DesktopExecBackend.TERMUX) {
+            if (!TermuxIntegration.isInstalled(activity)) {
+                return StartResult.UNAVAILABLE;
+            }
+            return TermuxIntegration.ensureRunCommandPermission(activity)
+                    ? StartResult.STARTED
+                    : StartResult.PERMISSION_REQUESTED;
+        }
+        return ShellAccess.isReady()
+                ? StartResult.STARTED : StartResult.UNAVAILABLE;
+    }
+
     static StartResult runBackground(
             final Activity activity,
             final DesktopExecBackend backend,
@@ -41,13 +56,11 @@ final class DesktopExecRunner {
         if (prepared.isEmpty()) {
             return StartResult.UNAVAILABLE;
         }
+        final StartResult availability = prepareBackend(activity, backend);
+        if (availability != StartResult.STARTED) {
+            return availability;
+        }
         if (backend == DesktopExecBackend.TERMUX) {
-            if (!TermuxIntegration.isInstalled(activity)) {
-                return StartResult.UNAVAILABLE;
-            }
-            if (!TermuxIntegration.ensureRunCommandPermission(activity)) {
-                return StartResult.PERMISSION_REQUESTED;
-            }
             try {
                 TermuxIntegration.runBackgroundShellCommand(
                         activity, prepared, label);
@@ -56,9 +69,6 @@ final class DesktopExecRunner {
                 notifyCompletion(activity, completion, null, error);
                 return StartResult.STARTED;
             }
-        }
-        if (!ShellAccess.isReady()) {
-            return StartResult.UNAVAILABLE;
         }
         SHELL_COMMANDS.execute(() -> {
             try {
@@ -77,11 +87,13 @@ final class DesktopExecRunner {
             final String command,
             final String label) {
         final String prepared = DesktopExecCommand.prepare(command);
-        if (prepared.isEmpty() || !TermuxIntegration.isInstalled(activity)) {
+        if (prepared.isEmpty()) {
             return StartResult.UNAVAILABLE;
         }
-        if (!TermuxIntegration.ensureRunCommandPermission(activity)) {
-            return StartResult.PERMISSION_REQUESTED;
+        final StartResult availability = prepareBackend(
+                activity, DesktopExecBackend.TERMUX);
+        if (availability != StartResult.STARTED) {
+            return availability;
         }
         TermuxIntegration.runForegroundShellCommand(
                 activity, prepared, label);

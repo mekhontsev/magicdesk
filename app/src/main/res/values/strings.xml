@@ -495,6 +495,7 @@
     <string name="status_desktop_exec_complete">Finished %1$s</string>
     <string name="status_desktop_exec_unavailable">No execution backend is available for %1$s</string>
     <string name="status_desktop_exec_failed">Could not run %1$s</string>
+    <string name="status_desktop_launch_unavailable">Could not open %1$s</string>
     <string name="settings_taskbar_auto_hide">Automatically hide taskbar</string>
     <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>

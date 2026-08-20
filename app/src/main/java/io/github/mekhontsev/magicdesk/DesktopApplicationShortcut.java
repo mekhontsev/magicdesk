@@ -1,11 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-
-import java.net.URISyntaxException;
 
 /** Type=Application entry with an Android launch descriptor. */
 final class DesktopApplicationShortcut extends DesktopEntry {
@@ -60,30 +56,10 @@ final class DesktopApplicationShortcut extends DesktopEntry {
         if (intentUri.isEmpty()) {
             return null;
         }
-        final Intent intent;
-        try {
-            intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME);
-        } catch (URISyntaxException | RuntimeException error) {
+        if (launchTarget == null) {
             return null;
         }
-        if (intent.getComponent() == null && launchTarget != null) {
-            if (!launchTarget.activityClassName.isEmpty()) {
-                intent.setClassName(
-                        launchTarget.packageName,
-                        launchTarget.activityClassName);
-            } else if (intent.getPackage() == null) {
-                intent.setPackage(launchTarget.packageName);
-            }
-        }
-        if (intent.getComponent() == null && packageManager != null) {
-            final ResolveInfo resolved = packageManager.resolveActivity(
-                    intent, PackageManager.MATCH_DEFAULT_ONLY);
-            if (resolved != null && resolved.activityInfo != null) {
-                intent.setComponent(new ComponentName(
-                        resolved.activityInfo.packageName,
-                        resolved.activityInfo.name));
-            }
-        }
-        return intent.getComponent() == null ? null : intent;
+        return AndroidLaunchSpec.intent(
+                launchTarget, intentUri).resolve(packageManager);
     }
 }
