@@ -459,53 +459,17 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             return;
         }
         try {
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass = Class.forName(
-                    "android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
-            boolean hasTasks = false;
-            final Set<Integer> taskIds = new LinkedHashSet<>(mTaskIds);
+            final Set<Integer> ownedTaskIds = new LinkedHashSet<>(mTaskIds);
             if (mHostTaskId >= 0) {
-                taskIds.add(Integer.valueOf(mHostTaskId));
+                ownedTaskIds.add(Integer.valueOf(mHostTaskId));
             }
-            for (final Integer taskId : taskIds) {
-                final Object task = HiddenTaskApi.findTask(
-                        mService, mDisplayId, taskId.intValue());
-                if (task == null) {
-                    continue;
-                }
-                final Object taskToken = HiddenTaskApi.requireTaskToken(
-                        mService, mDisplayId, taskId.intValue());
-                transactionClass.getMethod(
-                        "setWindowingMode", tokenClass, Integer.TYPE)
-                        .invoke(
-                                transaction,
-                                taskToken,
-                                Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-                transactionClass.getMethod(
-                        "setBounds", tokenClass, Rect.class)
-                        .invoke(transaction, taskToken, new Rect());
-                transactionClass.getMethod(
-                        "setForceTranslucent", tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, Boolean.FALSE);
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, null, Boolean.FALSE);
-                TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                        transactionClass,
-                        transaction,
-                        tokenClass,
-                        taskToken,
-                        true);
-                hasTasks = true;
-            }
-            if (hasTasks) {
-                SyncWindowContainerTransaction.applyAsync(
-                        mService, transactionClass, transaction);
-                waitForTasksOutsideArea(taskIds, area.featureId());
-            }
+            final Set<Integer> childTaskIds = findOwnedChildTaskIds(
+                    area.featureId(), ownedTaskIds);
+            normalizeChildTasks(childTaskIds);
+            // Keep mode changes separate from hierarchy changes. Combining
+            // them can make vendor WMS compare a task against an area whose
+            // parent has already changed within the same transaction.
+            area.detachChildTasks(mService, mDisplayId, childTaskIds);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not release desktop task area", error);
         } finally {
@@ -518,6 +482,60 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                         + " feature=" + area.featureId());
             }
         }
+    }
+
+    private Set<Integer> findOwnedChildTaskIds(
+            final int featureId,
+            final Set<Integer> ownedTaskIds)
+            throws ReflectiveOperationException {
+        final Set<Integer> childTaskIds = new LinkedHashSet<>();
+        for (final Object task : HiddenTaskApi.getTasks(mService, mDisplayId)) {
+            final Integer taskId = Integer.valueOf(
+                    HiddenTaskApi.getIntField(task, "taskId"));
+            if (ownedTaskIds.contains(taskId)
+                    && HiddenTaskApi.getIntField(
+                            task, "displayAreaFeatureId") == featureId) {
+                childTaskIds.add(taskId);
+            }
+        }
+        return childTaskIds;
+    }
+
+    private void normalizeChildTasks(final Set<Integer> childTaskIds)
+            throws ReflectiveOperationException {
+        if (childTaskIds.isEmpty()) {
+            return;
+        }
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        for (final Integer taskId : childTaskIds) {
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    mService, mDisplayId, taskId.intValue());
+            transactionClass.getMethod(
+                    "setWindowingMode", tokenClass, Integer.TYPE)
+                    .invoke(
+                            transaction,
+                            taskToken,
+                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            transactionClass.getMethod(
+                    "setBounds", tokenClass, Rect.class)
+                    .invoke(transaction, taskToken, new Rect());
+            transactionClass.getMethod(
+                    "setForceTranslucent", tokenClass, Boolean.TYPE)
+                    .invoke(transaction, taskToken, Boolean.FALSE);
+            TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                    transactionClass,
+                    transaction,
+                    tokenClass,
+                    taskToken,
+                    true);
+        }
+        SyncWindowContainerTransaction.apply(
+                mService, transactionClass, transaction);
     }
 
     private void waitForTaskArea(
@@ -547,32 +565,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         throw new IllegalStateException(
                 "task " + taskId + " did not reach display area "
                         + featureId + "; observed=" + observedFeatureId);
-    }
-
-    private void waitForTasksOutsideArea(
-            final Set<Integer> taskIds,
-            final int featureId) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + HIERARCHY_TIMEOUT_MILLIS;
-        do {
-            boolean allOutside = true;
-            for (final Integer taskId : taskIds) {
-                final Object task = HiddenTaskApi.findTask(
-                        mService, mDisplayId, taskId.intValue());
-                if (task != null
-                        && HiddenTaskApi.getIntField(
-                                task, "displayAreaFeatureId") == featureId) {
-                    allOutside = false;
-                    break;
-                }
-            }
-            if (allOutside) {
-                return;
-            }
-            SystemClock.sleep(HIERARCHY_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IllegalStateException(
-                "desktop tasks did not leave display area " + featureId);
     }
 
     private void waitForTasksRemoved(final List<Integer> taskIds)
