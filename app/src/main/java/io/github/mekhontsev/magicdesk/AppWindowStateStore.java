@@ -7,25 +7,25 @@ final class AppWindowStateStore {
     private AppWindowStateStore() {
     }
 
-    static AppWindowState load(final String packageName) {
-        if (!PackageNameValidator.isSafe(packageName)) {
+    static AppWindowState load(final String stateKey) {
+        if (!isSafeStateKey(stateKey)) {
             return null;
         }
         return DesktopStateStore.read(
-                state -> state.appWindows.get(packageName), null);
+                state -> state.appWindows.get(stateKey), null);
     }
 
     static boolean rememberMode(
-            final String packageName,
+            final String stateKey,
             final AppWindowState.Mode mode) {
-        if (!PackageNameValidator.isSafe(packageName) || mode == null) {
+        if (!isSafeStateKey(stateKey) || mode == null) {
             return false;
         }
         return DesktopStateStore.update(state -> {
             final AppWindowState current =
-                    state.appWindows.get(packageName);
+                    state.appWindows.get(stateKey);
             state.appWindows.put(
-                    packageName,
+                    stateKey,
                     current == null
                             ? new AppWindowState(mode, null)
                             : current.withMode(mode));
@@ -41,7 +41,7 @@ final class AppWindowStateStore {
                 new LinkedHashMap<>();
         for (final Map.Entry<String, RelativeWindowBounds> entry
                 : boundsByPackage.entrySet()) {
-            if (PackageNameValidator.isSafe(entry.getKey())
+            if (isSafeStateKey(entry.getKey())
                     && entry.getValue() != null) {
                 snapshot.put(entry.getKey(), entry.getValue());
             }
@@ -66,13 +66,18 @@ final class AppWindowStateStore {
     }
 
     static boolean rememberWindowed(
-            final String packageName,
+            final String stateKey,
             final RelativeWindowBounds bounds) {
-        if (!PackageNameValidator.isSafe(packageName) || bounds == null) {
+        if (!isSafeStateKey(stateKey) || bounds == null) {
             return false;
         }
         return DesktopStateStore.update(state -> state.appWindows.put(
-                packageName,
+                stateKey,
                 new AppWindowState(AppWindowState.Mode.WINDOWED, bounds)));
+    }
+
+    static boolean isSafeStateKey(final String stateKey) {
+        return PackageNameValidator.isSafe(stateKey)
+                || BuiltInDesktopAppCatalog.isAppIdentityKey(stateKey);
     }
 }

@@ -41,24 +41,21 @@ final class DesktopPreferences {
         });
     }
 
-    static List<String> recentPackages(final Context context) {
-        return decodeRecentPackages(preferences(context).getString(
+    static List<String> recentAppKeys(final Context context) {
+        return decodeRecentAppKeys(preferences(context).getString(
                 PREF_RECENT_PACKAGES, ""));
     }
 
-    static synchronized boolean recordRecentPackage(
+    static synchronized boolean recordRecentApp(
             final Context context,
-            final String packageName) {
+            final String appKey) {
         if (context == null
-                || !PackageNameValidator.isSafe(packageName)
-                || context.getPackageName().equals(packageName)
-                || context.getPackageManager()
-                        .getLaunchIntentForPackage(packageName) == null) {
+                || !isLaunchableAppKey(context, appKey)) {
             return false;
         }
-        final List<String> previous = recentPackages(context);
-        final List<String> updated = updateRecentPackages(
-                previous, packageName, MAX_RECENT_PACKAGES);
+        final List<String> previous = recentAppKeys(context);
+        final List<String> updated = updateRecentAppKeys(
+                previous, appKey, MAX_RECENT_PACKAGES);
         if (updated.equals(previous)) {
             return false;
         }
@@ -68,13 +65,13 @@ final class DesktopPreferences {
         return true;
     }
 
-    static List<String> updateRecentPackages(
+    static List<String> updateRecentAppKeys(
             final List<String> previous,
-            final String packageName,
+            final String appKey,
             final int limit) {
         final List<String> updated = new ArrayList<>();
-        if (packageName != null && packageName.length() > 0 && limit > 0) {
-            updated.add(packageName);
+        if (appKey != null && appKey.length() > 0 && limit > 0) {
+            updated.add(appKey);
         }
         if (previous != null) {
             for (final String candidate : previous) {
@@ -102,12 +99,33 @@ final class DesktopPreferences {
         return encoded.toString();
     }
 
-    private static List<String> decodeRecentPackages(final String encoded) {
-        final List<String> packages = decodePackages(encoded);
-        if (packages.size() > MAX_RECENT_PACKAGES) {
-            return new ArrayList<>(packages.subList(0, MAX_RECENT_PACKAGES));
+    private static List<String> decodeRecentAppKeys(final String encoded) {
+        final List<String> appKeys = new ArrayList<>();
+        if (encoded != null && encoded.length() > 0) {
+            for (final String appKey : encoded.split("\\n")) {
+                if ((PackageNameValidator.isSafe(appKey)
+                        || BuiltInDesktopAppCatalog.isAppIdentityKey(appKey))
+                        && !appKeys.contains(appKey)) {
+                    appKeys.add(appKey);
+                }
+            }
         }
-        return packages;
+        if (appKeys.size() > MAX_RECENT_PACKAGES) {
+            return new ArrayList<>(appKeys.subList(0, MAX_RECENT_PACKAGES));
+        }
+        return appKeys;
+    }
+
+    private static boolean isLaunchableAppKey(
+            final Context context,
+            final String appKey) {
+        if (BuiltInDesktopAppCatalog.isAppIdentityKey(appKey)) {
+            return true;
+        }
+        return PackageNameValidator.isSafe(appKey)
+                && !context.getPackageName().equals(appKey)
+                && context.getPackageManager()
+                        .getLaunchIntentForPackage(appKey) != null;
     }
 
     private static List<String> decodePackages(final String encoded) {

@@ -34,7 +34,10 @@ final class ShellTaskStateMonitor implements Closeable {
                 int currentMode,
                 int previousCaptionSourceId);
         void onFreeformBoundsChanged(
-                int taskId, String packageName, int displayId, Rect bounds);
+                int taskId,
+                String stateKey,
+                int displayId,
+                Rect bounds);
         void onError(String error);
     }
 
@@ -87,7 +90,6 @@ final class ShellTaskStateMonitor implements Closeable {
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
-
     private final Object mService;
     private final ActivityManager mActivityManager;
     private final Field mTopActivityInfo;
@@ -446,35 +448,42 @@ final class ShellTaskStateMonitor implements Closeable {
             final List<TaskWindowState> states) {
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Set<Integer> visibleTaskIds = new HashSet<>();
-        final Set<String> observedPackages = new HashSet<>();
+        final Set<String> observedStateKeys = new HashSet<>();
         final Map<Integer, Integer> windowingModes = new HashMap<>();
         final Map<Integer, FreeformBoundsState> freeformBounds =
                 new HashMap<>();
         for (final TaskWindowState state : states) {
             if (state.activityType != ACTIVITY_TYPE_STANDARD
                     || !PackageNameValidator.isSafe(state.packageName)
-                    || MAGICDESK_PACKAGE.equals(state.packageName)
                     || (state.topPackage != null
                             && !state.packageName.equals(state.topPackage))) {
                 continue;
             }
+            final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
+                    state.packageName,
+                    state.rootComponent == null
+                            ? null
+                            : state.rootComponent.flattenToString());
+            if (!AppWindowStateStore.isSafeStateKey(stateKey)) {
+                continue;
+            }
             final Integer taskKey = Integer.valueOf(state.taskId);
+            if (state.windowingMode == WINDOWING_MODE_FREEFORM
+                    && state.visible
+                    && !state.bounds.isEmpty()
+                    && observedStateKeys.add(stateKey)) {
+                freeformBounds.put(
+                        taskKey,
+                        new FreeformBoundsState(stateKey, state.bounds));
+            }
+            if (MAGICDESK_PACKAGE.equals(state.packageName)) {
+                continue;
+            }
             liveTaskIds.add(taskKey);
             windowingModes.put(
                     taskKey, Integer.valueOf(state.windowingMode));
             if (state.visible) {
                 visibleTaskIds.add(taskKey);
-            }
-            if (state.windowingMode != WINDOWING_MODE_FREEFORM
-                    || !visibleTaskIds.contains(taskKey)) {
-                continue;
-            }
-            if (!state.bounds.isEmpty()
-                    && observedPackages.add(state.packageName)) {
-                freeformBounds.put(
-                        taskKey,
-                        new FreeformBoundsState(
-                                state.packageName, state.bounds));
             }
         }
 
@@ -562,7 +571,7 @@ final class ShellTaskStateMonitor implements Closeable {
         for (final FreeformBoundsEvent event : boundsChanges) {
             mListener.onFreeformBoundsChanged(
                     event.taskId,
-                    event.state.packageName,
+                    event.state.stateKey,
                     displayId,
                     event.state.bounds);
         }
@@ -647,13 +656,13 @@ final class ShellTaskStateMonitor implements Closeable {
     }
 
     private static final class FreeformBoundsState {
-        final String packageName;
+        final String stateKey;
         final Rect bounds;
 
         FreeformBoundsState(
-                final String packageName,
+                final String observedStateKey,
                 final Rect bounds) {
-            this.packageName = packageName;
+            stateKey = observedStateKey;
             this.bounds = new Rect(bounds);
         }
 
@@ -667,13 +676,13 @@ final class ShellTaskStateMonitor implements Closeable {
             }
             final FreeformBoundsState state =
                     (FreeformBoundsState) other;
-            return packageName.equals(state.packageName)
+            return stateKey.equals(state.stateKey)
                     && bounds.equals(state.bounds);
         }
 
         @Override
         public int hashCode() {
-            return 31 * packageName.hashCode() + bounds.hashCode();
+            return 31 * stateKey.hashCode() + bounds.hashCode();
         }
     }
 

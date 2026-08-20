@@ -48,4 +48,44 @@ public final class AppWindowStateStoreTest {
                         AppWindowState.Mode.FULLSCREEN, updatedBounds),
                 AppWindowStateStore.load("example.application"));
     }
+
+    @Test
+    public void builtInWindowsKeepIndependentBounds() {
+        final String[] encoded = {""};
+        final DesktopStateStore.Storage storage =
+                new DesktopStateStore.Storage() {
+
+                    @Override
+                    public String read() {
+                        return encoded[0];
+                    }
+
+                    @Override
+                    public void write(final String value) {
+                        encoded[0] = value;
+                    }
+                };
+        DesktopStateStore.useStorageForTests(storage);
+        final String filesKey = BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.filesTarget());
+        final String consoleKey = BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.consoleTarget());
+        final RelativeWindowBounds filesBounds =
+                new RelativeWindowBounds(2000, 3000, 5000, 6000);
+        final RelativeWindowBounds consoleBounds =
+                new RelativeWindowBounds(4000, 1000, 4500, 7000);
+
+        assertTrue(AppWindowStateStore.rememberWindowBounds(
+                Collections.singletonMap(filesKey, filesBounds)));
+        assertTrue(AppWindowStateStore.rememberWindowBounds(
+                Collections.singletonMap(consoleKey, consoleBounds)));
+        DesktopStateStore.useStorageForTests(storage);
+
+        assertEquals(
+                filesBounds,
+                AppWindowStateStore.load(filesKey).windowBounds);
+        assertEquals(
+                consoleBounds,
+                AppWindowStateStore.load(consoleKey).windowBounds);
+    }
 }

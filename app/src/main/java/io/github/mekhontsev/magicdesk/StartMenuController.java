@@ -570,10 +570,10 @@ final class StartMenuController {
             return result;
         }
         if (mMode == MENU_RECENT) {
-            for (final String packageName :
-                    DesktopPreferences.recentPackages(mActivity)) {
-                final AppItem app = LauncherAppRepository.find(
-                        launcherApps, packageName);
+            for (final String appKey :
+                    DesktopPreferences.recentAppKeys(mActivity)) {
+                final AppItem app = LauncherAppRepository.findByIdentityKey(
+                        launcherApps, appKey);
                 if (app != null) {
                     result.add(app);
                 }

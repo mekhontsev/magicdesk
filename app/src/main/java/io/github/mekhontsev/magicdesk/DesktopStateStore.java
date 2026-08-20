@@ -372,9 +372,9 @@ final class DesktopStateStore {
         final JSONObject json = new JSONObject();
         for (final Map.Entry<String, AppWindowState> entry
                 : appWindows.entrySet()) {
-            final String packageName = entry.getKey();
+            final String stateKey = entry.getKey();
             final AppWindowState state = entry.getValue();
-            if (!PackageNameValidator.isSafe(packageName)
+            if (!AppWindowStateStore.isSafeStateKey(stateKey)
                     || state == null
                     || (state.mode == null
                             && state.windowBounds == null)) {
@@ -393,7 +393,7 @@ final class DesktopStateStore {
                 bounds.put(state.windowBounds.height);
                 value.put("bounds", bounds);
             }
-            json.put(packageName, value);
+            json.put(stateKey, value);
         }
         return json;
     }
@@ -406,9 +406,10 @@ final class DesktopStateStore {
         }
         final java.util.Iterator<String> keys = json.keys();
         while (keys.hasNext()) {
-            final String packageName = keys.next();
-            final JSONObject value = json.optJSONObject(packageName);
-            if (!PackageNameValidator.isSafe(packageName) || value == null) {
+            final String stateKey = keys.next();
+            final JSONObject value = json.optJSONObject(stateKey);
+            if (!AppWindowStateStore.isSafeStateKey(stateKey)
+                    || value == null) {
                 continue;
             }
             final String encodedMode = value.optString("mode", "");
@@ -436,7 +437,7 @@ final class DesktopStateStore {
             if (mode == null && bounds == null) {
                 continue;
             }
-            destination.put(packageName, new AppWindowState(mode, bounds));
+            destination.put(stateKey, new AppWindowState(mode, bounds));
         }
     }
 

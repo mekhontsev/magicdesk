@@ -49,14 +49,13 @@ final class AppTaskController {
 
     /** Runs {@code onPrepared} only after the target task is ready for use. */
     void launchDefault(final AppItem app, final Runnable onPrepared) {
-        final AppWindowState saved = remembersWindowState(app)
-                ? AppWindowStateStore.load(app.packageName) : null;
+        final AppWindowState saved = savedWindowState(app);
         Log.i(TAG, "launch default package=" + app.packageName
                 + " canFloat=" + app.canFloat
                 + " fullscreenReason=" + app.fullscreenReason
                 + " display=" + mActivity.getCurrentDisplayId());
         if (saved != null
-                && saved.mode == AppWindowState.Mode.WINDOWED
+                && saved.shouldLaunchWindowed()
                 && canControlWindowing()) {
             launchFloating(
                     app,
@@ -95,8 +94,7 @@ final class AppTaskController {
             final DesktopLaunchMode mode,
             final Runnable onPrepared) {
         if (mode == DesktopLaunchMode.WINDOWED) {
-            final AppWindowState saved = remembersWindowState(app)
-                    ? AppWindowStateStore.load(app.packageName) : null;
+            final AppWindowState saved = savedWindowState(app);
             launchFloating(
                     app,
                     true,
@@ -120,10 +118,9 @@ final class AppTaskController {
         if (app == null || shortcut == null) {
             return;
         }
-        final AppWindowState saved = remembersWindowState(app)
-                ? AppWindowStateStore.load(app.packageName) : null;
+        final AppWindowState saved = savedWindowState(app);
         if (saved != null
-                && saved.mode == AppWindowState.Mode.WINDOWED
+                && saved.shouldLaunchWindowed()
                 && canControlWindowing()) {
             launchShortcutWindowed(
                     app, shortcut, true, saved.windowBounds);
@@ -175,8 +172,7 @@ final class AppTaskController {
                 app.icon,
                 intent);
         if (shortcut.launchMode == DesktopLaunchMode.WINDOWED) {
-            final AppWindowState saved = remembersWindowState(app)
-                    ? AppWindowStateStore.load(app.packageName) : null;
+            final AppWindowState saved = savedWindowState(app);
             launchShortcutWindowed(
                     app,
                     action,
@@ -307,6 +303,12 @@ final class AppTaskController {
         final int displayId = mActivity.getCurrentDisplayId();
         final boolean multipleWindows =
                 BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget);
+        final AppWindowState saved =
+                BuiltInDesktopAppCatalog.remembersWindowState(launchTarget)
+                        ? AppWindowStateStore.load(
+                                BuiltInDesktopAppCatalog.appIdentityKey(
+                                        launchTarget))
+                        : null;
         if (!canControlWindowing()) {
             final ActivityOptions options = ActivityOptions.makeBasic();
             options.setLaunchDisplayId(displayId);
@@ -327,7 +329,10 @@ final class AppTaskController {
                 launchTarget,
                 label,
                 true,
-                BuiltInDesktopAppCatalog.defaultWindowBounds(launchTarget),
+                saved != null && saved.windowBounds != null
+                        ? saved.windowBounds
+                        : BuiltInDesktopAppCatalog.defaultWindowBounds(
+                                launchTarget),
                 multipleWindows
                         ? WindowedAppLauncher.TaskReusePolicy.CREATE_NEW
                         : WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
@@ -337,8 +342,7 @@ final class AppTaskController {
     private void launchFloating(
             final AppItem app,
             final boolean explicitWindowed) {
-        final AppWindowState saved = remembersWindowState(app)
-                ? AppWindowStateStore.load(app.packageName) : null;
+        final AppWindowState saved = savedWindowState(app);
         launchFloating(
                 app,
                 explicitWindowed,
@@ -381,7 +385,7 @@ final class AppTaskController {
                 && existingTask.isFreeform()) {
             if (explicitWindowed && remembersWindowState(app)) {
                 AppWindowStateStore.rememberMode(
-                        app.packageName,
+                        windowStateKey(app),
                         AppWindowState.Mode.WINDOWED);
             }
             focusTaskOnSuccess(app, existingTask, onPrepared);
@@ -406,7 +410,7 @@ final class AppTaskController {
                 (displayId, taskId) -> {
                     if (explicitWindowed && remembersWindowState(app)) {
                         AppWindowStateStore.rememberMode(
-                                app.packageName,
+                                windowStateKey(app),
                                 AppWindowState.Mode.WINDOWED);
                     }
                     runIfPresent(onPrepared);
@@ -516,7 +520,7 @@ final class AppTaskController {
             }
             if (rememberMode && remembersWindowState(app)) {
                 AppWindowStateStore.rememberMode(
-                        app.packageName,
+                        windowStateKey(app),
                         AppWindowState.Mode.FULLSCREEN);
             }
             MagicDeskRuntime.finishFullscreenTransition(
@@ -796,7 +800,7 @@ final class AppTaskController {
                         if (result.success) {
                             if (remembersWindowState(app)) {
                                 AppWindowStateStore.rememberMode(
-                                        app.packageName,
+                                        windowStateKey(app),
                                         AppWindowState.Mode.FULLSCREEN);
                             }
                             mActivity.setTaskbarVisible(false);
@@ -829,7 +833,9 @@ final class AppTaskController {
                             task.displayId));
             if (bounds != null) {
                 AppWindowStateStore.rememberWindowBounds(
-                        Collections.singletonMap(task.packageName, bounds));
+                        Collections.singletonMap(
+                                BuiltInDesktopAppCatalog.appIdentityKey(task),
+                                bounds));
             }
         } catch (IOException ignored) {
             // The runtime task observer will capture the bounds when available.
@@ -889,12 +895,20 @@ final class AppTaskController {
 
     private static RelativeWindowBounds savedWindowBounds(
             final AppItem app) {
-        if (!remembersWindowState(app)) {
-            return null;
-        }
-        final AppWindowState state =
-                AppWindowStateStore.load(app.packageName);
+        final AppWindowState state = savedWindowState(app);
         return state == null ? null : state.windowBounds;
+    }
+
+    private static AppWindowState savedWindowState(final AppItem app) {
+        return remembersWindowState(app)
+                ? AppWindowStateStore.load(windowStateKey(app))
+                : null;
+    }
+
+    private static String windowStateKey(final AppItem app) {
+        return app == null
+                ? null
+                : BuiltInDesktopAppCatalog.appIdentityKey(app.launchTarget);
     }
 
     private static boolean remembersWindowState(final AppItem app) {

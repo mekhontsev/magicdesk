@@ -271,7 +271,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     public void onFreeformBoundsChanged(
                             final int generation,
                             final int taskId,
-                            final String packageName,
+                            final String stateKey,
                             final int displayId,
                             final Rect bounds) {
                         if (!mRunning || displayId != mDisplayId) {
@@ -280,7 +280,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!mNativeWindowBounds
                                 .isNativeCaptionSnapOutsideWorkArea(bounds)) {
                             mAppWindowStates.observe(
-                                    packageName,
+                                    stateKey,
                                     displayId,
                                     bounds,
                                     mNativeWindowBounds

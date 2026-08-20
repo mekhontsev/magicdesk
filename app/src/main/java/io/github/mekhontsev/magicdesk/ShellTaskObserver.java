@@ -216,12 +216,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     @Override
                     public void onFreeformBoundsChanged(
                             final int taskId,
-                            final String packageName,
+                            final String stateKey,
                             final int displayId,
                             final Rect bounds) {
                         callCallback(() -> mCallback.onFreeformBoundsChanged(
                                 taskId,
-                                packageName,
+                                stateKey,
                                 displayId,
                                 bounds.left,
                                 bounds.top,

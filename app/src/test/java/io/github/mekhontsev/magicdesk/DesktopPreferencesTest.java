@@ -9,8 +9,8 @@ import java.util.List;
 
 public final class DesktopPreferencesTest {
     @Test
-    public void recentPackageMovesToFrontWithoutDuplicates() {
-        final List<String> updated = DesktopPreferences.updateRecentPackages(
+    public void recentAppMovesToFrontWithoutDuplicates() {
+        final List<String> updated = DesktopPreferences.updateRecentAppKeys(
                 Arrays.asList("app.one", "app.two", "app.three"),
                 "app.two",
                 4);
@@ -21,8 +21,8 @@ public final class DesktopPreferencesTest {
     }
 
     @Test
-    public void recentPackagesAreBounded() {
-        final List<String> updated = DesktopPreferences.updateRecentPackages(
+    public void recentAppsAreBounded() {
+        final List<String> updated = DesktopPreferences.updateRecentAppKeys(
                 Arrays.asList("app.one", "app.two", "app.three"),
                 "app.new",
                 3);

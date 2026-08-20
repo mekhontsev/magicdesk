@@ -444,7 +444,7 @@ final class DesktopWindowTransitionController {
                     finishWorkspaceTransition(displayId, true);
                     if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
                         AppWindowStateStore.rememberMode(
-                                task.packageName,
+                                BuiltInDesktopAppCatalog.appIdentityKey(task),
                                 AppWindowState.Mode.FULLSCREEN);
                     }
                 });
@@ -458,7 +458,7 @@ final class DesktopWindowTransitionController {
             finishWorkspaceTransition(displayId, true);
             if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
                 AppWindowStateStore.rememberMode(
-                        task.packageName,
+                        BuiltInDesktopAppCatalog.appIdentityKey(task),
                         AppWindowState.Mode.FULLSCREEN);
             }
             return;
@@ -708,7 +708,7 @@ final class DesktopWindowTransitionController {
                 bounds, mNativeWindowBounds.getTaskbarMaximizedBounds());
         if (relative != null) {
             AppWindowStateStore.rememberWindowed(
-                    task.packageName, relative);
+                    BuiltInDesktopAppCatalog.appIdentityKey(task), relative);
         }
     }
 

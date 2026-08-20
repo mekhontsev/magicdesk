@@ -10,6 +10,9 @@ import android.graphics.Rect;
 
 import org.junit.Test;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public final class BuiltInDesktopAppCatalogTest {
     @Test
     public void builtInsDeclareMultipleWindowPolicy() {
@@ -27,10 +30,12 @@ public final class BuiltInDesktopAppCatalogTest {
     public void builtInsDeclareStateAndPinPolicy() {
         assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
                 BuiltInDesktopAppCatalog.filesTarget()));
-        assertFalse(BuiltInDesktopAppCatalog.remembersWindowState(
+        assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
                 BuiltInDesktopAppCatalog.settingsTarget()));
-        assertFalse(BuiltInDesktopAppCatalog.remembersWindowState(
+        assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
                 BuiltInDesktopAppCatalog.consoleTarget()));
+        assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
+                BuiltInDesktopAppCatalog.taskManagerTarget()));
         assertTrue(BuiltInDesktopAppCatalog.isPinnable(
                 BuiltInDesktopAppCatalog.filesTarget()));
         assertFalse(BuiltInDesktopAppCatalog.isPinnable(
@@ -40,7 +45,7 @@ public final class BuiltInDesktopAppCatalogTest {
     }
 
     @Test
-    public void utilityWindowsHaveDefaultBoundsWhileFilesUsesAppState() {
+    public void utilityWindowsHaveFirstLaunchDefaults() {
         assertNotNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
                 BuiltInDesktopAppCatalog.settingsTarget()));
         assertNotNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
@@ -67,5 +72,43 @@ public final class BuiltInDesktopAppCatalogTest {
         assertEquals(
                 BuiltInDesktopAppCatalog.consoleTarget(),
                 BuiltInDesktopAppCatalog.find(task).launchTarget);
+    }
+
+    @Test
+    public void builtInsHaveIndependentWindowStateKeys() {
+        final Set<String> keys = new HashSet<>();
+        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.filesTarget()));
+        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.settingsTarget()));
+        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.consoleTarget()));
+        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.taskManagerTarget()));
+
+        assertEquals(4, keys.size());
+        for (final String key : keys) {
+            assertTrue(BuiltInDesktopAppCatalog.isAppIdentityKey(key));
+        }
+        assertEquals(
+                "com.example",
+                BuiltInDesktopAppCatalog.appIdentityKey(
+                        AppLaunchTarget.packageDefault("com.example")));
+    }
+
+    @Test
+    public void resolvesObservedBuiltInComponentToItsStateKey() {
+        final AppLaunchTarget console =
+                BuiltInDesktopAppCatalog.consoleTarget();
+
+        assertEquals(
+                BuiltInDesktopAppCatalog.appIdentityKey(console),
+                BuiltInDesktopAppCatalog.appIdentityKey(
+                        BuildConfig.APPLICATION_ID,
+                        BuildConfig.APPLICATION_ID
+                                + "/.CommandConsoleActivity"));
+        assertNull(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + "/.DesktopShellActivity"));
     }
 }

@@ -8,8 +8,6 @@ import java.util.Map;
 
 /** Coalesces task callbacks into stable, low-frequency state writes. */
 final class AppWindowStateTracker {
-    private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
     private static final long SAVE_DELAY_MILLIS = 500L;
 
     private final Handler mHandler;
@@ -24,13 +22,12 @@ final class AppWindowStateTracker {
     }
 
     void observe(
-            final String packageName,
+            final String stateKey,
             final int displayId,
             final Rect bounds,
             final Rect workArea,
             final Rect fullscreenBounds) {
-        if (!PackageNameValidator.isSafe(packageName)
-                || MAGICDESK_PACKAGE.equals(packageName)
+        if (!AppWindowStateStore.isSafeStateKey(stateKey)
                 || displayId < 0
                 || bounds == null || bounds.isEmpty()
                 || bounds.equals(fullscreenBounds)
@@ -40,11 +37,11 @@ final class AppWindowStateTracker {
         final RelativeWindowBounds relative =
                 RelativeWindowBounds.from(bounds, workArea);
         if (relative == null
-                || relative.equals(mLastObserved.get(packageName))) {
+                || relative.equals(mLastObserved.get(stateKey))) {
             return;
         }
-        mLastObserved.put(packageName, relative);
-        mPending.put(packageName, relative);
+        mLastObserved.put(stateKey, relative);
+        mPending.put(stateKey, relative);
         mHandler.removeCallbacks(mFlush);
         mHandler.postDelayed(mFlush, SAVE_DELAY_MILLIS);
     }
@@ -65,8 +62,8 @@ final class AppWindowStateTracker {
         if (AppWindowStateStore.rememberWindowBounds(pending)) {
             return;
         }
-        for (final String packageName : pending.keySet()) {
-            mLastObserved.remove(packageName);
+        for (final String stateKey : pending.keySet()) {
+            mLastObserved.remove(stateKey);
         }
     }
 }

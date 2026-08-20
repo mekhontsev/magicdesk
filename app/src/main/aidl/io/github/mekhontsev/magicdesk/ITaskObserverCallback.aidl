@@ -19,7 +19,7 @@ oneway interface ITaskObserverCallback {
     void onObserverError(String error) = 6;
 
     void onFreeformBoundsChanged(
-        int taskId, String packageName, int displayId,
+        int taskId, String stateKey, int displayId,
         int left, int top, int right, int bottom) = 7;
 
     void onInputFocusRefreshRequired() = 8;

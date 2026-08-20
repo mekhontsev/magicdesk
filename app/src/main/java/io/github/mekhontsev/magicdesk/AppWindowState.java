@@ -27,6 +27,11 @@ final class AppWindowState {
         return new AppWindowState(mode, newBounds);
     }
 
+    boolean shouldLaunchWindowed() {
+        return mode == Mode.WINDOWED
+                || (mode == null && windowBounds != null);
+    }
+
     @Override
     public boolean equals(final Object other) {
         if (this == other) {

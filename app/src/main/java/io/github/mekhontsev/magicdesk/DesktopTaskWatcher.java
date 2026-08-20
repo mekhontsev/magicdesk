@@ -34,7 +34,7 @@ final class DesktopTaskWatcher {
         void onFreeformBoundsChanged(
                 int generation,
                 int taskId,
-                String packageName,
+                String stateKey,
                 int displayId,
                 Rect bounds);
         void onInputFocusRefreshRequired(int generation);
@@ -627,7 +627,7 @@ final class DesktopTaskWatcher {
     private void onFreeformBoundsChanged(
             final int generation,
             final int taskId,
-            final String packageName,
+            final String stateKey,
             final int displayId,
             final Rect bounds) {
         final Rect snapshot = bounds == null ? null : new Rect(bounds);
@@ -635,7 +635,7 @@ final class DesktopTaskWatcher {
                 mListener.onFreeformBoundsChanged(
                         generation,
                         taskId,
-                        packageName,
+                        stateKey,
                         displayId,
                         snapshot));
     }
@@ -863,7 +863,7 @@ final class DesktopTaskWatcher {
         @Override
         public void onFreeformBoundsChanged(
                 final int taskId,
-                final String packageName,
+                final String stateKey,
                 final int displayId,
                 final int left,
                 final int top,
@@ -872,7 +872,7 @@ final class DesktopTaskWatcher {
             mOwner.onFreeformBoundsChanged(
                     mGeneration,
                     taskId,
-                    packageName,
+                    stateKey,
                     displayId,
                     new Rect(left, top, right, bottom));
         }

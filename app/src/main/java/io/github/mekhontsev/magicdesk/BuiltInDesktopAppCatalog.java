@@ -9,6 +9,8 @@ import java.util.List;
 
 /** Describes user-facing MagicDesk tasks without admitting shell infrastructure. */
 final class BuiltInDesktopAppCatalog {
+    private static final String BUILT_IN_KEY_PREFIX = "builtin|";
+
     static final class Entry {
         final AppLaunchTarget launchTarget;
         final int fallbackLabelResId;
@@ -57,7 +59,7 @@ final class BuiltInDesktopAppCatalog {
             false,
             false,
             false,
-            false,
+            true,
             new RelativeWindowBounds(5000, 5000, 4500, 8000));
     private static final Entry CONSOLE = new Entry(
             AppLaunchTarget.explicit(
@@ -68,7 +70,7 @@ final class BuiltInDesktopAppCatalog {
             false,
             true,
             false,
-            false,
+            true,
             new RelativeWindowBounds(5000, 5000, 4800, 7600));
     private static final Entry TASK_MANAGER = new Entry(
             AppLaunchTarget.explicit(
@@ -79,7 +81,7 @@ final class BuiltInDesktopAppCatalog {
             false,
             false,
             false,
-            false,
+            true,
             new RelativeWindowBounds(5000, 5000, 6200, 7600));
     private static final Entry LOG_VIEWER = new Entry(
             AppLaunchTarget.explicit(
@@ -90,7 +92,7 @@ final class BuiltInDesktopAppCatalog {
             false,
             true,
             false,
-            false,
+            true,
             new RelativeWindowBounds(5000, 5000, 6200, 7600));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(
@@ -192,9 +194,69 @@ final class BuiltInDesktopAppCatalog {
         return entry == null || entry.remembersWindowState;
     }
 
+    static String appIdentityKey(final AppLaunchTarget target) {
+        if (target == null) {
+            return null;
+        }
+        final Entry entry = find(target);
+        if (entry != null) {
+            return builtInKey(entry);
+        }
+        return PACKAGE_NAME.equals(target.packageName)
+                ? null : target.packageName;
+    }
+
+    static String appIdentityKey(final TaskRepository.TaskEntry task) {
+        if (task == null) {
+            return null;
+        }
+        final Entry entry = find(task);
+        if (entry != null) {
+            return builtInKey(entry);
+        }
+        return PACKAGE_NAME.equals(task.packageName)
+                ? null : task.packageName;
+    }
+
+    static String appIdentityKey(
+            final String packageName,
+            final String componentName) {
+        if (!PackageNameValidator.isSafe(packageName)) {
+            return null;
+        }
+        if (!PACKAGE_NAME.equals(packageName)) {
+            return packageName;
+        }
+        for (final Entry entry : ENTRIES) {
+            if (entry.launchTarget.matchesTask(
+                    packageName, componentName, componentName)) {
+                return builtInKey(entry);
+            }
+        }
+        // Shell hosts and transient MagicDesk activities must not overwrite
+        // the placement of a user-facing built-in window.
+        return null;
+    }
+
+    static boolean isAppIdentityKey(final String key) {
+        if (key == null) {
+            return false;
+        }
+        for (final Entry entry : ENTRIES) {
+            if (builtInKey(entry).equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static RelativeWindowBounds defaultWindowBounds(
             final AppLaunchTarget target) {
         final Entry entry = find(target);
         return entry == null ? null : entry.defaultWindowBounds;
+    }
+
+    private static String builtInKey(final Entry entry) {
+        return BUILT_IN_KEY_PREFIX + entry.launchTarget.stableKey();
     }
 }

@@ -301,6 +301,21 @@ final class LauncherAppRepository {
         return null;
     }
 
+    static AppItem findByIdentityKey(
+            final List<AppItem> apps,
+            final String identityKey) {
+        if (apps == null || identityKey == null) {
+            return null;
+        }
+        for (final AppItem app : apps) {
+            if (identityKey.equals(BuiltInDesktopAppCatalog.appIdentityKey(
+                    app.launchTarget))) {
+                return app;
+            }
+        }
+        return null;
+    }
+
     private ActivityInfo resolveLauncherActivityInfo(final String packageName) {
         final LauncherActivityInfo launcherInfo =
                 findLauncherActivity(packageName);
