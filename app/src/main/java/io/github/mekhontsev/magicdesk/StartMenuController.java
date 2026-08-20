@@ -753,10 +753,7 @@ final class StartMenuController {
         if (result.builtIn != null) {
             final AppLaunchTarget target = result.builtIn.launchTarget;
             if (BuiltInDesktopAppCatalog.filesTarget().equals(target)) {
-                mActivity.launchInternalWindow(
-                        FileManagerActivity.createIntent(mActivity),
-                        target,
-                        mActivity.getString(R.string.file_manager_title));
+                mActivity.openFiles();
             } else if (BuiltInDesktopAppCatalog.consoleTarget().equals(target)) {
                 mActivity.openConsole();
             } else if (BuiltInDesktopAppCatalog.taskManagerTarget().equals(target)) {

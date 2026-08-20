@@ -891,6 +891,14 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.showDesktopMenu(x, y);
     }
 
+    void showStartButtonContextMenu(final float x, final float y) {
+        mContextMenuController.showStartButtonMenu(x, y);
+    }
+
+    void showTaskbarContextMenu(final float x, final float y) {
+        mContextMenuController.showTaskbarMenu(x, y);
+    }
+
     void showRegisteredContextMenu(final View view) {
         mContextMenuController.showForRegisteredView(view);
     }
@@ -1478,6 +1486,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openSettings();
     }
 
+    void openFiles() {
+        mSystemActions.openFiles();
+    }
+
     void openConsole() {
         mSystemActions.openConsole();
     }
@@ -1531,6 +1543,15 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean isTaskbarAutoHideEnabled() {
         return mTaskbarAutoHide;
+    }
+
+    void toggleTaskbarAutoHide() {
+        hideAllPanels();
+        if (!MagicDeskSettings.setTaskbarAutoHide(!mTaskbarAutoHide)) {
+            setStatus(R.string.settings_save_failed);
+            return;
+        }
+        refreshSettings();
     }
 
     DesktopViewport getDesktopViewport() {

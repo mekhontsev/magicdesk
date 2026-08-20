@@ -24,6 +24,13 @@ import java.util.List;
 import java.util.Set;
 
 final class TaskbarController {
+    enum ContextArea {
+        NONE,
+        START,
+        BLANK,
+        ACTION
+    }
+
     interface EdgeInputListener {
         void onEdgeInput(MotionEvent event);
     }
@@ -32,6 +39,7 @@ final class TaskbarController {
     private final DesktopUiFactory mUi;
 
     private LinearLayout mTaskbar;
+    private Button mStartButton;
     private LinearLayout mPins;
     private HorizontalScrollView mTaskViewport;
     private TextView mKeyboardLayout;
@@ -70,7 +78,7 @@ final class TaskbarController {
                 }
                 mBlankLongPressPending = false;
                 mActivity.captureInteractionStackForPanel();
-                mActivity.showDesktopContextMenu(mBlankDownX, mBlankDownY);
+                mActivity.showTaskbarContextMenu(mBlankDownX, mBlankDownY);
             };
 
             @Override
@@ -170,6 +178,16 @@ final class TaskbarController {
         start.setTextSize(14);
         start.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         start.setOnClickListener(view -> mActivity.toggleStartMenu());
+        start.setOnLongClickListener(view -> {
+            final int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            mActivity.captureInteractionStackForPanel();
+            mActivity.showStartButtonContextMenu(
+                    location[0] + view.getWidth() / 2f,
+                    location[1] + view.getHeight() / 2f);
+            return true;
+        });
+        mStartButton = start;
         taskbar.addView(start, new LinearLayout.LayoutParams(
                 desktopDp(108, 72),
                 LinearLayout.LayoutParams.MATCH_PARENT));
@@ -309,6 +327,7 @@ final class TaskbarController {
         mEdgeHidden = false;
         mHiddenEdgeTouchSequence = false;
         mTaskbar = null;
+        mStartButton = null;
         mPins = null;
         mTaskViewport = null;
         mOverflow.release();
@@ -728,6 +747,35 @@ final class TaskbarController {
             }
         }
         return false;
+    }
+
+    ContextArea contextAreaAt(final float screenX, final float screenY) {
+        if (!containsOnScreen(mTaskbar, screenX, screenY)) {
+            return ContextArea.NONE;
+        }
+        if (containsOnScreen(mStartButton, screenX, screenY)) {
+            return ContextArea.START;
+        }
+        final int[] location = new int[2];
+        mTaskbar.getLocationOnScreen(location);
+        return isActionAt(screenX - location[0], screenY - location[1])
+                ? ContextArea.ACTION
+                : ContextArea.BLANK;
+    }
+
+    private static boolean containsOnScreen(
+            final View view,
+            final float screenX,
+            final float screenY) {
+        if (view == null || !view.isShown()) {
+            return false;
+        }
+        final int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        return screenX >= location[0]
+                && screenY >= location[1]
+                && screenX < location[0] + view.getWidth()
+                && screenY < location[1] + view.getHeight();
     }
 
     private boolean isActionViewAt(

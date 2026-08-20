@@ -129,6 +129,16 @@ final class DesktopContextMenuController {
     }
 
     void handleSecondaryClick(final float x, final float y) {
+        final TaskbarController.ContextArea taskbarArea =
+                mActivity.taskbar().contextAreaAt(x, y);
+        if (taskbarArea == TaskbarController.ContextArea.START) {
+            showStartButtonMenu(x, y);
+            return;
+        }
+        if (taskbarArea == TaskbarController.ContextArea.BLANK) {
+            showTaskbarMenu(x, y);
+            return;
+        }
         ContextTarget target = findHoveredTarget();
         if (target == null) {
             target = findTargetAt(x, y);
@@ -137,11 +147,77 @@ final class DesktopContextMenuController {
             showTargetMenu(x, y, target);
             return;
         }
+        if (taskbarArea == TaskbarController.ContextArea.ACTION) {
+            return;
+        }
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (overlays != null && overlays.contains(x, y)) {
             return;
         }
         showDesktopMenu(x, y);
+    }
+
+    void showStartButtonMenu(final float x, final float y) {
+        prepareMenuTitle(mActivity.getString(R.string.action_start));
+        addAction(
+                R.string.section_apps,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.showStartSection(
+                        StartMenuController.MENU_APPS, false));
+        addAction(
+                R.string.file_manager_title,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openFiles());
+        addAction(
+                R.string.console_title,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openConsole());
+        addAction(
+                R.string.task_manager_title,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openTaskManager());
+        addAction(
+                R.string.settings_title,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openSettings());
+        addAction(
+                R.string.action_close_desktop,
+                DesktopUiFactory.COLOR_AMBER,
+                true,
+                view -> mActivity.closeDesktop());
+        positionAndShow(x, y);
+    }
+
+    void showTaskbarMenu(final float x, final float y) {
+        prepareMenuTitle(mActivity.getString(R.string.context_taskbar));
+        addAction(
+                R.string.action_show_desktop,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.toggleDesktopWorkspace());
+        addAction(
+                R.string.task_manager_title,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openTaskManager());
+        addAction(
+                mActivity.isTaskbarAutoHideEnabled()
+                        ? R.string.action_keep_taskbar_visible
+                        : R.string.settings_taskbar_auto_hide,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.toggleTaskbarAutoHide());
+        addAction(
+                R.string.action_taskbar_settings,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                view -> mActivity.openSettings());
+        positionAndShow(x, y);
     }
 
     void showForRegisteredView(final View view) {

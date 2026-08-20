@@ -31,6 +31,9 @@
     <string name="action_app_actions">App actions</string>
     <string name="action_window">Window</string>
     <string name="action_show_desktop">Show desktop</string>
+    <string name="context_taskbar">Taskbar</string>
+    <string name="action_keep_taskbar_visible">Keep taskbar visible</string>
+    <string name="action_taskbar_settings">Taskbar settings</string>
     <string name="action_open_tasks">Open tasks</string>
     <string name="action_notifications">Notifications</string>
     <string name="action_clear_notifications">Clear</string>

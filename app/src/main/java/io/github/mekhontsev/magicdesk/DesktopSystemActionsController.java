@@ -57,6 +57,22 @@ final class DesktopSystemActionsController {
         PhoneControlPanelLauncher.open(mActivity);
     }
 
+    void openFiles() {
+        mActivity.hideAllPanels();
+        try {
+            mActivity.launchInternalWindow(
+                    FileManagerActivity.createIntent(mActivity),
+                    BuiltInDesktopAppCatalog.filesTarget(),
+                    mActivity.getString(R.string.file_manager_title));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "FILES-001",
+                    "Cannot open Files",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     void openDiagnostics() {
         mActivity.hideAllPanels();
         try {
