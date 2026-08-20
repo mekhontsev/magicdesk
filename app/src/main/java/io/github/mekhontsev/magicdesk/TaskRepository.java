@@ -59,6 +59,19 @@ public final class TaskRepository {
         });
     }
 
+    static Snapshot loadAllNow() {
+        return TaskCommandQueue.call(() -> {
+            final CommandResult command = runCommand(
+                    CMD + " activity stack list");
+            return new Snapshot(
+                    command.success
+                            ? parseTasks(command.output, -1)
+                            : Collections.<TaskEntry>emptyList(),
+                    command.success,
+                    command.output);
+        });
+    }
+
     static void bringToFront(final TaskEntry task, final ActionCallback callback) {
         if (!isUsableTask(task)) {
             complete(callback, false, "invalid task");
@@ -485,7 +498,7 @@ public final class TaskRepository {
 
     private static List<TaskEntry> parseTasks(final String output, final int targetDisplayId) {
         final List<TaskEntry> tasks = new ArrayList<>();
-        boolean activeAssigned = false;
+        final Set<Integer> activeDisplays = new LinkedHashSet<>();
         for (final TaskStackParser.Entry parsed :
                 TaskStackParser.parse(output)) {
             if (targetDisplayId >= 0
@@ -494,10 +507,9 @@ public final class TaskRepository {
             }
             final boolean home = parsed.isHome();
             final boolean active =
-                    parsed.visible && !home && !activeAssigned;
-            if (active) {
-                activeAssigned = true;
-            }
+                    parsed.visible && !home
+                            && activeDisplays.add(
+                                    Integer.valueOf(parsed.displayId));
             tasks.add(new TaskEntry(
                     parsed.rootTaskId,
                     parsed.taskId,

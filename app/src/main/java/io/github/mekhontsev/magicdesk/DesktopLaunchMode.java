@@ -21,4 +21,23 @@ enum DesktopLaunchMode {
         }
         return AUTO;
     }
+
+    static String semanticWindowingMode(final String nativeMode) {
+        if ("freeform".equalsIgnoreCase(nativeMode)) {
+            return WINDOWED.wireName;
+        }
+        if ("fullscreen".equalsIgnoreCase(nativeMode)) {
+            return FULLSCREEN.wireName;
+        }
+        return nativeMode == null ? "" : nativeMode;
+    }
+
+    static boolean matchesWindowingMode(
+            final String requestedMode,
+            final String nativeMode) {
+        return requestedMode != null
+                && (requestedMode.equalsIgnoreCase(nativeMode)
+                        || requestedMode.equalsIgnoreCase(
+                                semanticWindowingMode(nativeMode)));
+    }
 }

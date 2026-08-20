@@ -180,9 +180,10 @@ final class DesktopSessionTransitionCoordinator {
             final boolean restorePhonePanel) {
         final PlatformProjectionDriver.Transport transport =
                 transportFor(target.kind);
-        final boolean platformOwned = transport
-                != PlatformProjectionDriver.Transport.NONE
-                && mProjection.ownsTransportLifecycle(transport);
+        final boolean platformOwned = shouldReturnTransportToMirror(
+                target,
+                transport != PlatformProjectionDriver.Transport.NONE
+                        && mProjection.ownsTransportLifecycle(transport));
         if (platformOwned && restorePhonePanel) {
             ControlActivity.finishActiveForMirrorTransition();
         }
@@ -202,6 +203,19 @@ final class DesktopSessionTransitionCoordinator {
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         }
         return success;
+    }
+
+    static boolean shouldReturnTransportToMirror(
+            final DesktopDisplayTarget target,
+            final boolean platformOwnsLifecycle) {
+        if (!platformOwnsLifecycle || target == null) {
+            return false;
+        }
+        // A wired display that already existed before MagicDesk was opened is
+        // system-owned. Close only our desktop host and leave its mode intact.
+        return target.kind != DesktopDisplayTarget.Kind.WIRED
+                || target.activationSource
+                        != DesktopDisplayTarget.ActivationSource.ADOPTED_EXISTING;
     }
 
     private boolean switchToMirrorNow() {

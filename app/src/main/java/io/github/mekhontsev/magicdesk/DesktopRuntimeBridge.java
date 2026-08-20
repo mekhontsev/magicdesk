@@ -92,6 +92,13 @@ public final class DesktopRuntimeBridge {
         return UI.launchDesktopWebShortcut(shortcut, displayId);
     }
 
+    static boolean launchApplication(
+            final AppLaunchTarget target,
+            final DesktopLaunchMode mode,
+            final int displayId) {
+        return UI.launchApplication(target, mode, displayId);
+    }
+
     static boolean dispatchOverlayTextInput(
             final int displayId,
             final int action,

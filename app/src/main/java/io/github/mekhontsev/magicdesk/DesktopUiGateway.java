@@ -206,6 +206,30 @@ final class DesktopUiGateway {
                 && activity.launchDesktopWebShortcut(shortcut);
     }
 
+    boolean launchApplication(
+            final AppLaunchTarget target,
+            final DesktopLaunchMode mode,
+            final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || target == null
+                || mode == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        activity.runOnUiThread(() -> {
+            if (activity.isActivityUnavailable()) {
+                return;
+            }
+            final AppItem app = activity.findOrLoadApp(
+                    activity.getLauncherApps(), target);
+            if (app != null) {
+                activity.launchForMode(app, mode, null);
+            }
+        });
+        return true;
+    }
+
     boolean dispatchOverlayTextInput(
             final int displayId,
             final int action,

@@ -18,6 +18,8 @@ import java.lang.ref.WeakReference;
 public final class ControlActivity extends Activity
         implements PhoneControlPanelController.Actions,
         MagicDeskSessionHost {
+    private static final String EXTRA_OPEN_DESKTOP_HERE =
+            BuildConfig.APPLICATION_ID + ".extra.OPEN_DESKTOP_HERE";
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final long DISPLAY_PROBE_SETTLE_MILLIS = 200L;
     private static WeakReference<ControlActivity> sActive =
@@ -51,6 +53,7 @@ public final class ControlActivity extends Activity
     private PlatformProjectionDriver.ModeSelection mExternalModeSelection;
     private String mExternalDisplaySummary;
     private String mStatus;
+    private boolean mOpenDesktopHereAfterStartup;
 
     static Intent createLaunchIntent(final android.content.Context context) {
         return new Intent(context, ControlActivity.class)
@@ -59,9 +62,16 @@ public final class ControlActivity extends Activity
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
+    static Intent createOpenDesktopIntent(
+            final android.content.Context context) {
+        return createLaunchIntent(context)
+                .putExtra(EXTRA_OPEN_DESKTOP_HERE, true);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        consumeOpenDesktopRequest(getIntent());
         synchronized (ControlActivity.class) {
             sActive = new WeakReference<>(this);
         }
@@ -71,6 +81,16 @@ public final class ControlActivity extends Activity
             return;
         }
         runStartupAudit();
+    }
+
+    @Override
+    protected void onNewIntent(final Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        consumeOpenDesktopRequest(intent);
+        if (mPanel != null && mOpenDesktopHereAfterStartup) {
+            mMainHandler.post(this::openRequestedDesktopHere);
+        }
     }
 
     private void runStartupAudit() {
@@ -180,6 +200,26 @@ public final class ControlActivity extends Activity
                     PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
         }
         refresh();
+        if (mOpenDesktopHereAfterStartup) {
+            mMainHandler.post(this::openRequestedDesktopHere);
+        }
+    }
+
+    private void consumeOpenDesktopRequest(final Intent intent) {
+        if (intent != null
+                && intent.getBooleanExtra(EXTRA_OPEN_DESKTOP_HERE, false)) {
+            mOpenDesktopHereAfterStartup = true;
+            intent.removeExtra(EXTRA_OPEN_DESKTOP_HERE);
+        }
+    }
+
+    private void openRequestedDesktopHere() {
+        if (mPanel == null || !mOpenDesktopHereAfterStartup
+                || isActivityUnavailable()) {
+            return;
+        }
+        mOpenDesktopHereAfterStartup = false;
+        openDesktopHere();
     }
 
     private boolean isActivityUnavailable() {
