@@ -64,7 +64,7 @@ public final class FileManagerActivity extends Activity
     private final Map<String, ShellFileInfo> mSelected =
             new LinkedHashMap<>();
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
-    private final Map<String, DesktopFolderShortcut> mFolderShortcuts =
+    private final Map<String, DesktopEntry> mDesktopEntries =
             new LinkedHashMap<>();
     private final Set<Integer> mHeldModifierKeys = new HashSet<>();
     private final IShellDirectoryObserverCallback mDirectoryCallback =
@@ -476,15 +476,99 @@ public final class FileManagerActivity extends Activity
     }
 
     private void openDesktopEntry(final ShellFileInfo file) {
-        final DesktopFolderShortcut shortcut =
-                mFolderShortcuts.get(file.absolutePath);
-        if (shortcut == null) {
-            openFile(file, false);
-        } else if (!shortcut.available) {
-            mView.setStatus(getString(
-                    R.string.desktop_shortcut_unavailable));
+        final DesktopEntry desktopEntry =
+                mDesktopEntries.get(file.absolutePath);
+        if (desktopEntry == null && mSearchMode) {
+            final int generation = mLoadGeneration.get();
+            mWorker.execute(() -> {
+                final DesktopEntry parsed = DesktopEntryFile.read(file);
+                runOnUiThread(() -> {
+                    if (mDestroyed
+                            || !mSearchMode
+                            || generation != mLoadGeneration.get()) {
+                        return;
+                    }
+                    if (parsed != null) {
+                        mDesktopEntries.put(file.absolutePath, parsed);
+                        renderFiles();
+                    }
+                    openDesktopEntry(file, parsed);
+                });
+            });
+            return;
+        }
+        openDesktopEntry(file, desktopEntry);
+    }
+
+    private void openDesktopEntry(
+            final ShellFileInfo file,
+            final DesktopEntry desktopEntry) {
+        if (desktopEntry instanceof DesktopFolderShortcut) {
+            final DesktopFolderShortcut shortcut =
+                    (DesktopFolderShortcut) desktopEntry;
+            if (!shortcut.available) {
+                mView.setStatus(getString(
+                        R.string.desktop_shortcut_unavailable));
+            } else {
+                loadDirectory(shortcut.targetPath, true, -1);
+            }
+        } else if (desktopEntry instanceof DesktopApplicationShortcut) {
+            openApplicationShortcut(
+                    (DesktopApplicationShortcut) desktopEntry);
+        } else if (desktopEntry instanceof DesktopWebShortcut) {
+            openWebShortcut((DesktopWebShortcut) desktopEntry);
         } else {
-            loadDirectory(shortcut.targetPath, true, -1);
+            openFile(file, false);
+        }
+    }
+
+    private void openApplicationShortcut(
+            final DesktopApplicationShortcut shortcut) {
+        final int displayId = getDisplay() == null
+                ? 0 : getDisplay().getDisplayId();
+        if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+            if (!DesktopRuntimeBridge.launchDesktopShortcut(
+                    shortcut, displayId)) {
+                mView.setStatus(getString(
+                        R.string.desktop_shortcut_unavailable));
+            }
+            return;
+        }
+        final Intent intent = shortcut.resolveIntent(getPackageManager());
+        if (intent == null) {
+            mView.setStatus(getString(R.string.desktop_shortcut_unavailable));
+            return;
+        }
+        try {
+            final ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(displayId);
+            startActivity(intent, options.toBundle());
+        } catch (RuntimeException error) {
+            mView.setStatus(getString(
+                    R.string.file_manager_open_failed,
+                    ShellAccess.usefulMessage(error)));
+        }
+    }
+
+    private void openWebShortcut(final DesktopWebShortcut shortcut) {
+        final int displayId = getDisplay() == null
+                ? 0 : getDisplay().getDisplayId();
+        if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+            if (!DesktopRuntimeBridge.launchDesktopWebShortcut(
+                    shortcut, displayId)) {
+                mView.setStatus(getString(
+                        R.string.desktop_shortcut_unavailable));
+            }
+            return;
+        }
+        try {
+            final ActivityOptions options = ActivityOptions.makeBasic();
+            options.setLaunchDisplayId(displayId);
+            startActivity(shortcut.createViewIntent(), options.toBundle());
+        } catch (RuntimeException error) {
+            mView.setStatus(getString(
+                    R.string.file_manager_open_failed,
+                    ShellAccess.usefulMessage(error)));
         }
     }
 
@@ -1163,7 +1247,7 @@ public final class FileManagerActivity extends Activity
             return;
         }
         runAsync(
-                () -> DesktopFolderShortcutFile.create(file),
+                () -> DesktopEntryFile.createFolder(file),
                 R.string.file_manager_desktop_shortcut_failed,
                 () -> mView.setStatus(getString(
                         R.string.file_manager_desktop_shortcut_created,
@@ -1195,7 +1279,7 @@ public final class FileManagerActivity extends Activity
         mWorker.execute(() -> {
             try {
                 final List<ShellFileInfo> loaded = new ArrayList<>();
-                final Map<String, DesktopFolderShortcut> shortcuts =
+                final Map<String, DesktopEntry> desktopEntries =
                         new LinkedHashMap<>();
                 int offset = 0;
                 ShellFilePage page;
@@ -1209,10 +1293,11 @@ public final class FileManagerActivity extends Activity
                             mSortAscending);
                     for (final ShellFileInfo entry : page.entries) {
                         loaded.add(entry);
-                        final DesktopFolderShortcut shortcut =
-                                DesktopFolderShortcutFile.read(entry);
-                        if (shortcut != null) {
-                            shortcuts.put(entry.absolutePath, shortcut);
+                        final DesktopEntry desktopEntry =
+                                DesktopEntryFile.read(entry);
+                        if (desktopEntry != null) {
+                            desktopEntries.put(
+                                    entry.absolutePath, desktopEntry);
                         }
                     }
                     offset = page.nextOffset;
@@ -1226,8 +1311,8 @@ public final class FileManagerActivity extends Activity
                     mCurrentPath = canonicalPath;
                     mFiles.clear();
                     mFiles.addAll(loaded);
-                    mFolderShortcuts.clear();
-                    mFolderShortcuts.putAll(shortcuts);
+                    mDesktopEntries.clear();
+                    mDesktopEntries.putAll(desktopEntries);
                     mSelected.clear();
                     mSelectionAnchorPath = null;
                     if (mPendingRevealPath != null) {
@@ -1282,7 +1367,7 @@ public final class FileManagerActivity extends Activity
         final List<ShellFileInfo> visible = visibleFiles();
         mView.setPath(mCurrentPath);
         mView.setFiles(
-                visible, mSelected.keySet(), mFolderShortcuts);
+                visible, mSelected.keySet(), mDesktopEntries);
         mView.setNavigationEnabled(
                 mSearchMode || mHistoryIndex > 0,
                 !mSearchMode && mHistoryIndex + 1 < mHistory.size(),
@@ -1328,7 +1413,7 @@ public final class FileManagerActivity extends Activity
         mFiles.clear();
         mSelected.clear();
         mSelectionAnchorPath = null;
-        mFolderShortcuts.clear();
+        mDesktopEntries.clear();
         mView.setSearchResults(true);
         mView.setLoading();
         mView.setStatus(getString(

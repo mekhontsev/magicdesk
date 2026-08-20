@@ -331,8 +331,11 @@ runtime integration and are not distributed through the same release path.
 
 - `StartMenuController`, `TaskbarController`, `TaskOverviewController`, and
   `NotificationCenterController` own the persistent desktop controls.
-- `DesktopWorkspaceController` composes shortcuts, the fixed Android
-  `Desktop` directory, and Android widgets on one `DesktopGridLayout` surface.
+- `DesktopWorkspaceController` composes the fixed Android `Desktop` directory,
+  freedesktop folder, web, and application Desktop Entries, and Android widgets
+  on one `DesktopGridLayout` surface. Desktop Entries remain real files and use
+  the same drag, rename, delete, and placement path as every other desktop
+  file.
 - `DesktopFolderController` owns asynchronous desktop-file operations and the
   lifecycle of an event-driven observer. `ShellDesktopDirectory` constrains
   typed UserService operations to `/storage/emulated/0/Desktop` and owns its
@@ -342,13 +345,12 @@ runtime integration and are not distributed through the same release path.
   built-in Files task. It intentionally accepts any absolute path available to
   the connected UserService identity; this broader contract is not reused by
   desktop metadata or automatic background work.
-- `DesktopStateStore` is the single typed model for persistent desktop content,
-  taskbar pins, global layout, application window state, settings, and display
-  profiles.
-  `DesktopContentStore`, `DesktopLayoutStore`, `AppWindowStateStore`,
-  `DesktopPreferences`, and `DisplayProfileStore` are narrow domain facades over
-  that model. `DesktopPlacementEngine` is the platform-independent collision
-  and reflow policy.
+- `DesktopStateStore` is the single typed model for taskbar pins, global
+  layout, application window state, settings, and display profiles.
+  `DesktopLayoutStore`, `AppWindowStateStore`, `DesktopPreferences`, and
+  `DisplayProfileStore` are narrow domain facades over that model.
+  `DesktopPlacementEngine` is the platform-independent collision and reflow
+  policy.
 - `OverlayPanelController` provides consistent toggle, dismissal, placement,
   and display-scoped overlay behavior.
 - `DesktopInputController` handles shell UI input and delegates global physical
@@ -863,15 +865,15 @@ databases, preferences, and files. MagicDesk never edits launcher data.
 
 Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI, wired output
-timing, and the Fill display policy. Files under
+timing, and the Fill display policy. Files and `.desktop` shortcuts under
 `/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
-desktop shortcuts, desktop-item placement, application window state, and
-recent-app history are global across displays.
+desktop-item placement, application window state, and recent-app history are
+global across displays.
 Desktop items and freeform windows store fixed-point relative anchors rather
 than monitor pixels, so the same layout follows the user between the phone, a
 tablet, and every monitor while adapting to each viewport.
 
-Persistent desktop configuration has one source of truth:
+Persistent desktop UI configuration has one source of truth:
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`. The shell UserService
 validates and atomically replaces this bounded JSON file; the same event-driven
 folder observer reloads deliberate external edits without polling. The hidden
@@ -881,9 +883,14 @@ history, active tasks, diagnostics, and setup/recovery state remain private
 runtime state. Android widget bindings remain system-managed and scoped to the
 installed app and Android user. Global layout data may contain opaque placement
 keys for currently bound widgets, but those keys cannot bind or instantiate a
-widget. Configuration can describe only package-default or explicit
-package/activity launch targets with an optional action string; it cannot
-supply commands, URIs, extras, categories, or Intent flags.
+widget. Application and folder shortcuts are not embedded in this JSON state.
+They are bounded freedesktop Desktop Entry files parsed by `DesktopEntryFile`
+in any directory shown by built-in Files. `Type=Link` holds a local folder URL.
+`Type=Application` stores standard `Name`, `Icon`, and `Exec` fields plus a
+full Android Intent URI and launch-mode metadata in `X-MagicDesk-*` keys. The
+Intent URI preserves extras, categories, flags, actions, and explicit
+components. `Exec` is retained for Desktop Entry compatibility and future
+console integration; MagicDesk does not execute it yet.
 
 ## Desktop Surface And Widgets
 
@@ -907,6 +914,17 @@ traversal, invalid names, and accidental overwrite. Removing an application
 shortcut or widget never deletes application data, and MagicDesk does not
 delete the Desktop directory or its contents during Exit or uninstall.
 Desktop changes arrive through `FileObserver`; the fixed folder is not polled.
+Built-in Files uses the same `DesktopEntryFile` parser outside the fixed
+desktop root, so a `.desktop` shortcut can be kept and opened from an ordinary
+folder without introducing a second shortcut model.
+
+`AddWebShortcutActivity` is an explicit Android Share target rather than a
+launcher-shortcut interceptor. It accepts only validated HTTP(S) URLs, asks the
+user to confirm the display name, and writes the same standard `Type=Link`
+Desktop Entry consumed by Desktop and Files. Opening that entry resolves the
+current Android browser and then uses the normal desktop application-launch
+path; when Android still needs the user to choose a browser, its resolver is
+opened on the same display.
 
 `ShellFileSystem` deliberately exposes the complete filesystem visible to the
 connected UserService identity. Path validation requires normalized absolute

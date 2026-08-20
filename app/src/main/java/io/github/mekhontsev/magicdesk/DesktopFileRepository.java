@@ -41,10 +41,9 @@ final class DesktopFileRepository {
         final List<DesktopFile> files = new ArrayList<>(records.length);
         int previewsRemaining = Math.max(0, thumbnailLimit);
         for (final DesktopFileInfo record : records) {
-            final DesktopFolderShortcut folderShortcut =
-                    DesktopFolderShortcutFile.read(record);
+            final DesktopEntry desktopEntry = DesktopEntryFile.read(record);
             Bitmap thumbnail = null;
-            if (folderShortcut == null
+            if (desktopEntry == null
                     && !record.directory
                     && previewsRemaining > 0
                     && record.mimeType.startsWith("image/")) {
@@ -60,7 +59,7 @@ final class DesktopFileRepository {
                     record.size,
                     record.directory,
                     thumbnail,
-                    folderShortcut));
+                    desktopEntry));
         }
         return files;
     }

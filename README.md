@@ -73,7 +73,8 @@ that can run on the device itself or on a secondary display:
 - Request another task for a compatible application through **New window**.
   MagicDesk Files supports this directly; other Android applications may
   reject the request through their own activity launch mode.
-- Pin applications to the taskbar or place shortcuts on the desktop.
+- Pin applications to the taskbar or create standard `.desktop` application
+  and quick-action shortcuts.
 - Use an application's published quick actions, widget picker, and Android app
   information directly from its MagicDesk context menu.
 - Preserve the last visible freeform window layout across Show Desktop.
@@ -105,6 +106,12 @@ that can run on the device itself or on a secondary display:
   Shell copy, move, and delete operations continue if their initiating Files
   window is closed; reopening Files reconnects to progress and cancellation.
   An APK can be installed or updated only after an explicit confirmation.
+- Keep [freedesktop `.desktop` folder, website, and application shortcuts](https://specifications.freedesktop.org/desktop-entry/latest/)
+  in the Desktop directory or any folder opened by Files. A browser's Android
+  Share action can add an HTTP(S) page to the MagicDesk desktop. Android
+  application shortcuts retain their full Intent parameters; the standard
+  `Exec` field is preserved for future console integration but is not executed
+  yet.
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
   has been enabled. Reopening the same directory returns to its existing named
@@ -130,13 +137,16 @@ that can run on the device itself or on a secondary display:
   desktop wallpaper directly from MagicDesk Files, center-cropped for the
   active display.
 
-Desktop configuration is stored as an atomic, human-readable file at
+Desktop layout, settings, pins, and per-display configuration are stored as an
+atomic, human-readable file at
 `/storage/emulated/0/Desktop/.magicdesk/desktop.json`; an optional custom
-wallpaper is stored beside it. The hidden directory is not shown as a desktop
-item. Runtime state, diagnostics, and recent-application history remain private
-to the app. Android widget bindings remain system-managed and scoped to the
-installed app and Android user. Neither app-private runtime state nor
-system-managed widget bindings are written into the desktop folder.
+wallpaper is stored beside it. Folder, website, and application shortcuts are
+ordinary `.desktop` files rather than records in that JSON file. The hidden
+directory is not shown as a desktop item. Runtime state, diagnostics, and
+recent-application history remain private to the app. Android widget bindings
+remain system-managed and scoped to the installed app and Android user. Neither
+app-private runtime state nor system-managed widget bindings are written into
+the desktop folder.
 
 ### Desktop controls
 

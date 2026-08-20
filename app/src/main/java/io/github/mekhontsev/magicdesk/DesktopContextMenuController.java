@@ -72,11 +72,12 @@ final class DesktopContextMenuController {
 
     void registerDraggableDesktopAppTarget(
             final View view,
-            final AppItem app) {
-        if (view == null || app == null) {
+            final AppItem app,
+            final DesktopFile file) {
+        if (view == null || app == null || file == null) {
             return;
         }
-        registerTarget(view, ContextTarget.desktopApp(app), false);
+        registerTarget(view, ContextTarget.desktopApp(app, file), false);
     }
 
     void registerWidgetTarget(
@@ -267,7 +268,7 @@ final class DesktopContextMenuController {
             final ContextTarget target) {
         if (target.app != null) {
             showAppMenu(
-                    x, y, target.app, target.task, target.desktopItem);
+                    x, y, target.app, target.task, target.file);
         } else if (target.file != null) {
             showFileMenu(x, y, target.file);
         } else if (target.appWidgetId >= 0) {
@@ -425,7 +426,7 @@ final class DesktopContextMenuController {
             final float y,
             final AppItem app,
             final TaskRepository.TaskEntry exactTask,
-            final boolean desktopItem) {
+            final DesktopFile desktopFile) {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (mPanel == null || overlays == null) {
             return;
@@ -438,7 +439,7 @@ final class DesktopContextMenuController {
                 y,
                 app,
                 task,
-                desktopItem,
+                desktopFile,
                 mShortcuts.load(app)));
     }
 
@@ -480,12 +481,18 @@ final class DesktopContextMenuController {
                         mActivity.togglePinned(state.app);
                     });
         }
-        if (state.desktopItem) {
+        if (state.desktopFile != null) {
+            addAction(
+                    R.string.action_rename,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> mActivity.renameDesktopFile(state.desktopFile));
             addAction(
                     R.string.action_delete,
                     DesktopUiFactory.COLOR_RED,
                     true,
-                    view -> mActivity.deleteDesktopShortcut(state.app));
+                    view -> mActivity.confirmDeleteDesktopFile(
+                            state.desktopFile));
         } else {
             final boolean desktopShortcut =
                     mActivity.isDesktopShortcut(state.app);
@@ -535,6 +542,9 @@ final class DesktopContextMenuController {
                         R.string.context_app_actions_title,
                         state.app.label),
                 view -> showAppMenu(state));
+        addSubmenuAction(
+                R.string.action_add_app_action_to_desktop,
+                view -> showAddAppActionMenu(state));
         for (final AppShortcutAction shortcut : state.shortcuts) {
             addAction(
                     shortcut.label,
@@ -544,6 +554,27 @@ final class DesktopContextMenuController {
                     view -> {
                         mActivity.hideAllPanels();
                         mActivity.launchShortcut(state.app, shortcut);
+                    });
+        }
+        positionAndShow(state.x, state.y);
+    }
+
+    private void showAddAppActionMenu(final AppMenuState state) {
+        prepareSubmenuTitle(
+                mActivity.getString(
+                        R.string.context_add_app_action_title,
+                        state.app.label),
+                view -> showAppActionsMenu(state));
+        for (final AppShortcutAction shortcut : state.shortcuts) {
+            addAction(
+                    shortcut.label,
+                    shortcut.icon,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> {
+                        mActivity.hideAllPanels();
+                        mActivity.addDesktopShortcut(
+                                state.app, shortcut);
                     });
         }
         positionAndShow(state.x, state.y);
@@ -798,7 +829,7 @@ final class DesktopContextMenuController {
         final float y;
         final AppItem app;
         final TaskRepository.TaskEntry task;
-        final boolean desktopItem;
+        final DesktopFile desktopFile;
         final List<AppShortcutAction> shortcuts;
 
         AppMenuState(
@@ -806,13 +837,13 @@ final class DesktopContextMenuController {
                 final float y,
                 final AppItem app,
                 final TaskRepository.TaskEntry task,
-                final boolean desktopItem,
+                final DesktopFile desktopFile,
                 final List<AppShortcutAction> shortcuts) {
             this.x = x;
             this.y = y;
             this.app = app;
             this.task = task;
-            this.desktopItem = desktopItem;
+            this.desktopFile = desktopFile;
             this.shortcuts = shortcuts;
         }
     }

@@ -197,6 +197,17 @@ final class DesktopFolderController {
                 completed);
     }
 
+    void createApplicationShortcut(
+            final DesktopApplicationShortcut shortcut,
+            final Consumer<DesktopFileInfo> completed) {
+        if (mReleased || shortcut == null) {
+            return;
+        }
+        executeOperation(
+                () -> DesktopEntryFile.createApplication(shortcut),
+                completed);
+    }
+
     void rename(
             final DesktopFile file,
             final String newName,

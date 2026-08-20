@@ -19,11 +19,15 @@ final class DesktopItemViewFactory {
     }
 
     View app(final AppItem app) {
+        return app(app, app.label);
+    }
+
+    View app(final AppItem app, final String label) {
         final LinearLayout item = iconContainer();
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(app.icon);
         item.addView(icon, iconParams());
-        addLabel(item, app.label);
+        addLabel(item, label);
         return item;
     }
 
@@ -39,12 +43,22 @@ final class DesktopItemViewFactory {
         icon.setScaleType(file.thumbnail == null
                 ? ImageView.ScaleType.CENTER_INSIDE
                 : ImageView.ScaleType.CENTER_CROP);
-        if (file.folderShortcut != null) {
+        final DesktopFolderShortcut folderShortcut = file.folderShortcut();
+        final DesktopApplicationShortcut applicationShortcut =
+                file.applicationShortcut();
+        final DesktopWebShortcut webShortcut = file.webShortcut();
+        if (folderShortcut != null) {
             icon.setImageResource(R.drawable.ic_desktop_folder_link);
-            if (!file.folderShortcut.available) {
+            if (!folderShortcut.available) {
                 icon.setAlpha(0.55f);
                 item.setAlpha(0.72f);
             }
+        } else if (applicationShortcut != null) {
+            icon.setImageResource(R.drawable.ic_magicdesk);
+            icon.setAlpha(0.55f);
+            item.setAlpha(0.72f);
+        } else if (webShortcut != null) {
+            icon.setImageResource(R.drawable.ic_desktop_web_link);
         } else if (file.thumbnail != null) {
             icon.setImageBitmap(file.thumbnail);
             icon.setBackground(mUi.rounded(

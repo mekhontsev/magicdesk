@@ -93,6 +93,55 @@ final class AppTaskController {
         }
     }
 
+    void launchDesktopShortcut(
+            final AppItem app,
+            final DesktopApplicationShortcut shortcut) {
+        if (app == null || shortcut == null) {
+            return;
+        }
+        if (shortcut.defaultLaunch) {
+            if (shortcut.launchMode == DesktopLaunchMode.WINDOWED) {
+                launchWindowed(app);
+            } else if (shortcut.launchMode == DesktopLaunchMode.FULLSCREEN) {
+                launchFullscreen(app);
+            } else {
+                launchDefault(app);
+            }
+            return;
+        }
+        final Intent intent = shortcut.resolveIntent(
+                mActivity.getPackageManager());
+        if (intent == null) {
+            mActivity.setErrorStatus(
+                    "APP-LAUNCH-003",
+                    mActivity.getString(
+                            R.string.status_launch_failed,
+                            shortcut.name),
+                    "invalid desktop entry Intent",
+                    null);
+            return;
+        }
+        final AppShortcutAction action = new AppShortcutAction(
+                "desktop:" + Integer.toHexString(
+                        shortcut.intentUri.hashCode()),
+                shortcut.name,
+                app.icon,
+                intent);
+        if (shortcut.launchMode == DesktopLaunchMode.WINDOWED) {
+            final AppWindowState saved = remembersWindowState(app)
+                    ? AppWindowStateStore.load(app.packageName) : null;
+            launchShortcutWindowed(
+                    app,
+                    action,
+                    true,
+                    saved == null ? null : saved.windowBounds);
+        } else if (shortcut.launchMode == DesktopLaunchMode.FULLSCREEN) {
+            launchShortcutFullscreen(app, action);
+        } else {
+            launchShortcut(app, action);
+        }
+    }
+
     private void launchShortcutWindowed(
             final AppItem app,
             final AppShortcutAction shortcut,

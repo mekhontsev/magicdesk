@@ -67,6 +67,18 @@ public final class DesktopRuntimeBridge {
         return UI.showStart();
     }
 
+    static boolean launchDesktopShortcut(
+            final DesktopApplicationShortcut shortcut,
+            final int displayId) {
+        return UI.launchDesktopShortcut(shortcut, displayId);
+    }
+
+    static boolean launchDesktopWebShortcut(
+            final DesktopWebShortcut shortcut,
+            final int displayId) {
+        return UI.launchDesktopWebShortcut(shortcut, displayId);
+    }
+
     static boolean dispatchOverlayTextInput(
             final int displayId,
             final int action,

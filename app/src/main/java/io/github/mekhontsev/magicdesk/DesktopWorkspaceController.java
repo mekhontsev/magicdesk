@@ -26,12 +26,10 @@ import java.util.Set;
 
 final class DesktopWorkspaceController {
     private static final String TAG = "MagicDeskWorkspace";
-    private static final String APP_PREFIX = "app:";
     private static final String FILE_PREFIX = "file:";
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
-    private final DesktopContentStore mContent;
     private final DesktopItemViewFactory mViews;
     private final DesktopFolderController mFolder;
     private final DesktopWidgetController mWidgets;
@@ -52,7 +50,6 @@ final class DesktopWorkspaceController {
             final DesktopUiFactory ui) {
         mActivity = activity;
         mUi = ui;
-        mContent = new DesktopContentStore();
         mViews = new DesktopItemViewFactory(activity, ui);
         mItemActivation = new ItemActivationPolicy(
                 MagicDeskSettings.load().openFilesWithSingleClick,
@@ -196,31 +193,98 @@ final class DesktopWorkspaceController {
     }
 
     boolean isDesktopShortcut(final AppItem app) {
-        return app != null
-                && mContent.containsShortcut(app.launchTarget);
+        return findDefaultApplicationShortcut(app) != null;
     }
 
     void toggleDesktopShortcut(final AppItem app) {
-        final boolean added;
-        if (mContent.containsShortcut(app.launchTarget)) {
-            if (!mContent.removeShortcut(app.launchTarget)) {
-                return;
-            }
-            added = false;
-            final String itemId = appItemId(app.launchTarget);
-            DesktopLayoutStore.remove(itemId);
-        } else {
-            if (!mContent.addShortcut(app.launchTarget)) {
-                return;
-            }
-            added = true;
+        if (app == null) {
+            return;
         }
-        render(mActivity.getLauncherApps());
-        mActivity.setStatus(mActivity.getString(
-                added
-                        ? R.string.status_desktop_shortcut_added
-                        : R.string.status_desktop_shortcut_removed,
-                app.label));
+        final DesktopFile existing = findDefaultApplicationShortcut(app);
+        if (existing != null) {
+            deleteApplicationShortcut(existing, app.label);
+            return;
+        }
+        final Intent intent = app.launchTarget.resolve(
+                mActivity.getPackageManager());
+        if (intent == null) {
+            mActivity.setErrorStatus(
+                    "APP-LAUNCH-002",
+                    mActivity.getString(
+                            R.string.status_launch_failed,
+                            "no launcher activity"));
+            return;
+        }
+        createApplicationShortcut(
+                app,
+                app.label,
+                intent,
+                true);
+    }
+
+    void addDesktopShortcut(
+            final AppItem app,
+            final AppShortcutAction action) {
+        if (app == null || action == null) {
+            return;
+        }
+        createApplicationShortcut(
+                app,
+                action.label,
+                action.launchIntent(),
+                false);
+    }
+
+    private DesktopFile findDefaultApplicationShortcut(final AppItem app) {
+        if (app == null) {
+            return null;
+        }
+        for (final DesktopFile file : mFiles) {
+            final DesktopApplicationShortcut shortcut =
+                    file.applicationShortcut();
+            if (shortcut != null
+                    && shortcut.defaultLaunch
+                    && app.launchTarget.equals(shortcut.launchTarget)) {
+                return file;
+            }
+        }
+        return null;
+    }
+
+    private void createApplicationShortcut(
+            final AppItem app,
+            final String name,
+            final Intent intent,
+            final boolean defaultLaunch) {
+        if (app == null || intent == null) {
+            return;
+        }
+        final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
+        final DesktopApplicationShortcut shortcut =
+                new DesktopApplicationShortcut(
+                        name,
+                        app.packageName,
+                        DesktopEntryFile.applicationExec(intentUri),
+                        app.launchTarget,
+                        intentUri,
+                        DesktopLaunchMode.AUTO,
+                        defaultLaunch);
+        mFolder.createApplicationShortcut(shortcut, created ->
+                mActivity.setStatus(mActivity.getString(
+                        R.string.status_desktop_shortcut_added,
+                        shortcut.name)));
+    }
+
+    private void deleteApplicationShortcut(
+            final DesktopFile file,
+            final String label) {
+        final String itemId = fileItemId(file.relativePath);
+        mFolder.delete(file, () -> {
+            DesktopLayoutStore.remove(itemId);
+            mActivity.setStatus(mActivity.getString(
+                    R.string.status_desktop_shortcut_removed,
+                    label));
+        });
     }
 
     void openFolder() {
@@ -335,8 +399,20 @@ final class DesktopWorkspaceController {
     }
 
     void openFile(final DesktopFile file) {
-        if (file.folderShortcut != null) {
-            openFolderShortcut(file.folderShortcut);
+        final DesktopFolderShortcut folderShortcut = file.folderShortcut();
+        if (folderShortcut != null) {
+            openFolderShortcut(folderShortcut);
+            return;
+        }
+        final DesktopApplicationShortcut applicationShortcut =
+                file.applicationShortcut();
+        if (applicationShortcut != null) {
+            openApplicationShortcut(applicationShortcut);
+            return;
+        }
+        final DesktopWebShortcut webShortcut = file.webShortcut();
+        if (webShortcut != null) {
+            openWebShortcut(webShortcut);
             return;
         }
         if (file.directory) {
@@ -478,21 +554,25 @@ final class DesktopWorkspaceController {
         if (clipboard == null) {
             return;
         }
+        final DesktopFolderShortcut folderShortcut = file.folderShortcut();
+        final DesktopWebShortcut webShortcut = file.webShortcut();
+        final String target = folderShortcut != null
+                ? folderShortcut.targetPath
+                : webShortcut != null
+                        ? webShortcut.url
+                        : desktopAbsolutePath(file);
         clipboard.setPrimaryClip(ClipData.newPlainText(
-                file.displayName(),
-                file.folderShortcut == null
-                        ? desktopAbsolutePath(file)
-                        : file.folderShortcut.targetPath));
+                file.displayName(), target));
         mActivity.setStatus(R.string.file_manager_path_copied);
     }
 
     void showFileProperties(final DesktopFile file) {
         mFolder.inspect(file, info -> {
-            if (file.folderShortcut == null) {
+            if (file.folderShortcut() == null) {
                 mActivity.showDesktopFileProperties(info);
             } else {
                 mActivity.showDesktopFolderShortcutProperties(
-                        info, file.folderShortcut);
+                        info, file.folderShortcut());
             }
         });
     }
@@ -530,6 +610,19 @@ final class DesktopWorkspaceController {
                 FileManagerActivity.createIntent(
                         mActivity, shortcut.targetPath),
                 shortcut.targetPath);
+    }
+
+    private void openApplicationShortcut(
+            final DesktopApplicationShortcut shortcut) {
+        if (!mActivity.launchDesktopShortcut(shortcut)) {
+            mActivity.setStatus(R.string.desktop_shortcut_unavailable);
+        }
+    }
+
+    private void openWebShortcut(final DesktopWebShortcut shortcut) {
+        if (!mActivity.launchDesktopWebShortcut(shortcut)) {
+            mActivity.setStatus(R.string.desktop_shortcut_unavailable);
+        }
     }
 
     private void openFiles(final Intent intent, final String detail) {
@@ -586,19 +679,6 @@ final class DesktopWorkspaceController {
         });
     }
 
-    void deleteShortcut(final AppItem app) {
-        if (app == null
-                || !mContent.removeShortcut(app.launchTarget)) {
-            return;
-        }
-        final String itemId = appItemId(app.launchTarget);
-        DesktopLayoutStore.remove(itemId);
-        render(mActivity.getLauncherApps());
-        mActivity.setStatus(mActivity.getString(
-                R.string.status_desktop_shortcut_removed,
-                app.label));
-    }
-
     void resetDisplayProfile() {
         render(mApps);
     }
@@ -606,12 +686,6 @@ final class DesktopWorkspaceController {
     private List<Entry> collectEntries(
             final Map<String, GlobalDesktopPlacement> storedPlacements) {
         final List<Entry> entries = new ArrayList<>();
-        for (final AppLaunchTarget target : mContent.shortcuts()) {
-            final AppItem app = mActivity.findOrLoadApp(mApps, target);
-            if (app != null) {
-                entries.add(Entry.app(appItemId(target), app));
-            }
-        }
         for (final DesktopWidgetController.WidgetEntry widget
                 : mWidgets.widgets()) {
             final GlobalDesktopPlacement stored =
@@ -626,8 +700,17 @@ final class DesktopWorkspaceController {
                     widget.itemId(), widget, columnSpan, rowSpan));
         }
         for (final DesktopFile file : mFiles) {
-            entries.add(Entry.file(
-                    fileItemId(file.relativePath), file));
+            final DesktopApplicationShortcut shortcut =
+                    file.applicationShortcut();
+            final AppItem app = shortcut == null
+                    || shortcut.launchTarget == null
+                    ? null
+                    : mActivity.findOrLoadApp(
+                            mApps, shortcut.launchTarget);
+            entries.add(app == null
+                    ? Entry.file(fileItemId(file.relativePath), file)
+                    : Entry.app(
+                            fileItemId(file.relativePath), app, file));
         }
         return entries;
     }
@@ -665,14 +748,16 @@ final class DesktopWorkspaceController {
             final DesktopPlacement placement) {
         final View view;
         if (entry.app != null) {
-            view = mViews.app(entry.app);
+            final DesktopApplicationShortcut shortcut =
+                    entry.file.applicationShortcut();
+            view = mViews.app(entry.app, shortcut.name);
             view.setOnClickListener(target -> {
                 mActivity.hideAllPanels();
-                mActivity.launchDefault(entry.app);
+                mActivity.launchDesktopShortcut(entry.app, shortcut);
             });
             mActivity.registerDraggableDesktopAppContextTarget(
-                    view, entry.app);
-            enableDrag(view, entry.itemId, null, true);
+                    view, entry.app, entry.file);
+            enableDrag(view, entry.itemId, entry.file, true);
         } else if (entry.file != null) {
             view = mViews.file(
                     entry.file,
@@ -714,9 +799,9 @@ final class DesktopWorkspaceController {
             view = frame;
         }
         mGrid.addItem(view, entry.itemId, placement);
-        if (entry.file != null && entry.file.folderShortcut != null) {
+        if (entry.file != null && entry.file.folderShortcut() != null) {
             enableFolderShortcutDrop(
-                    view, entry.itemId, entry.file.folderShortcut);
+                    view, entry.itemId, entry.file.folderShortcut());
         }
     }
 
@@ -1031,10 +1116,6 @@ final class DesktopWorkspaceController {
         render(mApps);
     }
 
-    private static String appItemId(final AppLaunchTarget target) {
-        return APP_PREFIX + target.stableKey();
-    }
-
     private static String fileItemId(final String relativePath) {
         return FILE_PREFIX + relativePath;
     }
@@ -1084,8 +1165,11 @@ final class DesktopWorkspaceController {
             this.rowSpan = rowSpan;
         }
 
-        static Entry app(final String itemId, final AppItem app) {
-            return new Entry(itemId, app, null, null, 1, 1);
+        static Entry app(
+                final String itemId,
+                final AppItem app,
+                final DesktopFile file) {
+            return new Entry(itemId, app, file, null, 1, 1);
         }
 
         static Entry file(final String itemId, final DesktopFile file) {

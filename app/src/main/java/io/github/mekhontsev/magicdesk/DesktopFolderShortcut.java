@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-final class DesktopFolderShortcut {
-    final String name;
+final class DesktopFolderShortcut extends DesktopEntry {
     final String targetPath;
     final boolean available;
 
@@ -9,13 +8,10 @@ final class DesktopFolderShortcut {
             final String name,
             final String targetPath,
             final boolean available) {
-        if (name == null || name.isEmpty()) {
-            throw new IllegalArgumentException("missing shortcut name");
-        }
+        super(name, "folder", "");
         if (targetPath == null || targetPath.isEmpty()) {
             throw new IllegalArgumentException("missing shortcut target");
         }
-        this.name = name;
         this.targetPath = targetPath;
         this.available = available;
     }

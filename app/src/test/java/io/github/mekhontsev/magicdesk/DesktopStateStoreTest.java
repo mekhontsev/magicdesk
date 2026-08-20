@@ -23,13 +23,9 @@ public final class DesktopStateStoreTest {
     @Test
     public void stateRoundTripPreservesDesktopConfiguration() throws Exception {
         final DesktopStateStore.State source = new DesktopStateStore.State();
-        source.content.shortcuts.add(AppLaunchTarget.explicit(
-                "example.application",
-                "example.application.MainActivity",
-                "android.intent.action.MAIN"));
         source.taskbarPackages.add("example.application");
         source.desktopPlacements.put(
-                "app:example.application",
+                "file:Example.desktop",
                 new GlobalDesktopPlacement(7500, 2500, 1, 2));
         source.appWindows.put(
                 "example.application",
@@ -58,11 +54,10 @@ public final class DesktopStateStoreTest {
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
                 DesktopStateStore.encode(source));
 
-        assertEquals(source.content.shortcuts, decoded.content.shortcuts);
         assertEquals(source.taskbarPackages, decoded.taskbarPackages);
         assertEquals(
                 new GlobalDesktopPlacement(7500, 2500, 1, 2),
-                decoded.desktopPlacements.get("app:example.application"));
+                decoded.desktopPlacements.get("file:Example.desktop"));
         assertEquals(
                 new AppWindowState(
                         AppWindowState.Mode.FULLSCREEN,
@@ -90,7 +85,6 @@ public final class DesktopStateStoreTest {
     public void invalidEntriesAreIgnored() throws Exception {
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
                 "{\"format\":1,"
-                        + "\"shortcuts\":[{\"package\":\"not a package\"}],"
                         + "\"taskbar\":[\"\",\"bad package\"],"
                         + "\"desktopPlacements\":{"
                         + "\"bad\":[-1,0,1,1]},"
@@ -99,13 +93,31 @@ public final class DesktopStateStoreTest {
                         + "\"displayProfiles\":{\"wrong-key\":{"
                         + "\"key\":\"display:primary\"}}}" );
 
-        assertTrue(decoded.content.shortcuts.isEmpty());
         assertTrue(decoded.taskbarPackages.isEmpty());
         assertTrue(decoded.desktopPlacements.isEmpty());
         assertTrue(decoded.appWindows.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
         assertFalse(decoded.settings.openFilesWithSingleClick);
+    }
+
+    @Test
+    public void obsoleteAppShortcutsAndPlacementsAreIgnored()
+            throws Exception {
+        final DesktopStateStore.State decoded = DesktopStateStore.decode(
+                "{\"format\":1,"
+                        + "\"shortcuts\":[{\"package\":"
+                        + "\"example.application\"}],"
+                        + "\"desktopPlacements\":{"
+                        + "\"app:example.application\":[1,2,1,1],"
+                        + "\"file:Example.desktop\":[3,4,1,1]}}" );
+
+        final String encoded = DesktopStateStore.encode(decoded);
+        assertFalse(encoded.contains("shortcuts"));
+        assertFalse(decoded.desktopPlacements.containsKey(
+                "app:example.application"));
+        assertTrue(decoded.desktopPlacements.containsKey(
+                "file:Example.desktop"));
     }
 
     @Test

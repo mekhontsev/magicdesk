@@ -12,7 +12,7 @@ final class DesktopFile {
     final long size;
     final boolean directory;
     final Bitmap thumbnail;
-    final DesktopFolderShortcut folderShortcut;
+    final DesktopEntry desktopEntry;
 
     DesktopFile(
             final String relativePath,
@@ -23,7 +23,7 @@ final class DesktopFile {
             final long size,
             final boolean directory,
             final Bitmap thumbnail,
-            final DesktopFolderShortcut folderShortcut) {
+            final DesktopEntry desktopEntry) {
         this.relativePath = relativePath;
         this.uri = uri;
         this.name = name;
@@ -32,14 +32,29 @@ final class DesktopFile {
         this.size = size;
         this.directory = directory;
         this.thumbnail = thumbnail;
-        this.folderShortcut = folderShortcut;
+        this.desktopEntry = desktopEntry;
     }
 
     String displayName() {
-        return folderShortcut == null ? name : folderShortcut.name;
+        return desktopEntry == null ? name : desktopEntry.name;
     }
 
     boolean opensDirectory() {
-        return directory || folderShortcut != null;
+        return directory || folderShortcut() != null;
+    }
+
+    DesktopFolderShortcut folderShortcut() {
+        return desktopEntry instanceof DesktopFolderShortcut
+                ? (DesktopFolderShortcut) desktopEntry : null;
+    }
+
+    DesktopApplicationShortcut applicationShortcut() {
+        return desktopEntry instanceof DesktopApplicationShortcut
+                ? (DesktopApplicationShortcut) desktopEntry : null;
+    }
+
+    DesktopWebShortcut webShortcut() {
+        return desktopEntry instanceof DesktopWebShortcut
+                ? (DesktopWebShortcut) desktopEntry : null;
     }
 }

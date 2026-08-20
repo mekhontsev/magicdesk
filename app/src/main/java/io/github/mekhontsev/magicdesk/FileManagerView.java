@@ -454,8 +454,8 @@ final class FileManagerView {
     void setFiles(
             final List<ShellFileInfo> files,
             final Set<String> selectedPaths,
-            final Map<String, DesktopFolderShortcut> folderShortcuts) {
-        mAdapter.set(files, selectedPaths, folderShortcuts);
+            final Map<String, DesktopEntry> desktopEntries) {
+        mAdapter.set(files, selectedPaths, desktopEntries);
         mItemsAvailable = !files.isEmpty();
         mEmpty.setText(R.string.file_manager_empty);
         mEmpty.setVisibility(files.isEmpty() ? View.VISIBLE : View.GONE);

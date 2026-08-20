@@ -59,7 +59,7 @@ final class ShellFileAdapter extends BaseAdapter {
     private final DropListener mDropListener;
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
     private final Set<String> mSelected = new HashSet<>();
-    private final Map<String, DesktopFolderShortcut> mFolderShortcuts =
+    private final Map<String, DesktopEntry> mDesktopEntries =
             new LinkedHashMap<>();
     private FileManagerLayoutMode mLayoutMode =
             FileManagerLayoutMode.LIST;
@@ -83,13 +83,13 @@ final class ShellFileAdapter extends BaseAdapter {
     void set(
             final List<ShellFileInfo> files,
             final Set<String> selected,
-            final Map<String, DesktopFolderShortcut> folderShortcuts) {
+            final Map<String, DesktopEntry> desktopEntries) {
         mFiles.clear();
         mFiles.addAll(files);
         mSelected.clear();
         mSelected.addAll(selected);
-        mFolderShortcuts.clear();
-        mFolderShortcuts.putAll(folderShortcuts);
+        mDesktopEntries.clear();
+        mDesktopEntries.putAll(desktopEntries);
         notifyDataSetChanged();
     }
 
@@ -162,25 +162,50 @@ final class ShellFileAdapter extends BaseAdapter {
                 ? (ItemView) recycled.getTag()
                 : createItemView();
         final ShellFileInfo file = getItem(position);
-        final DesktopFolderShortcut shortcut =
-                mFolderShortcuts.get(file.absolutePath);
+        final DesktopEntry desktopEntry =
+                mDesktopEntries.get(file.absolutePath);
+        final DesktopFolderShortcut folderShortcut =
+                desktopEntry instanceof DesktopFolderShortcut
+                        ? (DesktopFolderShortcut) desktopEntry : null;
+        final DesktopApplicationShortcut applicationShortcut =
+                desktopEntry instanceof DesktopApplicationShortcut
+                        ? (DesktopApplicationShortcut) desktopEntry : null;
+        final DesktopWebShortcut webShortcut =
+                desktopEntry instanceof DesktopWebShortcut
+                        ? (DesktopWebShortcut) desktopEntry : null;
         item.file = file;
         applySelection(item);
         item.icon.clearColorFilter();
-        item.icon.setImageResource(shortcut == null
-                ? FileIconResolver.forFile(file.directory, file.mimeType)
-                : R.drawable.ic_desktop_folder_link);
-        item.icon.setAlpha(shortcut == null || shortcut.available ? 1f : 0.45f);
-        final String displayName = shortcut == null ? file.name : shortcut.name;
+        if (folderShortcut != null) {
+            item.icon.setImageResource(R.drawable.ic_desktop_folder_link);
+        } else if (applicationShortcut != null) {
+            if (!setApplicationIcon(item.icon, applicationShortcut)) {
+                item.icon.setImageResource(R.drawable.ic_magicdesk);
+            }
+        } else if (webShortcut != null) {
+            item.icon.setImageResource(R.drawable.ic_desktop_web_link);
+        } else {
+            item.icon.setImageResource(
+                    FileIconResolver.forFile(file.directory, file.mimeType));
+        }
+        item.icon.setAlpha(folderShortcut == null
+                || folderShortcut.available ? 1f : 0.45f);
+        final String displayName = desktopEntry == null
+                ? file.name : desktopEntry.name;
         item.icon.setContentDescription(displayName);
         item.name.setText(displayName);
-        item.name.setTypeface(null, file.directory || shortcut != null
+        item.name.setTypeface(null, file.directory || desktopEntry != null
                 ? Typeface.BOLD : Typeface.NORMAL);
         if (item.details != null) {
             item.details.setText(mShowLocation
                     ? file.absolutePath
-                    : shortcut == null
-                            ? details(file) : shortcut.targetPath);
+                    : folderShortcut != null
+                            ? folderShortcut.targetPath
+                            : applicationShortcut != null
+                                    ? applicationDetails(applicationShortcut)
+                                    : webShortcut != null
+                                            ? webShortcut.url
+                                            : details(file));
         }
         item.metaState = 0;
         item.eventTime = 0L;
@@ -227,12 +252,13 @@ final class ShellFileAdapter extends BaseAdapter {
                         android.os.SystemClock.uptimeMillis()));
         item.root.setOnContextClickListener(view ->
                 mContextListener.onContextClick(view, file));
-        item.root.setOnDragListener(file.directory || shortcut != null
+        item.root.setOnDragListener(file.directory || folderShortcut != null
                 ? (view, event) -> handleFolderDrag(
                         item,
                         file,
-                        shortcut == null
-                                ? file.absolutePath : shortcut.targetPath,
+                        folderShortcut == null
+                                ? file.absolutePath
+                                : folderShortcut.targetPath,
                         event)
                 : null);
         return item.root;
@@ -383,6 +409,28 @@ final class ShellFileAdapter extends BaseAdapter {
                 DateFormat.SHORT, DateFormat.SHORT)
                 .format(new Date(file.modified));
         return type + size + "  " + modified;
+    }
+
+    private static String applicationDetails(
+            final DesktopApplicationShortcut shortcut) {
+        return shortcut.launchTarget == null
+                ? shortcut.exec : shortcut.launchTarget.packageName;
+    }
+
+    private boolean setApplicationIcon(
+            final ImageView icon,
+            final DesktopApplicationShortcut shortcut) {
+        if (shortcut.launchTarget == null) {
+            return false;
+        }
+        try {
+            icon.setImageDrawable(mContext.getPackageManager()
+                    .getApplicationIcon(shortcut.launchTarget.packageName));
+            return true;
+        } catch (android.content.pm.PackageManager.NameNotFoundException
+                | RuntimeException error) {
+            return false;
+        }
     }
 
     private int dp(final int value) {

@@ -185,6 +185,24 @@ final class DesktopUiGateway {
         return true;
     }
 
+    boolean launchDesktopShortcut(
+            final DesktopApplicationShortcut shortcut,
+            final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.launchDesktopShortcut(shortcut);
+    }
+
+    boolean launchDesktopWebShortcut(
+            final DesktopWebShortcut shortcut,
+            final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        return activity != null
+                && activity.getCurrentDisplayId() == displayId
+                && activity.launchDesktopWebShortcut(shortcut);
+    }
+
     boolean dispatchOverlayTextInput(
             final int displayId,
             final int action,

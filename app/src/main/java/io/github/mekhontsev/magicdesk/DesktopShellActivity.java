@@ -853,8 +853,11 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void registerDraggableDesktopAppContextTarget(
-            final View view, final AppItem app) {
-        mContextMenuController.registerDraggableDesktopAppTarget(view, app);
+            final View view,
+            final AppItem app,
+            final DesktopFile file) {
+        mContextMenuController.registerDraggableDesktopAppTarget(
+                view, app, file);
     }
 
     void registerDraggableFileContextTarget(
@@ -1105,7 +1108,7 @@ public abstract class DesktopShellActivity extends Activity
         final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.delete_desktop_entry_title)
                 .setMessage(getString(
-                        file.folderShortcut != null
+                        file.desktopEntry != null
                                 ? R.string.delete_desktop_shortcut_message
                                 : file.directory
                                         ? R.string.delete_desktop_folder_message
@@ -1119,11 +1122,6 @@ public abstract class DesktopShellActivity extends Activity
                 .create();
         configureOverlayDialog(dialog);
         dialog.show();
-    }
-
-    void deleteDesktopShortcut(final AppItem app) {
-        hideAllPanels();
-        mDesktopWorkspaceController.deleteShortcut(app);
     }
 
     void showStartSection(final int mode) {
@@ -1340,6 +1338,12 @@ public abstract class DesktopShellActivity extends Activity
 
     void toggleDesktopShortcut(final AppItem app) {
         mDesktopWorkspaceController.toggleDesktopShortcut(app);
+    }
+
+    void addDesktopShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut) {
+        mDesktopWorkspaceController.addDesktopShortcut(app, shortcut);
     }
 
     void focusTask(final AppItem app, final TaskRepository.TaskEntry task) {
@@ -1612,6 +1616,50 @@ public abstract class DesktopShellActivity extends Activity
             final AppItem app,
             final AppShortcutAction shortcut) {
         mAppTasks.launchShortcut(app, shortcut);
+    }
+
+    void launchDesktopShortcut(
+            final AppItem app,
+            final DesktopApplicationShortcut shortcut) {
+        mAppTasks.launchDesktopShortcut(app, shortcut);
+    }
+
+    boolean launchDesktopShortcut(
+            final DesktopApplicationShortcut shortcut) {
+        if (shortcut == null || shortcut.launchTarget == null) {
+            return false;
+        }
+        final AppItem app = findOrLoadApp(
+                getLauncherApps(), shortcut.launchTarget);
+        if (app == null) {
+            return false;
+        }
+        launchDesktopShortcut(app, shortcut);
+        return true;
+    }
+
+    boolean launchDesktopWebShortcut(final DesktopWebShortcut shortcut) {
+        if (shortcut == null) {
+            return false;
+        }
+        final DesktopApplicationShortcut resolved =
+                shortcut.resolveApplicationShortcut(getPackageManager());
+        if (resolved != null && launchDesktopShortcut(resolved)) {
+            return true;
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(getCurrentDisplayId());
+        try {
+            startActivity(shortcut.createViewIntent(), options.toBundle());
+            return true;
+        } catch (RuntimeException error) {
+            setErrorStatus(
+                    "APP-LAUNCH-003",
+                    getString(R.string.status_launch_failed, shortcut.name),
+                    "url=" + shortcut.url,
+                    error);
+            return false;
+        }
     }
 
     void openAppInfo(final AppItem app) {

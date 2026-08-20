@@ -151,11 +151,12 @@ final class DesktopStateStore {
             throw new JSONException("unsupported desktop state format");
         }
         final State state = new State();
-        readTargets(root.optJSONArray("shortcuts"), state.content.shortcuts);
         readPackages(root.optJSONArray("taskbar"), state.taskbarPackages);
         readDesktopPlacements(
                 root.optJSONObject("desktopPlacements"),
                 state.desktopPlacements);
+        state.desktopPlacements.keySet().removeIf(
+                key -> key.startsWith("app:"));
         readAppWindows(
                 root.optJSONObject("appWindows"), state.appWindows);
         state.settings = MagicDeskSettings.Values.fromJson(
@@ -211,7 +212,6 @@ final class DesktopStateStore {
 
     private static State snapshotLocked() {
         final State snapshot = new State();
-        snapshot.content.shortcuts.addAll(sState.content.shortcuts);
         snapshot.taskbarPackages.addAll(sState.taskbarPackages);
         snapshot.desktopPlacements.putAll(sState.desktopPlacements);
         snapshot.appWindows.putAll(sState.appWindows);
@@ -235,7 +235,6 @@ final class DesktopStateStore {
     private static JSONObject toJson(final State state) throws JSONException {
         final JSONObject root = new JSONObject();
         root.put("format", FORMAT);
-        root.put("shortcuts", targetsToJson(state.content.shortcuts));
         root.put("taskbar", stringsToJson(state.taskbarPackages));
         root.put(
                 "desktopPlacements",
@@ -256,17 +255,6 @@ final class DesktopStateStore {
         return root;
     }
 
-    private static JSONArray targetsToJson(
-            final List<AppLaunchTarget> targets) throws JSONException {
-        final JSONArray values = new JSONArray();
-        for (final AppLaunchTarget target : targets) {
-            if (target != null) {
-                values.put(targetToJson(target));
-            }
-        }
-        return values;
-    }
-
     private static JSONArray stringsToJson(final List<String> values) {
         final JSONArray array = new JSONArray();
         for (final String value : values) {
@@ -275,53 +263,6 @@ final class DesktopStateStore {
             }
         }
         return array;
-    }
-
-    private static JSONObject targetToJson(final AppLaunchTarget target)
-            throws JSONException {
-        final JSONObject json = new JSONObject();
-        json.put("package", target.packageName);
-        if (!target.activityClassName.isEmpty()) {
-            json.put("activity", target.activityClassName);
-        }
-        if (!target.action.isEmpty()) {
-            json.put("action", target.action);
-        }
-        return json;
-    }
-
-    private static void readTargets(
-            final JSONArray values,
-            final List<AppLaunchTarget> destination) {
-        if (values == null) {
-            return;
-        }
-        for (int index = 0; index < values.length(); index++) {
-            final AppLaunchTarget target = targetFromJson(
-                    values.optJSONObject(index));
-            if (target != null && !destination.contains(target)) {
-                destination.add(target);
-            }
-        }
-    }
-
-    private static AppLaunchTarget targetFromJson(final JSONObject json) {
-        if (json == null) {
-            return null;
-        }
-        final String packageName = json.optString("package", "");
-        final String activity = json.optString("activity", "");
-        final String action = json.optString("action", "");
-        if (activity.length() > 512 || action.length() > 512) {
-            return null;
-        }
-        try {
-            return activity.isEmpty()
-                    ? AppLaunchTarget.packageDefault(packageName)
-                    : AppLaunchTarget.explicit(packageName, activity, action);
-        } catch (IllegalArgumentException error) {
-            return null;
-        }
     }
 
     private static void readPackages(
@@ -526,8 +467,6 @@ final class DesktopStateStore {
     }
 
     static final class State {
-        final DesktopContentStore.State content =
-                new DesktopContentStore.State();
         final List<String> taskbarPackages = new ArrayList<>();
         final Map<String, GlobalDesktopPlacement> desktopPlacements =
                 new LinkedHashMap<>();

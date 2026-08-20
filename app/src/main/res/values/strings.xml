@@ -37,6 +37,7 @@
     <string name="action_dismiss_notification">Dismiss notification</string>
     <string name="action_notification_access">Notification access</string>
     <string name="action_add_to_desktop">Add to desktop</string>
+    <string name="action_add_app_action_to_desktop">Add action to desktop</string>
     <string name="action_remove_from_desktop">Remove from desktop</string>
     <string name="action_open_desktop_folder">Open folder</string>
     <string name="action_new_file">New file&#8230;</string>
@@ -100,6 +101,13 @@
     <string name="file_manager_desktop_shortcut_failed">Cannot create desktop shortcut: %1$s</string>
     <string name="desktop_shortcut_unavailable">Shortcut target is unavailable</string>
     <string name="desktop_shortcut_target">Shortcut target: %1$s</string>
+    <string name="share_web_shortcut_title">Add website to Desktop</string>
+    <string name="share_web_shortcut_name">Name</string>
+    <string name="share_web_shortcut_add">Add</string>
+    <string name="share_web_shortcut_invalid">No web address was shared</string>
+    <string name="share_web_shortcut_shell_unavailable">Shell access is unavailable: %1$s</string>
+    <string name="share_web_shortcut_added">%1$s added to Desktop</string>
+    <string name="share_web_shortcut_failed">Could not add website: %1$s</string>
     <string name="file_manager_setting_wallpaper">Setting desktop wallpaper&#8230;</string>
     <string name="file_manager_terminal">Terminal here</string>
     <string name="file_manager_console">Console here</string>
@@ -318,7 +326,7 @@
     <string name="delete_desktop_entry_title">Delete from Desktop?</string>
     <string name="delete_desktop_file_message">Delete %1$s permanently?</string>
     <string name="delete_desktop_folder_message">Delete %1$s and everything inside it permanently?</string>
-    <string name="delete_desktop_shortcut_message">Delete the %1$s shortcut? The target folder and its contents will not be changed.</string>
+    <string name="delete_desktop_shortcut_message">Delete the %1$s shortcut? Its target will not be changed.</string>
     <string name="status_widgets_unavailable">Android widgets are unavailable</string>
     <string name="status_desktop_wallpaper_changed">Desktop wallpaper changed</string>
     <string name="status_system_wallpaper_restored">Using system wallpaper</string>
@@ -397,6 +405,7 @@
     <string name="context_desktop">Desktop</string>
     <string name="context_task_status">Task %1$d | %2$s</string>
     <string name="context_app_actions_title">%1$s actions</string>
+    <string name="context_add_app_action_title">Add %1$s action</string>
     <string name="context_window_title">%1$s window</string>
     <string name="open_tasks_title">Open tasks (%1$d)</string>
     <string name="open_tasks_empty">No open applications</string>
