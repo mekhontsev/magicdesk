@@ -19,8 +19,25 @@ Terminal=true
 ```
 
 `Exec` is limited to 4096 characters and cannot contain a NUL character. `%%`
-represents a literal percent sign. MagicDesk does not yet expand file and URL
-field codes such as `%f`, `%F`, `%u`, or `%U`.
+represents a literal percent sign. MagicDesk expands these standard field
+codes:
+
+- `%f` and `%u`: the first supplied local file or URI.
+- `%F` and `%U`: every supplied local file or URI as separate arguments.
+- `%c`: the entry's display name.
+- `%i`: `--icon` followed by the configured icon, when present.
+- `%k`: the absolute path of the `.desktop` file, when known.
+
+Files can be supplied by dropping one or more Desktop or Files items onto an
+executable `.desktop` item containing `%f`, `%F`, `%u`, or `%U`. If an entry is
+opened normally without supplied files, those file and URI fields are removed.
+Expanded values are shell-quoted individually. Multi-value codes must occupy a
+complete argument. Unknown codes, malformed quoting, and an expanded command
+over the size limit reject that launch.
+
+Commands without field codes keep their raw shell syntax, including pipes,
+redirections, and command separators. A literal percent in such a Desktop
+Entry must still be written as `%%` according to the Desktop Entry format.
 
 `Terminal` selects how the command is presented:
 
@@ -40,6 +57,17 @@ access, environment, and UID are those of the active shell service, not those
 of a regular Android application and not those of Termux. With
 `Terminal=true`, the command opens in MagicDesk Console.
 
+The standard optional `Path` field selects an absolute working directory:
+
+```ini
+Path=/storage/emulated/0/project
+```
+
+For the shell backend it becomes Console's initial directory or a checked
+`cd` before a background command. For the Termux backend it is passed as the
+working directory of Termux's `RUN_COMMAND` request. A relative or malformed
+path invalidates the entry.
+
 The optional Termux backend is selected explicitly:
 
 ```ini
@@ -54,6 +82,13 @@ the `RUN_COMMAND` permission must be granted to MagicDesk. With
 
 Unknown backend names invalidate the entry instead of executing the command in
 an unintended environment.
+
+Backend availability and capabilities are reported in Diagnostics. MagicDesk
+assigns a stable bounded session ID to each command and records its latest
+`preparing`, `running`, `delegated`, `finished`, or `failed` state. `delegated`
+means that Console or an external backend accepted the command but does not
+provide a completion event. This state is diagnostic: MagicDesk does not claim
+ownership of independently running Termux or X11 processes.
 
 ## Android applications
 
@@ -109,6 +144,11 @@ desktop window placement matters.
 Unknown or missing values use `auto`. Window modes apply when the entry also
 identifies an Android package that MagicDesk can prepare as a desktop task.
 They do not alter a generic background shell process.
+
+An entry with both `X-MagicDesk-Package` and executable `Exec`, but without
+`X-MagicDesk-Intent` or `X-MagicDesk-Default=true`, is a composite launch.
+MagicDesk first prepares the package's Android task, then delegates `Exec`.
+This is the generic mechanism used by viewer/server integrations.
 
 ## Termux:X11 profiles
 

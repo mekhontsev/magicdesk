@@ -891,15 +891,46 @@ full Android Intent URI and launch-mode metadata in `X-MagicDesk-*` keys. The
 Intent URI preserves extras, categories, flags, actions, and explicit
 components and always takes precedence over its executable `am start`
 fallback, preventing duplicate launches. An entry without an Intent or a
-default Android launch executes `Exec`. `DesktopExecController` coordinates
-that request with desktop task preparation, while `DesktopExecRunner` owns the
-execution-backend boundary. Android shell is the default backend;
+default Android launch executes `Exec`.
+
+Every launch surface converts the entry into one immutable
+`DesktopLaunchRequest`. `DesktopLaunchCoordinator` owns the shared sequence of
+capability validation, optional Android-task preparation, and command
+delegation. `DesktopSessionLaunchContext` maps that sequence onto the live
+desktop's existing `AppTaskController`; `StandaloneDesktopLaunchContext` maps
+the same request onto a regular Files Activity. Neither context reimplements
+request resolution or backend selection. The coordinator deliberately leaves
+the established WMShell transition controllers unchanged.
+
+`DesktopExecRunner` owns the execution-backend boundary. Android shell is the
+default backend;
 `X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
 environment. `Terminal=true` opens shell commands in the built-in Console and
 foreground Termux commands in a named Termux session. A future PTY-backed
 Console remains an implementation of the shell backend and therefore does not
 require another Desktop Entry format or migration.
+
+`DesktopLaunchIntegrationRegistry` is intentionally a small in-process list,
+not a plugin framework. An integration recognizes an Android companion target,
+contributes its default `DesktopExecSpec`, and may prepare that command before
+delegation. The coordinator contains no Termux:X11 package checks. A composite
+request with both an Android target and `Exec` first prepares the normal
+Android task, then runs its companion command.
+
+`DesktopExecTemplate` expands the supported Desktop Entry file, URI, name,
+icon, and source-file field codes. `DesktopLaunchArguments` remains independent
+of Android UI classes; `DesktopDragLaunchArguments` is the drag-and-drop
+adapter used by Desktop and Files. Commands without field codes retain raw
+shell syntax, while expanded values are tokenized and shell-quoted. `Path` is
+validated once and transported through `DesktopExecSpec` to either Console,
+the shell process, or Termux.
+
+Backend capabilities describe background, terminal, working-directory, result,
+and terminal-host support. `DesktopExecSessionTracker` keeps only a bounded
+observational state for delegated commands. It provides stable IDs and
+diagnostics but does not own, kill, or recreate external Termux or X11
+processes.
 
 ## Desktop Surface And Widgets
 

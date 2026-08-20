@@ -113,8 +113,10 @@ that can run on the device itself or on a secondary display:
   `am start` fallback. For command entries, MagicDesk executes the standard
   `Exec` field in Android shell by default; `Terminal=true` opens the command
   in Console, while `X-MagicDesk-ExecBackend=termux` selects Termux's documented
-  command service instead. The supported fields, launch precedence, window
-  modes, and examples are documented in [Desktop Entry files](docs/desktop-entries.md).
+  command service instead. Executable shortcuts accept dropped files through
+  `%f/%F/%u/%U`, and `Path` selects their working directory. The supported
+  fields, launch precedence, window modes, and examples are documented in
+  [Desktop Entry files](docs/desktop-entries.md).
 - Open the current Files directory in MagicDesk's built-in Console, or hand it
   to Termux when Termux is installed and its documented `RUN_COMMAND` access
   has been enabled. Reopening the same directory returns to its existing named
