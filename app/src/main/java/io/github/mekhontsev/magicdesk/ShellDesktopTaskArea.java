@@ -20,6 +20,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private static final String HOST_CLASS = HOST_PACKAGE
             + ".DesktopActivity";
     private static final int FEATURE_DEFAULT_TASK_CONTAINER = 1;
+    private static final int ACTIVITY_TYPE_HOME = 2;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long HIERARCHY_TIMEOUT_MILLIS = 3_000L;
@@ -284,6 +285,26 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 || mTaskIds.contains(Integer.valueOf(taskId)));
     }
 
+    synchronized Boolean foregroundAfterTaskMovedToFront(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+        if (taskInfo == null) {
+            return null;
+        }
+        final int displayId = HiddenTaskApi.getTaskDisplayId(taskInfo);
+        final Boolean foreground = foregroundForTask(
+                displayId, taskInfo.taskId);
+        if (!Boolean.FALSE.equals(foreground) || !isHomeTask(taskInfo)) {
+            return foreground;
+        }
+
+        // When the last child finishes, Android can focus HOME as its generic
+        // fallback even though our still-visible host owns this session area.
+        // Record that the system changed Z-order, but do not publish a desktop
+        // departure or start another transition while the child is closing.
+        mAreaAtTop = null;
+        return null;
+    }
+
     synchronized void setSessionForeground(final boolean foreground)
             throws ReflectiveOperationException {
         if (!mEnabled || mArea == null
@@ -309,6 +330,22 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         mAreaAtTop = Boolean.valueOf(foreground);
         Log.d(TAG, "desktop task area foreground=" + foreground
                 + " display=" + mDisplayId);
+    }
+
+    private static boolean isHomeTask(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+        final Intent baseIntent = taskInfo.baseIntent;
+        if (baseIntent != null
+                && baseIntent.hasCategory(Intent.CATEGORY_HOME)) {
+            return true;
+        }
+        try {
+            return HiddenTaskApi.getWindowConfigurationValue(
+                    taskInfo, "getActivityType") == ACTIVITY_TYPE_HOME;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not inspect foreground task type", error);
+            return false;
+        }
     }
 
     synchronized boolean closeTask(

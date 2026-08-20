@@ -109,6 +109,7 @@ public abstract class DesktopShellActivity extends Activity
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
     private boolean mTaskbarAutoHide;
+    private boolean mDesktopPlaneForeground = true;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
@@ -541,6 +542,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onStart() {
         super.onStart();
+        if (usesSessionTaskArea()) {
+            applyDesktopPlaneForeground(true);
+        }
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.start();
         }
@@ -552,6 +556,9 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopWorkspaceController.stop();
         }
         if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
+            if (usesSessionTaskArea()) {
+                applyDesktopPlaneForeground(false);
+            }
             hideAllPanels();
             setTaskbarVisible(false);
         }
@@ -1687,12 +1694,28 @@ public abstract class DesktopShellActivity extends Activity
         if (getCurrentDisplayId() != Display.DEFAULT_DISPLAY) {
             return;
         }
+        applyDesktopPlaneForeground(foreground);
+    }
+
+    private void applyDesktopPlaneForeground(final boolean foreground) {
+        mDesktopPlaneForeground = foreground;
         if (!foreground) {
             hideAllPanels();
         }
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.setDesktopPlaneForeground(foreground);
         }
+    }
+
+    boolean isDesktopPlaneForeground() {
+        return mDesktopPlaneForeground;
+    }
+
+    private boolean usesSessionTaskArea() {
+        return getCurrentDisplayId() == Display.DEFAULT_DISPLAY
+                && DesktopDisplayDrivers.activeTaskAreaPolicy(
+                        getCurrentDisplayId())
+                        == DesktopTaskAreaPolicy.SESSION;
     }
 
     void refreshSettings() {

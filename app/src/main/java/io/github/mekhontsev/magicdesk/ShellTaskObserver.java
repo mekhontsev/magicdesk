@@ -719,9 +719,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final boolean focused) {
         mFocusController.onTaskFocusChanged(taskId, focused);
-        if (focused) {
-            reportDesktopTaskAreaForeground(taskId);
-        }
         signalChange("focus-changed");
     }
 
@@ -818,8 +815,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private void reportDesktopTaskAreaForeground(
             final ActivityManager.RunningTaskInfo taskInfo) {
-        final Boolean foreground = mDesktopTaskArea.foregroundForTask(
-                HiddenTaskApi.getTaskDisplayId(taskInfo), taskInfo.taskId);
+        final Boolean foreground = mDesktopTaskArea
+                .foregroundAfterTaskMovedToFront(taskInfo);
         if (foreground != null) {
             reportDesktopTaskAreaForeground(foreground.booleanValue()
                     || mDesktopOwnership.isDesktopTask(taskInfo));

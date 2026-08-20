@@ -38,13 +38,24 @@ final class DesktopTaskSnapshotController {
                 break;
             }
         }
-        final boolean desktopActive =
+        // Input focus can temporarily fall through a non-focusable phone
+        // desktop host to a task in the default task area. Keep input-window
+        // focusability tied to the visible host, while task-area Z-order owns
+        // the independent taskbar overlay lifetime.
+        final boolean localSession = mActivity.getCurrentDisplayId()
+                == android.view.Display.DEFAULT_DISPLAY
+                && DesktopDisplayDrivers.activeTaskAreaPolicy(
+                        mActivity.getCurrentDisplayId())
+                        == DesktopTaskAreaPolicy.SESSION;
+        final boolean desktopHostActive =
                 isDesktopHostForeground(snapshot.tasks);
+        final boolean desktopPlaneActive = desktopHostActive
+                || (localSession && mActivity.isDesktopPlaneForeground());
         final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
                 mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
                 activeTask != null,
                 activeTask != null && activeTask.isFreeform(),
-                desktopActive,
+                desktopPlaneActive,
                 mActivity.isTaskbarVisible());
         mSnapshot = snapshot;
         if (activeTask != null
@@ -54,7 +65,8 @@ final class DesktopTaskSnapshotController {
         }
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
-        mActivity.setDesktopWindowFocusable(activeTask == null || desktopActive);
+        mActivity.setDesktopWindowFocusable(
+                activeTask == null || desktopHostActive);
     }
 
     static boolean isDesktopHostForeground(
