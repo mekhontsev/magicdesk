@@ -149,6 +149,25 @@ public final class DesktopEntryFileTest {
     }
 
     @Test
+    public void commandMimeTypesRoundTripAsStandardList() {
+        final DesktopEntry parsed = DesktopEntryFile.parse(
+                "[Desktop Entry]\n"
+                        + "Type=Application\n"
+                        + "Name=Text viewer\n"
+                        + "Exec=view-text %f\n"
+                        + "MimeType=text/plain;application/json;\n");
+
+        assertTrue(parsed instanceof DesktopApplicationShortcut);
+        final DesktopApplicationShortcut app =
+                (DesktopApplicationShortcut) parsed;
+        assertEquals(
+                java.util.List.of("text/plain", "application/json"),
+                app.mimeTypes.values());
+        assertTrue(DesktopEntryFile.encodeApplication(app).contains(
+                "MimeType=text/plain;application/json;\n"));
+    }
+
+    @Test
     public void androidIntentTakesPriorityOverExecFallback() {
         final DesktopEntry parsed = DesktopEntryFile.parse(
                 "[Desktop Entry]\n"
@@ -185,6 +204,16 @@ public final class DesktopEntryFileTest {
                         + "Name=Relative path\n"
                         + "Exec=pwd\n"
                         + "Path=project\n"));
+    }
+
+    @Test
+    public void malformedMimeTypeRejectsEntry() {
+        assertNull(DesktopEntryFile.parse(
+                "[Desktop Entry]\n"
+                        + "Type=Application\n"
+                        + "Name=Wrong handler\n"
+                        + "Exec=view %f\n"
+                        + "MimeType=text\n"));
     }
 
     @Test

@@ -84,6 +84,8 @@
     <string name="file_manager_just_once">Just once</string>
     <string name="file_manager_always">Always</string>
     <string name="file_manager_system_default">%1$s - System default</string>
+    <string name="file_manager_shell_command">Shell command</string>
+    <string name="file_manager_termux_command">Termux command</string>
     <string name="file_manager_default_failed">Could not save the default application: %1$s</string>
     <string name="file_manager_no_handler">No compatible application is available</string>
     <string name="file_manager_copy_path">Copy path</string>

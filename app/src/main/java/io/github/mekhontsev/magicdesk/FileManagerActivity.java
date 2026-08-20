@@ -1705,8 +1705,26 @@ public final class FileManagerActivity extends Activity
                     getContentResolver(), file.name, uri));
             if (!mOpenWith.open(
                     view,
+                    DesktopLaunchArguments.files(
+                            List.of(file.absolutePath)),
                     chooser,
-                    this::launchFileIntent)) {
+                    new FileOpenWithController.Launcher() {
+                        @Override
+                        public void launchAndroid(final Intent selected) {
+                            launchFileIntent(selected);
+                        }
+
+                        @Override
+                        public void launchDesktop(
+                                final DesktopApplicationShortcut shortcut,
+                                final DesktopLaunchArguments arguments,
+                                final String desktopFilePath) {
+                            openApplicationShortcut(
+                                    shortcut,
+                                    desktopFilePath,
+                                    arguments);
+                        }
+                    })) {
                 mView.setStatus(getString(
                         R.string.file_manager_no_handler));
             }

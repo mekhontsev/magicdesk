@@ -455,10 +455,30 @@ final class DesktopWorkspaceController {
                         | Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.setClipData(ClipData.newUri(
                 mActivity.getContentResolver(), file.name, file.uri));
+        final DesktopLaunchArguments arguments =
+                DesktopLaunchArguments.files(
+                        List.of(desktopAbsolutePath(file)));
         if (!mOpenWith.open(
                 intent,
+                arguments,
                 alwaysAsk,
-                selected -> launchFileIntent(selected, file))) {
+                new FileOpenWithController.Launcher() {
+                    @Override
+                    public void launchAndroid(final Intent selected) {
+                        launchFileIntent(selected, file);
+                    }
+
+                    @Override
+                    public void launchDesktop(
+                            final DesktopApplicationShortcut shortcut,
+                            final DesktopLaunchArguments selectedArguments,
+                            final String desktopFilePath) {
+                        openApplicationShortcut(
+                                shortcut,
+                                desktopFilePath,
+                                selectedArguments);
+                    }
+                })) {
             mActivity.setErrorStatus(
                     "FILES-003",
                     mActivity.getString(

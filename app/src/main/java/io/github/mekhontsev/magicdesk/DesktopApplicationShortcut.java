@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 
-/** Type=Application entry with an Android launch descriptor. */
+/** Type=Application entry with an Android or command launch descriptor. */
 final class DesktopApplicationShortcut extends DesktopEntry {
     final AppLaunchTarget launchTarget;
     final String intentUri;
@@ -12,6 +12,7 @@ final class DesktopApplicationShortcut extends DesktopEntry {
     final DesktopExecBackend execBackend;
     final boolean terminal;
     final String workingDirectory;
+    final DesktopMimeTypes mimeTypes;
 
     DesktopApplicationShortcut(
             final String name,
@@ -47,6 +48,32 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final DesktopExecBackend execBackend,
             final boolean terminal,
             final String workingDirectory) {
+        this(
+                name,
+                icon,
+                exec,
+                launchTarget,
+                intentUri,
+                launchMode,
+                defaultLaunch,
+                execBackend,
+                terminal,
+                workingDirectory,
+                DesktopMimeTypes.empty());
+    }
+
+    DesktopApplicationShortcut(
+            final String name,
+            final String icon,
+            final String exec,
+            final AppLaunchTarget launchTarget,
+            final String intentUri,
+            final DesktopLaunchMode launchMode,
+            final boolean defaultLaunch,
+            final DesktopExecBackend execBackend,
+            final boolean terminal,
+            final String workingDirectory,
+            final DesktopMimeTypes mimeTypes) {
         super(name, icon, exec);
         if ((intentUri == null || intentUri.isEmpty()) && this.exec.isEmpty()) {
             throw new IllegalArgumentException(
@@ -66,6 +93,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
         this.terminal = terminal;
         this.workingDirectory = DesktopExecWorkingDirectory.normalize(
                 workingDirectory);
+        this.mimeTypes = mimeTypes == null
+                ? DesktopMimeTypes.empty() : mimeTypes;
         if (hasExecLaunch()) {
             DesktopExecCommand.normalize(this.exec);
         }

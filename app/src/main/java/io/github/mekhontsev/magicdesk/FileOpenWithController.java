@@ -31,7 +31,12 @@ import java.util.Map;
 /** Resolves file handlers without opening Android's overlay-hiding resolver. */
 final class FileOpenWithController {
     interface Launcher {
-        void launch(Intent intent);
+        void launchAndroid(Intent intent);
+
+        void launchDesktop(
+                DesktopApplicationShortcut shortcut,
+                DesktopLaunchArguments arguments,
+                String desktopFilePath);
     }
 
     private final Activity mActivity;
@@ -43,19 +48,33 @@ final class FileOpenWithController {
 
     boolean open(
             final Intent source,
+            final DesktopLaunchArguments arguments,
             final boolean alwaysAsk,
             final Launcher launcher) {
-        final List<Target> targets = queryTargets(source);
+        final List<Target> androidTargets = queryAndroidTargets(source);
+        final Target preferred = preferredTarget(source, androidTargets);
+        if (!alwaysAsk && preferred != null) {
+            launch(
+                    source,
+                    preferred,
+                    arguments,
+                    launcher);
+            return true;
+        }
+        final List<Target> targets = new ArrayList<>(androidTargets);
+        addDesktopTargets(source.getType(), targets);
         if (targets.isEmpty()) {
             return false;
         }
-        final Target preferred = preferredTarget(source, targets);
-        if (!alwaysAsk && (preferred != null || targets.size() == 1)) {
-            launcher.launch(explicitIntent(
-                    source, preferred != null ? preferred : targets.get(0)));
+        targets.sort(Comparator
+                .comparing((Target target) -> target.label,
+                        String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(Target::key));
+        if (!alwaysAsk && targets.size() == 1) {
+            launch(source, targets.get(0), arguments, launcher);
             return true;
         }
-        showDialog(source, targets, preferred, launcher);
+        showDialog(source, arguments, targets, preferred, launcher);
         return true;
     }
 
@@ -66,7 +85,7 @@ final class FileOpenWithController {
         }
     }
 
-    private List<Target> queryTargets(final Intent source) {
+    private List<Target> queryAndroidTargets(final Intent source) {
         final PackageManager packageManager = mActivity.getPackageManager();
         final List<ResolveInfo> matches = packageManager.queryIntentActivities(
                 source,
@@ -82,17 +101,37 @@ final class FileOpenWithController {
                     activityInfo.packageName, activityInfo.name);
             unique.put(component, new Target(
                     component,
+                    null,
                     String.valueOf(match.loadLabel(packageManager)),
                     activityInfo.packageName,
                     loadIcon(packageManager, match),
                     match.match));
         }
-        final List<Target> targets = new ArrayList<>(unique.values());
-        targets.sort(Comparator
-                .comparing((Target target) -> target.label,
-                        String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(target -> target.component.flattenToString()));
-        return targets;
+        return new ArrayList<>(unique.values());
+    }
+
+    private void addDesktopTargets(
+            final String mimeType,
+            final List<Target> targets) {
+        try {
+            for (final DesktopOpenWithRepository.Handler handler
+                    : DesktopOpenWithRepository.query(mimeType)) {
+                final DesktopApplicationShortcut shortcut = handler.shortcut;
+                final int detailsResource = shortcut.execBackend
+                        == DesktopExecBackend.TERMUX
+                        ? R.string.file_manager_termux_command
+                        : R.string.file_manager_shell_command;
+                targets.add(new Target(
+                        null,
+                        handler,
+                        shortcut.name,
+                        mActivity.getString(detailsResource),
+                        loadDesktopIcon(shortcut),
+                        0));
+            }
+        } catch (IOException ignored) {
+            // Android handlers remain usable when shell lookup is absent.
+        }
     }
 
     private Target preferredTarget(
@@ -110,7 +149,7 @@ final class FileOpenWithController {
                 resolved.activityInfo.packageName,
                 resolved.activityInfo.name);
         for (final Target target : targets) {
-            if (target.component.equals(component)) {
+            if (component.equals(target.component)) {
                 return target;
             }
         }
@@ -121,7 +160,7 @@ final class FileOpenWithController {
                     ? null : ComponentName.unflattenFromString(encoded);
             if (selected != null) {
                 for (final Target target : targets) {
-                    if (target.component.equals(selected)) {
+                    if (selected.equals(target.component)) {
                         return target;
                     }
                 }
@@ -134,6 +173,7 @@ final class FileOpenWithController {
 
     private void showDialog(
             final Intent source,
+            final DesktopLaunchArguments arguments,
             final List<Target> targets,
             final Target preferred,
             final Launcher launcher) {
@@ -168,13 +208,13 @@ final class FileOpenWithController {
         once.setOnClickListener(view -> {
             final Target selected = adapter.selected();
             if (selected != null) {
-                launcher.launch(explicitIntent(source, selected));
+                launch(source, selected, arguments, launcher);
                 dialog.dismiss();
             }
         });
         always.setOnClickListener(view -> {
             final Target selected = adapter.selected();
-            if (selected == null) {
+            if (selected == null || !selected.android()) {
                 return;
             }
             try {
@@ -183,7 +223,7 @@ final class FileOpenWithController {
                         encodedComponents(targets),
                         selected.component.flattenToString(),
                         bestMatch(targets));
-                launcher.launch(explicitIntent(source, selected));
+                launch(source, selected, arguments, launcher);
                 dialog.dismiss();
             } catch (IOException error) {
                 Toast.makeText(
@@ -202,23 +242,43 @@ final class FileOpenWithController {
             final Button always) {
         final boolean selected = adapter.selected() != null;
         once.setEnabled(selected);
-        always.setEnabled(selected);
+        always.setEnabled(selected && adapter.selected().android());
     }
 
     private static String[] encodedComponents(final List<Target> targets) {
-        final String[] encoded = new String[targets.size()];
-        for (int index = 0; index < targets.size(); index++) {
-            encoded[index] = targets.get(index).component.flattenToString();
+        final List<String> encoded = new ArrayList<>();
+        for (final Target target : targets) {
+            if (target.android()) {
+                encoded.add(target.component.flattenToString());
+            }
         }
-        return encoded;
+        return encoded.toArray(new String[0]);
     }
 
     private static int bestMatch(final List<Target> targets) {
         int best = 0;
         for (final Target target : targets) {
-            best = Math.max(best, target.match);
+            if (target.android()) {
+                best = Math.max(best, target.match);
+            }
         }
         return best;
+    }
+
+    private static void launch(
+            final Intent source,
+            final Target target,
+            final DesktopLaunchArguments arguments,
+            final Launcher launcher) {
+        if (target.android()) {
+            launcher.launchAndroid(explicitIntent(source, target));
+            return;
+        }
+        launcher.launchDesktop(
+                target.desktopHandler.shortcut,
+                arguments == null
+                        ? DesktopLaunchArguments.empty() : arguments,
+                target.desktopHandler.desktopFilePath);
     }
 
     private static Intent explicitIntent(
@@ -235,6 +295,22 @@ final class FileOpenWithController {
         } catch (RuntimeException ignored) {
             return null;
         }
+    }
+
+    private Drawable loadDesktopIcon(
+            final DesktopApplicationShortcut shortcut) {
+        final String packageName = shortcut.launchTarget != null
+                ? shortcut.launchTarget.packageName : shortcut.icon;
+        if (packageName != null && !packageName.isEmpty()) {
+            try {
+                return mActivity.getPackageManager()
+                        .getApplicationIcon(packageName);
+            } catch (PackageManager.NameNotFoundException
+                    | RuntimeException ignored) {
+                // Freedesktop icon names use the generic command icon.
+            }
+        }
+        return mActivity.getDrawable(R.drawable.ic_file_console);
     }
 
     private int dp(final int value) {
@@ -280,7 +356,7 @@ final class FileOpenWithController {
 
         @Override
         public long getItemId(final int position) {
-            return getItem(position).component.hashCode();
+            return getItem(position).key().hashCode();
         }
 
         @Override
@@ -294,11 +370,11 @@ final class FileOpenWithController {
             final Target target = getItem(position);
             row.icon.setImageDrawable(target.icon);
             row.label.setText(target.label);
-            row.packageName.setText(target == mPreferred
+            row.packageName.setText(target == mPreferred && target.android()
                     ? mActivity.getString(
                             R.string.file_manager_system_default,
-                            target.packageName)
-                    : target.packageName);
+                            target.details)
+                    : target.details);
             row.selection.setChecked(position == mSelectedIndex);
             return row.root;
         }
@@ -346,22 +422,35 @@ final class FileOpenWithController {
 
     private static final class Target {
         final ComponentName component;
+        final DesktopOpenWithRepository.Handler desktopHandler;
         final String label;
-        final String packageName;
+        final String details;
         final Drawable icon;
         final int match;
 
         Target(
                 final ComponentName component,
+                final DesktopOpenWithRepository.Handler desktopHandler,
                 final String label,
-                final String packageName,
+                final String details,
                 final Drawable icon,
                 final int match) {
             this.component = component;
+            this.desktopHandler = desktopHandler;
             this.label = label;
-            this.packageName = packageName;
+            this.details = details;
             this.icon = icon;
             this.match = match;
+        }
+
+        boolean android() {
+            return component != null;
+        }
+
+        String key() {
+            return android()
+                    ? component.flattenToString()
+                    : desktopHandler.desktopFilePath;
         }
     }
 
