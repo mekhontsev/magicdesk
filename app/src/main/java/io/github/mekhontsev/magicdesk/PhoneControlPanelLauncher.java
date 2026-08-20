@@ -10,6 +10,8 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -127,16 +129,37 @@ final class PhoneControlPanelLauncher {
         }
         final ComponentName controlPanel =
                 new ComponentName(context, ControlActivity.class);
+        final List<ActivityManager.AppTask> misplacedTasks =
+                new ArrayList<>();
         for (final ActivityManager.AppTask task
                 : activityManager.getAppTasks()) {
             final ActivityManager.RecentTaskInfo info = task.getTaskInfo();
             if (info == null || !isTaskFor(info, controlPanel)) {
                 continue;
             }
+            if (!isPhoneDisplay(HiddenTaskApi.getTaskDisplayId(info))) {
+                misplacedTasks.add(task);
+                continue;
+            }
             task.moveToFront();
             return true;
         }
+        // ControlActivity has a dedicated task affinity and is intended to
+        // exist only on the phone. Remove stale cross-display instances so
+        // the following explicit display-0 launch cannot reuse one of them.
+        for (final ActivityManager.AppTask task : misplacedTasks) {
+            try {
+                task.finishAndRemoveTask();
+            } catch (RuntimeException error) {
+                Log.d(TAG, "could not remove misplaced phone panel task",
+                        error);
+            }
+        }
         return false;
+    }
+
+    static boolean isPhoneDisplay(final int displayId) {
+        return displayId == Display.DEFAULT_DISPLAY;
     }
 
     private static boolean isTaskFor(

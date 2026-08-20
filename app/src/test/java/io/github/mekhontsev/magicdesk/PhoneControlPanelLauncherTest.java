@@ -27,4 +27,10 @@ public final class PhoneControlPanelLauncherTest {
         assertFalse(PhoneControlPanelLauncher.commandFailed(
                 "Starting: Intent { cmp=example/.ControlActivity }"));
     }
+
+    @Test
+    public void onlyPhoneTaskCanBeReusedAsPhonePanel() {
+        assertTrue(PhoneControlPanelLauncher.isPhoneDisplay(0));
+        assertFalse(PhoneControlPanelLauncher.isPhoneDisplay(3));
+    }
 }
