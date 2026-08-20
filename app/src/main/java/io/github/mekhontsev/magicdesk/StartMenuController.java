@@ -63,6 +63,24 @@ final class StartMenuController {
     @SuppressLint("ClickableViewAccessibility")
     LinearLayout create() {
         final LinearLayout menu = new LinearLayout(mActivity) {
+            // Overlay windows bypass the activity's event dispatch path.
+            @Override
+            public boolean dispatchTouchEvent(final MotionEvent event) {
+                if (mActivity.handleDesktopMouseTouchEvent(event, true)) {
+                    return true;
+                }
+                return super.dispatchTouchEvent(event);
+            }
+
+            @Override
+            public boolean dispatchGenericMotionEvent(
+                    final MotionEvent event) {
+                if (mActivity.handleDesktopMouseGenericEvent(event, true)) {
+                    return true;
+                }
+                return super.dispatchGenericMotionEvent(event);
+            }
+
             @Override
             public void onWindowFocusChanged(final boolean hasWindowFocus) {
                 super.onWindowFocusChanged(hasWindowFocus);
