@@ -56,6 +56,8 @@ that can run on the device itself or on a secondary display:
   control panel.
 - Built-in Files, Console, Task Manager, and Settings provide a coherent
   desktop workflow without requiring a separate shell or file manager.
+- Optional local automation exposes the same typed desktop actions to MCP
+  clients and, on Android 16+, authorized system agents through App Functions.
 
 ## Highlights
 
@@ -191,7 +193,7 @@ the desktop folder.
   when absolute pointer positioning is available.
 - A dedicated **Settings** window for persistent behavior, including optional
   taskbar auto-hide, single-click file activation, automatic touchpad startup,
-  and keeping an active desktop session awake.
+  keeping an active desktop session awake, and local automation access.
 - Stock RedMagic bypass-charging, cooling-fan, liquid-pump, and temperature
   controls through the vendor's own policy services.
 - Start or reveal the desktop and restore its hidden window layout with
@@ -411,8 +413,10 @@ MagicDesk does not independently acquire elevated privileges.
 The trust boundaries are deliberately narrow:
 
 - The complete source and CI workflow are reviewable under the MIT license.
-- The main APK declares no Internet permission and contains no independent
-  privilege-escalation path, kernel module, or kernel-module loader.
+- The main APK contains no independent privilege-escalation path, kernel
+  module, or kernel-module loader. Its optional MCP server is disabled by
+  default, binds only to `127.0.0.1`, and requires a private bearer token; the
+  APK does not expose a network-facing listener.
 - Shizuku is never downloaded, installed, or started by MagicDesk. The user
   controls the official manager and grants MagicDesk separately.
 - The connected shell identity is included in Diagnostics; every supported
@@ -452,7 +456,8 @@ Implementation details are in [Architecture](docs/architecture.md), the
 runtime and display contract is in
 [Shell access and display modes](docs/privilege-modes.md), and verified firmware
 behavior is recorded in the
-[Nubia vendor interface audit](docs/nubia-vendor-audit.md).
+[Nubia vendor interface audit](docs/nubia-vendor-audit.md). MCP and Android
+App Functions are described in [Automation](docs/automation.md).
 
 ## Diagnostics and Issues
 

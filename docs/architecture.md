@@ -21,6 +21,8 @@ MagicDesk follows these constraints:
    remain independent boundaries.
 8. Interfaces represent external boundaries or multiple real implementations;
    they are not introduced only to move code between files.
+9. User actions, tests, MCP, and Android system agents share one typed
+   automation gateway instead of duplicating task or session policy.
 
 MagicDesk does not register a competing task organizer, host applications in
 surrogate activities, draw replacement captions, patch SystemUI, invoke `su`,
@@ -29,9 +31,9 @@ or require a Magisk module.
 Dependencies point in one direction:
 
 ```text
-activities and desktop UI
+activities, desktop UI, and automation adapters
         |
-controllers and session orchestration
+shared automation gateway + controllers and session orchestration
         |
 task, display, input, storage, and capture contracts
         |
@@ -339,6 +341,30 @@ runtime integration and are not distributed through the same release path.
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Desktop Show/Restore remains a taskbar and `Win+D`
   command rather than a state-dependent notification action.
+
+### Automation boundary
+
+- `DesktopAutomationController` is the single typed action boundary for local
+  automation. It validates JSON arguments, delegates to the existing session,
+  task, window, capture, and UI controllers, and returns a uniform
+  `DesktopAutomationResult`. It does not implement a second desktop policy.
+- `DesktopAutomationStateReader` exposes immutable snapshots of runtime,
+  displays, tasks, launchable applications, diagnostics, and self-test state.
+  `DesktopAutomationEventJournal` retains at most 256 process-local structured
+  action results. It is an observability aid, not persistent telemetry.
+- `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
+  enabled, it starts one bounded Streamable HTTP server on literal
+  `127.0.0.1:8765`; stopping the runtime closes the listener and workers.
+  `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
+  and state boundary. Developer input, self-test, and force-stop tools require
+  a separate setting and disappear when that setting is disabled.
+- `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
+  protects it with `BIND_APP_FUNCTION_SERVICE`; resource gating disables the
+  component on Android 15. It exposes only a small non-developer subset and
+  executes it through `DesktopAutomationController`.
+- Neither adapter accepts arbitrary shell commands. The built-in Console is a
+  separate, explicitly user-driven shell surface. Transport authentication,
+  platform permissions, and action validation remain independent checks.
 
 ### Desktop UI
 
