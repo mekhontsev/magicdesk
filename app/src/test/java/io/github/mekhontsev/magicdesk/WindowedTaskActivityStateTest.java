@@ -99,6 +99,26 @@ public final class WindowedTaskActivityStateTest {
                         false));
     }
 
+    @Test
+    public void appliedCorrectionDoesNotBlockNextHandoff() {
+        final WindowedTaskActivityState state = state();
+        state.arm(MAIN, ROOT);
+        assertEquals(
+                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                state.observe(MAIN, ROOT, 1, false));
+
+        state.correctionApplied();
+        state.arm(PERMISSION, "com.android.permissioncontroller");
+
+        assertEquals(
+                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        1,
+                        false));
+    }
+
     private static WindowedTaskActivityState state() {
         return new WindowedTaskActivityState(ROOT);
     }

@@ -3,11 +3,14 @@ package io.github.mekhontsev.magicdesk;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Display;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -25,14 +28,15 @@ final class ShellWindowedTaskActivityGuard implements
     private static final int NEW_TASK_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
             | Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
+    private static final int MAX_PENDING_STARTS = 8;
+    private static final long PENDING_START_LIFETIME_MILLIS = 8_000L;
 
     private final Object mService;
     private final Listener mListener;
     private final Map<Integer, TaskRecord> mTasks = new HashMap<>();
-    private final List<Integer> mVisibleTaskOrder = new ArrayList<>();
+    private final ArrayDeque<PendingStart> mPendingStarts = new ArrayDeque<>();
 
     private ComponentName mInitialLaunchComponent;
-    private int mFocusedTaskId = -1;
     private int mDisplayId = Display.INVALID_DISPLAY;
 
     ShellWindowedTaskActivityGuard(
@@ -48,9 +52,8 @@ final class ShellWindowedTaskActivityGuard implements
         }
         mDisplayId = displayId;
         mInitialLaunchComponent = null;
-        mFocusedTaskId = -1;
         mTasks.clear();
-        mVisibleTaskOrder.clear();
+        mPendingStarts.clear();
     }
 
     @Override
@@ -87,10 +90,6 @@ final class ShellWindowedTaskActivityGuard implements
 
     synchronized void onTaskRemoved(final int taskId) {
         mTasks.remove(Integer.valueOf(taskId));
-        mVisibleTaskOrder.remove(Integer.valueOf(taskId));
-        if (mFocusedTaskId == taskId) {
-            mFocusedTaskId = -1;
-        }
     }
 
     synchronized void onTaskDisplayChanged(
@@ -98,16 +97,6 @@ final class ShellWindowedTaskActivityGuard implements
             final int displayId) {
         if (displayId != mDisplayId) {
             onTaskRemoved(taskId);
-        }
-    }
-
-    synchronized void onTaskFocusChanged(
-            final int taskId,
-            final boolean focused) {
-        if (focused && mTasks.containsKey(Integer.valueOf(taskId))) {
-            mFocusedTaskId = taskId;
-        } else if (!focused && mFocusedTaskId == taskId) {
-            mFocusedTaskId = -1;
         }
     }
 
@@ -132,21 +121,15 @@ final class ShellWindowedTaskActivityGuard implements
         if (!PackageNameValidator.isSafe(requestedPackage)) {
             return true;
         }
-        TaskRecord target = findVisiblePackageTask(requestedPackage);
-        if (target == null) {
-            target = focusedVisibleTask();
+        final long now = SystemClock.uptimeMillis();
+        prunePendingStarts(now);
+        while (mPendingStarts.size() >= MAX_PENDING_STARTS) {
+            mPendingStarts.removeFirst();
         }
-        if (target == null) {
-            target = uniqueVisibleTask();
-        }
-        if (target == null) {
-            return true;
-        }
-        target.activityState.arm(
+        mPendingStarts.addLast(new PendingStart(
                 component == null ? null : component.flattenToShortString(),
-                requestedPackage);
-        Log.d(TAG, "armed activity handoff task=" + target.taskId
-                + " activity=" + activityLabel(component, requestedPackage));
+                requestedPackage,
+                now));
         return true;
     }
 
@@ -161,7 +144,7 @@ final class ShellWindowedTaskActivityGuard implements
             if (displayId != mDisplayId) {
                 return;
             }
-            mVisibleTaskOrder.clear();
+            final List<ObservedTask> observedTasks = new ArrayList<>();
             for (final ShellTaskStateMonitor.TaskWindowState observation
                     : tasks) {
                 if (!observation.visible) {
@@ -184,11 +167,17 @@ final class ShellWindowedTaskActivityGuard implements
                 if (record == null) {
                     continue;
                 }
-                mVisibleTaskOrder.add(Integer.valueOf(observation.taskId));
                 if (observation.windowingMode == WINDOWING_MODE_FREEFORM
                         && !observation.bounds.isEmpty()) {
                     record.bounds.set(observation.bounds);
                 }
+                observedTasks.add(new ObservedTask(record, observation));
+            }
+            correlatePendingStarts(observedTasks);
+            for (final ObservedTask observed : observedTasks) {
+                final TaskRecord record = observed.record;
+                final ShellTaskStateMonitor.TaskWindowState observation =
+                        observed.observation;
                 final String topComponent = observation.topComponent == null
                         ? null
                         : observation.topComponent.flattenToShortString();
@@ -209,6 +198,8 @@ final class ShellWindowedTaskActivityGuard implements
                             activityLabel(observation.topComponent,
                                     topPackage)));
                 }
+                record.observeTop(topComponent, topPackage,
+                        observation.windowingMode);
             }
         }
         for (final Correction correction : corrections) {
@@ -223,6 +214,9 @@ final class ShellWindowedTaskActivityGuard implements
                     correction.record.displayId,
                     correction.record.taskId,
                     new Rect(correction.record.bounds));
+            synchronized (this) {
+                correction.record.activityState.correctionApplied();
+            }
             Log.i(TAG, "restored activity handoff task="
                     + correction.record.taskId
                     + " activity=" + correction.activityName);
@@ -244,51 +238,45 @@ final class ShellWindowedTaskActivityGuard implements
         return mDisplayId;
     }
 
-    private TaskRecord findVisiblePackageTask(final String packageName) {
-        final TaskRecord focused = focusedVisibleTask();
-        if (focused != null && packageName.equals(
-                focused.activityState.rootPackage())) {
-            return focused;
-        }
-        for (final Integer taskId : mVisibleTaskOrder) {
-            final TaskRecord record = mTasks.get(taskId);
-            if (record != null
-                    && packageName.equals(record.activityState.rootPackage())) {
-                return record;
+    private void correlatePendingStarts(final List<ObservedTask> observations) {
+        final long now = SystemClock.uptimeMillis();
+        prunePendingStarts(now);
+        final Iterator<PendingStart> pending = mPendingStarts.iterator();
+        while (pending.hasNext()) {
+            final PendingStart candidate = pending.next();
+            ObservedTask match = null;
+            boolean ambiguous = false;
+            for (final ObservedTask observation : observations) {
+                if (!candidate.matches(observation)
+                        || !observation.changedFor(candidate)) {
+                    continue;
+                }
+                if (match != null) {
+                    ambiguous = true;
+                    break;
+                }
+                match = observation;
             }
-        }
-        TaskRecord unique = null;
-        for (final TaskRecord record : mTasks.values()) {
-            if (!packageName.equals(record.activityState.rootPackage())) {
+            if (ambiguous || match == null) {
                 continue;
             }
-            if (unique != null) {
-                return null;
-            }
-            unique = record;
+            match.record.activityState.arm(
+                    candidate.component, candidate.packageName);
+            Log.d(TAG, "armed observed activity handoff task="
+                    + match.record.taskId + " activity=" + candidate.label());
+            pending.remove();
         }
-        return unique;
     }
 
-    private TaskRecord focusedVisibleTask() {
-        final Integer focusedId = Integer.valueOf(mFocusedTaskId);
-        return mVisibleTaskOrder.contains(focusedId)
-                ? mTasks.get(focusedId) : null;
-    }
-
-    private TaskRecord uniqueVisibleTask() {
-        TaskRecord unique = null;
-        for (final Integer taskId : mVisibleTaskOrder) {
-            final TaskRecord record = mTasks.get(taskId);
-            if (record == null) {
-                continue;
-            }
-            if (unique != null) {
-                return null;
-            }
-            unique = record;
+    private void prunePendingStarts(final long now) {
+        // IActivityController reports starts before a task identity exists.
+        // Keep that evidence only across the normal activity-start window;
+        // an unmatched global start must never affect a later task transition.
+        while (!mPendingStarts.isEmpty()
+                && now - mPendingStarts.peekFirst().createdUptimeMillis
+                        > PENDING_START_LIFETIME_MILLIS) {
+            mPendingStarts.removeFirst();
         }
-        return unique;
     }
 
     private void report(final String message) {
@@ -321,6 +309,11 @@ final class ShellWindowedTaskActivityGuard implements
         final int displayId;
         final Rect bounds;
         final WindowedTaskActivityState activityState;
+        final String rootComponent;
+        String topComponent;
+        String topPackage;
+        int windowingMode;
+        boolean topObserved;
 
         TaskRecord(
                 final int observedTaskId,
@@ -330,8 +323,76 @@ final class ShellWindowedTaskActivityGuard implements
             taskId = observedTaskId;
             displayId = targetDisplayId;
             bounds = new Rect(initialBounds);
+            rootComponent = component.flattenToShortString();
             activityState = new WindowedTaskActivityState(
                     component.getPackageName());
+        }
+
+        void observeTop(
+                final String component,
+                final String packageName,
+                final int observedWindowingMode) {
+            topComponent = component;
+            topPackage = packageName;
+            windowingMode = observedWindowingMode;
+            topObserved = true;
+        }
+    }
+
+    private static final class ObservedTask {
+        final TaskRecord record;
+        final ShellTaskStateMonitor.TaskWindowState observation;
+
+        ObservedTask(
+                final TaskRecord taskRecord,
+                final ShellTaskStateMonitor.TaskWindowState taskObservation) {
+            record = taskRecord;
+            observation = taskObservation;
+        }
+
+        boolean changedFor(final PendingStart candidate) {
+            final String component = observation.topComponent == null
+                    ? null : observation.topComponent.flattenToShortString();
+            final String packageName = observation.topComponent == null
+                    ? null : observation.topComponent.getPackageName();
+            if (!record.topObserved) {
+                return candidate.component != null
+                        ? !candidate.component.equals(record.rootComponent)
+                        : !candidate.packageName.equals(
+                                record.activityState.rootPackage());
+            }
+            return !java.util.Objects.equals(component, record.topComponent)
+                    || !java.util.Objects.equals(packageName, record.topPackage)
+                    || (record.windowingMode == WINDOWING_MODE_FREEFORM
+                            && observation.windowingMode
+                                    != WINDOWING_MODE_FREEFORM);
+        }
+    }
+
+    private static final class PendingStart {
+        final String component;
+        final String packageName;
+        final long createdUptimeMillis;
+
+        PendingStart(
+                final String expectedComponent,
+                final String expectedPackage,
+                final long createdAt) {
+            component = expectedComponent;
+            packageName = expectedPackage;
+            createdUptimeMillis = createdAt;
+        }
+
+        boolean matches(final ObservedTask observed) {
+            final ComponentName top = observed.observation.topComponent;
+            if (component != null) {
+                return top != null && component.equals(top.flattenToShortString());
+            }
+            return top != null && packageName.equals(top.getPackageName());
+        }
+
+        String label() {
+            return component == null ? packageName : component;
         }
     }
 

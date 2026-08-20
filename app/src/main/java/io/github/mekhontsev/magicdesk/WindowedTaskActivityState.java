@@ -76,6 +76,10 @@ final class WindowedTaskActivityState {
         mCorrectionInFlight = false;
     }
 
+    void correctionApplied() {
+        clear();
+    }
+
     boolean isArmed() {
         return mArmed;
     }

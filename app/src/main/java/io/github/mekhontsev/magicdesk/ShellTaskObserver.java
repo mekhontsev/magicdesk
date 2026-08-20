@@ -663,7 +663,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final boolean focused) {
         mFocusController.onTaskFocusChanged(taskId, focused);
-        mWindowedActivityGuard.onTaskFocusChanged(taskId, focused);
         if (focused) {
             reportDesktopTaskAreaForeground(taskId);
         }
