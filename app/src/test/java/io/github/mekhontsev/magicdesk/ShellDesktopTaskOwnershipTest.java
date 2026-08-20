@@ -40,6 +40,14 @@ public final class ShellDesktopTaskOwnershipTest {
     }
 
     @Test
+    public void everyStandardTaskOnActiveExternalDisplayIsDesktopOwned() {
+        assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedTask(
+                true, WINDOWING_MODE_FULLSCREEN, false, false));
+        assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
+                false, WINDOWING_MODE_FULLSCREEN, false, false));
+    }
+
+    @Test
     public void restoresEveryObservedUnownedPhoneFreeformState() {
         assertTrue(shouldRestore(
                 true, true, false, true,

@@ -173,7 +173,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
 
     synchronized int childAreaParentFeatureId(final int displayId) {
         return manages(displayId) && mArea != null
-                ? mArea.featureId() : 0;
+                ? mArea.featureId() : FEATURE_DEFAULT_TASK_CONTAINER;
     }
 
     synchronized Object childTaskParentToken(final int displayId) {

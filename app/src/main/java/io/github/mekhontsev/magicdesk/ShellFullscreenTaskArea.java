@@ -68,7 +68,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int[] appTaskIds = withoutDesktopHost(focusTaskIds);
             if (!isFullscreenStack(service, displayId, appTaskIds)) {
                 if (focusMixedStack(
-                        service, displayId, appTaskIds, focusTaskIds)) {
+                        service, displayId, focusTaskIds)) {
                     return true;
                 }
                 // A freeform task may be focused while another task remains
@@ -89,7 +89,6 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private boolean focusMixedStack(
             final Object service,
             final int displayId,
-            final int[] appTaskIds,
             final int[] focusTaskIds) throws ReflectiveOperationException {
         boolean containsNonFullscreenTask = false;
         for (final int taskId : focusTaskIds) {
@@ -146,19 +145,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                         .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
             }
         }
-        for (final int taskId : appTaskIds) {
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
-                    service, displayId, taskId);
-            transactionClass.getMethod(
-                    "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                    .invoke(transaction, taskToken,
-                            Boolean.TRUE, Boolean.TRUE);
-        }
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
-        // Match the regular fullscreen-area path: commit the hierarchy first,
-        // then let a normal TO_FRONT transition synchronize input focus.
-        TaskWindowingCommand.focusTasks(service, displayId, focusTaskIds);
+        // Reparenting and focus must be one queued WMShell transition. Applying
+        // the hierarchy synchronously before TO_FRONT can deadlock against the
+        // transition that caused this focus request on projection firmware.
+        TaskWindowingCommand.focusTasks(
+                service,
+                displayId,
+                focusTaskIds,
+                transactionClass,
+                transaction);
         Log.i(TAG, "preserved fullscreen tasks=" + fullscreenTaskIds
                 + " while focusing mixed stack on display=" + displayId);
         return true;
@@ -299,15 +294,13 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                     tokenClass,
                     taskToken,
                     true);
-            // Reparenting into an organizer-created task area is a hierarchy
-            // change, not just a visual transition. Apply it synchronously so
-            // a pending WMShell focus transition cannot leave the task in the
-            // active parent and trigger the firmware's fullscreen demotion.
-            SyncWindowContainerTransaction.apply(
-                    service, transactionClass, transaction);
             mTaskIds.add(Integer.valueOf(taskId));
             TaskWindowingCommand.focusTasks(
-                    service, displayId, new int[]{taskId});
+                    service,
+                    displayId,
+                    new int[]{taskId},
+                    transactionClass,
+                    transaction);
             TaskFullscreenTransitionCommand.refreshCaptionIfRequested(
                     service,
                     displayId,
@@ -416,19 +409,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 transactionClass.getMethod(
                         "reparent", tokenClass, tokenClass, Boolean.TYPE)
                         .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
-            } else {
-                transactionClass.getMethod(
-                        "reorder", tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, Boolean.TRUE);
             }
         }
-        SyncWindowContainerTransaction.apply(
-                service, transactionClass, transaction);
-        // The synchronous hierarchy update does not always move
-        // InputDispatcher focus. Once every task has the fullscreen parent,
-        // a normal TO_FRONT activation can synchronize input without letting
-        // the default freeform task area change either task's mode.
-        TaskWindowingCommand.focusTasks(service, displayId, focusTaskIds);
+        // Include hierarchy preservation and focus ordering in the same
+        // transition so WMShell serializes both against native transitions.
+        TaskWindowingCommand.focusTasks(
+                service,
+                displayId,
+                focusTaskIds,
+                transactionClass,
+                transaction);
     }
 
     private boolean isFullscreenStack(

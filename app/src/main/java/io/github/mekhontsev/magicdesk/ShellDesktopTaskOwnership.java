@@ -93,7 +93,12 @@ final class ShellDesktopTaskOwnership {
             final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             final int mode = HiddenTaskApi.getWindowConfigurationValue(
                     task, "getWindowingMode");
-            return isDesktopOwnedMode(
+            final boolean activeExternalDisplayTask =
+                    mDesktopDisplayId > Display.DEFAULT_DISPLAY
+                            && HiddenTaskApi.getTaskDisplayId(task)
+                                    == mDesktopDisplayId;
+            return isDesktopOwnedTask(
+                    activeExternalDisplayTask,
                     mode,
                     mDesktopTaskIds.contains(Integer.valueOf(taskId)),
                     mPhoneFullscreenTaskIds.contains(Integer.valueOf(taskId)));
@@ -101,6 +106,20 @@ final class ShellDesktopTaskOwnership {
             Log.w(TAG, "could not inspect desktop task ownership", error);
             return false;
         }
+    }
+
+    static boolean isDesktopOwnedTask(
+            final boolean activeExternalDisplayTask,
+            final int mode,
+            final boolean rememberedDesktopTask,
+            final boolean knownPhoneFullscreen) {
+        // Every standard task on the active external display belongs to that
+        // desktop session, including tasks launched directly in fullscreen.
+        // Display 0 still needs remembered ownership to distinguish its phone
+        // fullscreen plane from the local desktop.
+        return activeExternalDisplayTask
+                || isDesktopOwnedMode(
+                        mode, rememberedDesktopTask, knownPhoneFullscreen);
     }
 
     static boolean isDesktopOwnedMode(

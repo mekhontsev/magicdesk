@@ -236,14 +236,17 @@ driven restores are completed in the observer before their result crosses
 Binder. They use a hidden fullscreen-to-freeform mode boundary in the active
 parent to rebuild native decoration without changing desktop sessions.
 
-The parent must be established before focusing a freeform task while another
-MagicDesk task is fullscreen. Waiting until both tasks already report
+The parent must be established while focusing a freeform task when another
+MagicDesk task is fullscreen. On external displays this child is nested in the
+default task container, not beside it at the display root. Freeform tasks can
+therefore move above the fullscreen child without also raising the desktop
+home task and hiding the active fullscreen application. Waiting until both
+tasks already report
 fullscreen is too late: the focus transition can first demote the existing
-fullscreen root in the active parent. The observer therefore moves existing
-fullscreen peers under the dedicated child in a synchronous hierarchy
-transaction, then performs normal `TO_FRONT` focus. If that focused task is
-subsequently made fullscreen, its mode change and reparenting are committed
-synchronously into the same parent before input focus is handed over.
+fullscreen root in the active parent. The observer therefore combines the
+fullscreen-parent hierarchy changes and normal `TO_FRONT` ordering in one WCT.
+WMShell can queue that atomic transition behind native caption or focus work;
+a separate synchronous hierarchy transaction could instead deadlock with it.
 
 Closing the final member deletes the area. Platforms without this organizer
 capability use the ordinary focus path and never apply a delayed mode repair.
@@ -457,9 +460,9 @@ runtime integration and are not distributed through the same release path.
   used for Alt+Tab between true-fullscreen tasks. Moving the stack under a
   fullscreen parent avoids the transient freeform state caused by reordering
   roots in the default desktop task area. It preserves an existing fullscreen
-  peer before a mixed fullscreen/freeform focus operation and accepts the next
-  explicit fullscreen transition synchronously; it must not wait for both
-  tasks to become fullscreen first. A task is synchronously released to
+  peer and focus ordering in one WMShell transition during mixed
+  fullscreen/freeform activation; it must not wait for both tasks to become
+  fullscreen first. A task is synchronously released to
   the active desktop parent while still fullscreen before any restore or snap
   command changes its mode. Application-requested immersive tasks remain
   directly under that parent and share only the observer's saved-bounds

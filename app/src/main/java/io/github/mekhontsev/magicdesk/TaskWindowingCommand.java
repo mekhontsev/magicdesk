@@ -217,15 +217,24 @@ public final class TaskWindowingCommand {
             final Object service,
             final int displayId,
             final int[] taskIds) throws ReflectiveOperationException {
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        focusTasks(service, displayId, taskIds, transactionClass, transaction);
+    }
+
+    static void focusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
         if (taskIds == null || taskIds.length == 0) {
             throw new IllegalArgumentException("missing tasks to focus");
         }
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
         final Method reorderTask = transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE);
         for (final int taskId : taskIds) {
@@ -234,9 +243,9 @@ public final class TaskWindowingCommand {
             reorderTask.invoke(
                     transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
         }
-        // WMShell activates desktop tasks through a TO_FRONT transition. A
-        // synchronous organizer transaction can update the focused root task
-        // before InputDispatcher switches its focused window.
+        // Keep any hierarchy changes supplied by the caller and the focus
+        // reorder in one transition. A synchronous hierarchy transaction
+        // followed by TO_FRONT can overlap an existing WMShell transition.
         TaskFullscreenTransitionCommand.startTransition(
                 TRANSIT_TO_FRONT, transactionClass, transaction);
     }
