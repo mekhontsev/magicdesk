@@ -64,6 +64,7 @@ final class DesktopAutomationStateReader {
                                 MagicDeskRuntime.isSessionWakeLockHeld())
                         .put("selfTestRunning",
                                 DesktopSelfTestController.isRunning()))
+                .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
         return result;
@@ -148,6 +149,8 @@ final class DesktopAutomationStateReader {
     JSONObject selfTest() throws JSONException {
         return new JSONObject()
                 .put("running", DesktopSelfTestController.isRunning())
+                .put("resultModifiedAtMillis",
+                        DesktopSelfTestResult.lastModifiedMillis(mContext))
                 .put("report", DesktopSelfTestResult.readLastResult(mContext));
     }
 

@@ -145,6 +145,14 @@ public final class DesktopSelfTestResult {
         return value.toString();
     }
 
+    static long lastModifiedMillis(final Context context) {
+        if (context == null) {
+            return 0L;
+        }
+        final File file = new File(context.getFilesDir(), RESULT_FILE);
+        return file.isFile() ? file.lastModified() : 0L;
+    }
+
     private static String utc(final long millis) {
         final SimpleDateFormat format = new SimpleDateFormat(
                 "yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);

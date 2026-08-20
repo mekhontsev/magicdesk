@@ -43,6 +43,7 @@ public final class MagicDeskRuntimeService extends Service
     private RuntimeDesktopTaskCoordinator mDesktopTaskRuntime;
     private RuntimeDisplayCoordinator mDisplayCoordinator;
     private DesktopSessionWakeLock mSessionWakeLock;
+    private MagicDeskMcpRuntime mMcpRuntime;
     private BroadcastReceiver mConfigurationReceiver;
     private ContentObserver mConsoleModeObserver;
     private volatile boolean mDestroyed;
@@ -359,6 +360,7 @@ public final class MagicDeskRuntimeService extends Service
         mDestroyed = false;
         mHandler = new Handler(Looper.getMainLooper());
         mSessionWakeLock = new DesktopSessionWakeLock(this);
+        mMcpRuntime = new MagicDeskMcpRuntime(this);
         MagicDeskRuntime.attach(this);
         ShellAccess.addStateListener(mShellStateListener);
         createNotificationChannel();
@@ -420,6 +422,7 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopInput.reconcileRuntime(desktopDisplayId());
         updateDesktopTasks();
         mPlatform.startRuntime(this);
+        mMcpRuntime.reconcile();
     }
 
     @Override
@@ -484,6 +487,10 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (mSessionWakeLock != null) {
             mSessionWakeLock.release();
+        }
+        if (mMcpRuntime != null) {
+            mMcpRuntime.close();
+            mMcpRuntime = null;
         }
         mPlatform.stopRuntime();
         mPhoneUi.requestPhoneScreenRestore();
@@ -603,6 +610,9 @@ public final class MagicDeskRuntimeService extends Service
     private void refreshRuntimeSettings() {
         mKeepDesktopAwake = MagicDeskSettings.load().keepDesktopAwake;
         updateSessionWakeLock();
+        if (mMcpRuntime != null) {
+            mMcpRuntime.reconcile();
+        }
     }
 
     private void updatePlatformCaptionTarget() {

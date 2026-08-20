@@ -419,10 +419,13 @@ final class DesktopAutomationController {
                     DiagnosticsActivity.EXTRA_SELF_TEST_DISPLAY_KIND,
                     displayKind.name());
         }
+        final long requestedAtMillis = System.currentTimeMillis();
         mContext.startActivity(intent);
         return DesktopAutomationResult.success(
                 "self-test launch accepted",
-                new JSONObject().put("target", rawTarget));
+                new JSONObject()
+                        .put("target", rawTarget)
+                        .put("requestedAtMillis", requestedAtMillis));
     }
 
     private DesktopAutomationResult sendKey(final JSONObject args)
@@ -533,8 +536,17 @@ final class DesktopAutomationController {
                         .put("displayId", displayId);
             }
             case "self_test_finished":
-                return observation.put("matched",
-                        !DesktopSelfTestController.isRunning());
+                final long startedAfterMillis = Math.max(
+                        0L, args.optLong("startedAfterMillis", 0L));
+                final long resultModifiedAtMillis =
+                        DesktopSelfTestResult.lastModifiedMillis(mContext);
+                return observation
+                        .put("matched",
+                                !DesktopSelfTestController.isRunning()
+                                        && resultModifiedAtMillis
+                                                >= startedAfterMillis)
+                        .put("resultModifiedAtMillis",
+                                resultModifiedAtMillis);
             default:
                 throw new IllegalArgumentException("unknown wait condition");
         }
