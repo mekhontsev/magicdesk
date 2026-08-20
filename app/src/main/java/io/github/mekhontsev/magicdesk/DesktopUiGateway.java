@@ -187,11 +187,14 @@ final class DesktopUiGateway {
 
     boolean launchDesktopShortcut(
             final DesktopApplicationShortcut shortcut,
+            final DesktopLaunchArguments arguments,
+            final String desktopFilePath,
             final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
-                && activity.launchDesktopShortcut(shortcut);
+                && activity.launchDesktopShortcut(
+                        shortcut, arguments, desktopFilePath);
     }
 
     boolean launchDesktopWebShortcut(

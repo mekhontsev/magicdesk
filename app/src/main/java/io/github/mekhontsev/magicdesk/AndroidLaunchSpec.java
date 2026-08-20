@@ -22,7 +22,7 @@ final class AndroidLaunchSpec {
             final Kind kind,
             final AppLaunchTarget target,
             final String intentUri) {
-        if (kind == null || target == null) {
+        if (kind == null || (kind == Kind.DEFAULT && target == null)) {
             throw new IllegalArgumentException("missing Android launch target");
         }
         if (kind == Kind.INTENT
@@ -54,7 +54,7 @@ final class AndroidLaunchSpec {
         } catch (URISyntaxException | RuntimeException error) {
             return null;
         }
-        if (intent.getComponent() == null) {
+        if (intent.getComponent() == null && target != null) {
             if (!target.activityClassName.isEmpty()) {
                 intent.setClassName(
                         target.packageName,

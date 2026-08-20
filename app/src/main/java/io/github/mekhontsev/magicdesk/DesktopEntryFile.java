@@ -127,6 +127,7 @@ final class DesktopEntryFile {
                 .append("Name=").append(escape(shortcut.name)).append('\n');
         append(encoded, "Icon", shortcut.icon);
         append(encoded, "Exec", shortcut.exec);
+        append(encoded, "Path", shortcut.workingDirectory);
         if (shortcut.terminal) {
             append(encoded, "Terminal", "true");
         }
@@ -298,7 +299,8 @@ final class DesktopEntryFile {
                     DesktopExecBackend.parse(
                             values.get("X-MagicDesk-ExecBackend")),
                     "true".equalsIgnoreCase(
-                            value(values, "Terminal")));
+                            value(values, "Terminal")),
+                    value(values, "Path"));
         } catch (IllegalArgumentException error) {
             return null;
         }

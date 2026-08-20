@@ -47,6 +47,13 @@ final class ShellFileAdapter extends BaseAdapter {
         boolean onDrop(DragEvent event, String destinationPath);
     }
 
+    interface ApplicationDropListener {
+        boolean onDrop(
+                DragEvent event,
+                ShellFileInfo file,
+                DesktopApplicationShortcut shortcut);
+    }
+
     private static final int COLOR_BACKGROUND = Color.rgb(9, 13, 20);
     private static final int COLOR_ACTIVE = Color.rgb(31, 44, 58);
     private static final int COLOR_TEXT = Color.rgb(232, 238, 245);
@@ -57,6 +64,7 @@ final class ShellFileAdapter extends BaseAdapter {
     private final ContextListener mContextListener;
     private final LongClickListener mLongClickListener;
     private final DropListener mDropListener;
+    private final ApplicationDropListener mApplicationDropListener;
     private final List<ShellFileInfo> mFiles = new ArrayList<>();
     private final Set<String> mSelected = new HashSet<>();
     private final Map<String, DesktopEntry> mDesktopEntries =
@@ -71,13 +79,15 @@ final class ShellFileAdapter extends BaseAdapter {
             final SelectionListener listener,
             final ContextListener contextListener,
             final LongClickListener longClickListener,
-            final DropListener dropListener) {
+            final DropListener dropListener,
+            final ApplicationDropListener applicationDropListener) {
         mContext = context;
         mClickListener = clickListener;
         mListener = listener;
         mContextListener = contextListener;
         mLongClickListener = longClickListener;
         mDropListener = dropListener;
+        mApplicationDropListener = applicationDropListener;
     }
 
     void set(
@@ -252,15 +262,24 @@ final class ShellFileAdapter extends BaseAdapter {
                         android.os.SystemClock.uptimeMillis()));
         item.root.setOnContextClickListener(view ->
                 mContextListener.onContextClick(view, file));
-        item.root.setOnDragListener(file.directory || folderShortcut != null
-                ? (view, event) -> handleFolderDrag(
-                        item,
-                        file,
-                        folderShortcut == null
-                                ? file.absolutePath
-                                : folderShortcut.targetPath,
-                        event)
-                : null);
+        if (file.directory || folderShortcut != null) {
+            item.root.setOnDragListener((view, event) -> handleFolderDrag(
+                    item,
+                    file,
+                    folderShortcut == null
+                            ? file.absolutePath
+                            : folderShortcut.targetPath,
+                    event));
+        } else if (applicationShortcut != null
+                && applicationShortcut.hasExecLaunch()
+                && DesktopExecTemplate.acceptsArguments(
+                        applicationShortcut.exec)) {
+            item.root.setOnDragListener((view, event) ->
+                    handleApplicationDrag(
+                            item, file, applicationShortcut, event));
+        } else {
+            item.root.setOnDragListener(null);
+        }
         return item.root;
     }
 
@@ -302,6 +321,34 @@ final class ShellFileAdapter extends BaseAdapter {
                         mSelected.contains(folder.absolutePath)
                                 ? COLOR_ACTIVE : COLOR_BACKGROUND);
                 return mDropListener.onDrop(event, destinationPath);
+            default:
+                return true;
+        }
+    }
+
+    private boolean handleApplicationDrag(
+            final ItemView item,
+            final ShellFileInfo file,
+            final DesktopApplicationShortcut shortcut,
+            final DragEvent event) {
+        final FileDragPayload payload = FileDragPayload.from(event);
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return event.getClipDescription() != null
+                        && (payload == null
+                                || !payload.absolutePaths.contains(
+                                        file.absolutePath));
+            case DragEvent.ACTION_DRAG_ENTERED:
+                item.root.setBackgroundColor(COLOR_ACTIVE);
+                return true;
+            case DragEvent.ACTION_DRAG_EXITED:
+            case DragEvent.ACTION_DRAG_ENDED:
+                applySelection(item);
+                return true;
+            case DragEvent.ACTION_DROP:
+                applySelection(item);
+                return mApplicationDropListener.onDrop(
+                        event, file, shortcut);
             default:
                 return true;
         }

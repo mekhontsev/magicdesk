@@ -517,7 +517,9 @@ public final class FileManagerActivity extends Activity
             }
         } else if (desktopEntry instanceof DesktopApplicationShortcut) {
             openApplicationShortcut(
-                    (DesktopApplicationShortcut) desktopEntry);
+                    (DesktopApplicationShortcut) desktopEntry,
+                    file.absolutePath,
+                    DesktopLaunchArguments.empty());
         } else if (desktopEntry instanceof DesktopWebShortcut) {
             openWebShortcut((DesktopWebShortcut) desktopEntry);
         } else {
@@ -526,20 +528,40 @@ public final class FileManagerActivity extends Activity
     }
 
     private void openApplicationShortcut(
-            final DesktopApplicationShortcut shortcut) {
+            final DesktopApplicationShortcut shortcut,
+            final String desktopFilePath,
+            final DesktopLaunchArguments arguments) {
         final int displayId = getDisplay() == null
                 ? 0 : getDisplay().getDisplayId();
         if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
             if (!DesktopRuntimeBridge.launchDesktopShortcut(
-                    shortcut, displayId)) {
+                    shortcut,
+                    arguments,
+                    desktopFilePath,
+                    displayId)) {
                 mView.setStatus(getString(
                         R.string.desktop_shortcut_unavailable));
             }
             return;
         }
-        if (!mLaunchCoordinator.launchShortcut(shortcut)) {
+        if (!mLaunchCoordinator.launchShortcut(
+                shortcut, arguments, desktopFilePath)) {
             mView.setStatus(getString(R.string.desktop_shortcut_unavailable));
         }
+    }
+
+    @Override
+    public boolean onApplicationDrop(
+            final DragEvent event,
+            final ShellFileInfo file,
+            final DesktopApplicationShortcut shortcut) {
+        final DesktopLaunchArguments arguments =
+                DesktopDragLaunchArguments.from(event);
+        if (arguments.isEmpty()) {
+            return false;
+        }
+        openApplicationShortcut(shortcut, file.absolutePath, arguments);
+        return true;
     }
 
     private void openWebShortcut(final DesktopWebShortcut shortcut) {

@@ -2,30 +2,23 @@ package io.github.mekhontsev.magicdesk;
 
 /** Execution environment selected by a Desktop Entry. */
 enum DesktopExecBackend {
-    SHELL("shell"),
-    TERMUX("termux");
+    SHELL("shell", new DesktopExecCapabilities(
+            true, true, true, true, "")),
+    TERMUX("termux", new DesktopExecCapabilities(
+            true, true, true, false, TermuxIntegration.PACKAGE_NAME));
 
     final String wireName;
+    private final DesktopExecCapabilities capabilities;
 
-    DesktopExecBackend(final String wireName) {
+    DesktopExecBackend(
+            final String wireName,
+            final DesktopExecCapabilities capabilities) {
         this.wireName = wireName;
+        this.capabilities = capabilities;
     }
 
     DesktopExecCapabilities capabilities() {
-        if (this == TERMUX) {
-            return new DesktopExecCapabilities(
-                    true,
-                    true,
-                    true,
-                    false,
-                    TermuxIntegration.PACKAGE_NAME);
-        }
-        return new DesktopExecCapabilities(
-                true,
-                true,
-                true,
-                true,
-                "");
+        return capabilities;
     }
 
     static DesktopExecBackend parse(final String value) {

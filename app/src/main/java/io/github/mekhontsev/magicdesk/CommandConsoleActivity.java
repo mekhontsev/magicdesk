@@ -116,9 +116,23 @@ public final class CommandConsoleActivity extends Activity
 
     static Intent createCommandIntent(
             final Context context, final String command) {
-        return createIntent(context).putExtra(
+        return createPreparedCommandIntent(
+                context,
+                DesktopExecCommand.prepare(command),
+                ShellDesktopDirectory.ABSOLUTE_PATH);
+    }
+
+    static Intent createPreparedCommandIntent(
+            final Context context,
+            final String command,
+            final String workingDirectory) {
+        final Intent intent = workingDirectory == null
+                || workingDirectory.isEmpty()
+                ? createIntent(context)
+                : createIntentAtDirectory(context, workingDirectory);
+        return intent.putExtra(
                 EXTRA_AUTO_RUN_COMMAND,
-                DesktopExecCommand.prepare(command));
+                DesktopExecCommand.normalize(command));
     }
 
     static Intent createScriptIntent(

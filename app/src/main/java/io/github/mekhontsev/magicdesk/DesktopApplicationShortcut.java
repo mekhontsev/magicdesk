@@ -11,6 +11,7 @@ final class DesktopApplicationShortcut extends DesktopEntry {
     final boolean defaultLaunch;
     final DesktopExecBackend execBackend;
     final boolean terminal;
+    final String workingDirectory;
 
     DesktopApplicationShortcut(
             final String name,
@@ -22,6 +23,30 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final boolean defaultLaunch,
             final DesktopExecBackend execBackend,
             final boolean terminal) {
+        this(
+                name,
+                icon,
+                exec,
+                launchTarget,
+                intentUri,
+                launchMode,
+                defaultLaunch,
+                execBackend,
+                terminal,
+                "");
+    }
+
+    DesktopApplicationShortcut(
+            final String name,
+            final String icon,
+            final String exec,
+            final AppLaunchTarget launchTarget,
+            final String intentUri,
+            final DesktopLaunchMode launchMode,
+            final boolean defaultLaunch,
+            final DesktopExecBackend execBackend,
+            final boolean terminal,
+            final String workingDirectory) {
         super(name, icon, exec);
         if ((intentUri == null || intentUri.isEmpty()) && this.exec.isEmpty()) {
             throw new IllegalArgumentException(
@@ -39,6 +64,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
         this.execBackend = execBackend == null
                 ? DesktopExecBackend.SHELL : execBackend;
         this.terminal = terminal;
+        this.workingDirectory = DesktopExecWorkingDirectory.normalize(
+                workingDirectory);
         if (hasExecLaunch()) {
             DesktopExecCommand.normalize(this.exec);
         }
@@ -54,9 +81,6 @@ final class DesktopApplicationShortcut extends DesktopEntry {
 
     Intent resolveIntent(final PackageManager packageManager) {
         if (intentUri.isEmpty()) {
-            return null;
-        }
-        if (launchTarget == null) {
             return null;
         }
         return AndroidLaunchSpec.intent(

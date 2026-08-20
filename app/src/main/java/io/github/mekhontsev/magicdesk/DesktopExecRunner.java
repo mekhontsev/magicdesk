@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
@@ -27,6 +29,7 @@ final class DesktopExecRunner {
                 thread.setDaemon(true);
                 return thread;
             });
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private DesktopExecRunner() {
     }
@@ -50,9 +53,10 @@ final class DesktopExecRunner {
             final Activity activity,
             final DesktopExecBackend backend,
             final String command,
+            final String workingDirectory,
             final String label,
             final Completion completion) {
-        final String prepared = DesktopExecCommand.prepare(command);
+        final String prepared = DesktopExecCommand.normalize(command);
         if (prepared.isEmpty()) {
             return StartResult.UNAVAILABLE;
         }
@@ -63,20 +67,26 @@ final class DesktopExecRunner {
         if (backend == DesktopExecBackend.TERMUX) {
             try {
                 TermuxIntegration.runBackgroundShellCommand(
-                        activity, prepared, label);
+                        activity,
+                        prepared,
+                        label,
+                        DesktopExecWorkingDirectory.normalize(
+                                workingDirectory));
                 return StartResult.STARTED;
             } catch (RuntimeException error) {
-                notifyCompletion(activity, completion, null, error);
+                notifyCompletion(completion, null, error);
                 return StartResult.STARTED;
             }
         }
         SHELL_COMMANDS.execute(() -> {
             try {
                 final ShellAccess.CommandResult result =
-                        ShellAccess.executeForConsole(prepared);
-                notifyCompletion(activity, completion, result, null);
+                        ShellAccess.executeForConsole(
+                                withWorkingDirectory(
+                                        prepared, workingDirectory));
+                notifyCompletion(completion, result, null);
             } catch (IOException | RuntimeException error) {
-                notifyCompletion(activity, completion, null, error);
+                notifyCompletion(completion, null, error);
             }
         });
         return StartResult.STARTED;
@@ -85,8 +95,10 @@ final class DesktopExecRunner {
     static StartResult runTermuxForeground(
             final Activity activity,
             final String command,
-            final String label) {
-        final String prepared = DesktopExecCommand.prepare(command);
+            final String workingDirectory,
+            final String label,
+            final String sessionId) {
+        final String prepared = DesktopExecCommand.normalize(command);
         if (prepared.isEmpty()) {
             return StartResult.UNAVAILABLE;
         }
@@ -96,7 +108,11 @@ final class DesktopExecRunner {
             return availability;
         }
         TermuxIntegration.runForegroundShellCommand(
-                activity, prepared, label);
+                activity,
+                prepared,
+                label,
+                DesktopExecWorkingDirectory.normalize(workingDirectory),
+                sessionId);
         return StartResult.STARTED;
     }
 
@@ -106,17 +122,33 @@ final class DesktopExecRunner {
                 + ", termuxRunCommand="
                 + (context.checkSelfPermission(
                         TermuxIntegration.RUN_COMMAND_PERMISSION)
-                        == PackageManager.PERMISSION_GRANTED);
+                        == PackageManager.PERMISSION_GRANTED)
+                + ", shellCapabilities={"
+                + DesktopExecBackend.SHELL.capabilities().report()
+                + "}, termuxCapabilities={"
+                + DesktopExecBackend.TERMUX.capabilities().report()
+                + "}";
     }
 
     private static void notifyCompletion(
-            final Activity activity,
             final Completion completion,
             final ShellAccess.CommandResult result,
             final Throwable error) {
         if (completion == null) {
             return;
         }
-        activity.runOnUiThread(() -> completion.complete(result, error));
+        MAIN.post(() -> completion.complete(result, error));
+    }
+
+    private static String withWorkingDirectory(
+            final String command,
+            final String workingDirectory) {
+        final String directory = DesktopExecWorkingDirectory.normalize(
+                workingDirectory);
+        if (directory.isEmpty()) {
+            return command;
+        }
+        return "cd -- " + ShellCommandLine.quote(directory)
+                + " && " + command;
     }
 }

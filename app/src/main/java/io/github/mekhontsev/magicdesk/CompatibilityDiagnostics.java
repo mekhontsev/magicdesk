@@ -368,6 +368,9 @@ public final class CompatibilityDiagnostics {
         report.append("Desktop Entry Exec backends: ")
                 .append(DesktopExecRunner.diagnostics(context))
                 .append('\n');
+        report.append("Desktop Entry Exec sessions: ")
+                .append(DesktopExecSessionTracker.diagnostics())
+                .append('\n');
         report.append("Desktop wake lock held: ")
                 .append(MagicDeskRuntime
                         .isSessionWakeLockHeld())

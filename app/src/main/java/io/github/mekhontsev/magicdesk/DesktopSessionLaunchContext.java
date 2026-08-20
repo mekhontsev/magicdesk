@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Intent;
 
 /** Launch host backed by a live MagicDesk desktop session. */
 final class DesktopSessionLaunchContext implements DesktopLaunchContext {
@@ -16,11 +18,6 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
     }
 
     @Override
-    public int displayId() {
-        return mActivity.getCurrentDisplayId();
-    }
-
-    @Override
     public void hideTransientUi() {
         mActivity.hideAllPanels();
     }
@@ -32,13 +29,13 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
         if (request.androidLaunch == null) {
             return false;
         }
-        final AppItem app = mActivity.findOrLoadApp(
-                mActivity.getLauncherApps(),
-                request.androidLaunch.target);
-        if (app == null) {
-            return false;
-        }
         if (request.androidLaunch.kind == AndroidLaunchSpec.Kind.DEFAULT) {
+            final AppItem app = mActivity.findOrLoadApp(
+                    mActivity.getLauncherApps(),
+                    request.androidLaunch.target);
+            if (app == null) {
+                return false;
+            }
             mActivity.launchForMode(app, request.launchMode, onPrepared);
             return true;
         }
@@ -46,13 +43,28 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             throw new IllegalArgumentException(
                     "Intent and Exec cannot share one launch request");
         }
+        final Intent intent = request.androidLaunch.resolve(
+                mActivity.getPackageManager());
+        if (intent == null || intent.getComponent() == null) {
+            return false;
+        }
+        final ComponentName component = intent.getComponent();
+        final AppLaunchTarget target = AppLaunchTarget.explicit(
+                component.getPackageName(),
+                component.getClassName(),
+                intent.getAction());
+        final AppItem app = mActivity.findOrLoadApp(
+                mActivity.getLauncherApps(), target);
+        if (app == null) {
+            return false;
+        }
         mActivity.launchResolvedDesktopShortcut(
                 app,
                 new DesktopApplicationShortcut(
                         request.name,
                         request.icon,
                         "",
-                        request.androidLaunch.target,
+                        target,
                         request.androidLaunch.intentUri,
                         request.launchMode,
                         false,
@@ -63,11 +75,12 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
 
     @Override
     public void launchConsole(
-            final DesktopLaunchRequest request,
-            final String command) {
+            final DesktopLaunchRequest request) {
         mActivity.launchInternalWindow(
-                CommandConsoleActivity.createCommandIntent(
-                        mActivity, command),
+                CommandConsoleActivity.createPreparedCommandIntent(
+                        mActivity,
+                        request.exec.command,
+                        request.exec.workingDirectory),
                 CommandConsoleActivity.launchTarget(),
                 request.name);
     }

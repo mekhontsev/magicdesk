@@ -20,8 +20,11 @@ final class DesktopExecCommand {
     }
 
     static String prepare(final String command) {
-        // Desktop Entry uses %% for a literal percent sign. File/URL field
-        // codes remain literal until MagicDesk supports launch arguments.
-        return normalize(command).replace("%%", "%");
+        return DesktopExecTemplate.expand(
+                command,
+                DesktopLaunchArguments.empty(),
+                "",
+                "",
+                "");
     }
 }

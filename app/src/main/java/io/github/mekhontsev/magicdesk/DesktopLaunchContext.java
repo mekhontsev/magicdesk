@@ -6,14 +6,12 @@ import android.app.Activity;
 interface DesktopLaunchContext {
     Activity activity();
 
-    int displayId();
-
     void hideTransientUi();
 
     boolean launchAndroid(
             DesktopLaunchRequest request, Runnable onPrepared);
 
-    void launchConsole(DesktopLaunchRequest request, String command);
+    void launchConsole(DesktopLaunchRequest request);
 
     boolean isUnavailable();
 

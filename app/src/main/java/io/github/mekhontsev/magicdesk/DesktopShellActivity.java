@@ -1643,15 +1643,17 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.launchShortcut(app, shortcut);
     }
 
-    void launchDesktopShortcut(
-            final AppItem app,
-            final DesktopApplicationShortcut shortcut) {
-        mLaunchCoordinator.launchShortcut(shortcut);
-    }
-
     boolean launchDesktopShortcut(
             final DesktopApplicationShortcut shortcut) {
         return mLaunchCoordinator.launchShortcut(shortcut);
+    }
+
+    boolean launchDesktopShortcut(
+            final DesktopApplicationShortcut shortcut,
+            final DesktopLaunchArguments arguments,
+            final String desktopFilePath) {
+        return mLaunchCoordinator.launchShortcut(
+                shortcut, arguments, desktopFilePath);
     }
 
     void launchResolvedDesktopShortcut(

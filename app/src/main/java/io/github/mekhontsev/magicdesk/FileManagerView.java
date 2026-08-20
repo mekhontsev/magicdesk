@@ -49,6 +49,10 @@ final class FileManagerView {
         void onStartDrag(
                 View source, ShellFileInfo file, int metaState);
         boolean onDrop(DragEvent event, String destinationPath);
+        boolean onApplicationDrop(
+                DragEvent event,
+                ShellFileInfo file,
+                DesktopApplicationShortcut shortcut);
         void onNewWindow();
         void onNewFile();
         void onNewFolder();
@@ -360,7 +364,8 @@ final class FileManagerView {
                     listener.onStartDrag(row, file, metaState);
                     return true;
                 },
-                listener::onDrop);
+                listener::onDrop,
+                listener::onApplicationDrop);
         mAdapter.setLayoutMode(initialLayoutMode);
         mList.setAdapter(mAdapter);
         mGrid = new GridView(context);

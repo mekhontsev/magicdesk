@@ -18,8 +18,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
         return mActivity;
     }
 
-    @Override
-    public int displayId() {
+    private int displayId() {
         return mActivity.getDisplay() == null
                 ? 0 : mActivity.getDisplay().getDisplayId();
     }
@@ -50,11 +49,12 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
 
     @Override
     public void launchConsole(
-            final DesktopLaunchRequest request,
-            final String command) {
+            final DesktopLaunchRequest request) {
         mActivity.startActivity(
-                CommandConsoleActivity.createCommandIntent(
-                        mActivity, command),
+                CommandConsoleActivity.createPreparedCommandIntent(
+                        mActivity,
+                        request.exec.command,
+                        request.exec.workingDirectory),
                 options().toBundle());
     }
 

@@ -70,7 +70,20 @@ public final class DesktopRuntimeBridge {
     static boolean launchDesktopShortcut(
             final DesktopApplicationShortcut shortcut,
             final int displayId) {
-        return UI.launchDesktopShortcut(shortcut, displayId);
+        return launchDesktopShortcut(
+                shortcut,
+                DesktopLaunchArguments.empty(),
+                "",
+                displayId);
+    }
+
+    static boolean launchDesktopShortcut(
+            final DesktopApplicationShortcut shortcut,
+            final DesktopLaunchArguments arguments,
+            final String desktopFilePath,
+            final int displayId) {
+        return UI.launchDesktopShortcut(
+                shortcut, arguments, desktopFilePath, displayId);
     }
 
     static boolean launchDesktopWebShortcut(

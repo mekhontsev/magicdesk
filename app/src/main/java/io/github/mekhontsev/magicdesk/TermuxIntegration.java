@@ -65,18 +65,26 @@ final class TermuxIntegration {
     static void runBackgroundShellCommand(
             final Activity activity,
             final String command,
-            final String label) {
-        activity.startForegroundService(commandIntent(command, label)
+            final String label,
+            final String workingDirectory) {
+        activity.startForegroundService(commandIntent(
+                command, label, workingDirectory)
                 .putExtra(EXTRA_BACKGROUND, true));
     }
 
     static void runForegroundShellCommand(
             final Activity activity,
             final String command,
-            final String label) {
+            final String label,
+            final String workingDirectory,
+            final String sessionId) {
         final String shellName = SHELL_NAME_PREFIX + label + " ["
-                + Integer.toHexString(command.hashCode()) + "]";
-        activity.startForegroundService(commandIntent(command, label)
+                + (sessionId == null || sessionId.isEmpty()
+                        ? Integer.toHexString(command.hashCode())
+                        : sessionId)
+                + "]";
+        activity.startForegroundService(commandIntent(
+                command, label, workingDirectory)
                 .putExtra(EXTRA_BACKGROUND, false)
                 // Select the session but let MagicDesk place the Termux task.
                 .putExtra(EXTRA_SESSION_ACTION, "2")
@@ -89,7 +97,12 @@ final class TermuxIntegration {
     @SuppressLint("SdCardPath")
     private static Intent commandIntent(
             final String command,
-            final String label) {
+            final String label,
+            final String workingDirectory) {
+        final String directory = workingDirectory == null
+                || workingDirectory.isEmpty()
+                ? "/data/data/com.termux/files/home"
+                : DesktopExecWorkingDirectory.normalize(workingDirectory);
         return new Intent(ACTION_RUN_COMMAND)
                 .setComponent(new ComponentName(
                         PACKAGE_NAME, RUN_COMMAND_SERVICE))
@@ -99,7 +112,7 @@ final class TermuxIntegration {
                 .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc", command})
                 .putExtra(
                         EXTRA_WORKDIR,
-                        "/data/data/com.termux/files/home")
+                        directory)
                 .putExtra(EXTRA_COMMAND_LABEL, label);
     }
 

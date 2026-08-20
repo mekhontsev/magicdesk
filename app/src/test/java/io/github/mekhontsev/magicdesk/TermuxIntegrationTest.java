@@ -51,4 +51,12 @@ public final class TermuxIntegrationTest {
                 () -> TermuxX11StartupCommand.normalize(
                         "x".repeat(TermuxX11StartupCommand.MAX_LENGTH + 1)));
     }
+
+    @Test
+    public void desktopExecRejectsOversizedInput() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DesktopExecCommand.normalize(
+                        "x".repeat(DesktopExecCommand.MAX_LENGTH + 1)));
+    }
 }

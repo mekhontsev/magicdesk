@@ -21,4 +21,13 @@ final class DesktopExecCapabilities {
         this.terminalPackageName = terminalPackageName == null
                 ? "" : terminalPackageName;
     }
+
+    String report() {
+        return "background=" + background
+                + ",terminal=" + terminal
+                + ",cwd=" + workingDirectory
+                + ",completion=" + completionResult
+                + (terminalPackageName.isEmpty()
+                        ? "" : ",terminalPackage=" + terminalPackageName);
+    }
 }

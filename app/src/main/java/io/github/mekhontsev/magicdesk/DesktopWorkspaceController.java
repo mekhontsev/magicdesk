@@ -418,7 +418,10 @@ final class DesktopWorkspaceController {
         final DesktopApplicationShortcut applicationShortcut =
                 file.applicationShortcut();
         if (applicationShortcut != null) {
-            openApplicationShortcut(applicationShortcut);
+            openApplicationShortcut(
+                    applicationShortcut,
+                    desktopAbsolutePath(file),
+                    DesktopLaunchArguments.empty());
             return;
         }
         final DesktopWebShortcut webShortcut = file.webShortcut();
@@ -624,8 +627,11 @@ final class DesktopWorkspaceController {
     }
 
     private void openApplicationShortcut(
-            final DesktopApplicationShortcut shortcut) {
-        if (!mActivity.launchDesktopShortcut(shortcut)) {
+            final DesktopApplicationShortcut shortcut,
+            final String desktopFilePath,
+            final DesktopLaunchArguments arguments) {
+        if (!mActivity.launchDesktopShortcut(
+                shortcut, arguments, desktopFilePath)) {
             mActivity.setStatus(R.string.desktop_shortcut_unavailable);
         }
     }
@@ -764,7 +770,10 @@ final class DesktopWorkspaceController {
             view = mViews.app(entry.app, shortcut.name);
             view.setOnClickListener(target -> {
                 mActivity.hideAllPanels();
-                mActivity.launchDesktopShortcut(entry.app, shortcut);
+                mActivity.launchDesktopShortcut(
+                        shortcut,
+                        DesktopLaunchArguments.empty(),
+                        desktopAbsolutePath(entry.file));
             });
             mActivity.registerDraggableDesktopAppContextTarget(
                     view, entry.app, entry.file);
@@ -810,9 +819,18 @@ final class DesktopWorkspaceController {
             view = frame;
         }
         mGrid.addItem(view, entry.itemId, placement);
+        // addItem installs the default reorder listener, so specialized drop
+        // targets must be attached after the view joins the grid.
         if (entry.file != null && entry.file.folderShortcut() != null) {
             enableFolderShortcutDrop(
                     view, entry.itemId, entry.file.folderShortcut());
+        } else if (entry.file != null
+                && entry.file.applicationShortcut() != null) {
+            enableApplicationShortcutDrop(
+                    view,
+                    entry.itemId,
+                    entry.file,
+                    entry.file.applicationShortcut());
         }
     }
 
@@ -846,6 +864,54 @@ final class DesktopWorkspaceController {
                             event,
                             shortcut.targetPath,
                             shortcut.name);
+                default:
+                    return true;
+            }
+        });
+    }
+
+    private void enableApplicationShortcutDrop(
+            final View view,
+            final String itemId,
+            final DesktopFile file,
+            final DesktopApplicationShortcut shortcut) {
+        if (shortcut == null
+                || !shortcut.hasExecLaunch()
+                || !DesktopExecTemplate.acceptsArguments(shortcut.exec)) {
+            return;
+        }
+        final float restingAlpha = view.getAlpha();
+        view.setOnDragListener((target, event) -> {
+            final FileDragPayload payload = FileDragPayload.from(event);
+            switch (event.getAction()) {
+                case DragEvent.ACTION_DRAG_STARTED:
+                    if (event.getLocalState()
+                                    instanceof DesktopGridLayout.DragToken
+                            || (payload != null
+                            && itemId.equals(payload.desktopItemId))
+                            || event.getClipDescription() == null) {
+                        return false;
+                    }
+                    return true;
+                case DragEvent.ACTION_DRAG_ENTERED:
+                    target.setAlpha(1f);
+                    return true;
+                case DragEvent.ACTION_DRAG_EXITED:
+                case DragEvent.ACTION_DRAG_ENDED:
+                    target.setAlpha(restingAlpha);
+                    return true;
+                case DragEvent.ACTION_DROP:
+                    target.setAlpha(restingAlpha);
+                    final DesktopLaunchArguments arguments =
+                            DesktopDragLaunchArguments.from(event);
+                    if (arguments.isEmpty()) {
+                        return false;
+                    }
+                    openApplicationShortcut(
+                            shortcut,
+                            desktopAbsolutePath(file),
+                            arguments);
+                    return true;
                 default:
                     return true;
             }
