@@ -118,6 +118,18 @@ final class DesktopSelfTestGeometry {
                 Math.max(minimumWindowHeight, height(bounds)));
     }
 
+    DesktopSelfTestGeometry withViewport(
+            final Rect displayBounds,
+            final Rect workArea) {
+        return new DesktopSelfTestGeometry(
+                displayBounds,
+                workArea,
+                densityDpi,
+                displayRotation,
+                minimumWindowWidth,
+                minimumWindowHeight);
+    }
+
     /** Converts InputDispatcher's natural-orientation frame to display space. */
     Rect inputFrame(final TaskInputWindowParser.Frame frame) {
         if (frame == null) {

@@ -57,6 +57,23 @@ public final class DesktopSelfTestGeometryTest {
     }
 
     @Test
+    public void refreshesViewportWithoutLosingObservedMinimumSize() {
+        final DesktopSelfTestGeometry geometry = new DesktopSelfTestGeometry(
+                rect(0, 0, 1216, 2688),
+                rect(0, 0, 1216, 2454),
+                520).withObservedWindow(rect(97, 245, 812, 1718));
+
+        final DesktopSelfTestGeometry refreshed = geometry.withViewport(
+                rect(0, 0, 1216, 2688),
+                rect(0, 125, 1216, 2389));
+
+        assertRect(refreshed.workArea, 0, 125, 1216, 2389);
+        final Rect window = refreshed.captionControlsWindow(false);
+        assertTrue(window.right - window.left >= 715);
+        assertTrue(window.bottom - window.top >= 1473);
+    }
+
+    @Test
     public void widensPhoneWindowForNativeCaptionControls() {
         final DesktopSelfTestGeometry geometry = new DesktopSelfTestGeometry(
                 rect(0, 0, 1216, 2688),

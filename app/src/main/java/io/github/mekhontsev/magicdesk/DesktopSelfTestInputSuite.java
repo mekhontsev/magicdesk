@@ -475,11 +475,17 @@ final class DesktopSelfTestInputSuite {
         DesktopSelfTestHostObserver.stage(preparationCode);
         final MaximizedTaskPair pair;
         try {
+            // The application-fullscreen fixture immediately before this
+            // phase changes system-bar visibility. Native caption maximize
+            // uses the resulting WMS work area, so discard the geometry
+            // captured before that transition once the live viewport settles.
+            final DesktopSelfTestGeometry currentGeometry =
+                    awaitCurrentViewport(displayId, geometry);
             pair = prepareMaximizedPair(
                     displayId,
                     firstTaskId,
                     secondTaskId,
-                    geometry);
+                    currentGeometry);
             result.add(DesktopSelfTestResult.State.PASS,
                     preparationCode,
                     "Prepare two maximized windows",
@@ -1057,6 +1063,42 @@ final class DesktopSelfTestInputSuite {
             throw new IOException("could not establish windowed bounds for task "
                     + taskId + ": " + usefulMessage(error));
         }
+    }
+
+    private static DesktopSelfTestGeometry awaitCurrentViewport(
+            final int displayId,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        Rect previousDisplay = null;
+        Rect previousWorkArea = null;
+        do {
+            final DesktopViewport viewport =
+                    DesktopRuntimeBridge.getDesktopViewport(displayId);
+            final Rect workArea =
+                    DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
+            if (viewport != null && workArea != null) {
+                final Rect display = viewport.displayBounds();
+                if (display.width() > 0
+                        && display.height() > 0
+                        && workArea.width() > 0
+                        && workArea.height() > 0
+                        && display.contains(workArea)) {
+                    if (display.equals(previousDisplay)
+                            && workArea.equals(previousWorkArea)) {
+                        return geometry.withViewport(display, workArea);
+                    }
+                    previousDisplay = new Rect(display);
+                    previousWorkArea = new Rect(workArea);
+                } else {
+                    previousDisplay = null;
+                    previousWorkArea = null;
+                }
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("desktop viewport did not settle after "
+                + "application fullscreen");
     }
 
     private static void enterFullscreenThroughShortcut(
