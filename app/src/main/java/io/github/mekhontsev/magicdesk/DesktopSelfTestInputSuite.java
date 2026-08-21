@@ -1396,21 +1396,40 @@ final class DesktopSelfTestInputSuite {
             final int taskId) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
+        TaskInputWindowParser.Entry lastMenu = null;
         do {
             final TaskInputWindowParser.Entry menu =
                     TaskInputWindowParser.findMaximizeMenu(
                             ShellAccess.run("/system/bin/dumpsys input"),
                             taskId);
+            lastMenu = menu;
             if (menu != null
                     && menu.displayId == displayId
                     && menu.hasInputChannel()
                     && menu.hasTouchableRegion()) {
                 return menu;
             }
+            if (menu != null
+                    && menu.displayId != displayId
+                    && menu.hasInputChannel()
+                    && menu.hasTouchableRegion()) {
+                // Stale SystemUI/WMShell organizer state can leave the caption
+                // on the target while attaching this detached menu to display 0.
+                throw new IOException("native maximize menu for task "
+                        + taskId + " opened on display " + menu.displayId
+                        + " instead of " + displayId + "; frame="
+                        + menu.frame);
+            }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException(
-                "native maximize menu did not open for task " + taskId);
+        throw new IOException("native maximize menu did not become usable for task "
+                + taskId + " on display " + displayId + "; last="
+                + (lastMenu == null
+                        ? "unavailable"
+                        : "display=" + lastMenu.displayId
+                        + ", frame=" + lastMenu.frame
+                        + ", channel=" + lastMenu.hasInputChannel()
+                        + ", touchable=" + lastMenu.hasTouchableRegion()));
     }
 
     private static String inspectSideBySidePlacement(
