@@ -329,6 +329,8 @@ final class DesktopWindowTransitionController {
         state.setManualImmersiveOverride(true);
         final Rect targetBounds =
                 mNativeWindowBounds.getSnappedBounds(left);
+        final Rect workAreaBounds =
+                mNativeWindowBounds.getTaskbarMaximizedBounds();
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> {
                     if (!mTaskStates.isCurrent(taskId, state)) {
@@ -345,7 +347,7 @@ final class DesktopWindowTransitionController {
                     state.setWindowRestoreBounds(restoreBounds);
                     state.clearFullscreenRestoreBounds();
                     state.setAppRequestedFullscreen(false);
-                    rememberWindowed(task, targetBounds);
+                    rememberWindowed(task, targetBounds, workAreaBounds);
                     mRuntimeState.focusTask(taskId);
                     mRuntimeState.scheduleRefresh();
                 });
@@ -408,7 +410,10 @@ final class DesktopWindowTransitionController {
         final int displayId = mRuntimeState.displayId();
         state.setFullscreenRestoreBounds(task.bounds);
         if (!appRequested) {
-            rememberWindowed(task, task.bounds);
+            rememberWindowed(
+                    task,
+                    task.bounds,
+                    mNativeWindowBounds.getTaskbarMaximizedBounds());
         }
         mNativeWindowBounds.clearForFullscreen(task.taskId);
         if (appRequested) {
@@ -495,11 +500,14 @@ final class DesktopWindowTransitionController {
                 return;
             }
         }
+        final Rect workAreaBounds =
+                mNativeWindowBounds.getTaskbarMaximizedBounds();
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> finishFullscreenRestore(
                         task,
                         state,
                         targetBounds,
+                        workAreaBounds,
                         userRequested,
                         result.success,
                         result.message));
@@ -516,6 +524,7 @@ final class DesktopWindowTransitionController {
             final TaskRepository.TaskEntry task,
             final DesktopTaskRuntimeState state,
             final Rect targetBounds,
+            final Rect workAreaBounds,
             final boolean userRequested,
             final boolean success,
             final String message) {
@@ -531,7 +540,7 @@ final class DesktopWindowTransitionController {
         state.clearFullscreenRestoreBounds();
         state.setAppRequestedFullscreen(false);
         if (userRequested) {
-            rememberWindowed(task, targetBounds);
+            rememberWindowed(task, targetBounds, workAreaBounds);
         }
         mRuntimeState.focusTask(task.taskId);
         mRuntimeState.scheduleRefresh();
@@ -700,12 +709,15 @@ final class DesktopWindowTransitionController {
 
     private void rememberWindowed(
             final TaskRepository.TaskEntry task,
-            final Rect bounds) {
+            final Rect bounds,
+            final Rect workAreaBounds) {
+        // Async transition callbacks can outlive their display session. Use the
+        // geometry captured when the transition began, not a later context.
         if (!BuiltInDesktopAppCatalog.remembersWindowState(task)) {
             return;
         }
         final RelativeWindowBounds relative = RelativeWindowBounds.from(
-                bounds, mNativeWindowBounds.getTaskbarMaximizedBounds());
+                bounds, workAreaBounds);
         if (relative != null) {
             AppWindowStateStore.rememberWindowed(
                     BuiltInDesktopAppCatalog.appIdentityKey(task), relative);
