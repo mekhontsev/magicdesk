@@ -111,6 +111,37 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsPreCommitVisibilityGapResolvedByNextSnapshot() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("BACK", fullscreen(0, true, false));
+        analyzer.sample("task-front", snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false)), true);
+        analyzer.sample("task-removed", snapshot(
+                2,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false)), true);
+
+        assertEquals(0, analyzer.finish(hostOnly(3, true)).anomalies.length);
+    }
+
+    @Test
+    public void rejectsVisibilityGapAtCommittedStackBoundary() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("BACK", fullscreen(0, true, false));
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot gap = snapshot(
+                1,
+                task(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false));
+        analyzer.sample("task-front", gap, true);
+        analyzer.sample("stack-changed", gap, true);
+
+        assertContains(analyzer.finish(hostOnly(2, true)),
+                "no task is visible on the desktop display");
+    }
+
+    @Test
     public void rejectsPhoneFreeformFixture() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("MOVE", windowed(0, true));
@@ -346,6 +377,44 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         true, true, false, FULLSCREEN_FEATURE_ID))),
                 "remained under transient fullscreen area="
                         + FULLSCREEN_FEATURE_ID);
+    }
+
+    @Test
+    public void rejectsLoneFullscreenTaskInTaskAreaAfterRestore() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LIFECYCLE-001",
+                fullscreenPairInTaskArea(0));
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot restored = snapshot(
+                1,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false, FULLSCREEN_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 5,
+                        true, true, false, HOST_FEATURE_ID));
+        analyzer.changeStage("FULLSCREEN-LIFECYCLE-002", restored);
+
+        assertContains(analyzer.finish(restored),
+                "remained under transient fullscreen area="
+                        + FULLSCREEN_FEATURE_ID);
+    }
+
+    @Test
+    public void acceptsFullscreenPeerReleasedAfterRestore() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LIFECYCLE-001",
+                fullscreenPairInTaskArea(0));
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot restored = snapshot(
+                1,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 5,
+                        true, true, false, HOST_FEATURE_ID));
+        analyzer.changeStage("FULLSCREEN-LIFECYCLE-002", restored);
+
+        assertEquals(0, analyzer.finish(restored).anomalies.length);
     }
 
     @Test

@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
-import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -26,8 +25,6 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private static final int FEATURE_ROOT = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final long VISIBILITY_TIMEOUT_MILLIS = 3_000L;
-    private static final long VISIBILITY_POLL_MILLIS = 20L;
 
     private final Set<Integer> mTaskIds = new HashSet<>();
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
@@ -35,6 +32,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     private TaskDisplayAreaHandle mArea;
     private Object mAreaService;
+    private boolean mAreaRetiring;
     private int mDisplayId = -1;
     private int mConfiguredDisplayId = -1;
     private int mParentFeatureId = FEATURE_ROOT;
@@ -117,7 +115,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             }
             fullscreenTaskIds.add(Integer.valueOf(taskId));
         }
-        if (fullscreenTaskIds.isEmpty()) {
+        if (fullscreenTaskIds.size() < 2) {
+            // A lone fullscreen task belongs directly to the desktop parent.
+            // Reusing a retiring organizer area here would recreate the
+            // transient hierarchy that restore/close just released.
             return false;
         }
 
@@ -250,9 +251,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             Log.w(TAG, "app fullscreen task area unavailable task="
                     + taskId, error);
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
-            if (mTaskIds.isEmpty()) {
-                close();
-            }
+            releaseLoneTaskAfterMembershipChange();
             return false;
         }
     }
@@ -262,7 +261,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final boolean refreshCaption) {
-        if (mArea == null || mDisplayId != displayId
+        if (mArea == null || mAreaRetiring || mDisplayId != displayId
                 || mTaskIds.isEmpty()) {
             return false;
         }
@@ -380,9 +379,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private void forgetAppFullscreenTask(final int taskId) {
         mAppRestoreBounds.remove(Integer.valueOf(taskId));
         mTaskIds.remove(Integer.valueOf(taskId));
-        if (mTaskIds.isEmpty()) {
-            close();
-        }
+        releaseLoneTaskAfterMembershipChange();
     }
 
     private void applyFocus(
@@ -452,17 +449,23 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             return false;
         }
         try {
+            final int releasedTaskId = findLoneSurvivor(
+                    service, displayId, taskId);
             ShellPreparedTaskTransition.detachAndShowFreeform(
                     service,
                     displayId,
                     taskId,
                     bounds,
-                    mReleaseParentToken);
+                    mReleaseParentToken,
+                    releasedTaskId);
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
             mTaskIds.remove(Integer.valueOf(taskId));
-            // The detach is part of an asynchronous WMShell transition. Keep
-            // the now-empty organizer area alive until the observer closes or
-            // reuses it; deleting its parent here can race the same transition.
+            if (releasedTaskId >= 0) {
+                mTaskIds.remove(Integer.valueOf(releasedTaskId));
+            }
+            if (releasedTaskId >= 0 || mTaskIds.isEmpty()) {
+                mAreaRetiring = true;
+            }
             Log.i(TAG, "restored fullscreen task=" + taskId
                     + " display=" + displayId);
             return true;
@@ -478,9 +481,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                         mReleaseParentToken);
                 mAppRestoreBounds.remove(Integer.valueOf(taskId));
                 mTaskIds.remove(Integer.valueOf(taskId));
-                if (mTaskIds.isEmpty()) {
-                    close();
-                }
+                releaseLoneTaskAfterMembershipChange();
             } catch (ReflectiveOperationException
                     | RuntimeException detachError) {
                 error.addSuppressed(detachError);
@@ -509,30 +510,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
 
         try {
-            // Hand visibility to the survivor before destroying the old top
-            // task. This reuses the proven fullscreen-area focus path and
-            // makes the subsequent removal a background operation.
-            applyFocus(
+            TaskWindowingCommand.closeFullscreenAreaTask(
                     service,
                     displayId,
-                    new int[]{survivorTaskId},
-                    new int[]{survivorTaskId});
-            waitForVisibleTask(service, displayId, survivorTaskId);
-
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass = Class.forName(
-                    "android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
-            final Object closingToken = HiddenTaskApi.requireTaskToken(
-                    service, displayId, taskId);
-            transactionClass.getMethod("removeTask", tokenClass)
-                    .invoke(transaction, closingToken);
-            SyncWindowContainerTransaction.apply(
-                    service, transactionClass, transaction);
-            mTaskIds.remove(Integer.valueOf(taskId));
+                    taskId,
+                    survivorTaskId,
+                    mReleaseParentToken);
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
+            mTaskIds.remove(Integer.valueOf(taskId));
+            mTaskIds.remove(Integer.valueOf(survivorTaskId));
+            mAreaRetiring = true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "fullscreen close handoff failed task="
                     + taskId, error);
@@ -563,29 +550,40 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         return -1;
     }
 
-    private static void waitForVisibleTask(
+    private int findLoneSurvivor(
             final Object service,
             final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + VISIBILITY_TIMEOUT_MILLIS;
-        do {
-            final Object task = HiddenTaskApi.findTask(
-                    service, displayId, taskId);
-            if (task != null
-                    && HiddenTaskApi.getBooleanField(task, "isVisible")) {
-                return;
+            final int excludedTaskId) throws ReflectiveOperationException {
+        int survivorTaskId = -1;
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int candidateTaskId = HiddenTaskApi.getIntField(
+                    task, "taskId");
+            if (candidateTaskId == excludedTaskId
+                    || !mTaskIds.contains(Integer.valueOf(candidateTaskId))
+                    || HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode")
+                            != WINDOWING_MODE_FULLSCREEN) {
+                continue;
             }
-            SystemClock.sleep(VISIBILITY_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IllegalStateException(
-                "fullscreen survivor did not become visible task=" + taskId);
+            if (survivorTaskId >= 0) {
+                return -1;
+            }
+            survivorTaskId = candidateTaskId;
+        }
+        return survivorTaskId;
     }
 
     private void ensureArea(
             final Object service,
             final int displayId) throws ReflectiveOperationException {
         if (mArea != null && mDisplayId == displayId) {
+            if (mAreaRetiring) {
+                // A later WMShell operation may reuse the still-owned area
+                // before its asynchronous retirement is observed. Reparent
+                // every new member explicitly into the queued transition.
+                mTaskIds.clear();
+                mAreaRetiring = false;
+            }
             return;
         }
         if (mArea != null || (mDisplayId >= 0 && mDisplayId != displayId)) {
@@ -623,8 +621,31 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
         mArea = area;
         mAreaService = service;
+        mAreaRetiring = false;
         mDisplayId = displayId;
         Log.i(TAG, "created fullscreen task area display=" + displayId);
+    }
+
+    synchronized void observeTasks(
+            final int displayId,
+            final List<?> tasks) {
+        if (!mAreaRetiring || mArea == null || displayId != mDisplayId
+                || tasks == null) {
+            return;
+        }
+        try {
+            final int featureId = mArea.featureId();
+            for (final Object task : tasks) {
+                if (HiddenTaskApi.getTaskDisplayId(task) == displayId
+                        && HiddenTaskApi.getIntField(
+                                task, "displayAreaFeatureId") == featureId) {
+                    return;
+                }
+            }
+            retireAreaIfEmpty();
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not inspect retiring fullscreen area", error);
+        }
     }
 
     synchronized void onWindowingModeChanged(
@@ -642,8 +663,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     synchronized void onTaskRemoved(final int taskId) {
         mAppRestoreBounds.remove(Integer.valueOf(taskId));
         mTaskIds.remove(Integer.valueOf(taskId));
-        if (mTaskIds.isEmpty() && mAppRestoreBounds.isEmpty()) {
-            close();
+        if (mAreaRetiring) {
+            retireAreaIfEmpty();
+        } else {
+            releaseLoneTaskAfterMembershipChange();
         }
     }
 
@@ -688,6 +711,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         final Set<Integer> ownedTaskIds = new HashSet<>(mTaskIds);
         mArea = null;
         mAreaService = null;
+        mAreaRetiring = false;
         mDisplayId = -1;
         mTaskIds.clear();
         mAppRestoreBounds.clear();
@@ -712,6 +736,63 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 Log.w(TAG, "fullscreen task area retained after unsafe cleanup"
                         + " feature=" + area.featureId());
             }
+        }
+    }
+
+    private boolean retireAreaIfEmpty() {
+        final TaskDisplayAreaHandle area = mArea;
+        if (area == null) {
+            mAreaRetiring = false;
+            return true;
+        }
+        if (!area.closeIfEmpty(mAreaService, mDisplayId)) {
+            return false;
+        }
+        final int featureId = area.featureId();
+        mArea = null;
+        mAreaService = null;
+        mAreaRetiring = false;
+        mTaskIds.clear();
+        if (mAppRestoreBounds.isEmpty()) {
+            mDisplayId = -1;
+        }
+        Log.i(TAG, "retired empty fullscreen task area feature="
+                + featureId);
+        return true;
+    }
+
+    private void releaseLoneTaskAfterMembershipChange() {
+        if (mArea == null || mAreaRetiring) {
+            if (mArea == null && mTaskIds.isEmpty()
+                    && mAppRestoreBounds.isEmpty()) {
+                mDisplayId = -1;
+            }
+            return;
+        }
+        if (mTaskIds.isEmpty()) {
+            mAreaRetiring = true;
+            retireAreaIfEmpty();
+            return;
+        }
+        if (mTaskIds.size() != 1) {
+            return;
+        }
+        final int survivorTaskId = mTaskIds.iterator().next().intValue();
+        try {
+            // Unexpected task removal and app-driven restore do not supply a
+            // WMShell transaction to augment. Their peer is already gone or
+            // hidden, so a synchronous parent release preserves the remaining
+            // fullscreen task without exposing an intermediate mode.
+            ShellPreparedTaskTransition.detachFullscreenParent(
+                    mAreaService,
+                    mDisplayId,
+                    survivorTaskId,
+                    mReleaseParentToken);
+            mAreaRetiring = true;
+            retireAreaIfEmpty();
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not release lone fullscreen task="
+                    + survivorTaskId, error);
         }
     }
 }

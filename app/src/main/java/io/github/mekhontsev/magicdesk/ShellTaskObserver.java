@@ -174,6 +174,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         }
                         mDesktopTaskArea.removeOrphanedTransientTasks(
                                 displayId, tasks);
+                        mFullscreenTaskArea.observeTasks(displayId, tasks);
                         mTransientBounds.observeTasks(displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }

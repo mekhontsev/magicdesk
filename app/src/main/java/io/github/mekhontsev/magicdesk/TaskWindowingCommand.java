@@ -263,6 +263,68 @@ public final class TaskWindowingCommand {
                 true);
     }
 
+    static void closeFullscreenAreaTask(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final int survivorTaskId,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
+        if (taskId == survivorTaskId) {
+            throw new IllegalArgumentException(
+                    "closed and surviving task match");
+        }
+        final Class<?> tokenClass = Class.forName(
+                "android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object survivorToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, survivorTaskId);
+
+        // Move focus while both tasks still share the valid fullscreen area.
+        // The sync callback replaces the old visibility polling and confirms
+        // that the handoff reached WindowManager before the close begins.
+        final Object focusTransaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(
+                        focusTransaction,
+                        survivorToken,
+                        Boolean.TRUE,
+                        Boolean.TRUE);
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, focusTransaction);
+
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object closingToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, taskId);
+        transactionClass.getMethod("removeTask", tokenClass)
+                .invoke(transaction, closingToken);
+        ShellPreparedTaskTransition.addReleasedFullscreenTask(
+                service,
+                displayId,
+                survivorTaskId,
+                targetParentToken,
+                tokenClass,
+                transactionClass,
+                transaction);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                .invoke(
+                        transaction,
+                        survivorToken,
+                        Boolean.TRUE,
+                        Boolean.TRUE);
+        // This hierarchy spans both the temporary area and its desktop
+        // parent. Apply it as one synchronized WCT instead of asking WMShell
+        // to animate two roots independently. The removed task is already in
+        // the background, so it cannot replace the survivor's input focus.
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+    }
+
     static void closeDesktopTasks(
             final Object service,
             final int displayId,

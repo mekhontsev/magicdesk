@@ -247,6 +247,11 @@ active desktop parent while it is hidden or still fullscreen. Application-
 driven restores are completed in the observer before their result crosses
 Binder. They use a hidden fullscreen-to-freeform mode boundary in the active
 parent to rebuild native decoration without changing desktop sessions.
+The area exists only while it owns at least two fullscreen tasks. Restore and
+close transitions release a lone peer to the active desktop parent in the same
+WCT that changes or removes the other task. The observer retires the empty area
+only after a task snapshot confirms that the asynchronous hierarchy change has
+completed; no delayed mode repair or guessed timeout is involved.
 
 The parent must be established while focusing a freeform task when another
 MagicDesk task is fullscreen. On external displays this child is nested in the
@@ -260,8 +265,9 @@ fullscreen-parent hierarchy changes and normal `TO_FRONT` ordering in one WCT.
 WMShell can queue that atomic transition behind native caption or focus work;
 a separate synchronous hierarchy transaction could instead deadlock with it.
 
-Closing the final member deletes the area. Platforms without this organizer
-capability use the ordinary focus path and never apply a delayed mode repair.
+Closing or restoring a member that leaves one survivor releases that survivor
+and deletes the empty area. Platforms without this organizer capability use
+the ordinary focus path and never apply a delayed mode repair.
 
 ## Modules
 
@@ -498,12 +504,12 @@ runtime integration and are not distributed through the same release path.
   roots in the default desktop task area. It preserves an existing fullscreen
   peer and focus ordering in one WMShell transition during mixed
   fullscreen/freeform activation; it must not wait for both tasks to become
-  fullscreen first. A task is synchronously released to
-  the active desktop parent while still fullscreen before any restore or snap
-  command changes its mode. Application-requested immersive tasks remain
+  fullscreen first. Restore and close transactions release a lone peer to the
+  active desktop parent while preserving its fullscreen state and focus.
+  Application-requested immersive tasks remain
   directly under that parent and share only the observer's saved-bounds
   lifecycle.
-  The area closes after its final tracked task leaves.
+  The area closes after the observer confirms that its final child left.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
   focus, single-task restore and close, direct fullscreen session launches,
@@ -824,7 +830,10 @@ visible freeform fixture with a
 hidden desktop host is an error on every target; this also detects a native
 desktop area taking ownership of the phone screen. No snapshots are taken
 during normal desktop operation, and the guard uses neither polling nor timing
-guesses.
+guesses. Android can deliver remote `onTaskMovedToFront` before the matching
+visibility update; only a gap beginning at that callback may remain pending,
+and it must resolve by the coalesced `onTaskStackChanged` callback or the test
+stage boundary. Other visibility gaps fail immediately.
 
 A separate one-shot launch probe captures the first
 `onTaskMovedToFront` configuration, so the test distinguishes a true initial

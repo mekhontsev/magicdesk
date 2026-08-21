@@ -25,6 +25,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private int mEventCount;
     private int mDroppedSamples;
     private int mFullscreenTaskAreaFeatureId = DISPLAY_AREA_FEATURE_UNKNOWN;
+    private String mPendingVisibilityGapKey;
+    private String mPendingVisibilityGapDetail;
 
     SelfTestTaskStackInvariantAnalyzer(
             final int displayId,
@@ -102,6 +104,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
         observeFullscreenTaskArea(snapshot);
         validateUniversal(reason, snapshot);
+        validateVisibilityContinuity(reason, snapshot, event);
         if (!mStage.samples.isEmpty()
                 && mStage.samples.get(mStage.samples.size() - 1)
                         .snapshot.sameState(snapshot)) {
@@ -129,12 +132,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                             + " desktop host=" + host.stateKey());
         }
 
-        boolean visibleOnDesktop = false;
         for (final TaskState task : snapshot.tasks) {
-            if (task.displayId == mDisplayId
-                    && task.visibilityKnown && task.visible) {
-                visibleOnDesktop = true;
-            }
             if (task.fixture
                     && mDisplayId != 0
                     && task.displayId == 0
@@ -167,16 +165,53 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " became visible");
             }
         }
-        // A visible freeform child can make ActivityTaskManager report the
-        // fullscreen host in the same organizer-owned area as hidden even
-        // while its surface remains rendered. Dedicated pixel and lifecycle
-        // probes verify the host; this analyzer verifies its hierarchy and
-        // that the display never has a visibility gap.
-        if (snapshot.visibilityKnown && !visibleOnDesktop) {
-            addAnomaly("visibility-gap:" + mStage.name,
-                    formatSample(reason, snapshot)
-                            + " no task is visible on the desktop display");
+    }
+
+    private void validateVisibilityContinuity(
+            final String reason,
+            final Snapshot snapshot,
+            final boolean event) {
+        if (!snapshot.visibilityKnown) {
+            return;
         }
+        if (hasVisibleDesktopTask(snapshot)) {
+            mPendingVisibilityGapKey = null;
+            mPendingVisibilityGapDetail = null;
+            return;
+        }
+        if (mPendingVisibilityGapKey == null) {
+            final String key = "visibility-gap:" + mStage.name;
+            final String detail = formatSample(reason, snapshot)
+                    + " no task is visible on the desktop display";
+            if (!event || !"task-front".equals(reason)) {
+                addAnomaly(key, detail);
+                return;
+            }
+            mPendingVisibilityGapKey = key;
+            mPendingVisibilityGapDetail = detail;
+        }
+        // The remote onTaskMovedToFront callback can precede its matching
+        // visibility update. Android coalesces onTaskStackChanged after that
+        // event burst, so it is the first committed boundary at which this
+        // specific gap is a real task-stack defect. Deferral can begin only
+        // at task-front; a gap first seen in any other callback is immediately
+        // invalid. Stage boundaries remain strict, without a delay or timeout.
+        if (!event || "stack-changed".equals(reason)) {
+            addAnomaly(
+                    mPendingVisibilityGapKey,
+                    mPendingVisibilityGapDetail);
+        }
+    }
+
+    private boolean hasVisibleDesktopTask(final Snapshot snapshot) {
+        for (final TaskState task : snapshot.tasks) {
+            if (task.displayId == mDisplayId
+                    && task.visibilityKnown
+                    && task.visible) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isPhoneHomeAboveDesktopContent(
@@ -253,7 +288,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private void analyzeFullscreenTaskAreaRelease(
             final Stage stage,
             final Snapshot snapshot) {
-        if (!"FULLSCREEN-LIFECYCLE-003".equals(stage.name)
+        if (!("FULLSCREEN-LIFECYCLE-001".equals(stage.name)
+                || "FULLSCREEN-LIFECYCLE-003".equals(stage.name))
                 || mFullscreenTaskAreaFeatureId
                         == DISPLAY_AREA_FEATURE_UNKNOWN) {
             return;
