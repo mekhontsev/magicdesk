@@ -91,6 +91,7 @@ final class ShellSelfTestTaskStackGuard {
                     .getWindowConfigurationValue(task, "getWindowingMode");
             final int activityType = HiddenTaskApi
                     .getWindowConfigurationValue(task, "getActivityType");
+            final int displayAreaFeatureId = getDisplayAreaFeatureId(task);
             final ComponentName component = HiddenTaskApi.getTaskComponent(task);
             final boolean fixture = component != null
                     && DesktopSelfTestComponents.isFixtureComponent(
@@ -110,10 +111,20 @@ final class ShellSelfTestTaskStackGuard {
                     visible,
                     taskVisibilityKnown,
                     fixture,
-                    activityType == ACTIVITY_TYPE_HOME));
+                    activityType == ACTIVITY_TYPE_HOME,
+                    displayAreaFeatureId));
         }
         return new SelfTestTaskStackInvariantAnalyzer.Snapshot(
                 SystemClock.uptimeMillis(), states, visibilityKnown);
+    }
+
+    private static int getDisplayAreaFeatureId(final Object task) {
+        try {
+            return HiddenTaskApi.getIntField(task, "displayAreaFeatureId");
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            return SelfTestTaskStackInvariantAnalyzer
+                    .DISPLAY_AREA_FEATURE_UNKNOWN;
+        }
     }
 
     private void fail(final Throwable error) {

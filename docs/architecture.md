@@ -507,7 +507,8 @@ runtime integration and are not distributed through the same release path.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
   focus, single-task restore and close, direct fullscreen session launches,
-  system-Back removal, survivor visibility, and abrupt display removal.
+  system-Back removal, survivor visibility, release of a lone survivor from
+  the temporary fullscreen task area, and abrupt display removal.
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -816,7 +817,10 @@ The shell task observer exposes an optional self-test guard. While a test is
 active, every task callback captures a bounded `getAllTasks()` snapshot tagged
 with the current test stage. A pure analyzer checks the desktop host, fixture
 display and windowing mode, HOME visibility, one-way task transitions, and
-windowed/fullscreen visibility continuity. A visible freeform fixture with a
+windowed/fullscreen visibility continuity. It also learns the temporary
+fullscreen area's dynamic feature ID from a managed pair and verifies that a
+lone survivor is released to the desktop parent after its peer closes. A
+visible freeform fixture with a
 hidden desktop host is an error on every target; this also detects a native
 desktop area taking ownership of the phone screen. No snapshots are taken
 during normal desktop operation, and the guard uses neither polling nor timing

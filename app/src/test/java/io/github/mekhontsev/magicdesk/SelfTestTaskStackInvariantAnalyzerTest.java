@@ -12,6 +12,8 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     private static final int HOST_TASK_ID = 1;
     private static final int FIXTURE_TASK_ID = 10;
     private static final int SECOND_FIXTURE_TASK_ID = 11;
+    private static final int HOST_FEATURE_ID = 1;
+    private static final int FULLSCREEN_FEATURE_ID = 20_001;
 
     @Test
     public void acceptsStableWindowedOperation() {
@@ -325,6 +327,74 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void rejectsLoneFullscreenTaskInTransientTaskArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LIFECYCLE-002",
+                fullscreenPairInTaskArea(0));
+        analyzer.changeStage("FULLSCREEN-LIFECYCLE-003", snapshot(
+                1,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID)));
+
+        assertContains(analyzer.finish(snapshot(
+                2,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID))),
+                "remained under transient fullscreen area="
+                        + FULLSCREEN_FEATURE_ID);
+    }
+
+    @Test
+    public void acceptsLoneFullscreenTaskReleasedToDesktopParent() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LIFECYCLE-002",
+                fullscreenPairInTaskArea(0));
+        analyzer.changeStage("FULLSCREEN-LIFECYCLE-003", snapshot(
+                1,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, HOST_FEATURE_ID)));
+
+        assertEquals(0, analyzer.finish(snapshot(
+                2,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, HOST_FEATURE_ID))).anomalies.length);
+    }
+
+    @Test
+    public void ignoresFullscreenPairInDesktopParent() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("FULLSCREEN-LIFECYCLE-002", snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false, HOST_FEATURE_ID)));
+        analyzer.changeStage("FULLSCREEN-LIFECYCLE-003", snapshot(
+                1,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, HOST_FEATURE_ID)));
+
+        assertEquals(0, analyzer.finish(snapshot(
+                2,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, HOST_FEATURE_ID))).anomalies.length);
+    }
+
+    @Test
     public void rejectsMissingHostDuringFullscreenCreation() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         analyzer.begin("FULLSCREEN-LAUNCH", hostOnly(0, true));
@@ -469,6 +539,18 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         secondVisible, true, false));
     }
 
+    private static SelfTestTaskStackInvariantAnalyzer.Snapshot
+            fullscreenPairInTaskArea(final long time) {
+        return snapshot(
+                time,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false, FULLSCREEN_FEATURE_ID));
+    }
+
     private static SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot(
             final long time,
             final SelfTestTaskStackInvariantAnalyzer.TaskState... tasks) {
@@ -490,7 +572,28 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                 visible,
                 true,
                 fixture,
-                home);
+                home,
+                SelfTestTaskStackInvariantAnalyzer
+                        .DISPLAY_AREA_FEATURE_UNKNOWN);
+    }
+
+    private static SelfTestTaskStackInvariantAnalyzer.TaskState taskInArea(
+            final int taskId,
+            final int displayId,
+            final int mode,
+            final boolean visible,
+            final boolean fixture,
+            final boolean home,
+            final int displayAreaFeatureId) {
+        return new SelfTestTaskStackInvariantAnalyzer.TaskState(
+                taskId,
+                displayId,
+                mode,
+                visible,
+                true,
+                fixture,
+                home,
+                displayAreaFeatureId);
     }
 
     private static void assertContains(

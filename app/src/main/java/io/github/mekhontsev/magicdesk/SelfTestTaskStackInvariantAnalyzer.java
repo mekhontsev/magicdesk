@@ -10,6 +10,7 @@ import java.util.Set;
 final class SelfTestTaskStackInvariantAnalyzer {
     static final int WINDOWING_MODE_FULLSCREEN = 1;
     static final int WINDOWING_MODE_FREEFORM = 5;
+    static final int DISPLAY_AREA_FEATURE_UNKNOWN = Integer.MIN_VALUE;
 
     private static final int MAX_STAGE_SAMPLES = 128;
     private static final int MAX_ANOMALIES = 32;
@@ -23,6 +24,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private int mSampleCount;
     private int mEventCount;
     private int mDroppedSamples;
+    private int mFullscreenTaskAreaFeatureId = DISPLAY_AREA_FEATURE_UNKNOWN;
 
     SelfTestTaskStackInvariantAnalyzer(
             final int displayId,
@@ -98,6 +100,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         if (event) {
             mEventCount++;
         }
+        observeFullscreenTaskArea(snapshot);
         validateUniversal(reason, snapshot);
         if (!mStage.samples.isEmpty()
                 && mStage.samples.get(mStage.samples.size() - 1)
@@ -199,12 +202,16 @@ final class SelfTestTaskStackInvariantAnalyzer {
     }
 
     private void analyzeStage(final Stage stage) {
+        if (stage.samples.isEmpty()) {
+            return;
+        }
+        final Snapshot last = stage.samples.get(
+                stage.samples.size() - 1).snapshot;
+        analyzeFullscreenTaskAreaRelease(stage, last);
         if (stage.samples.size() < 2) {
             return;
         }
         final Snapshot first = stage.samples.get(0).snapshot;
-        final Snapshot last = stage.samples.get(
-                stage.samples.size() - 1).snapshot;
         final Set<Integer> fixtureIds = new LinkedHashSet<>();
         collectFixtureIds(first, fixtureIds);
         collectFixtureIds(last, fixtureIds);
@@ -215,6 +222,68 @@ final class SelfTestTaskStackInvariantAnalyzer {
             analyzeFixture(stage, taskId.intValue());
         }
         analyzeVisibility(stage, first, last);
+    }
+
+    private void observeFullscreenTaskArea(final Snapshot snapshot) {
+        final TaskState host = snapshot.find(mHostTaskId);
+        final int hostFeatureId = host == null
+                ? DISPLAY_AREA_FEATURE_UNKNOWN : host.displayAreaFeatureId;
+        for (int firstIndex = 0;
+                firstIndex < snapshot.tasks.size(); firstIndex++) {
+            final TaskState first = snapshot.tasks.get(firstIndex);
+            if (!isDesktopFullscreenFixture(first)
+                    || first.displayAreaFeatureId
+                            == DISPLAY_AREA_FEATURE_UNKNOWN
+                    || first.displayAreaFeatureId == hostFeatureId) {
+                continue;
+            }
+            for (int secondIndex = firstIndex + 1;
+                    secondIndex < snapshot.tasks.size(); secondIndex++) {
+                final TaskState second = snapshot.tasks.get(secondIndex);
+                if (isDesktopFullscreenFixture(second)
+                        && second.displayAreaFeatureId
+                                == first.displayAreaFeatureId) {
+                    mFullscreenTaskAreaFeatureId = first.displayAreaFeatureId;
+                    return;
+                }
+            }
+        }
+    }
+
+    private void analyzeFullscreenTaskAreaRelease(
+            final Stage stage,
+            final Snapshot snapshot) {
+        if (!"FULLSCREEN-LIFECYCLE-003".equals(stage.name)
+                || mFullscreenTaskAreaFeatureId
+                        == DISPLAY_AREA_FEATURE_UNKNOWN) {
+            return;
+        }
+        TaskState survivor = null;
+        for (final TaskState task : snapshot.tasks) {
+            if (!isDesktopFullscreenFixture(task)) {
+                continue;
+            }
+            if (survivor != null) {
+                return;
+            }
+            survivor = task;
+        }
+        if (survivor == null
+                || survivor.displayAreaFeatureId
+                        != mFullscreenTaskAreaFeatureId) {
+            return;
+        }
+        addAnomaly("lone-fullscreen-parent:" + survivor.taskId,
+                formatSample("stage-end", snapshot)
+                        + " lone fullscreen task=" + survivor.taskId
+                        + " remained under transient fullscreen area="
+                        + mFullscreenTaskAreaFeatureId);
+    }
+
+    private boolean isDesktopFullscreenFixture(final TaskState task) {
+        return task.fixture
+                && task.displayId == mDisplayId
+                && task.windowingMode == WINDOWING_MODE_FULLSCREEN;
     }
 
     private void analyzeFixture(final Stage stage, final int taskId) {
@@ -496,6 +565,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         final boolean visibilityKnown;
         final boolean fixture;
         final boolean home;
+        final int displayAreaFeatureId;
 
         TaskState(
                 final int taskId,
@@ -504,7 +574,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 final boolean visible,
                 final boolean visibilityKnown,
                 final boolean fixture,
-                final boolean home) {
+                final boolean home,
+                final int displayAreaFeatureId) {
             this.taskId = taskId;
             this.displayId = displayId;
             this.windowingMode = windowingMode;
@@ -512,6 +583,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             this.visibilityKnown = visibilityKnown;
             this.fixture = fixture;
             this.home = home;
+            this.displayAreaFeatureId = displayAreaFeatureId;
         }
 
         String stateKey() {
@@ -526,7 +598,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     && visible == other.visible
                     && visibilityKnown == other.visibilityKnown
                     && fixture == other.fixture
-                    && home == other.home;
+                    && home == other.home
+                    && displayAreaFeatureId == other.displayAreaFeatureId;
         }
     }
 
