@@ -30,6 +30,7 @@ final class OverlayPanelController {
     private final Rect mPersistentBounds = new Rect();
 
     private View mVisiblePanel;
+    private String mVisibleTitle = "";
     private View mPersistentView;
     private WindowManager.LayoutParams mPersistentParams;
     private View mTransientView;
@@ -136,8 +137,10 @@ final class OverlayPanelController {
         try {
             mWindowManager.addView(panel, params);
             mVisiblePanel = panel;
+            mVisibleTitle = title == null ? "" : title;
             mAdded = true;
             mBounds.set(left, top, left + width, top + height);
+            recordPanelState(true);
             panel.postOnAnimation(() -> {
                 if (!mAdded || mVisiblePanel != panel) {
                     return;
@@ -158,6 +161,7 @@ final class OverlayPanelController {
         } catch (RuntimeException e) {
             panel.setVisibility(View.GONE);
             mVisiblePanel = null;
+            mVisibleTitle = "";
             mAdded = false;
             mBounds.setEmpty();
             Log.w(TAG, "failed to show panel " + title, e);
@@ -344,7 +348,12 @@ final class OverlayPanelController {
         if (panel != null) {
             panel.setVisibility(View.GONE);
         }
+        final boolean wasVisible = mAdded && mVisiblePanel != null;
+        if (wasVisible) {
+            recordPanelState(false);
+        }
         mVisiblePanel = null;
+        mVisibleTitle = "";
         mAdded = false;
         mBounds.setEmpty();
     }
@@ -430,6 +439,14 @@ final class OverlayPanelController {
 
     boolean hasVisiblePanel() {
         return mAdded && mVisiblePanel != null;
+    }
+
+    Rect visibleBounds() {
+        return new Rect(mBounds);
+    }
+
+    String visibleTitle() {
+        return mVisibleTitle;
     }
 
     boolean isVisible(final View panel) {
@@ -519,5 +536,27 @@ final class OverlayPanelController {
 
     private static String safeText(final String text) {
         return text == null ? "" : text;
+    }
+
+    private void recordPanelState(final boolean visible) {
+        try {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    visible ? "popup_shown" : "popup_hidden",
+                    true,
+                    mVisibleTitle,
+                    new org.json.JSONObject()
+                            .put("visible", visible)
+                            .put("title", mVisibleTitle)
+                            .put("bounds", new org.json.JSONObject()
+                                    .put("left", mBounds.left)
+                                    .put("top", mBounds.top)
+                                    .put("right", mBounds.right)
+                                    .put("bottom", mBounds.bottom)));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "ui", visible ? "popup_shown" : "popup_hidden",
+                    true, mVisibleTitle);
+        }
     }
 }

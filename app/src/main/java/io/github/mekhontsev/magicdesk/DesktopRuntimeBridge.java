@@ -202,6 +202,10 @@ public final class DesktopRuntimeBridge {
         return UI.isTaskbarVisibleOnDisplay(displayId);
     }
 
+    static DesktopUiSnapshot getAutomationUiSnapshot(final int displayId) {
+        return UI.getAutomationUiSnapshot(displayId);
+    }
+
     static boolean focusDesktopOnDisplay(final int displayId) {
         return UI.focusDesktopOnDisplay(displayId);
     }

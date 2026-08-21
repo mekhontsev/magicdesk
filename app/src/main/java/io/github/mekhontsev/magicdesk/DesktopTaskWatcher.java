@@ -722,6 +722,27 @@ final class DesktopTaskWatcher {
                             windowingMode,
                             topActivity,
                             reason));
+            try {
+                DesktopAutomationEventJournal.record(
+                        "process",
+                        type == DesktopProcessFailure.ANR ? "anr" : "crash",
+                        false,
+                        processName,
+                        new org.json.JSONObject()
+                                .put("process", processName)
+                                .put("pid", pid)
+                                .put("taskId", taskId)
+                                .put("displayId", displayId)
+                                .put("windowingMode", windowingMode)
+                                .put("topActivity", topActivity)
+                                .put("reason", reason));
+            } catch (org.json.JSONException ignored) {
+                DesktopAutomationEventJournal.record(
+                        "process",
+                        type == DesktopProcessFailure.ANR ? "anr" : "crash",
+                        false,
+                        processName);
+            }
         });
     }
 

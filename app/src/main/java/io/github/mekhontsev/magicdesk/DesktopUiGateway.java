@@ -8,6 +8,8 @@ import android.view.Display;
 import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Process-local gateway to the live desktop host Activity. */
 final class DesktopUiGateway {
@@ -69,6 +71,7 @@ final class DesktopUiGateway {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
         MagicDeskRuntime.refreshDesktopTasks();
+        recordSession("host_registered", displayId, activity.getTaskId());
         if (previousWasLocal) {
             MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
@@ -93,6 +96,7 @@ final class DesktopUiGateway {
             return;
         }
         MagicDeskRuntime.refreshDesktopTasks();
+        recordSession("host_unregistered", displayId, activity.getTaskId());
         if (displayId == Display.DEFAULT_DISPLAY) {
             MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
@@ -148,11 +152,15 @@ final class DesktopUiGateway {
         synchronized (mHostLock) {
             mSession.noteTarget(target);
         }
+        recordSession("target_selected", target.displayId, -1);
     }
 
     void clearDesktopTarget(final DesktopDisplayTarget target) {
         synchronized (mHostLock) {
             mSession.clearTarget(target);
+        }
+        if (target != null) {
+            recordSession("target_cleared", target.displayId, -1);
         }
     }
 
@@ -483,6 +491,36 @@ final class DesktopUiGateway {
                 && activity.isTaskbarVisible();
     }
 
+    DesktopUiSnapshot getAutomationUiSnapshot(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return DesktopUiSnapshot.UNAVAILABLE;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return activity.getAutomationUiSnapshot();
+        }
+        final DesktopUiSnapshot[] result = new DesktopUiSnapshot[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            if (isUsable(activity)
+                    && activity.getCurrentDisplayId() == displayId) {
+                result[0] = activity.getAutomationUiSnapshot();
+            }
+            ready.countDown();
+        });
+        try {
+            if (!ready.await(2L, TimeUnit.SECONDS)) {
+                return DesktopUiSnapshot.UNAVAILABLE;
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return DesktopUiSnapshot.UNAVAILABLE;
+        }
+        return result[0] == null
+                ? DesktopUiSnapshot.UNAVAILABLE : result[0];
+    }
+
     boolean focusDesktopOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
@@ -559,5 +597,27 @@ final class DesktopUiGateway {
         return activity != null
                 && !activity.isFinishing()
                 && !activity.isDestroyed();
+    }
+
+    private static void recordSession(
+            final String operation,
+            final int displayId,
+            final int taskId) {
+        try {
+            final org.json.JSONObject data = new org.json.JSONObject()
+                    .put("displayId", displayId);
+            if (taskId >= 0) {
+                data.put("taskId", taskId);
+            }
+            DesktopAutomationEventJournal.record(
+                    "session",
+                    operation,
+                    true,
+                    "display=" + displayId,
+                    data);
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "session", operation, true, "display=" + displayId);
+        }
     }
 }

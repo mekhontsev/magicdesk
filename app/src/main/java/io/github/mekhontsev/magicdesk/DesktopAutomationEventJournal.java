@@ -25,20 +25,46 @@ final class DesktopAutomationEventJournal {
             final String operation,
             final boolean success,
             final String detail) {
+        return record(type, operation, success, detail, null);
+    }
+
+    static long record(
+            final String type,
+            final String operation,
+            final boolean success,
+            final String detail,
+            final JSONObject data) {
         final Event event = new Event(
                 NEXT_ID.incrementAndGet(),
                 System.currentTimeMillis(),
                 clean(type),
                 clean(operation),
                 success,
-                clean(detail));
+                clean(detail),
+                copy(data));
         synchronized (LOCK) {
             EVENTS.addLast(event);
             while (EVENTS.size() > MAX_EVENTS) {
                 EVENTS.removeFirst();
             }
+            LOCK.notifyAll();
         }
         return event.id;
+    }
+
+    static long awaitChange(
+            final long observedId,
+            final long timeoutMillis) throws InterruptedException {
+        final long deadline = android.os.SystemClock.uptimeMillis()
+                + Math.max(0L, timeoutMillis);
+        synchronized (LOCK) {
+            long remaining = timeoutMillis;
+            while (NEXT_ID.get() <= observedId && remaining > 0L) {
+                LOCK.wait(remaining);
+                remaining = deadline - android.os.SystemClock.uptimeMillis();
+            }
+            return NEXT_ID.get();
+        }
     }
 
     static JSONArray snapshot(final long afterId, final int requestedLimit)
@@ -75,6 +101,17 @@ final class DesktopAutomationEventJournal {
                 ? normalized : normalized.substring(0, MAX_DETAIL_CHARS);
     }
 
+    private static JSONObject copy(final JSONObject value) {
+        if (value == null) {
+            return new JSONObject();
+        }
+        try {
+            return new JSONObject(value.toString());
+        } catch (JSONException ignored) {
+            return new JSONObject();
+        }
+    }
+
     private static final class Event {
         final long id;
         final long timestampMillis;
@@ -82,6 +119,7 @@ final class DesktopAutomationEventJournal {
         final String operation;
         final boolean success;
         final String detail;
+        final JSONObject data;
 
         Event(
                 final long id,
@@ -89,13 +127,15 @@ final class DesktopAutomationEventJournal {
                 final String type,
                 final String operation,
                 final boolean success,
-                final String detail) {
+                final String detail,
+                final JSONObject data) {
             this.id = id;
             this.timestampMillis = timestampMillis;
             this.type = type;
             this.operation = operation;
             this.success = success;
             this.detail = detail;
+            this.data = data;
         }
 
         JSONObject toJson() throws JSONException {
@@ -105,7 +145,8 @@ final class DesktopAutomationEventJournal {
                     .put("type", type)
                     .put("operation", operation)
                     .put("success", success)
-                    .put("detail", detail);
+                    .put("detail", detail)
+                    .put("data", data);
         }
     }
 }

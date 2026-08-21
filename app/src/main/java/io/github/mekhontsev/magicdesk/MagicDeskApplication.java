@@ -12,6 +12,11 @@ public final class MagicDeskApplication extends Application {
         sApplicationContext = getApplicationContext();
         ShellAccess.initialize();
         CompatibilityDiagnostics.initialize(this);
+        DesktopAutomationEventJournal.record(
+                "process",
+                "started",
+                true,
+                "pid=" + android.os.Process.myPid());
     }
 
     public static Context applicationContext() {

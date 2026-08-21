@@ -23,7 +23,6 @@ final class DesktopAutomationController {
     private static final long ACTION_TIMEOUT_MILLIS = 20_000L;
     private static final long LAUNCH_OBSERVE_TIMEOUT_MILLIS = 10_000L;
     private static final long MAX_WAIT_MILLIS = 60_000L;
-    private static final long WAIT_POLL_MILLIS = 200L;
 
     private final Context mContext;
     private final DesktopAutomationStateReader mState;
@@ -48,11 +47,13 @@ final class DesktopAutomationController {
                 DesktopAutomationAction.parse(actionName);
         if (action == null) {
             return record(actionName, DesktopAutomationResult.failure(
-                    "unknown automation action"));
+                    DesktopAutomationErrorCode.UNKNOWN_ACTION,
+                    "unknown automation action", false));
         }
         if (action.developerOnly && !developerToolsEnabled) {
             return record(action.wireName, DesktopAutomationResult.failure(
-                    "developer automation tools are disabled"));
+                    DesktopAutomationErrorCode.TOOL_DISABLED,
+                    "developer automation tools are disabled", false));
         }
         try {
             final JSONObject args = arguments == null
@@ -113,22 +114,27 @@ final class DesktopAutomationController {
                     break;
                 default:
                     result = DesktopAutomationResult.failure(
-                            "unsupported automation action");
+                            DesktopAutomationErrorCode.UNKNOWN_ACTION,
+                            "unsupported automation action", false);
                     break;
             }
             return record(action.wireName, result);
         } catch (IllegalArgumentException error) {
             return record(action.wireName,
-                    DesktopAutomationResult.failure(error.getMessage()));
+                    DesktopAutomationResult.failure(
+                            DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                            error.getMessage(), false));
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return record(action.wireName,
                     DesktopAutomationResult.failure(
-                            "automation action was interrupted"));
+                            DesktopAutomationErrorCode.ACTION_FAILED,
+                            "automation action was interrupted", true));
         } catch (IOException | JSONException | RuntimeException error) {
             return record(action.wireName,
                     DesktopAutomationResult.failure(
-                            ShellAccess.usefulMessage(error)));
+                            DesktopAutomationErrorCode.ACTION_FAILED,
+                            ShellAccess.usefulMessage(error), false));
         }
     }
 
@@ -138,13 +144,14 @@ final class DesktopAutomationController {
                 ? new JSONObject() : arguments;
         final String condition = requiredString(args, "condition");
         final long timeoutMillis = Math.max(
-                WAIT_POLL_MILLIS,
+                1L,
                 Math.min(
                         MAX_WAIT_MILLIS,
                         args.optLong("timeoutMillis", 10_000L)));
         final long deadline = SystemClock.uptimeMillis() + timeoutMillis;
+        long observedEventId = DesktopAutomationEventJournal.latestId();
         JSONObject observation = new JSONObject();
-        do {
+        while (true) {
             try {
                 observation = observeCondition(condition, args);
                 if (observation.optBoolean("matched", false)) {
@@ -154,16 +161,32 @@ final class DesktopAutomationController {
                 }
             } catch (JSONException error) {
                 return record("wait_for_state",
-                        DesktopAutomationResult.failure(error.getMessage()));
+                        DesktopAutomationResult.failure(
+                                DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                                error.getMessage(), false));
             }
-            SystemClock.sleep(WAIT_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
+            final long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0L) {
+                break;
+            }
+            try {
+                observedEventId = DesktopAutomationEventJournal.awaitChange(
+                        observedEventId, remaining);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                return record("wait_for_state",
+                        DesktopAutomationResult.failure(
+                                DesktopAutomationErrorCode.ACTION_FAILED,
+                                "wait was interrupted", true, observation));
+            }
+        }
         try {
             observation.put("timeoutMillis", timeoutMillis);
         } catch (JSONException ignored) {
         }
         return record("wait_for_state", DesktopAutomationResult.failure(
-                "condition timed out", observation));
+                DesktopAutomationErrorCode.TIMEOUT,
+                "condition timed out", true, observation));
     }
 
     private DesktopAutomationResult startDesktop(final String rawTarget)
@@ -216,7 +239,8 @@ final class DesktopAutomationController {
                 DesktopRuntimeBridge.getActiveDesktopTarget();
         if (target == null) {
             return DesktopAutomationResult.failure(
-                    "no active desktop session");
+                    DesktopAutomationErrorCode.DESKTOP_NOT_ACTIVE,
+                    "no active desktop session", true);
         }
         final CountDownLatch completed = new CountDownLatch(1);
         final boolean[] success = new boolean[1];
@@ -226,16 +250,19 @@ final class DesktopAutomationController {
         });
         if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
             return DesktopAutomationResult.failure(
-                    "desktop close timed out");
+                    DesktopAutomationErrorCode.TIMEOUT,
+                    "desktop close timed out", true);
         }
         return success[0]
                 ? DesktopAutomationResult.success(
                         "desktop closed", new JSONObject())
-                : DesktopAutomationResult.failure("desktop close failed");
+                : DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.ACTION_FAILED,
+                        "desktop close failed", true);
     }
 
     private DesktopAutomationResult launchApp(final JSONObject args)
-            throws JSONException {
+            throws JSONException, InterruptedException {
         final String packageName = requiredString(args, "package");
         final String componentValue = optionalString(args, "component", "");
         final AppLaunchTarget target;
@@ -261,12 +288,14 @@ final class DesktopAutomationController {
         if (displayId < Display.DEFAULT_DISPLAY
                 || displayId != activeDisplayId) {
             return DesktopAutomationResult.failure(
-                    "the requested display has no active desktop host");
+                    DesktopAutomationErrorCode.DISPLAY_NOT_AVAILABLE,
+                    "the requested display has no active desktop host", true);
         }
         if (!DesktopRuntimeBridge.launchApplication(
                 target, mode, displayId)) {
             return DesktopAutomationResult.failure(
-                    "desktop host is unavailable");
+                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                    "desktop host is unavailable", true);
         }
         final TaskRepository.TaskEntry launchedTask =
                 waitForLaunchedTask(target, displayId);
@@ -292,7 +321,7 @@ final class DesktopAutomationController {
             throws InterruptedException {
         final TaskRepository.TaskEntry task = findTask(taskId);
         if (task == null) {
-            return DesktopAutomationResult.failure("task not found");
+            return taskNotFound(taskId);
         }
         return awaitTaskAction(callback -> MagicDeskRuntime.focusDesktopTask(
                 task.displayId, task.taskId, callback));
@@ -302,7 +331,7 @@ final class DesktopAutomationController {
             throws InterruptedException {
         final TaskRepository.TaskEntry task = findTask(taskId);
         if (task == null) {
-            return DesktopAutomationResult.failure("task not found");
+            return taskNotFound(taskId);
         }
         return awaitTaskAction(callback ->
                 MagicDeskRuntime.closeTask(task, callback));
@@ -498,7 +527,9 @@ final class DesktopAutomationController {
             }
             case "task_present":
             case "task_absent":
-            case "task_windowing_mode": {
+            case "task_windowing_mode":
+            case "task_focused":
+            case "task_bounds": {
                 final TaskRepository.TaskEntry task = findTask(
                         requiredInt(args, "taskId"));
                 boolean matched = task != null;
@@ -509,6 +540,17 @@ final class DesktopAutomationController {
                             && DesktopLaunchMode.matchesWindowingMode(
                                     requiredString(args, "mode"),
                                     task.windowingMode);
+                } else if ("task_focused".equals(condition)) {
+                    matched = task != null && task.active;
+                } else if ("task_bounds".equals(condition)) {
+                    final Rect expected = readWaitBounds(
+                            requiredObject(args, "bounds"));
+                    final int tolerance = Math.max(
+                            0, args.optInt("tolerance", 0));
+                    matched = task != null
+                            && boundsMatch(task.bounds, expected, tolerance);
+                    observation.put("expectedBounds", rectJson(expected))
+                            .put("tolerance", tolerance);
                 }
                 observation.put("matched", matched);
                 if (task != null) {
@@ -517,9 +559,48 @@ final class DesktopAutomationController {
                             .put("mode", DesktopLaunchMode
                                     .semanticWindowingMode(
                                             task.windowingMode))
+                            .put("bounds", rectJson(task.bounds))
                             .put("visible", task.visible);
                 }
                 return observation;
+            }
+            case "pointer_ready":
+                return observation.put(
+                        "matched", MagicDeskRuntime.isDesktopMouseBridgeReady());
+            case "ui_visible": {
+                final String element = requiredString(args, "element")
+                        .toLowerCase(Locale.ROOT);
+                final int displayId = optionalDisplayId(args);
+                final DesktopUiSnapshot ui = DesktopRuntimeBridge
+                        .getAutomationUiSnapshot(displayId);
+                final boolean visible;
+                switch (element) {
+                    case "taskbar":
+                        visible = ui.taskbarVisible;
+                        break;
+                    case "start":
+                        visible = ui.startVisible;
+                        break;
+                    case "popup":
+                        visible = ui.popupVisible;
+                        break;
+                    case "wallpaper":
+                        visible = ui.wallpaperRendered;
+                        break;
+                    case "touchpad":
+                        visible = ConsoleModeSwitcher.isTouchpadVisible();
+                        break;
+                    case "control_panel":
+                        visible = ControlActivity.isControlPanelVisible();
+                        break;
+                    default:
+                        throw new IllegalArgumentException(
+                                "unknown UI element");
+                }
+                return observation.put("matched", visible)
+                        .put("displayId", displayId)
+                        .put("element", element)
+                        .put("uiAvailable", ui.available);
             }
             case "taskbar_visible": {
                 final int displayId = optionalDisplayId(args);
@@ -565,13 +646,46 @@ final class DesktopAutomationController {
         return null;
     }
 
+    private static Rect readWaitBounds(final JSONObject json) {
+        final Rect bounds = new Rect(
+                requiredInt(json, "left"),
+                requiredInt(json, "top"),
+                requiredInt(json, "right"),
+                requiredInt(json, "bottom"));
+        if (!TaskRepository.hasExplicitBounds(bounds)) {
+            throw new IllegalArgumentException("invalid bounds");
+        }
+        return bounds;
+    }
+
+    private static boolean boundsMatch(
+            final Rect actual,
+            final Rect expected,
+            final int tolerance) {
+        return actual != null
+                && Math.abs(actual.left - expected.left) <= tolerance
+                && Math.abs(actual.top - expected.top) <= tolerance
+                && Math.abs(actual.right - expected.right) <= tolerance
+                && Math.abs(actual.bottom - expected.bottom) <= tolerance;
+    }
+
+    private static JSONObject rectJson(final Rect bounds)
+            throws JSONException {
+        return new JSONObject()
+                .put("left", bounds.left)
+                .put("top", bounds.top)
+                .put("right", bounds.right)
+                .put("bottom", bounds.bottom);
+    }
+
     private TaskRepository.TaskEntry waitForLaunchedTask(
             final AppLaunchTarget target,
-            final int displayId) {
+            final int displayId) throws InterruptedException {
         final long deadline = SystemClock.uptimeMillis()
                 + LAUNCH_OBSERVE_TIMEOUT_MILLIS;
+        long observedEventId = DesktopAutomationEventJournal.latestId();
         TaskRepository.TaskEntry candidate = null;
-        do {
+        while (true) {
             candidate = null;
             final TaskRepository.Snapshot snapshot =
                     TaskRepository.loadAllNow();
@@ -593,8 +707,13 @@ final class DesktopAutomationController {
                     return candidate;
                 }
             }
-            SystemClock.sleep(WAIT_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
+            final long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0L) {
+                break;
+            }
+            observedEventId = DesktopAutomationEventJournal.awaitChange(
+                    observedEventId, remaining);
+        }
         return candidate;
     }
 
@@ -608,16 +727,32 @@ final class DesktopAutomationController {
             completed.countDown();
         });
         if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-            return DesktopAutomationResult.failure("task action timed out");
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TIMEOUT,
+                    "task action timed out", true);
         }
         if (result[0] == null) {
             return DesktopAutomationResult.failure(
-                    "task action returned no result");
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "task action returned no result", true);
         }
         return result[0].success
                 ? DesktopAutomationResult.success(
                         result[0].message, new JSONObject())
                 : DesktopAutomationResult.failure(result[0].message);
+    }
+
+    private static DesktopAutomationResult taskNotFound(final int taskId) {
+        try {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TASK_NOT_FOUND,
+                    "task not found", false,
+                    new JSONObject().put("taskId", taskId));
+        } catch (JSONException ignored) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TASK_NOT_FOUND,
+                    "task not found", false);
+        }
     }
 
     private DesktopAutomationResult simpleRuntimeAction(

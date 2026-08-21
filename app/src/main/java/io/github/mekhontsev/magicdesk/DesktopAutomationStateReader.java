@@ -36,6 +36,10 @@ final class DesktopAutomationStateReader {
         final DesktopDisplayTarget target = session.target();
         final ShellAccess.Snapshot shell = ShellAccess.currentSnapshot();
         final PlatformDriver platform = PlatformDrivers.current();
+        final int activeDisplayId = session.activeDisplayId();
+        final DesktopUiSnapshot ui = activeDisplayId >= Display.DEFAULT_DISPLAY
+                ? DesktopRuntimeBridge.getAutomationUiSnapshot(activeDisplayId)
+                : DesktopUiSnapshot.UNAVAILABLE;
         final JSONObject result = new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("app", new JSONObject()
@@ -55,11 +59,14 @@ final class DesktopAutomationStateReader {
                         .put("name", platform.name())
                         .put("selection", PlatformDrivers.selectionDetail()))
                 .put("session", sessionJson(session, target))
+                .put("ui", uiJson(ui))
                 .put("runtime", new JSONObject()
                         .put("mouseBridgeReady",
                                 MagicDeskRuntime.isDesktopMouseBridgeReady())
                         .put("touchpadVisible",
                                 ConsoleModeSwitcher.isTouchpadVisible())
+                        .put("controlPanelVisible",
+                                ControlActivity.isControlPanelVisible())
                         .put("wakeLockHeld",
                                 MagicDeskRuntime.isSessionWakeLockHeld())
                         .put("selfTestRunning",
@@ -68,6 +75,25 @@ final class DesktopAutomationStateReader {
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
         return result;
+    }
+
+    private static JSONObject uiJson(final DesktopUiSnapshot ui)
+            throws JSONException {
+        return new JSONObject()
+                .put("available", ui.available)
+                .put("displayId", ui.displayId)
+                .put("taskbar", new JSONObject()
+                        .put("visible", ui.taskbarVisible)
+                        .put("bounds", rectJson(ui.taskbarBounds)))
+                .put("startVisible", ui.startVisible)
+                .put("popup", new JSONObject()
+                        .put("visible", ui.popupVisible)
+                        .put("title", ui.popupTitle)
+                        .put("bounds", rectJson(ui.popupBounds)))
+                .put("wallpaper", new JSONObject()
+                        .put("rendered", ui.wallpaperRendered)
+                        .put("fallback", ui.fallbackWallpaper))
+                .put("desktopPlaneForeground", ui.desktopPlaneForeground);
     }
 
     JSONObject displays() throws JSONException {

@@ -275,6 +275,11 @@ final class StartMenuController {
                 && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE);
     }
 
+    boolean isVisible() {
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        return overlays != null && overlays.isVisible(mPanel);
+    }
+
     void showCapture() {
         mMode = MENU_CAPTURE;
         mPage = 0;

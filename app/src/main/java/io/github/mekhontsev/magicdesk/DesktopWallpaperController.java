@@ -159,6 +159,24 @@ final class DesktopWallpaperController {
                             mUsingFallbackWallpaper = result.fallback;
                             mWallpaperView.setImageBitmap(result.bitmap);
                             mRendered = true;
+                            try {
+                                DesktopAutomationEventJournal.record(
+                                        "ui",
+                                        "wallpaper_rendered",
+                                        true,
+                                        "display=" + mActivity
+                                                .getCurrentDisplayId(),
+                                        new org.json.JSONObject()
+                                                .put("displayId", mActivity
+                                                        .getCurrentDisplayId())
+                                                .put("custom", result.custom)
+                                                .put("fallback", result.fallback));
+                            } catch (org.json.JSONException ignored) {
+                                DesktopAutomationEventJournal.record(
+                                        "ui", "wallpaper_rendered", true,
+                                        "display=" + mActivity
+                                                .getCurrentDisplayId());
+                            }
                         }
                     });
                 } catch (RuntimeException error) {

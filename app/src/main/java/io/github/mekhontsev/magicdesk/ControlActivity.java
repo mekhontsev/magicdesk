@@ -274,6 +274,16 @@ public final class ControlActivity extends Activity
         activity.runOnUiThread(activity::finishAndRemoveTask);
     }
 
+    static boolean isControlPanelVisible() {
+        final ControlActivity activity;
+        synchronized (ControlActivity.class) {
+            activity = sActive.get();
+        }
+        return activity != null
+                && !activity.isActivityUnavailable()
+                && activity.hasWindowFocus();
+    }
+
     @Override
     public void openDesktopHere() {
         mStatus = getString(R.string.status_desktop_opening);

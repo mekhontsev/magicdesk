@@ -43,6 +43,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
     private final AppWindowStateTracker mAppWindowStates;
+    private final DesktopAutomationTaskEventTracker mAutomationEvents =
+            new DesktopAutomationTaskEventTracker();
     private final Runnable mRefreshRunnable = this::runScheduledRefresh;
 
     private Context mWindowContext;
@@ -373,6 +375,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
         mDisplayTaskState.clear();
+        mAutomationEvents.reset();
     }
 
     void destroy() {
@@ -1120,6 +1123,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
+        mAutomationEvents.observe(snapshot);
         final boolean shouldRestoreLocalDesktop =
                 mPhoneUi.shouldRestoreLocalDesktopHost(
                         mDisplayId,

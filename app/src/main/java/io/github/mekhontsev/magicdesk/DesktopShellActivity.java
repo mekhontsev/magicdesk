@@ -1562,6 +1562,23 @@ public abstract class DesktopShellActivity extends Activity
         return mDesktopLayout.taskbarBounds();
     }
 
+    DesktopUiSnapshot getAutomationUiSnapshot() {
+        final OverlayPanelController overlays = mOverlayPanelController;
+        return new DesktopUiSnapshot(
+                !isActivityUnavailable() && isDesktopShell(),
+                getCurrentDisplayId(),
+                isTaskbarVisible(),
+                getTaskbarBounds(),
+                mStartMenuController != null
+                        && mStartMenuController.isVisible(),
+                overlays != null && overlays.hasVisiblePanel(),
+                overlays == null ? null : overlays.visibleBounds(),
+                overlays == null ? "" : overlays.visibleTitle(),
+                isDesktopWallpaperRendered(),
+                isUsingFallbackDesktopWallpaper(),
+                isDesktopPlaneForeground());
+    }
+
     void updateDesktopControls() {
         mDesktopControls.update();
     }
@@ -1716,11 +1733,30 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void setTaskbarVisible(final boolean visible) {
+        final boolean changed = mTaskbarVisible != visible;
         mTaskbarVisible = visible;
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.setPolicyVisible(visible);
         } else {
             mTaskbarController.setVisible(visible);
+        }
+        if (changed) {
+            try {
+                DesktopAutomationEventJournal.record(
+                        "ui",
+                        visible ? "taskbar_shown" : "taskbar_hidden",
+                        true,
+                        "display=" + getCurrentDisplayId(),
+                        new org.json.JSONObject()
+                                .put("displayId", getCurrentDisplayId())
+                                .put("visible", visible));
+            } catch (org.json.JSONException ignored) {
+                DesktopAutomationEventJournal.record(
+                        "ui",
+                        visible ? "taskbar_shown" : "taskbar_hidden",
+                        true,
+                        "display=" + getCurrentDisplayId());
+            }
         }
     }
 

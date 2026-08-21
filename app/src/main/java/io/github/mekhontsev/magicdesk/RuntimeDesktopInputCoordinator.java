@@ -42,6 +42,7 @@ final class RuntimeDesktopInputCoordinator {
     private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
     private int mInputSourceRefreshGeneration;
     private boolean mShowImeOverrideActive;
+    private boolean mLastReportedMouseBridgeReady;
     private String mPreviousShowImeWithHardKeyboard;
     private int mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
     private boolean mDestroyed;
@@ -325,6 +326,26 @@ final class RuntimeDesktopInputCoordinator {
 
     private void handleMouseBridgeStateChanged() {
         if (!mDestroyed) {
+            final boolean ready = mMouseBridge.isReady();
+            if (ready != mLastReportedMouseBridgeReady) {
+                mLastReportedMouseBridgeReady = ready;
+                try {
+                    DesktopAutomationEventJournal.record(
+                            "input",
+                            ready ? "pointer_ready" : "pointer_lost",
+                            ready,
+                            "display=" + mDesktopDisplayId,
+                            new org.json.JSONObject()
+                                    .put("displayId", mDesktopDisplayId)
+                                    .put("pointerReady", ready));
+                } catch (org.json.JSONException ignored) {
+                    DesktopAutomationEventJournal.record(
+                            "input",
+                            ready ? "pointer_ready" : "pointer_lost",
+                            ready,
+                            "display=" + mDesktopDisplayId);
+                }
+            }
             updateInputBridges();
         }
     }
