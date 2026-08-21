@@ -230,6 +230,37 @@ public final class TaskWindowingCommand {
             final int[] taskIds,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
+        focusTasks(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction,
+                true);
+    }
+
+    static void focusTasksWithinCurrentParent(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
+        focusTasks(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction,
+                false);
+    }
+
+    private static void focusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction,
+            final boolean includeParents) throws ReflectiveOperationException {
         if (taskIds == null || taskIds.length == 0) {
             throw new IllegalArgumentException("missing tasks to focus");
         }
@@ -241,7 +272,10 @@ public final class TaskWindowingCommand {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             reorderTask.invoke(
-                    transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+                    transaction,
+                    taskToken,
+                    Boolean.TRUE,
+                    Boolean.valueOf(includeParents));
         }
         // Keep any hierarchy changes supplied by the caller and the focus
         // reorder in one transition. A synchronous hierarchy transaction

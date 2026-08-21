@@ -432,7 +432,7 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         true, true, false, FULLSCREEN_FEATURE_ID));
 
         assertContains(analyzer.finish(missing),
-                "expected one HOME fullscreen-area backstop, found=0");
+                "expected 1 HOME fullscreen-area backstops, found=0");
     }
 
     @Test
@@ -458,7 +458,54 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         true, true, false, FULLSCREEN_FEATURE_ID));
 
         assertContains(analyzer.finish(invalid),
-                "expected one HOME fullscreen-area backstop, found=0");
+                "expected 1 HOME fullscreen-area backstops, found=0");
+    }
+
+    @Test
+    public void acceptsPhoneFullscreenAreaWithBackstop() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot phone = snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, 0, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                new SelfTestTaskStackInvariantAnalyzer.TaskState(
+                        BACKSTOP_TASK_ID,
+                        0,
+                        1,
+                        false,
+                        true,
+                        false,
+                        true,
+                        FULLSCREEN_FEATURE_ID,
+                        true),
+                taskInArea(FIXTURE_TASK_ID, 0, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, 0, 1,
+                        false, true, false, FULLSCREEN_FEATURE_ID));
+        analyzer.begin("FULLSCREEN-LIFECYCLE-002", phone);
+
+        assertEquals(0, analyzer.finish(phone).anomalies.length);
+    }
+
+    @Test
+    public void rejectsPhoneFullscreenAreaWithoutBackstop() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot phone = snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, 0, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                taskInArea(FIXTURE_TASK_ID, 0, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID),
+                taskInArea(SECOND_FIXTURE_TASK_ID, 0, 1,
+                        false, true, false, FULLSCREEN_FEATURE_ID));
+        analyzer.begin("FULLSCREEN-LIFECYCLE-002", phone);
+
+        assertContains(analyzer.finish(phone),
+                "expected 1 HOME fullscreen-area backstops, found=0");
     }
 
     @Test

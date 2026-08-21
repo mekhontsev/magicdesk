@@ -345,11 +345,13 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 backstopCount++;
             }
         }
-        if (backstopCount != 1) {
+        final int expectedBackstopCount = 1;
+        if (backstopCount != expectedBackstopCount) {
             addAnomaly("fullscreen-backstop:" + mStage.name + ':'
                             + backstopCount,
                     formatSample(reason, snapshot)
-                            + " expected one HOME fullscreen-area backstop, found="
+                            + " expected " + expectedBackstopCount
+                            + " HOME fullscreen-area backstops, found="
                             + backstopCount);
         }
     }

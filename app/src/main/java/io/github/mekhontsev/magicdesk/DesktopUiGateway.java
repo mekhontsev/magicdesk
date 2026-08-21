@@ -115,7 +115,7 @@ final class DesktopUiGateway {
             }
             mSession.close();
         }
-        final Runnable close = () -> {
+        final Runnable closeHost = () -> {
             activity.releaseDesktopOverlays();
             if (!activity.isFinishing()) {
                 activity.finishAndRemoveTask();
@@ -125,11 +125,13 @@ final class DesktopUiGateway {
                 MagicDeskRuntime.scheduleLocalDesktopCleanup();
             }
         };
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            close.run();
-        } else {
-            mMainHandler.post(close);
-        }
+        MagicDeskRuntime.releaseDesktopTaskSession(() -> {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                closeHost.run();
+            } else {
+                mMainHandler.post(closeHost);
+            }
+        });
     }
 
     DesktopSessionSnapshot sessionSnapshot() {

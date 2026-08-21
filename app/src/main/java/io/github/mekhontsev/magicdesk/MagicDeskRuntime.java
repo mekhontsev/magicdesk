@@ -55,6 +55,26 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void releaseDesktopTaskSession(final Runnable completion) {
+        final AtomicBoolean finished = new AtomicBoolean();
+        final Runnable finish = () -> {
+            if (finished.compareAndSet(false, true) && completion != null) {
+                completion.run();
+            }
+        };
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) {
+            finish.run();
+            return;
+        }
+        try {
+            backend.releaseDesktopTaskSession(finish);
+        } catch (RuntimeException error) {
+            finish.run();
+            throw error;
+        }
+    }
+
     public static void refreshNotification() {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {

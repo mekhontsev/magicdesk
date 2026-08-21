@@ -97,7 +97,7 @@ final class ShellSelfTestTaskStackGuard {
                     && DesktopSelfTestComponents.isFixtureComponent(
                             component.flattenToString());
             final boolean backstop =
-                    FullscreenBackstopActivity.isBackstopComponent(component);
+                    TaskAreaBackstopActivity.isBackstopComponent(component);
             boolean taskVisibilityKnown = true;
             boolean visible = false;
             try {

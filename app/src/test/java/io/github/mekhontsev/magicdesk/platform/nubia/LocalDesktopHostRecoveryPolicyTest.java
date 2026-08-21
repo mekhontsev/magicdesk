@@ -65,6 +65,14 @@ public final class LocalDesktopHostRecoveryPolicyTest {
                 PACKAGE));
     }
 
+    @Test
+    public void ignoresMagicDeskStructuralHome() {
+        assertFalse(LocalDesktopHostRecoveryPolicy.shouldRestore(
+                Display.DEFAULT_DISPLAY,
+                Arrays.asList(desktopHost(), structuralHome()),
+                PACKAGE));
+    }
+
     private static TaskRepository.TaskEntry desktopHost() {
         return desktopHost(false);
     }
@@ -85,6 +93,15 @@ public final class LocalDesktopHostRecoveryPolicyTest {
                 "com.zte.mifavor.launcher/.QuickstepLauncher",
                 true,
                 visible,
+                false);
+    }
+
+    private static TaskRepository.TaskEntry structuralHome() {
+        return task(
+                PACKAGE,
+                PACKAGE + "/.TaskAreaBackstopActivity",
+                true,
+                true,
                 false);
     }
 

@@ -22,7 +22,7 @@ final class PhoneDesktopTaskRecovery {
                     MAGICDESK_PACKAGE + ".DesktopActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestBrowserActivity",
-                    MAGICDESK_PACKAGE + ".FullscreenBackstopActivity",
+                    MAGICDESK_PACKAGE + ".TaskAreaBackstopActivity",
                     MAGICDESK_PACKAGE + ".MagicDeskTouchpadActivity");
     private static final String CMD = "/system/bin/cmd";
     private static final String WMSHELL_HELP =

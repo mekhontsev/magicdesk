@@ -30,7 +30,12 @@ final class LocalDesktopHostRecoveryPolicy {
             if (task == null || task.displayId != displayId) {
                 continue;
             }
-            if (task.visible && task.home) {
+            // Organizer task areas contain an inert MagicDesk HOME task so
+            // vendor WMS never traverses an attached empty area. It is not
+            // Android Home and must not trigger restoration of the host over
+            // a real application window.
+            if (task.visible && task.home
+                    && !desktopPackage.equals(task.packageName)) {
                 visibleHome = true;
             }
             if (isDesktopHost(task, desktopPackage)) {

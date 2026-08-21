@@ -333,6 +333,11 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void prepareForStop(final Runnable completion) {
+        releaseDesktopTaskSession(completion);
+    }
+
+    @Override
+    public void releaseDesktopTaskSession(final Runnable completion) {
         final Runnable finish = completion == null ? () -> { } : completion;
         final Handler handler = mHandler;
         if (mDestroyed || handler == null) {

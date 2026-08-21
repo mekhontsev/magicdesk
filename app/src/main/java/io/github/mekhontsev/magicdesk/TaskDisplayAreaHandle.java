@@ -80,39 +80,32 @@ final class TaskDisplayAreaHandle {
             final Collection<Integer> ownedTaskIds,
             final Object targetParentToken)
             throws ReflectiveOperationException {
-        releaseChildTasks(
+        detachChildTasks(
                 service,
                 displayId,
                 ownedTaskIds,
-                java.util.Collections.<Integer>emptySet(),
-                targetParentToken);
+                targetParentToken,
+                true);
     }
 
-    /** Reparents application children and removes area-owned infrastructure. */
-    void releaseChildTasks(
+    /** Reparents live child tasks with explicit destination ordering. */
+    void detachChildTasks(
             final Object service,
             final int displayId,
-            final Collection<Integer> detachedTaskIds,
-            final Collection<Integer> removedTaskIds,
-            final Object targetParentToken)
+            final Collection<Integer> ownedTaskIds,
+            final Object targetParentToken,
+            final boolean onTop)
             throws ReflectiveOperationException {
         if (service == null || displayId < 0
-                || ((detachedTaskIds == null || detachedTaskIds.isEmpty())
-                        && (removedTaskIds == null
-                                || removedTaskIds.isEmpty()))) {
+                || ownedTaskIds == null || ownedTaskIds.isEmpty()) {
             return;
         }
         final List<Integer> childTaskIds = new ArrayList<>();
         final List<Object> childTaskTokens = new ArrayList<>();
-        final List<Boolean> removeChildren = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             final Integer taskId = Integer.valueOf(
                     HiddenTaskApi.getIntField(task, "taskId"));
-            final boolean detach = detachedTaskIds != null
-                    && detachedTaskIds.contains(taskId);
-            final boolean remove = removedTaskIds != null
-                    && removedTaskIds.contains(taskId);
-            if ((!detach && !remove)
+            if (!ownedTaskIds.contains(taskId)
                     || HiddenTaskApi.getIntField(
                             task, "displayAreaFeatureId") != mFeatureId) {
                 continue;
@@ -120,7 +113,6 @@ final class TaskDisplayAreaHandle {
             childTaskIds.add(taskId);
             childTaskTokens.add(HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId.intValue()));
-            removeChildren.add(Boolean.valueOf(remove));
         }
         if (childTaskIds.isEmpty()) {
             return;
@@ -135,34 +127,52 @@ final class TaskDisplayAreaHandle {
         // Running tasks are returned top-first. Reparent bottom-first so their
         // relative z-order remains unchanged in the destination parent.
         for (int index = childTaskTokens.size() - 1; index >= 0; index--) {
-            if (removeChildren.get(index).booleanValue()) {
-                transactionClass.getMethod("removeTask", tokenClass)
-                        .invoke(transaction, childTaskTokens.get(index));
-            } else {
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction, new Object[]{
-                                childTaskTokens.get(index),
-                                targetParentToken,
-                                Boolean.TRUE});
-            }
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, new Object[]{
+                            childTaskTokens.get(index),
+                            targetParentToken,
+                            Boolean.valueOf(onTop)});
         }
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
-        Log.i(TAG, "released tasks=" + childTaskIds
+        Log.i(TAG, "detached tasks=" + childTaskIds
                 + " from feature=" + mFeatureId);
     }
 
     synchronized boolean closeIfEmpty(
             final Object service,
             final int displayId) {
+        return closeIfOnlyOwnedChildren(
+                service,
+                displayId,
+                java.util.Collections.<Integer>emptySet());
+    }
+
+    /**
+     * Deletes this area when its only remaining tasks are disposable
+     * infrastructure owned by the caller.
+     *
+     * <p>Organizer-created task areas remove non-standard roots, such as a
+     * HOME backstop, as part of their framework teardown. Keeping that work
+     * inside {@code deleteTaskDisplayArea()} avoids an intermediate hierarchy
+     * in which the child task is gone but its nested area is still attached.
+     */
+    synchronized boolean closeIfOnlyOwnedChildren(
+            final Object service,
+            final int displayId,
+            final Collection<Integer> removableTaskIds) {
         if (mClosed) {
             return true;
         }
         try {
-            if (!isEmpty(service, displayId)) {
-                Log.w(TAG, "refusing to remove non-empty task display area"
-                        + " feature=" + mFeatureId);
+            final List<Integer> childTaskIds = childTaskIds(
+                    service, displayId);
+            if (removableTaskIds == null
+                    || !removableTaskIds.containsAll(childTaskIds)) {
+                Log.w(TAG, "refusing to remove task display area with"
+                        + " unowned children feature=" + mFeatureId
+                        + " tasks=" + childTaskIds);
                 return false;
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -202,19 +212,22 @@ final class TaskDisplayAreaHandle {
         }
     }
 
-    private boolean isEmpty(
+    private List<Integer> childTaskIds(
             final Object service,
             final int displayId) throws ReflectiveOperationException {
         if (service == null || displayId < 0) {
-            return false;
+            throw new IllegalArgumentException(
+                    "task display area inspection requires a display");
         }
+        final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             if (HiddenTaskApi.getIntField(
                     task, "displayAreaFeatureId") == mFeatureId) {
-                return false;
+                taskIds.add(Integer.valueOf(
+                        HiddenTaskApi.getIntField(task, "taskId")));
             }
         }
-        return true;
+        return taskIds;
     }
 
     private void recoverOrphanedArea() throws ReflectiveOperationException {

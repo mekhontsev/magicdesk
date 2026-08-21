@@ -236,10 +236,12 @@ default task area on external displays and the shell-owned session task area
 on the phone. Reordering independent fullscreen roots there can make a task
 inherit freeform mode during Alt+Tab, even when its final mode is repaired
 afterward. MagicDesk therefore reparents a reordered stack of true-fullscreen
-tasks into one organizer-owned fullscreen `TaskDisplayArea` nested under that
-active parent. A lone application-driven fullscreen task stays directly under
-the active parent: some projection displays remove their task-hosting virtual
-display when that task is moved under an organizer-created parent.
+tasks into one organizer-owned fullscreen `TaskDisplayArea` under the default
+task container. It is a sibling of the phone session area, while restored
+phone tasks use that session area as their destination parent. A lone
+application-driven fullscreen task stays directly under the active parent:
+some projection displays remove their task-hosting virtual display when that
+task is moved under an organizer-created parent.
 
 The long-lived shell task observer owns that area. Switching only reorders
 children inside the same parent; restoring a window releases that task to the
@@ -250,18 +252,36 @@ parent to rebuild native decoration without changing desktop sessions.
 The area is created only for a stack of at least two fullscreen tasks. After
 that stack is split, a lone survivor remains under the same parent until it is
 restored or removed; moving it merely to retire the area can invalidate a
-projection display. Some projection firmware also removes that display when
-the area's last Activity leaves. A transparent, non-focusable HOME-typed
-structural task therefore keeps the area non-empty until session teardown. It
-is excluded from Recents, accessibility, input, user task lists, and focus
-selection.
+projection display. Some projection firmware also removes an organizer area
+when its last Activity leaves. A transparent, non-focusable HOME-typed
+structural task therefore keeps every fullscreen area non-empty until session
+teardown. It also protects WMS implementations that cannot calculate root-task
+priority for an empty child task area. The task is excluded from Recents,
+accessibility, input, user task lists, and focus selection.
+
+The phone fullscreen area is a sibling of MagicDesk's persistent session area
+inside Android's default task container. Restored tasks return to the session
+area through its token, but the two organizer areas are never nested. Affected
+WindowManager implementations can retain invalid parent links after deleting a
+nested organizer area. Every organizer area retains a structural HOME child;
+the fullscreen area uses the same persistent lifetime on phone, simulated, and
+external displays.
 
 When the last application leaves, the observer lowers the area behind the real
 desktop HOME task and focuses that host in the same queued WMShell transition.
 Starting another managed fullscreen stack raises and reuses the area. Session
-teardown reparents any surviving application tasks, removes the structural
-task, and then deletes the empty area. No delayed mode repair or guessed timeout
-is involved.
+teardown reparents any surviving application tasks and asks the framework to
+delete the organizer area together with its verified structural HOME child.
+MagicDesk does not create an intermediate hierarchy by removing that child
+separately. On the phone the application tasks are first drained into the
+session area. The framework then deletes the fullscreen sibling and structural
+task in one locked operation. Only after that does the session area release its
+application tasks to Android's root as background fullscreen tasks. Its real
+fullscreen desktop host and structural HOME remain while the framework deletes
+the area: the host is reparented while the structural task keeps the old area
+non-empty, then the structural task is removed with the area. The UI finishes
+the host only after organizer cleanup completes. No delayed mode repair or
+guessed timeout is involved.
 
 The parent must be established while focusing a freeform task when another
 MagicDesk task is fullscreen. On external displays this child is nested in the
@@ -808,16 +828,21 @@ task container before launching its host and starts `DesktopActivity` directly
 inside it. Keeping the session inside that container lets SystemUI place later
 caption menus and other transient task decorations above it. It also avoids a
 cross-root host transition that would resume and raise the phone control panel.
-The fullscreen MagicDesk host is the bottom task in the session area. Its
-freeform windows and application-driven lone fullscreen tasks are siblings
-above it; the managed multi-fullscreen stack and any retained survivor use a
-nested child of the same session area. Child cleanup therefore releases its
-application tasks back to the session parent and removes its structural task
-before the session itself reparents owned live tasks to Android's default area
-as fullscreen. Android 16 may still create its native desktop wallpaper in
-display 0's default area, but the session child remains above that task instead
-of replacing the host. Production launches, existing-task moves, and self-test
-fixtures resolve the same display policy.
+The fullscreen MagicDesk host is the bottom application task in the session
+area. Its freeform windows and application-driven lone fullscreen tasks are
+siblings above it. The managed multi-fullscreen stack and any retained
+survivor use a second organizer area beside the session area under Android's
+default task container. Fullscreen cleanup therefore releases its application
+tasks back to the session area and deletes the sibling before the session
+itself returns owned live tasks to Android's default area as fullscreen. Both
+areas retain an inert HOME task until their framework-owned deletion, so
+neither organizer area is observably empty while still attached. The real
+desktop host is not used as that structural child because Nubia removes a
+standard task from its old parent before adding it to the destination. Android
+16 may still create its native desktop wallpaper in display 0's default area,
+but the session child remains above that task instead of replacing the host.
+Production launches, existing-task moves, and self-test fixtures resolve the
+same display policy.
 The shell observer also reports whether the focused phone task belongs to the
 session area. This gates the overlay taskbar without changing its normal
 fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone

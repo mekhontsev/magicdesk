@@ -21,10 +21,13 @@ public final class MagicDeskRuntimeTest {
     @Test
     public void missingBackendUsesSafeDefaults() {
         final boolean[] parkingResult = {true};
+        final boolean[] desktopReleaseCompleted = {false};
 
         MagicDeskRuntime.parkDesktopTasks(
                 DesktopDisplayTarget.wired(7),
                 success -> parkingResult[0] = success);
+        MagicDeskRuntime.releaseDesktopTaskSession(
+                () -> desktopReleaseCompleted[0] = true);
 
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
@@ -41,6 +44,7 @@ public final class MagicDeskRuntimeTest {
         assertFalse(MagicDeskRuntime.toggleSystemPanel());
         assertFalse(MagicDeskRuntime.openSettings());
         assertFalse(parkingResult[0]);
+        assertTrue(desktopReleaseCompleted[0]);
     }
 
     @Test
@@ -52,6 +56,8 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.refreshPlatformState();
         MagicDeskRuntime.refreshSettings(
                 () -> mAttached.settingsRefreshCompleted = true);
+        MagicDeskRuntime.releaseDesktopTaskSession(
+                () -> mAttached.desktopReleaseCompleted = true);
         MagicDeskRuntime.reactivatePointerOnNextMotion();
         MagicDeskRuntime.preparePhysicalPointerHandoff(7);
         assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
@@ -72,6 +78,8 @@ public final class MagicDeskRuntimeTest {
         assertTrue(mAttached.platformStateRefreshed);
         assertTrue(mAttached.settingsRefreshed);
         assertTrue(mAttached.settingsRefreshCompleted);
+        assertTrue(mAttached.desktopSessionReleased);
+        assertTrue(mAttached.desktopReleaseCompleted);
         assertTrue(mAttached.pointerReactivationRequested);
         assertEquals(7, mAttached.pointerHandoffDisplayId);
         assertEquals(7, mAttached.pointerSuspensionDisplayId);
@@ -114,6 +122,8 @@ public final class MagicDeskRuntimeTest {
         private boolean platformStateRefreshed;
         private boolean settingsRefreshed;
         private boolean settingsRefreshCompleted;
+        private boolean desktopSessionReleased;
+        private boolean desktopReleaseCompleted;
         private boolean pointerReactivationRequested;
         private int pointerHandoffDisplayId = -1;
         private int pointerSuspensionDisplayId = -1;
@@ -158,6 +168,12 @@ public final class MagicDeskRuntimeTest {
 
         @Override
         public void prepareForStop(final Runnable completion) {
+            completion.run();
+        }
+
+        @Override
+        public void releaseDesktopTaskSession(final Runnable completion) {
+            desktopSessionReleased = true;
             completion.run();
         }
 

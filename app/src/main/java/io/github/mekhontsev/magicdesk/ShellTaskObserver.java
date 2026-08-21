@@ -291,8 +291,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mWindowedActivityGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
-            // Organizer cleanup can fail on malformed vendor hierarchy. Run
-            // it only after every system-wide policy has been disabled.
+            // The fullscreen area is a sibling of the phone session area.
+            // Delete it after draining its tasks into the session, before
+            // session tasks are reparented to the default task container.
+            // An empty task area makes affected WMS priority traversal fail.
             mFullscreenTaskArea.configure(
                     Display.INVALID_DISPLAY, 0, null);
             mDesktopTaskArea.configure(
@@ -317,10 +319,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId,
                 managedTaskArea,
                 desktopHostTaskId)) {
-            // A fullscreen stack can be nested under the phone session area.
-            // Release that child before replacing its parent.
+            // The fullscreen sibling releases tasks into the current session
+            // and is deleted before that session becomes a reparent target.
             mFullscreenTaskArea.configure(
                     Display.INVALID_DISPLAY, 0, null);
+            mDesktopTaskArea.configure(
+                    Display.INVALID_DISPLAY, false, -1);
         }
         mDesktopTaskArea.configure(
                 displayId,
@@ -328,8 +332,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 desktopHostTaskId);
         mFullscreenTaskArea.configure(
                 displayId,
-                mDesktopTaskArea.childAreaParentFeatureId(displayId),
-                mDesktopTaskArea.childTaskParentToken(displayId));
+                mDesktopTaskArea.fullscreenAreaParentFeatureId(),
+                mDesktopTaskArea.fullscreenTaskReleaseParentToken(
+                        displayId));
         if (!managedTaskArea) {
             mDesktopTaskAreaForeground = null;
         }
@@ -386,16 +391,24 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             }
             final int[] focusTaskIds =
                     Arrays.copyOf(liveTaskIds, appliedTaskCount);
-            if (!mFullscreenTaskArea.focusStack(
-                    mService, displayId, focusTaskIds)) {
+            final ShellFullscreenTaskArea.FocusResult focusResult =
+                    mFullscreenTaskArea.focusStack(
+                            mService, displayId, focusTaskIds);
+            if (focusResult
+                    == ShellFullscreenTaskArea.FocusResult.NOT_HANDLED) {
                 TaskWindowingCommand.focusTasks(
                         mService, displayId, focusTaskIds);
+                reportDesktopTaskAreaForeground(
+                        focusTaskIds[focusTaskIds.length - 1]);
+            } else {
+                // The fullscreen owner knows the destination hierarchy before
+                // WMS applies its queued transition. Do not infer foreground
+                // from the task's still-stale parent in that interval.
+                reportDesktopTaskAreaForeground(
+                        focusResult
+                                == ShellFullscreenTaskArea.FocusResult
+                                        .SESSION_FOREGROUND);
             }
-            // Reordering an existing task area through WCT does not always
-            // produce a TaskStackListener front/focus callback. Publish the
-            // state from the task that this completed operation focused.
-            reportDesktopTaskAreaForeground(
-                    focusTaskIds[focusTaskIds.length - 1]);
             signalFocusStackResult(
                     sequence, true, appliedTaskCount, "");
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -820,8 +833,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final Boolean foreground = mDesktopTaskArea
                 .foregroundAfterTaskMovedToFront(taskInfo);
         if (foreground != null) {
-            reportDesktopTaskAreaForeground(foreground.booleanValue()
-                    || mDesktopOwnership.isDesktopTask(taskInfo));
+            // Ownership spans both organizer siblings. Only actual membership
+            // in the session area determines which desktop plane is on top.
+            reportDesktopTaskAreaForeground(foreground.booleanValue());
         }
     }
 
@@ -835,9 +849,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Boolean foreground = mDesktopTaskArea.foregroundForTask(
                     HiddenTaskApi.getTaskDisplayId(task), taskId);
             if (foreground != null) {
-                reportDesktopTaskAreaForeground(
-                        foreground.booleanValue()
-                                || mDesktopOwnership.isDesktopTask(task));
+                reportDesktopTaskAreaForeground(foreground.booleanValue());
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not resolve focused task area", error);

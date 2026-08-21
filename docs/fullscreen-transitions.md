@@ -57,10 +57,23 @@ to the active desktop parent, applies freeform mode and final bounds, and
 reveals its caption in one WMShell transition. A fullscreen peer stays under
 the existing parent until its own restore or removal; this avoids a redundant
 hierarchy change that can invalidate projection displays. A non-focusable
-structural HOME task keeps that parent alive for the desktop session; while it
-contains no application task, the whole parent remains below the real desktop
-host. Platforms without that child use the same persistent shell observer
-directly against their active desktop parent.
+structural HOME task keeps the fullscreen parent alive and non-empty for the
+desktop session; while it contains no application task, the whole parent
+remains below the real desktop host. The phone fullscreen parent is placed
+beside MagicDesk's persistent session area in Android's default task container,
+and restored tasks return to the session area through its token. Phone,
+simulated, and external displays use the same persistent parent, structural
+task, shell observer, and task transitions.
+
+At phone-session teardown, applications leave the fullscreen sibling first.
+Framework deletion then removes the sibling together with its structural HOME
+child in one locked operation before session tasks are returned to Android's
+default task area. The session area retains both the real desktop host and its
+own structural HOME while application tasks leave. During area deletion Nubia
+reparents the standard host before removing the old area; the structural child
+keeps that area non-empty until framework teardown removes it. MagicDesk
+finishes the host only after organizer cleanup. Some WMS implementations cannot
+calculate root-task priority while an empty child task area remains attached.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

@@ -8,6 +8,8 @@ interface MagicDeskRuntimeBackend {
 
     void prepareForStop(Runnable completion);
 
+    void releaseDesktopTaskSession(Runnable completion);
+
     void refreshNotification();
 
     void setOperationStatus(String status);
