@@ -122,7 +122,7 @@ final class DesktopTaskWatcher {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final boolean managedTaskArea,
-            final int managedTaskAreaHostTaskId) {
+            final int desktopHostTaskId) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             return false;
@@ -133,7 +133,7 @@ final class DesktopTaskWatcher {
                     displayBounds,
                     workAreaBounds,
                     managedTaskArea,
-                    managedTaskAreaHostTaskId);
+                    desktopHostTaskId);
             return true;
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);

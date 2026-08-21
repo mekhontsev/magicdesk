@@ -1018,15 +1018,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 == DesktopTaskAreaPolicy.SESSION;
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        final int managedTaskAreaHostTaskId = managedTaskArea
-                && session.activeDisplayId() == mDisplayId
+        final int desktopHostTaskId = session.activeDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         mTaskWatcher.configure(
                 mDisplayId,
                 displayBounds,
                 workAreaBounds,
                 managedTaskArea,
-                managedTaskAreaHostTaskId);
+                desktopHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(
                 shouldProtectExternalSession());
     }

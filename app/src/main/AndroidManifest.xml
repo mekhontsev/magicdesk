@@ -177,6 +177,18 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.desktop" />
 
+        <!-- Keeps an organizer-owned fullscreen stack structurally non-empty.
+             It cannot receive input and is removed with the desktop session. -->
+        <activity
+            android:name=".FullscreenBackstopActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.fullscreen_backstop"
+            android:theme="@style/FullscreenBackstopTheme" />
+
         <!-- Keep a running self-test alive while external-display setup changes
              the phone's orientation and display metrics. -->
         <activity

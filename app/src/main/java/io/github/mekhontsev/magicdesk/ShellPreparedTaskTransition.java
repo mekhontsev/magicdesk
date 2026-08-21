@@ -121,23 +121,6 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final Object targetParentToken)
             throws ReflectiveOperationException {
-        detachAndShowFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                targetParentToken,
-                -1);
-    }
-
-    static void detachAndShowFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds,
-            final Object targetParentToken,
-            final int releasedFullscreenTaskId)
-            throws ReflectiveOperationException {
         applyFreeform(
                 service,
                 displayId,
@@ -145,8 +128,7 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
                 null,
-                targetParentToken,
-                releasedFullscreenTaskId);
+                targetParentToken);
     }
 
     static void prepareFullscreen(
@@ -307,8 +289,7 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 application,
                 null,
-                null,
-                -1);
+                null);
     }
 
     private static void applyFreeform(
@@ -326,8 +307,7 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 application,
                 transitionToken,
-                null,
-                -1);
+                null);
     }
 
     private static void applyFreeform(
@@ -337,8 +317,7 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final FreeformApplication application,
             final IBinder transitionToken,
-            final Object targetParentToken,
-            final int releasedFullscreenTaskId)
+            final Object targetParentToken)
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
@@ -348,14 +327,6 @@ final class ShellPreparedTaskTransition {
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
-        addReleasedFullscreenTask(
-                service,
-                displayId,
-                releasedFullscreenTaskId,
-                targetParentToken,
-                tokenClass,
-                transactionClass,
-                transaction);
         transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
                 .invoke(
                         transaction,
@@ -412,39 +383,6 @@ final class ShellPreparedTaskTransition {
             TaskFullscreenTransitionCommand.startTransition(
                     transactionClass, transaction);
         }
-    }
-
-    static void addReleasedFullscreenTask(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Object targetParentToken,
-            final Class<?> tokenClass,
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        if (taskId < 0) {
-            return;
-        }
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod(
-                "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                .invoke(transaction, new Object[]{
-                        taskToken, targetParentToken, Boolean.TRUE});
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
-                transaction,
-                tokenClass,
-                taskToken,
-                true);
     }
 
     private static void applyPreparedFullscreen(

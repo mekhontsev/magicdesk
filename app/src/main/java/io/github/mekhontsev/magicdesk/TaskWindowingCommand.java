@@ -267,8 +267,7 @@ public final class TaskWindowingCommand {
             final Object service,
             final int displayId,
             final int taskId,
-            final int survivorTaskId,
-            final Object targetParentToken)
+            final int survivorTaskId)
             throws ReflectiveOperationException {
         if (taskId == survivorTaskId) {
             throw new IllegalArgumentException(
@@ -302,14 +301,6 @@ public final class TaskWindowingCommand {
                 service, displayId, taskId);
         transactionClass.getMethod("removeTask", tokenClass)
                 .invoke(transaction, closingToken);
-        ShellPreparedTaskTransition.addReleasedFullscreenTask(
-                service,
-                displayId,
-                survivorTaskId,
-                targetParentToken,
-                tokenClass,
-                transactionClass,
-                transaction);
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                 .invoke(
@@ -317,10 +308,8 @@ public final class TaskWindowingCommand {
                         survivorToken,
                         Boolean.TRUE,
                         Boolean.TRUE);
-        // This hierarchy spans both the temporary area and its desktop
-        // parent. Apply it as one synchronized WCT instead of asking WMShell
-        // to animate two roots independently. The removed task is already in
-        // the background, so it cannot replace the survivor's input focus.
+        // Keep the survivor in the same fullscreen parent. The removed task is
+        // already in the background, so it cannot replace survivor input focus.
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
     }

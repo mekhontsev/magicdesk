@@ -35,6 +35,7 @@ public final class TaskDisplayAreaLaunchCommand {
     private static final String BROWSER_ACTIVITY_CLASS =
             "io.github.mekhontsev.magicdesk.DesktopSelfTestBrowserActivity";
     private static final int TRANSIT_OPEN = 1;
+    private static final int ACTIVITY_TYPE_UNDEFINED = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long TASK_TIMEOUT_MILLIS = 5_000L;
@@ -315,6 +316,24 @@ public final class TaskDisplayAreaLaunchCommand {
             final String expectedPackage,
             final Class<?> containerTokenClass,
             final Object areaToken) throws ReflectiveOperationException {
+        return launchFullscreenTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                containerTokenClass,
+                areaToken,
+                ACTIVITY_TYPE_UNDEFINED);
+    }
+
+    static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Class<?> containerTokenClass,
+            final Object areaToken,
+            final int activityType) throws ReflectiveOperationException {
         if (intent == null || intent.getComponent() == null
                 || areaToken == null) {
             throw new IllegalArgumentException(
@@ -328,6 +347,11 @@ public final class TaskDisplayAreaLaunchCommand {
         ActivityOptions.class.getMethod(
                 "setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+        if (activityType != ACTIVITY_TYPE_UNDEFINED) {
+            ActivityOptions.class.getMethod(
+                    "setLaunchActivityType", Integer.TYPE)
+                    .invoke(options, Integer.valueOf(activityType));
+        }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
         launchActivity(service, intent, options);

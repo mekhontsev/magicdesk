@@ -16,6 +16,15 @@
         <item name="android:colorAccent">#22D3EE</item>
     </style>
 
+    <style name="FullscreenBackstopTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+
     <style name="SelfTestBrowserTheme" parent="@style/AppTheme">
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowDisablePreview">true</item>

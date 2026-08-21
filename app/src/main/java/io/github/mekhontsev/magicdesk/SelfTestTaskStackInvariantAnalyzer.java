@@ -103,6 +103,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             mEventCount++;
         }
         observeFullscreenTaskArea(snapshot);
+        validateFullscreenTaskArea(reason, snapshot);
         validateUniversal(reason, snapshot);
         validateVisibilityContinuity(reason, snapshot, event);
         if (!mStage.samples.isEmpty()
@@ -151,7 +152,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " fixture " + task.taskId
                                 + " entered display " + task.displayId);
             }
-            if (task.taskId != mHostTaskId
+            if (task.taskId != mHostTaskId && !task.backstop
                     && task.home && task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
                 if (mDisplayId == 0
@@ -206,6 +207,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private boolean hasVisibleDesktopTask(final Snapshot snapshot) {
         for (final TaskState task : snapshot.tasks) {
             if (task.displayId == mDisplayId
+                    && !task.backstop
                     && task.visibilityKnown
                     && task.visible) {
                 return true;
@@ -229,7 +231,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             if (task.taskId == homeTaskId) {
                 return true;
             }
-            if (task.taskId == mHostTaskId || task.fixture) {
+            if (task.taskId == mHostTaskId || task.fixture || task.backstop) {
                 return false;
             }
         }
@@ -242,7 +244,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
         final Snapshot last = stage.samples.get(
                 stage.samples.size() - 1).snapshot;
-        analyzeFullscreenTaskAreaRelease(stage, last);
+        analyzeFullscreenTaskAreaContinuity(stage, last);
         if (stage.samples.size() < 2) {
             return;
         }
@@ -285,7 +287,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
     }
 
-    private void analyzeFullscreenTaskAreaRelease(
+    private void analyzeFullscreenTaskAreaContinuity(
             final Stage stage,
             final Snapshot snapshot) {
         if (!("FULLSCREEN-LIFECYCLE-001".equals(stage.name)
@@ -306,14 +308,50 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
         if (survivor == null
                 || survivor.displayAreaFeatureId
-                        != mFullscreenTaskAreaFeatureId) {
+                        == mFullscreenTaskAreaFeatureId) {
             return;
         }
-        addAnomaly("lone-fullscreen-parent:" + survivor.taskId,
+        addAnomaly("fullscreen-parent-changed:" + survivor.taskId,
                 formatSample("stage-end", snapshot)
                         + " lone fullscreen task=" + survivor.taskId
-                        + " remained under transient fullscreen area="
-                        + mFullscreenTaskAreaFeatureId);
+                        + " left fullscreen area="
+                        + mFullscreenTaskAreaFeatureId
+                        + " for area=" + survivor.displayAreaFeatureId);
+    }
+
+    private void validateFullscreenTaskArea(
+            final String reason,
+            final Snapshot snapshot) {
+        if (mFullscreenTaskAreaFeatureId
+                == DISPLAY_AREA_FEATURE_UNKNOWN) {
+            return;
+        }
+        final TaskState host = snapshot.find(mHostTaskId);
+        if (host != null && host.displayAreaFeatureId
+                == mFullscreenTaskAreaFeatureId) {
+            addAnomaly("desktop-host-in-fullscreen-area:" + mStage.name,
+                    formatSample(reason, snapshot)
+                            + " desktop host entered fullscreen area="
+                            + mFullscreenTaskAreaFeatureId);
+        }
+        int backstopCount = 0;
+        for (final TaskState task : snapshot.tasks) {
+            if (task.backstop
+                    && task.displayId == mDisplayId
+                    && task.home
+                    && task.displayAreaFeatureId
+                            == mFullscreenTaskAreaFeatureId
+                    && task.windowingMode == WINDOWING_MODE_FULLSCREEN) {
+                backstopCount++;
+            }
+        }
+        if (backstopCount != 1) {
+            addAnomaly("fullscreen-backstop:" + mStage.name + ':'
+                            + backstopCount,
+                    formatSample(reason, snapshot)
+                            + " expected one HOME fullscreen-area backstop, found="
+                            + backstopCount);
+        }
     }
 
     private boolean isDesktopFullscreenFixture(final TaskState task) {
@@ -576,14 +614,21 @@ final class SelfTestTaskStackInvariantAnalyzer {
         String summary(final int hostTaskId) {
             final StringBuilder output = new StringBuilder();
             for (final TaskState task : tasks) {
-                if (task.taskId != hostTaskId && !task.fixture && !task.home) {
+                if (task.taskId != hostTaskId && !task.fixture && !task.home
+                        && !task.backstop) {
                     continue;
                 }
                 if (output.length() > 0) {
                     output.append(',');
                 }
-                output.append(task.taskId == hostTaskId ? "host" : task.taskId)
-                        .append('=')
+                if (task.taskId == hostTaskId) {
+                    output.append("host");
+                } else if (task.backstop) {
+                    output.append("backstop");
+                } else {
+                    output.append(task.taskId);
+                }
+                output.append('=')
                         .append(task.stateKey())
                         .append(task.visibilityKnown
                                 ? task.visible ? "/visible" : "/hidden"
@@ -602,6 +647,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         final boolean fixture;
         final boolean home;
         final int displayAreaFeatureId;
+        final boolean backstop;
 
         TaskState(
                 final int taskId,
@@ -612,6 +658,20 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 final boolean fixture,
                 final boolean home,
                 final int displayAreaFeatureId) {
+            this(taskId, displayId, windowingMode, visible, visibilityKnown,
+                    fixture, home, displayAreaFeatureId, false);
+        }
+
+        TaskState(
+                final int taskId,
+                final int displayId,
+                final int windowingMode,
+                final boolean visible,
+                final boolean visibilityKnown,
+                final boolean fixture,
+                final boolean home,
+                final int displayAreaFeatureId,
+                final boolean backstop) {
             this.taskId = taskId;
             this.displayId = displayId;
             this.windowingMode = windowingMode;
@@ -620,6 +680,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             this.fixture = fixture;
             this.home = home;
             this.displayAreaFeatureId = displayAreaFeatureId;
+            this.backstop = backstop;
         }
 
         String stateKey() {
@@ -635,7 +696,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     && visibilityKnown == other.visibilityKnown
                     && fixture == other.fixture
                     && home == other.home
-                    && displayAreaFeatureId == other.displayAreaFeatureId;
+                    && displayAreaFeatureId == other.displayAreaFeatureId
+                    && backstop == other.backstop;
         }
     }
 

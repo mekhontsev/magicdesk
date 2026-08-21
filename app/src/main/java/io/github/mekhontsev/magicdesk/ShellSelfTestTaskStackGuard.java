@@ -96,6 +96,8 @@ final class ShellSelfTestTaskStackGuard {
             final boolean fixture = component != null
                     && DesktopSelfTestComponents.isFixtureComponent(
                             component.flattenToString());
+            final boolean backstop =
+                    FullscreenBackstopActivity.isBackstopComponent(component);
             boolean taskVisibilityKnown = true;
             boolean visible = false;
             try {
@@ -112,7 +114,8 @@ final class ShellSelfTestTaskStackGuard {
                     taskVisibilityKnown,
                     fixture,
                     activityType == ACTIVITY_TYPE_HOME,
-                    displayAreaFeatureId));
+                    displayAreaFeatureId,
+                    backstop));
         }
         return new SelfTestTaskStackInvariantAnalyzer.Snapshot(
                 SystemClock.uptimeMillis(), states, visibilityKnown);

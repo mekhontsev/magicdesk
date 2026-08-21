@@ -51,7 +51,7 @@ interface IShizukuCommandService {
         int workRight,
         int workBottom,
         boolean managedTaskArea,
-        int managedTaskAreaHostTaskId) = 12;
+        int desktopHostTaskId) = 12;
 
     void focusTaskStack(
         ITaskObserverCallback callback,

@@ -61,6 +61,10 @@ final class ShellDesktopTaskOwnership {
         return taskId >= 0 && taskId == mDesktopHostTaskId;
     }
 
+    synchronized int desktopHostTaskId() {
+        return mDesktopHostTaskId;
+    }
+
     synchronized List<Integer> observeTasks(
             final int displayId,
             final List<?> tasks) {

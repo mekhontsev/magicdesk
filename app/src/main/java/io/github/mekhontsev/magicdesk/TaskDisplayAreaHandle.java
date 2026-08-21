@@ -80,24 +80,47 @@ final class TaskDisplayAreaHandle {
             final Collection<Integer> ownedTaskIds,
             final Object targetParentToken)
             throws ReflectiveOperationException {
+        releaseChildTasks(
+                service,
+                displayId,
+                ownedTaskIds,
+                java.util.Collections.<Integer>emptySet(),
+                targetParentToken);
+    }
+
+    /** Reparents application children and removes area-owned infrastructure. */
+    void releaseChildTasks(
+            final Object service,
+            final int displayId,
+            final Collection<Integer> detachedTaskIds,
+            final Collection<Integer> removedTaskIds,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         if (service == null || displayId < 0
-                || ownedTaskIds == null || ownedTaskIds.isEmpty()) {
+                || ((detachedTaskIds == null || detachedTaskIds.isEmpty())
+                        && (removedTaskIds == null
+                                || removedTaskIds.isEmpty()))) {
             return;
         }
         final List<Integer> childTaskIds = new ArrayList<>();
         final List<Object> childTaskTokens = new ArrayList<>();
+        final List<Boolean> removeChildren = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             final Integer taskId = Integer.valueOf(
                     HiddenTaskApi.getIntField(task, "taskId"));
-            if (!ownedTaskIds.contains(taskId)) {
+            final boolean detach = detachedTaskIds != null
+                    && detachedTaskIds.contains(taskId);
+            final boolean remove = removedTaskIds != null
+                    && removedTaskIds.contains(taskId);
+            if ((!detach && !remove)
+                    || HiddenTaskApi.getIntField(
+                            task, "displayAreaFeatureId") != mFeatureId) {
                 continue;
             }
-            if (HiddenTaskApi.getIntField(
-                    task, "displayAreaFeatureId") == mFeatureId) {
-                childTaskIds.add(taskId);
-                childTaskTokens.add(HiddenTaskApi.requireTaskToken(
-                        service, displayId, taskId.intValue()));
-            }
+            childTaskIds.add(taskId);
+            childTaskTokens.add(HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId.intValue()));
+            removeChildren.add(Boolean.valueOf(remove));
         }
         if (childTaskIds.isEmpty()) {
             return;
@@ -112,16 +135,21 @@ final class TaskDisplayAreaHandle {
         // Running tasks are returned top-first. Reparent bottom-first so their
         // relative z-order remains unchanged in the destination parent.
         for (int index = childTaskTokens.size() - 1; index >= 0; index--) {
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, new Object[]{
-                            childTaskTokens.get(index),
-                            targetParentToken,
-                            Boolean.TRUE});
+            if (removeChildren.get(index).booleanValue()) {
+                transactionClass.getMethod("removeTask", tokenClass)
+                        .invoke(transaction, childTaskTokens.get(index));
+            } else {
+                transactionClass.getMethod(
+                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                        .invoke(transaction, new Object[]{
+                                childTaskTokens.get(index),
+                                targetParentToken,
+                                Boolean.TRUE});
+            }
         }
         SyncWindowContainerTransaction.apply(
                 service, transactionClass, transaction);
-        Log.i(TAG, "detached tasks=" + childTaskIds
+        Log.i(TAG, "released tasks=" + childTaskIds
                 + " from feature=" + mFeatureId);
     }
 

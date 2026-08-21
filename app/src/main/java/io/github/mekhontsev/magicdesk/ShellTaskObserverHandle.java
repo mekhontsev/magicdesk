@@ -52,7 +52,7 @@ final class ShellTaskObserverHandle implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final boolean managedTaskArea,
-            final int managedTaskAreaHostTaskId) throws IOException {
+            final int desktopHostTaskId) throws IOException {
         if (displayBounds == null || workAreaBounds == null) {
             throw new IOException("missing task observer bounds");
         }
@@ -68,7 +68,7 @@ final class ShellTaskObserverHandle implements Closeable {
                 workAreaBounds.right,
                 workAreaBounds.bottom,
                 managedTaskArea,
-                managedTaskAreaHostTaskId));
+                desktopHostTaskId));
     }
 
     void focusStack(

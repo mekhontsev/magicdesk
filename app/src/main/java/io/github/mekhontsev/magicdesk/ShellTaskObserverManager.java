@@ -70,13 +70,13 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final boolean managedTaskArea,
-            final int managedTaskAreaHostTaskId) {
+            final int desktopHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
                 managedTaskArea,
-                managedTaskAreaHostTaskId);
+                desktopHostTaskId);
     }
 
     void focusStack(

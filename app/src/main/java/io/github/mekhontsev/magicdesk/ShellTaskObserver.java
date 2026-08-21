@@ -174,7 +174,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         }
                         mDesktopTaskArea.removeOrphanedTransientTasks(
                                 displayId, tasks);
-                        mFullscreenTaskArea.observeTasks(displayId, tasks);
                         mTransientBounds.observeTasks(displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }
@@ -273,7 +272,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final boolean managedTaskArea,
-            final int managedTaskAreaHostTaskId) {
+            final int desktopHostTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -311,13 +310,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     error);
         }
         mDesktopOwnership.configure(displayId);
-        if (managedTaskArea && managedTaskAreaHostTaskId >= 0) {
-            mDesktopOwnership.markDesktopHost(managedTaskAreaHostTaskId);
+        if (desktopHostTaskId >= 0) {
+            mDesktopOwnership.markDesktopHost(desktopHostTaskId);
         }
         if (!mDesktopTaskArea.matchesConfiguration(
                 displayId,
                 managedTaskArea,
-                managedTaskAreaHostTaskId)) {
+                desktopHostTaskId)) {
             // A fullscreen stack can be nested under the phone session area.
             // Release that child before replacing its parent.
             mFullscreenTaskArea.configure(
@@ -326,7 +325,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mDesktopTaskArea.configure(
                 displayId,
                 managedTaskArea,
-                managedTaskAreaHostTaskId);
+                desktopHostTaskId);
         mFullscreenTaskArea.configure(
                 displayId,
                 mDesktopTaskArea.childAreaParentFeatureId(displayId),
@@ -681,6 +680,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
+            final int displayId = HiddenTaskApi.getTaskDisplayId(taskInfo);
+            mFullscreenTaskArea.onTaskMovedToFront(
+                    displayId, taskInfo.taskId);
             mDesktopOwnership.observeTask(taskInfo);
             reportDesktopTaskAreaForeground(taskInfo);
             mMigrationGuard.onTaskMovedToFront(taskInfo);
@@ -688,8 +690,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 synchronized (this) {
                     mPhoneTouchpadTaskId = taskInfo.taskId;
                 }
-            } else if (HiddenTaskApi.getTaskDisplayId(taskInfo)
-                    == Display.DEFAULT_DISPLAY) {
+            } else if (displayId == Display.DEFAULT_DISPLAY) {
                 preservePhoneTouchpad();
             }
             mInputPanelGuard.onTaskAppeared(

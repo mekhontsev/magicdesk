@@ -230,14 +230,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workRight,
             final int workBottom,
             final boolean managedTaskArea,
-            final int managedTaskAreaHostTaskId) {
+            final int desktopHostTaskId) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
                 managedTaskArea,
-                managedTaskAreaHostTaskId);
+                desktopHostTaskId);
     }
 
     @Override

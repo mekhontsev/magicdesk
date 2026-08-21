@@ -247,11 +247,21 @@ active desktop parent while it is hidden or still fullscreen. Application-
 driven restores are completed in the observer before their result crosses
 Binder. They use a hidden fullscreen-to-freeform mode boundary in the active
 parent to rebuild native decoration without changing desktop sessions.
-The area exists only while it owns at least two fullscreen tasks. Restore and
-close transitions release a lone peer to the active desktop parent in the same
-WCT that changes or removes the other task. The observer retires the empty area
-only after a task snapshot confirms that the asynchronous hierarchy change has
-completed; no delayed mode repair or guessed timeout is involved.
+The area is created only for a stack of at least two fullscreen tasks. After
+that stack is split, a lone survivor remains under the same parent until it is
+restored or removed; moving it merely to retire the area can invalidate a
+projection display. Some projection firmware also removes that display when
+the area's last Activity leaves. A transparent, non-focusable HOME-typed
+structural task therefore keeps the area non-empty until session teardown. It
+is excluded from Recents, accessibility, input, user task lists, and focus
+selection.
+
+When the last application leaves, the observer lowers the area behind the real
+desktop HOME task and focuses that host in the same queued WMShell transition.
+Starting another managed fullscreen stack raises and reuses the area. Session
+teardown reparents any surviving application tasks, removes the structural
+task, and then deletes the empty area. No delayed mode repair or guessed timeout
+is involved.
 
 The parent must be established while focusing a freeform task when another
 MagicDesk task is fullscreen. On external displays this child is nested in the
@@ -265,9 +275,11 @@ fullscreen-parent hierarchy changes and normal `TO_FRONT` ordering in one WCT.
 WMShell can queue that atomic transition behind native caption or focus work;
 a separate synchronous hierarchy transaction could instead deadlock with it.
 
-Closing or restoring a member that leaves one survivor releases that survivor
-and deletes the empty area. Platforms without this organizer capability use
-the ordinary focus path and never apply a delayed mode repair.
+Closing or restoring a member keeps a survivor in the existing area. Restoring
+or removing the final member deactivates the structural area behind the desktop
+host until it is reused or the session ends.
+Platforms without this organizer capability use the ordinary focus path and
+never apply a delayed mode repair.
 
 ## Modules
 
@@ -504,17 +516,20 @@ runtime integration and are not distributed through the same release path.
   roots in the default desktop task area. It preserves an existing fullscreen
   peer and focus ordering in one WMShell transition during mixed
   fullscreen/freeform activation; it must not wait for both tasks to become
-  fullscreen first. Restore and close transactions release a lone peer to the
-  active desktop parent while preserving its fullscreen state and focus.
+  fullscreen first. Restore and close transactions retain a lone peer in the
+  existing fullscreen parent while preserving its state and focus.
   Application-requested immersive tasks remain
   directly under that parent and share only the observer's saved-bounds
   lifecycle.
-  The area closes after the observer confirms that its final child left.
+  An inert HOME-typed structural task retains the area without accepting input
+  or entering user task lists. With no application members, the observer keeps
+  that area below the real desktop host; session teardown removes the
+  structural task before deleting the area.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
   focus, single-task restore and close, direct fullscreen session launches,
-  system-Back removal, survivor visibility, release of a lone survivor from
-  the temporary fullscreen task area, and abrupt display removal.
+  system-Back removal, survivor visibility and parent continuity, structural
+  task isolation, inactive-area ordering, and abrupt display removal.
 - Shared fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -794,11 +809,12 @@ inside it. Keeping the session inside that container lets SystemUI place later
 caption menus and other transient task decorations above it. It also avoids a
 cross-root host transition that would resume and raise the phone control panel.
 The fullscreen MagicDesk host is the bottom task in the session area. Its
-freeform windows and lone fullscreen tasks are siblings above it; the managed
-multi-fullscreen stack is a nested child of the same session area. Child
-cleanup therefore releases its tasks back to the session parent before the
-session itself reparents owned live tasks to Android's default area as
-fullscreen. Android 16 may still create its native desktop wallpaper in
+freeform windows and application-driven lone fullscreen tasks are siblings
+above it; the managed multi-fullscreen stack and any retained survivor use a
+nested child of the same session area. Child cleanup therefore releases its
+application tasks back to the session parent and removes its structural task
+before the session itself reparents owned live tasks to Android's default area
+as fullscreen. Android 16 may still create its native desktop wallpaper in
 display 0's default area, but the session child remains above that task instead
 of replacing the host. Production launches, existing-task moves, and self-test
 fixtures resolve the same display policy.
@@ -823,9 +839,11 @@ The shell task observer exposes an optional self-test guard. While a test is
 active, every task callback captures a bounded `getAllTasks()` snapshot tagged
 with the current test stage. A pure analyzer checks the desktop host, fixture
 display and windowing mode, HOME visibility, one-way task transitions, and
-windowed/fullscreen visibility continuity. It also learns the temporary
+windowed/fullscreen visibility continuity. It also learns the session-scoped
 fullscreen area's dynamic feature ID from a managed pair and verifies that a
-lone survivor is released to the desktop parent after its peer closes. A
+lone survivor remains in that parent until its own restore or removal. It also
+requires exactly one fullscreen structural task in that area and keeps the
+desktop host outside it. A
 visible freeform fixture with a
 hidden desktop host is an error on every target; this also detects a native
 desktop area taking ownership of the phone screen. No snapshots are taken

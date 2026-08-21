@@ -54,9 +54,13 @@ The same shell-owned visibility boundary is shared by running-task display
 moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task
 belongs to MagicDesk's fullscreen parent, a manual restore or snap reparents it
 to the active desktop parent, applies freeform mode and final bounds, and
-reveals its caption in one WMShell transition. Platforms without that child
-use the same persistent shell observer directly against their active desktop
-parent.
+reveals its caption in one WMShell transition. A fullscreen peer stays under
+the existing parent until its own restore or removal; this avoids a redundant
+hierarchy change that can invalidate projection displays. A non-focusable
+structural HOME task keeps that parent alive for the desktop session; while it
+contains no application task, the whole parent remains below the real desktop
+host. Platforms without that child use the same persistent shell observer
+directly against their active desktop parent.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included
