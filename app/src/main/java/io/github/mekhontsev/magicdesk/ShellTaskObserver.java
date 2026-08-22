@@ -34,7 +34,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellDesktopFocusController mFocusController;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellDesktopProcessFailureTracker mProcessFailureTracker;
-    private final ShellWindowedTaskActivityGuard mWindowedActivityGuard;
+    private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellActivityStartController mActivityStartController;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
@@ -76,27 +76,31 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
-        mWindowedActivityGuard = new ShellWindowedTaskActivityGuard(
+        mTaskActivityModeGuard = new ShellTaskActivityModeGuard(
                 mService,
-                new ShellWindowedTaskActivityGuard.Listener() {
+                new ShellTaskActivityModeGuard.Listener() {
                     @Override
                     public void onTaskCorrected(
                             final int taskId,
-                            final String activityName) {
+                            final String activityName,
+                            final String restoredMode) {
                         callCallback(() ->
-                                mCallback.onWindowedTaskStartupCorrected(
-                                        taskId, activityName));
+                                mCallback.onTaskActivityModeCorrected(
+                                        taskId,
+                                        activityName,
+                                        restoredMode));
                     }
 
                     @Override
                     public void onError(final String error) {
                         callCallback(() -> mCallback.onObserverError(error));
                     }
-                });
+                },
+                windowing.requiresNativeFullscreenCaptionRefresh());
         mWindowedTaskLauncher = new ShellWindowedTaskLauncher(
                 mService,
                 mDesktopOwnership,
-                mWindowedActivityGuard);
+                mTaskActivityModeGuard);
         mDesktopTaskArea = new ShellDesktopTaskArea(
                 mService, mDesktopOwnership, mWindowedTaskLauncher);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
@@ -144,7 +148,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
                 mMigrationGuard,
-                mWindowedActivityGuard);
+                mTaskActivityModeGuard);
         // The platform policy decides whether stale phone-side freeform
         // Recents entries require active cleanup.
         mFreeformCleanup = new ShellFreeformTaskCleanup(
@@ -164,7 +168,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                     windowStates) {
                         mProcessFailureTracker.observeTasks(
                                 displayId, windowStates);
-                        mWindowedActivityGuard.observeTasks(
+                        mTaskActivityModeGuard.observeTasks(
                                 displayId, windowStates);
                         for (final Integer taskId
                                 : mDesktopOwnership.observeTasks(
@@ -287,7 +291,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
             mInputPanelGuard.configure(-1);
-            mWindowedActivityGuard.configure(Display.INVALID_DISPLAY);
+            mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
             // The fullscreen area is a sibling of the phone session area.
@@ -348,7 +352,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
-        mWindowedActivityGuard.configure(displayId);
+        mTaskActivityModeGuard.configure(displayId);
         mProcessFailureTracker.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
         reportDesktopTaskOwnership();
@@ -471,6 +475,26 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId,
                 taskId,
                 mWindowing.requiresNativeFullscreenCaptionRefresh());
+    }
+
+    boolean protectExplicitFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        if (mClosed || displayId != mConfiguredDisplayId || taskId < 0) {
+            return false;
+        }
+        try {
+            final Object task = HiddenTaskApi.requireTask(
+                    mService, displayId, taskId);
+            return mTaskActivityModeGuard.onExplicitFullscreenTaskIdentified(
+                    taskId,
+                    HiddenTaskApi.getTaskComponent(task),
+                    displayId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not protect explicit fullscreen task="
+                    + taskId, error);
+            return false;
+        }
     }
 
     boolean closeFullscreenTask(
@@ -684,7 +708,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             }
             mInputPanelGuard.onTaskRemoved(taskId);
             mMigrationGuard.forget(taskId);
-            mWindowedActivityGuard.onTaskRemoved(taskId);
+            mTaskActivityModeGuard.onTaskRemoved(taskId);
             mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
             mDesktopOwnership.forget(taskId);
@@ -730,7 +754,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int newDisplayId) {
         mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mDesktopTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
-        mWindowedActivityGuard.onTaskDisplayChanged(taskId, newDisplayId);
+        mTaskActivityModeGuard.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange("display-changed");
     }

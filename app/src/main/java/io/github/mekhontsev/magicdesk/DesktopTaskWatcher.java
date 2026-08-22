@@ -332,6 +332,22 @@ final class DesktopTaskWatcher {
         }
     }
 
+    boolean protectExplicitFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return false;
+        }
+        try {
+            return handle.protectExplicitFullscreenTask(displayId, taskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to protect explicit fullscreen task="
+                    + taskId, error);
+            return false;
+        }
+    }
+
     boolean closeFullscreenTask(
             final int displayId,
             final int taskId) {
@@ -697,13 +713,14 @@ final class DesktopTaskWatcher {
         }
     }
 
-    private void onWindowedTaskStartupCorrected(
+    private void onTaskActivityModeCorrected(
             final int generation,
             final int taskId,
-            final String activityName) {
+            final String activityName,
+            final String restoredMode) {
         if (mListener.isActive(generation)) {
-            WindowedTaskStartupDiagnostics.noteCorrection(
-                    taskId, activityName);
+            TaskActivityModeDiagnostics.noteCorrection(
+                    taskId, activityName, restoredMode);
         }
     }
 
@@ -938,11 +955,12 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onWindowedTaskStartupCorrected(
+        public void onTaskActivityModeCorrected(
                 final int taskId,
-                final String activityName) throws RemoteException {
-            mOwner.onWindowedTaskStartupCorrected(
-                    mGeneration, taskId, activityName);
+                final String activityName,
+                final String restoredMode) throws RemoteException {
+            mOwner.onTaskActivityModeCorrected(
+                    mGeneration, taskId, activityName, restoredMode);
         }
 
         @Override

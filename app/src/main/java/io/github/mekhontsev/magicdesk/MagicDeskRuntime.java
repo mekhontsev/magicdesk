@@ -526,6 +526,14 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static boolean protectExplicitFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks != null
+                && tasks.protectExplicitFullscreenTask(displayId, taskId);
+    }
+
     static void expectTouchpadDisplacement() {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {

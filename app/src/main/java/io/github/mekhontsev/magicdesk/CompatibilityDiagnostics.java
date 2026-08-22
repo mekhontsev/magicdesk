@@ -333,8 +333,8 @@ public final class CompatibilityDiagnostics {
         report.append("Phone task guard: ")
                 .append(PhoneTaskGuardDiagnostics.snapshot().reportLine())
                 .append('\n');
-        report.append("Windowed startup guard: ")
-                .append(WindowedTaskStartupDiagnostics
+        report.append("Task activity mode guard: ")
+                .append(TaskActivityModeDiagnostics
                         .snapshot().reportLine())
                 .append('\n');
         final boolean globalInput = ShellAccess.isReady()

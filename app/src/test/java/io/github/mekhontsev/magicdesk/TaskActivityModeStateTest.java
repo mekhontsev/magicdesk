@@ -6,7 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
-public final class WindowedTaskActivityStateTest {
+public final class TaskActivityModeStateTest {
     private static final String ROOT = "com.example.app";
     private static final String MAIN = "com.example.app/.MainActivity";
     private static final String PERMISSION =
@@ -14,28 +14,28 @@ public final class WindowedTaskActivityStateTest {
 
     @Test
     public void restoresUnexpectedFullscreenDuringActivityHandoff() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(MAIN, ROOT);
 
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(MAIN, ROOT, 1, false));
         assertEquals(
-                WindowedTaskActivityState.Decision.NONE,
+                TaskActivityModeState.Decision.NONE,
                 state.observe(MAIN, ROOT, 1, false));
         assertEquals(
-                WindowedTaskActivityState.Decision.SETTLED,
+                TaskActivityModeState.Decision.SETTLED,
                 state.observe(MAIN, ROOT, 5, false));
         assertFalse(state.isArmed());
     }
 
     @Test
     public void followsTransientActivityInsideSameTask() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(PERMISSION, "com.android.permissioncontroller");
 
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(
                         PERMISSION,
                         "com.android.permissioncontroller",
@@ -45,53 +45,53 @@ public final class WindowedTaskActivityStateTest {
 
     @Test
     public void allowsExplicitImmersiveRequest() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(MAIN, ROOT);
 
         assertEquals(
-                WindowedTaskActivityState.Decision.ALLOW_IMMERSIVE,
+                TaskActivityModeState.Decision.ALLOW_IMMERSIVE,
                 state.observe(MAIN, ROOT, 1, true));
         assertFalse(state.isArmed());
     }
 
     @Test
     public void ignoresUnrelatedModeChangesWithoutActivityStart() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
 
         assertEquals(
-                WindowedTaskActivityState.Decision.NONE,
+                TaskActivityModeState.Decision.NONE,
                 state.observe(MAIN, ROOT, 1, false));
         assertFalse(state.isArmed());
     }
 
     @Test
     public void failedCorrectionCanBeRetriedByNextObservation() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(MAIN, ROOT);
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(MAIN, ROOT, 1, false));
 
         state.correctionFailed();
 
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(MAIN, ROOT, 1, false));
         assertTrue(state.isArmed());
     }
 
     @Test
     public void nextActivityDoesNotDuplicateInFlightCorrection() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(MAIN, ROOT);
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(MAIN, ROOT, 1, false));
 
         state.arm(PERMISSION, "com.android.permissioncontroller");
 
         assertEquals(
-                WindowedTaskActivityState.Decision.NONE,
+                TaskActivityModeState.Decision.NONE,
                 state.observe(
                         PERMISSION,
                         "com.android.permissioncontroller",
@@ -101,17 +101,17 @@ public final class WindowedTaskActivityStateTest {
 
     @Test
     public void appliedCorrectionDoesNotBlockNextHandoff() {
-        final WindowedTaskActivityState state = state();
+        final TaskActivityModeState state = windowedState();
         state.arm(MAIN, ROOT);
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(MAIN, ROOT, 1, false));
 
         state.correctionApplied();
         state.arm(PERMISSION, "com.android.permissioncontroller");
 
         assertEquals(
-                WindowedTaskActivityState.Decision.RESTORE_FREEFORM,
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
                 state.observe(
                         PERMISSION,
                         "com.android.permissioncontroller",
@@ -119,7 +119,43 @@ public final class WindowedTaskActivityStateTest {
                         false));
     }
 
-    private static WindowedTaskActivityState state() {
-        return new WindowedTaskActivityState(ROOT);
+    @Test
+    public void restoresUnexpectedFreeformDuringFullscreenHandoff() {
+        final TaskActivityModeState state = fullscreenState();
+        state.arm(PERMISSION, "com.android.permissioncontroller");
+
+        assertEquals(
+                TaskActivityModeState.Decision.RESTORE_FULLSCREEN,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        5,
+                        false));
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        5,
+                        false));
+        state.correctionApplied();
+        assertFalse(state.isArmed());
+    }
+
+    @Test
+    public void fullscreenGuardIgnoresManualRestoreWithoutActivityStart() {
+        final TaskActivityModeState state = fullscreenState();
+
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(MAIN, ROOT, 5, false));
+    }
+
+    private static TaskActivityModeState windowedState() {
+        return new TaskActivityModeState(ROOT, 5);
+    }
+
+    private static TaskActivityModeState fullscreenState() {
+        return new TaskActivityModeState(ROOT, 1);
     }
 }

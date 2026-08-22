@@ -28,8 +28,8 @@ oneway interface ITaskObserverCallback {
 
     void onDesktopTaskAreaForegroundChanged(boolean foreground) = 10;
 
-    void onWindowedTaskStartupCorrected(
-        int taskId, String activityName) = 11;
+    void onTaskActivityModeCorrected(
+        int taskId, String activityName, String restoredMode) = 11;
 
     void onDesktopProcessFailure(
         int type, String processName, int pid, int taskId,

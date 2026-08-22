@@ -515,6 +515,13 @@ final class AppTaskController {
                 R.string.status_launching_fullscreen, label));
         try {
             final int taskId = prepareFullscreenTask(app, displayId);
+            if (!MagicDeskRuntime.protectExplicitFullscreenTask(
+                    displayId, taskId)) {
+                Log.w(TAG, "fullscreen activity handoff guard unavailable"
+                        + " package=" + app.packageName
+                        + " task=" + taskId
+                        + " display=" + displayId);
+            }
             if (afterLaunch != null) {
                 afterLaunch.run(displayId, taskId);
             }

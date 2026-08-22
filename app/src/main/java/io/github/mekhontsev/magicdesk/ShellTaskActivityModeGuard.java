@@ -14,16 +14,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-/** Keeps activity handoffs inside a task observed as freeform. */
-final class ShellWindowedTaskActivityGuard implements
+/** Preserves an explicitly selected task mode across activity handoffs. */
+final class ShellTaskActivityModeGuard implements
         ShellWindowedTaskLauncher.Listener,
         ShellActivityStartController.Listener {
     interface Listener {
-        void onTaskCorrected(int taskId, String activityName);
+        void onTaskCorrected(
+                int taskId, String activityName, String restoredMode);
         void onError(String message);
     }
 
     private static final String TAG = "MagicDeskWindowLaunch";
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int NEW_TASK_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
@@ -33,17 +35,20 @@ final class ShellWindowedTaskActivityGuard implements
 
     private final Object mService;
     private final Listener mListener;
+    private final boolean mRefreshFullscreenCaption;
     private final Map<Integer, TaskRecord> mTasks = new HashMap<>();
     private final ArrayDeque<PendingStart> mPendingStarts = new ArrayDeque<>();
 
     private ComponentName mInitialLaunchComponent;
     private int mDisplayId = Display.INVALID_DISPLAY;
 
-    ShellWindowedTaskActivityGuard(
+    ShellTaskActivityModeGuard(
             final Object service,
-            final Listener listener) {
+            final Listener listener,
+            final boolean refreshFullscreenCaption) {
         mService = service;
         mListener = listener;
+        mRefreshFullscreenCaption = refreshFullscreenCaption;
     }
 
     synchronized void configure(final int displayId) {
@@ -77,7 +82,31 @@ final class ShellWindowedTaskActivityGuard implements
         mInitialLaunchComponent = null;
         mTasks.put(
                 Integer.valueOf(taskId),
-                new TaskRecord(taskId, component, displayId, bounds));
+                new TaskRecord(
+                        taskId,
+                        component,
+                        displayId,
+                        bounds,
+                        WINDOWING_MODE_FREEFORM));
+    }
+
+    synchronized boolean onExplicitFullscreenTaskIdentified(
+            final int taskId,
+            final ComponentName component,
+            final int displayId) {
+        if (taskId < 0 || displayId != mDisplayId || component == null) {
+            return false;
+        }
+        final TaskRecord previous = mTasks.get(Integer.valueOf(taskId));
+        mTasks.put(
+                Integer.valueOf(taskId),
+                new TaskRecord(
+                        taskId,
+                        component,
+                        displayId,
+                        previous == null ? new Rect() : previous.bounds,
+                        WINDOWING_MODE_FULLSCREEN));
+        return true;
     }
 
     @Override
@@ -161,7 +190,8 @@ final class ShellWindowedTaskActivityGuard implements
                             observation.taskId,
                             observation.rootComponent,
                             displayId,
-                            observation.bounds);
+                            observation.bounds,
+                            WINDOWING_MODE_FREEFORM);
                     mTasks.put(Integer.valueOf(observation.taskId), record);
                 }
                 if (record == null) {
@@ -178,57 +208,84 @@ final class ShellWindowedTaskActivityGuard implements
                 final TaskRecord record = observed.record;
                 final ShellTaskStateMonitor.TaskWindowState observation =
                         observed.observation;
+                if (record.preferredWindowingMode
+                                == WINDOWING_MODE_FULLSCREEN
+                        && observation.windowingMode
+                                == WINDOWING_MODE_FREEFORM
+                        && !record.activityState.isArmed()) {
+                    // A mode change without an activity start is a deliberate
+                    // restore, so later handoffs follow the new windowed mode.
+                    mTasks.remove(Integer.valueOf(record.taskId));
+                    continue;
+                }
                 final String topComponent = observation.topComponent == null
                         ? null
                         : observation.topComponent.flattenToShortString();
                 final String topPackage = observation.topComponent == null
                         ? null
                         : observation.topComponent.getPackageName();
-                final WindowedTaskActivityState.Decision decision =
+                final TaskActivityModeState.Decision decision =
                         record.activityState.observe(
                                 topComponent,
                                 topPackage,
                                 observation.windowingMode,
                                 observation.requestingImmersive());
                 if (decision
-                        == WindowedTaskActivityState.Decision
-                                .RESTORE_FREEFORM) {
+                        == TaskActivityModeState.Decision.RESTORE_FREEFORM
+                        || decision
+                        == TaskActivityModeState.Decision.RESTORE_FULLSCREEN) {
                     corrections.add(new Correction(
                             record,
                             activityLabel(observation.topComponent,
-                                    topPackage)));
+                                    topPackage),
+                            decision));
                 }
                 record.observeTop(topComponent, topPackage,
                         observation.windowingMode);
             }
         }
         for (final Correction correction : corrections) {
-            restoreFreeform(correction);
+            restorePreferredMode(correction);
         }
     }
 
-    private void restoreFreeform(final Correction correction) {
+    private void restorePreferredMode(final Correction correction) {
         try {
-            ShellPreparedTaskTransition.applyFreeform(
-                    mService,
-                    correction.record.displayId,
-                    correction.record.taskId,
-                    new Rect(correction.record.bounds));
+            if (correction.decision
+                    == TaskActivityModeState.Decision.RESTORE_FULLSCREEN) {
+                TaskFullscreenTransitionCommand.applyFullscreen(
+                        correction.record.displayId,
+                        correction.record.taskId,
+                        false,
+                        mRefreshFullscreenCaption);
+            } else {
+                ShellPreparedTaskTransition.applyFreeform(
+                        mService,
+                        correction.record.displayId,
+                        correction.record.taskId,
+                        new Rect(correction.record.bounds));
+            }
             synchronized (this) {
                 correction.record.activityState.correctionApplied();
             }
-            Log.i(TAG, "restored activity handoff task="
+            Log.i(TAG, "restored activity handoff mode="
+                    + modeLabel(correction.record.preferredWindowingMode)
+                    + " task="
                     + correction.record.taskId
                     + " activity=" + correction.activityName);
             if (mListener != null) {
                 mListener.onTaskCorrected(
-                        correction.record.taskId, correction.activityName);
+                        correction.record.taskId,
+                        correction.activityName,
+                        modeLabel(correction.record.preferredWindowingMode));
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             synchronized (this) {
                 correction.record.activityState.correctionFailed();
             }
-            report("could not restore windowed activity handoff task="
+            report("could not restore activity handoff mode="
+                    + modeLabel(correction.record.preferredWindowingMode)
+                    + " task="
                     + correction.record.taskId + ": "
                     + usefulMessage(error));
         }
@@ -308,8 +365,9 @@ final class ShellWindowedTaskActivityGuard implements
         final int taskId;
         final int displayId;
         final Rect bounds;
-        final WindowedTaskActivityState activityState;
+        final TaskActivityModeState activityState;
         final String rootComponent;
+        final int preferredWindowingMode;
         String topComponent;
         String topPackage;
         int windowingMode;
@@ -319,13 +377,15 @@ final class ShellWindowedTaskActivityGuard implements
                 final int observedTaskId,
                 final ComponentName component,
                 final int targetDisplayId,
-                final Rect initialBounds) {
+                final Rect initialBounds,
+                final int targetWindowingMode) {
             taskId = observedTaskId;
             displayId = targetDisplayId;
             bounds = new Rect(initialBounds);
             rootComponent = component.flattenToShortString();
-            activityState = new WindowedTaskActivityState(
-                    component.getPackageName());
+            preferredWindowingMode = targetWindowingMode;
+            activityState = new TaskActivityModeState(
+                    component.getPackageName(), targetWindowingMode);
         }
 
         void observeTop(
@@ -399,12 +459,20 @@ final class ShellWindowedTaskActivityGuard implements
     private static final class Correction {
         final TaskRecord record;
         final String activityName;
+        final TaskActivityModeState.Decision decision;
 
         Correction(
                 final TaskRecord taskRecord,
-                final String correctedActivityName) {
+                final String correctedActivityName,
+                final TaskActivityModeState.Decision correctedDecision) {
             record = taskRecord;
             activityName = correctedActivityName;
+            decision = correctedDecision;
         }
+    }
+
+    private static String modeLabel(final int windowingMode) {
+        return windowingMode == WINDOWING_MODE_FULLSCREEN
+                ? "fullscreen" : "freeform";
     }
 }

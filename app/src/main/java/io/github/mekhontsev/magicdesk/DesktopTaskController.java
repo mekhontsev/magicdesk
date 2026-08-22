@@ -850,6 +850,16 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public boolean protectExplicitFullscreenTask(
+            final int displayId,
+            final int taskId) {
+        return mRunning
+                && mDisplayId == displayId
+                && mTaskWatcher.protectExplicitFullscreenTask(
+                        displayId, taskId);
+    }
+
+    @Override
     public void expectTouchpadDisplacement() {
         if (mRunning) {
             mPhoneUiReconciler.expectTouchpadDisplacement();

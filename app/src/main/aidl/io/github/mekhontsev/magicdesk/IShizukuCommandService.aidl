@@ -328,4 +328,9 @@ interface IShizukuCommandService {
     boolean injectPointerClickAt(
         int displayId, int x, int y, int button) = 85;
 
+    boolean protectExplicitFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 86;
+
 }

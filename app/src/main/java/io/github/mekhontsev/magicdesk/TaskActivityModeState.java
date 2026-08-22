@@ -1,10 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Pure state machine for one windowed task's activity handoffs. */
-final class WindowedTaskActivityState {
+/** Pure state machine for preserving a task mode across activity handoffs. */
+final class TaskActivityModeState {
     enum Decision {
         NONE,
         RESTORE_FREEFORM,
+        RESTORE_FULLSCREEN,
         SETTLED,
         ALLOW_IMMERSIVE
     }
@@ -13,17 +14,25 @@ final class WindowedTaskActivityState {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final String mRootPackage;
+    private final int mPreferredWindowingMode;
 
     private String mExpectedComponent;
     private String mExpectedPackage;
     private boolean mArmed;
     private boolean mCorrectionInFlight;
 
-    WindowedTaskActivityState(final String rootPackage) {
+    TaskActivityModeState(
+            final String rootPackage,
+            final int preferredWindowingMode) {
         if (!PackageNameValidator.isSafe(rootPackage)) {
             throw new IllegalArgumentException("invalid task package");
         }
+        if (preferredWindowingMode != WINDOWING_MODE_FULLSCREEN
+                && preferredWindowingMode != WINDOWING_MODE_FREEFORM) {
+            throw new IllegalArgumentException("invalid preferred task mode");
+        }
         mRootPackage = rootPackage;
+        mPreferredWindowingMode = preferredWindowingMode;
     }
 
     String rootPackage() {
@@ -48,13 +57,24 @@ final class WindowedTaskActivityState {
         }
         final boolean expectedActivityVisible = matchesExpected(
                 topComponent, topPackage);
-        if (windowingMode == WINDOWING_MODE_FREEFORM) {
+        if (windowingMode == mPreferredWindowingMode) {
             mCorrectionInFlight = false;
             if (expectedActivityVisible) {
                 clear();
                 return Decision.SETTLED;
             }
             return Decision.NONE;
+        }
+        if (mPreferredWindowingMode == WINDOWING_MODE_FULLSCREEN) {
+            if (windowingMode != WINDOWING_MODE_FREEFORM
+                    || !expectedActivityVisible) {
+                return Decision.NONE;
+            }
+            if (mCorrectionInFlight) {
+                return Decision.NONE;
+            }
+            mCorrectionInFlight = true;
+            return Decision.RESTORE_FULLSCREEN;
         }
         if (windowingMode != WINDOWING_MODE_FULLSCREEN
                 || (!expectedActivityVisible
