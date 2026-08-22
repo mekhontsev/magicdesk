@@ -47,7 +47,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final SnapshotListener mSnapshotListener;
     private final DesktopTaskWatcher mTaskWatcher;
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
-    private final PlatformPhoneUiDriver mPhoneUi;
     private final PlatformWindowingDriver mWindowing;
     private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskRuntimeStates;
@@ -68,7 +67,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private boolean mRunning;
     private boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
-    private boolean mRestoringLocalDesktop;
     private boolean mSessionOwnershipReady;
     private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
 
@@ -83,7 +81,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mHandler = handler;
         mTaskStackChanged = taskStackChanged;
         mSnapshotListener = snapshotListener;
-        mPhoneUi = phoneUi;
         mWindowing = windowing;
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
                 mApplicationContext, phoneUi);
@@ -412,7 +409,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mDisplayId = -1;
         mFocusingTaskId = -1;
         mActiveTaskId = -1;
-        mRestoringLocalDesktop = false;
         clearSessionOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
@@ -1280,23 +1276,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     mSessionOwnedTaskIds);
         }
         mAutomationEvents.observe(snapshot);
-        final boolean shouldRestoreLocalDesktop =
-                mPhoneUi.shouldRestoreLocalDesktopHost(
-                        mDisplayId,
-                        snapshot.tasks,
-                        MAGICDESK_PACKAGE);
-        if (shouldRestoreLocalDesktop) {
-            if (!mRestoringLocalDesktop) {
-                final TaskRepository.TaskEntry desktopHost =
-                        findDesktopHostTask(snapshot.tasks);
-                if (desktopHost != null) {
-                    restoreLocalDesktop(desktopHost);
-                }
-            }
-            if (mRestoringLocalDesktop) {
-                return;
-            }
-        }
         mNativeWindowBounds.reconcile(snapshot.tasks);
         DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
@@ -1365,38 +1344,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
         }
         return null;
-    }
-
-    private static TaskRepository.TaskEntry findDesktopHostTask(
-            final List<TaskRepository.TaskEntry> tasks) {
-        if (tasks == null) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (isDesktopHostTask(task)) {
-                return task;
-            }
-        }
-        return null;
-    }
-
-    private void restoreLocalDesktop(
-            final TaskRepository.TaskEntry desktopHost) {
-        final int generation = mGeneration;
-        mRestoringLocalDesktop = true;
-        Log.i(TAG, "restoring local desktop after system Home became active");
-        TaskRepository.configureDesktopHost(desktopHost, result ->
-                mHandler.post(() -> {
-                    if (!mRunning || generation != mGeneration) {
-                        return;
-                    }
-                    mRestoringLocalDesktop = false;
-                    if (!result.success) {
-                        Log.w(TAG, "local desktop restore failed: "
-                                + result.message);
-                    }
-                    scheduleRefresh(0);
-                }));
     }
 
     private boolean isVisibleFreeformTask(final TaskRepository.TaskEntry task) {

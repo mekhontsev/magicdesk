@@ -8,8 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
 
-import java.util.List;
-
 /** No-op phone UI integration for the Generic Android profile. */
 final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     private static final String[] NO_SETTINGS = new String[0];
@@ -70,14 +68,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
 
     @Override
     public boolean isTransientSecondaryHomeIntent(final Intent intent) {
-        return false;
-    }
-
-    @Override
-    public boolean shouldRestoreLocalDesktopHost(
-            final int displayId,
-            final List<TaskRepository.TaskEntry> tasks,
-            final String desktopPackage) {
         return false;
     }
 

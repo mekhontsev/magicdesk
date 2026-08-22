@@ -5,8 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
 
-import java.util.List;
-
 /** Firmware-specific phone UI behavior while a desktop session is active. */
 public interface PlatformPhoneUiDriver {
     interface InputOwner {
@@ -55,11 +53,6 @@ public interface PlatformPhoneUiDriver {
     boolean requiresPhoneUiReconciliation();
 
     boolean isTransientSecondaryHomeIntent(Intent intent);
-
-    boolean shouldRestoreLocalDesktopHost(
-            int displayId,
-            List<TaskRepository.TaskEntry> tasks,
-            String desktopPackage);
 
     boolean usesMirrorInputPanel();
 

@@ -6,8 +6,6 @@ import io.github.mekhontsev.magicdesk.TaskRepository;
 import android.content.Context;
 import android.content.Intent;
 
-import java.util.List;
-
 /** RedMagic phone UI integration used around external desktop sessions. */
 final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     private static final String INPUT_PANEL_ACTIVITY =
@@ -50,15 +48,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
                 intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME),
                 intent.getComponent() == null
                         ? null : intent.getComponent().getClassName());
-    }
-
-    @Override
-    public boolean shouldRestoreLocalDesktopHost(
-            final int displayId,
-            final List<TaskRepository.TaskEntry> tasks,
-            final String desktopPackage) {
-        return LocalDesktopHostRecoveryPolicy.shouldRestore(
-                displayId, tasks, desktopPackage);
     }
 
     @Override
