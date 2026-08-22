@@ -38,7 +38,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellActivityStartController mActivityStartController;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final ShellTaskStateMonitor mStateMonitor;
-    private final ShellTransientTaskBoundsController mTransientBounds;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
             new ShellDesktopTaskOwnership();
     private final ShellWindowedTaskLauncher mWindowedTaskLauncher;
@@ -144,7 +143,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mProcessFailureTracker,
                 mMigrationGuard,
                 mWindowedActivityGuard);
-        mTransientBounds = new ShellTransientTaskBoundsController(mService);
         // The platform policy decides whether stale phone-side freeform
         // Recents entries require active cleanup.
         mFreeformCleanup = new ShellFreeformTaskCleanup(
@@ -174,7 +172,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         }
                         mDesktopTaskArea.removeOrphanedTransientTasks(
                                 displayId, tasks);
-                        mTransientBounds.observeTasks(displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }
 
@@ -287,7 +284,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
             mInputPanelGuard.configure(-1);
-            mTransientBounds.clearConfiguration();
             mWindowedActivityGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
@@ -348,7 +344,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
-        mTransientBounds.configure(displayId, displayBounds);
         mWindowedActivityGuard.configure(displayId);
         mProcessFailureTracker.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
@@ -680,7 +675,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mInputPanelGuard.onTaskRemoved(taskId);
             mMigrationGuard.forget(taskId);
             mWindowedActivityGuard.onTaskRemoved(taskId);
-            mTransientBounds.forget(taskId);
             mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
             mDesktopOwnership.forget(taskId);
@@ -772,7 +766,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mActivityStartController::close);
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
-        closeSafely("transient bounds", mTransientBounds::close);
         closeSafely("state monitor", mStateMonitor::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
         closeSafely("desktop task area", mDesktopTaskArea::close);
