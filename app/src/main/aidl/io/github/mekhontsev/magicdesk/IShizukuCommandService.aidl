@@ -322,4 +322,10 @@ interface IShizukuCommandService {
         in int[] xCoordinates,
         in int[] yCoordinates) = 83;
 
+    boolean injectPointerHoverAt(
+        int displayId, int x, int y) = 84;
+
+    boolean injectPointerClickAt(
+        int displayId, int x, int y, int button) = 85;
+
 }

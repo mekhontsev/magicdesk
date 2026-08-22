@@ -578,6 +578,37 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean injectPointerHoverAt(
+            final int displayId,
+            final int x,
+            final int y) {
+        try {
+            DesktopPointerInjector.injectMouseHover(
+                    displayId, new Point(x, y));
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.e(TAG, "pointer hover injection failed", error);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean injectPointerClickAt(
+            final int displayId,
+            final int x,
+            final int y,
+            final int button) {
+        try {
+            DesktopPointerInjector.injectClickAt(
+                    displayId, new Point(x, y), button);
+            return true;
+        } catch (RuntimeException error) {
+            Log.e(TAG, "positioned pointer click injection failed", error);
+            return false;
+        }
+    }
+
+    @Override
     public int[] getMousePosition(final int displayId) {
         return mPointerDriver.getPosition(displayId);
     }

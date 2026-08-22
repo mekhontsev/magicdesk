@@ -397,6 +397,46 @@ public final class ShellAccess {
         }
     }
 
+    static boolean injectPointerHoverAt(
+            final int displayId,
+            final int x,
+            final int y) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.injectPointerHoverAt(displayId, x, y);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            return false;
+        }
+    }
+
+    static boolean injectPointerClickAt(
+            final int displayId,
+            final int x,
+            final int y,
+            final int button) {
+        if (!isReady() || displayId <= 0) {
+            return false;
+        }
+        final IShizukuCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            return service.injectPointerClickAt(
+                    displayId, x, y, button);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            return false;
+        }
+    }
+
     public static Point getMousePosition(final int displayId) {
         if (!isReady() || displayId <= 0) {
             return null;

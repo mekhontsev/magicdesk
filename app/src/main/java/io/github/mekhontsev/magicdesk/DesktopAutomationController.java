@@ -4,6 +4,7 @@ import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.PowerManager;
 import android.os.SystemClock;
@@ -29,6 +30,10 @@ final class DesktopAutomationController {
     private final Context mContext;
     private final DesktopAutomationStateReader mState;
     private final DesktopAutomationCapture mCapture;
+    private final Object mPointerLock = new Object();
+
+    private int mPointerDisplayId = Display.INVALID_DISPLAY;
+    private Point mPointerPosition;
 
     DesktopAutomationController(final Context context) {
         if (context == null) {
@@ -749,8 +754,14 @@ final class DesktopAutomationController {
         final int displayId = optionalDisplayId(args);
         final int x = requiredInt(args, "x");
         final int y = requiredInt(args, "y");
-        final boolean success = MagicDeskRuntime.updateDesktopPointerPosition(
-                displayId, x, y, MotionEvent.ACTION_MOVE, 0L);
+        final boolean success = ShellAccess.injectPointerHoverAt(
+                displayId, x, y);
+        if (success) {
+            synchronized (mPointerLock) {
+                mPointerDisplayId = displayId;
+                mPointerPosition = new Point(x, y);
+            }
+        }
         return simpleRuntimeAction(success, "pointer moved");
     }
 
@@ -767,6 +778,23 @@ final class DesktopAutomationController {
         } else {
             throw new IllegalArgumentException(
                     "button must be primary or secondary");
+        }
+        final Point positionedClick;
+        synchronized (mPointerLock) {
+            positionedClick = mPointerDisplayId == displayId
+                    && mPointerPosition != null
+                            ? new Point(mPointerPosition) : null;
+            mPointerDisplayId = Display.INVALID_DISPLAY;
+            mPointerPosition = null;
+        }
+        if (positionedClick != null) {
+            return simpleRuntimeAction(
+                    ShellAccess.injectPointerClickAt(
+                            displayId,
+                            positionedClick.x,
+                            positionedClick.y,
+                            button),
+                    "pointer clicked");
         }
         MagicDeskRuntime.activateDesktopPointer(displayId);
         return simpleRuntimeAction(
