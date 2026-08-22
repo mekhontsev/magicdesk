@@ -336,4 +336,9 @@ interface IShizukuCommandService {
     void setPhoneTouchpadRequested(
         ITaskObserverCallback callback, boolean requested) = 87;
 
+    int launchFullscreenTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        String intentUri) = 88;
+
 }

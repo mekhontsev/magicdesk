@@ -177,6 +177,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, intentUri));
     }
 
+    int launchFullscreenTask(
+            final int displayId,
+            final String intentUri) throws IOException {
+        return callServiceForResult(() -> mService.launchFullscreenTask(
+                mCallback, displayId, intentUri));
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,

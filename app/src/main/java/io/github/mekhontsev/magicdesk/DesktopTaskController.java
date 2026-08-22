@@ -1210,6 +1210,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public int launchFullscreenTask(
+            final int displayId,
+            final Intent intent) throws IOException {
+        requireTaskObserver(displayId);
+        return mTaskWatcher.launchFullscreenTask(displayId, intent);
+    }
+
+    @Override
     public void launchTaskAction(
             final int displayId,
             final int taskId,

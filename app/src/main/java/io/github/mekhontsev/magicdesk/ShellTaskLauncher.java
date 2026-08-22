@@ -7,19 +7,23 @@ import android.graphics.Rect;
 import android.os.IBinder;
 import android.util.Log;
 
-/** Launches a task in its initial freeform transition. */
-final class ShellWindowedTaskLauncher {
+/** Launches a task with its requested mode known before the task appears. */
+final class ShellTaskLauncher {
     interface Listener {
-        void onWindowedLaunchStarting(ComponentName component);
-        void onWindowedTaskIdentified(
+        void onTaskLaunchStarting(
+                ComponentName component, int windowingMode);
+        void onTaskIdentified(
                 int taskId,
                 ComponentName component,
                 int displayId,
-                Rect bounds);
-        void onWindowedLaunchFinished(ComponentName component);
+                Rect bounds,
+                int windowingMode);
+        void onTaskLaunchFinished(
+                ComponentName component, int windowingMode);
     }
 
     private static final String TAG = "MagicDeskWindowLaunch";
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
@@ -29,7 +33,7 @@ final class ShellWindowedTaskLauncher {
 
     private volatile PendingLaunch mPendingLaunch;
 
-    ShellWindowedTaskLauncher(
+    ShellTaskLauncher(
             final Object service,
             final PackageManager packageManager,
             final ShellDesktopTaskOwnership ownership,
@@ -40,7 +44,7 @@ final class ShellWindowedTaskLauncher {
         mListener = listener;
     }
 
-    synchronized int launch(
+    synchronized int launchWindowed(
             final int displayId,
             final String intentUri,
             final Rect bounds,
@@ -55,14 +59,18 @@ final class ShellWindowedTaskLauncher {
                 LaunchActivityIdentity.resolve(
                         mPackageManager, intent.getComponent());
         final PendingLaunch pending = new PendingLaunch(
-                activityIdentity, displayId, bounds);
+                activityIdentity,
+                displayId,
+                bounds,
+                WINDOWING_MODE_FREEFORM);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another windowed task launch is in progress");
         }
         mPendingLaunch = pending;
         if (mListener != null) {
-            mListener.onWindowedLaunchStarting(intent.getComponent());
+            mListener.onTaskLaunchStarting(
+                    intent.getComponent(), WINDOWING_MODE_FREEFORM);
         }
         try {
             final Class<?> tokenClass = taskAreaToken == null
@@ -89,7 +97,59 @@ final class ShellWindowedTaskLauncher {
             return taskId;
         } finally {
             if (mListener != null) {
-                mListener.onWindowedLaunchFinished(intent.getComponent());
+                mListener.onTaskLaunchFinished(
+                        intent.getComponent(), WINDOWING_MODE_FREEFORM);
+            }
+            if (mPendingLaunch == pending) {
+                mPendingLaunch = null;
+            }
+        }
+    }
+
+    synchronized int launchFullscreen(
+            final int displayId,
+            final String intentUri) throws ReflectiveOperationException {
+        if (displayId < 0) {
+            throw new IllegalArgumentException(
+                    "fullscreen launch requires a display");
+        }
+        final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
+                intentUri);
+        final LaunchActivityIdentity activityIdentity =
+                LaunchActivityIdentity.resolve(
+                        mPackageManager, intent.getComponent());
+        final PendingLaunch pending = new PendingLaunch(
+                activityIdentity,
+                displayId,
+                new Rect(),
+                WINDOWING_MODE_FULLSCREEN);
+        if (mPendingLaunch != null) {
+            throw new IllegalStateException(
+                    "another task launch is in progress");
+        }
+        mPendingLaunch = pending;
+        if (mListener != null) {
+            mListener.onTaskLaunchStarting(
+                    intent.getComponent(), WINDOWING_MODE_FULLSCREEN);
+        }
+        try {
+            final int taskId =
+                    TaskDisplayAreaLaunchCommand.launchFullscreenTask(
+                            mService,
+                            displayId,
+                            intent,
+                            intent.getComponent().getPackageName());
+            pending.complete(taskId);
+            TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                    mService,
+                    displayId,
+                    taskId,
+                    WINDOWING_MODE_FULLSCREEN);
+            return taskId;
+        } finally {
+            if (mListener != null) {
+                mListener.onTaskLaunchFinished(
+                        intent.getComponent(), WINDOWING_MODE_FULLSCREEN);
             }
             if (mPendingLaunch == pending) {
                 mPendingLaunch = null;
@@ -110,6 +170,7 @@ final class ShellWindowedTaskLauncher {
         private final LaunchActivityIdentity mActivityIdentity;
         private final int mDisplayId;
         private final Rect mBounds;
+        private final int mWindowingMode;
         private int mObservedTaskId = -1;
         private IBinder mTransitionToken;
         private boolean mApplied;
@@ -119,10 +180,12 @@ final class ShellWindowedTaskLauncher {
         PendingLaunch(
                 final LaunchActivityIdentity activityIdentity,
                 final int displayId,
-                final Rect bounds) {
+                final Rect bounds,
+                final int windowingMode) {
             mActivityIdentity = activityIdentity;
             mDisplayId = displayId;
             mBounds = new Rect(bounds);
+            mWindowingMode = windowingMode;
         }
 
         synchronized void onTaskCreated(
@@ -164,6 +227,10 @@ final class ShellWindowedTaskLauncher {
             if (mApplied) {
                 return;
             }
+            if (mWindowingMode == WINDOWING_MODE_FULLSCREEN) {
+                mApplied = true;
+                return;
+            }
             if (mTransitionToken == null) {
                 throw new IllegalStateException(
                         "launch transition token is unavailable");
@@ -186,11 +253,12 @@ final class ShellWindowedTaskLauncher {
             mIdentified = true;
             mOwnership.markDesktop(taskId);
             if (mListener != null) {
-                mListener.onWindowedTaskIdentified(
+                mListener.onTaskIdentified(
                         taskId,
                         mActivityIdentity.requestedComponent(),
                         mDisplayId,
-                        mBounds);
+                        mBounds,
+                        mWindowingMode);
             }
         }
     }

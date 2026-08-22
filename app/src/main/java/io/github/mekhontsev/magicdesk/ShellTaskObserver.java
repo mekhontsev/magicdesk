@@ -42,7 +42,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskStateMonitor mStateMonitor;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
             new ShellDesktopTaskOwnership();
-    private final ShellWindowedTaskLauncher mWindowedTaskLauncher;
+    private final ShellTaskLauncher mTaskLauncher;
     private final ShellFullscreenTaskArea mFullscreenTaskArea =
             new ShellFullscreenTaskArea(mDesktopOwnership);
     private final ShellDesktopTaskArea mDesktopTaskArea;
@@ -100,13 +100,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     }
                 },
                 windowing.requiresNativeFullscreenCaptionRefresh());
-        mWindowedTaskLauncher = new ShellWindowedTaskLauncher(
+        mTaskLauncher = new ShellTaskLauncher(
                 mService,
                 context.getPackageManager(),
                 mDesktopOwnership,
                 mTaskActivityModeGuard);
         mDesktopTaskArea = new ShellDesktopTaskArea(
-                mService, mDesktopOwnership, mWindowedTaskLauncher);
+                mService, mDesktopOwnership, mTaskLauncher);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mOwnerToken = ownerToken;
         mWindowing = windowing;
@@ -550,7 +550,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final boolean managedArea = mDesktopTaskArea.manages(displayId);
             final int taskId = managedArea
                     ? mDesktopTaskArea.launch(displayId, intentUri, bounds)
-                    : mWindowedTaskLauncher.launch(
+                    : mTaskLauncher.launchWindowed(
                             displayId, intentUri, bounds, null);
             reportDesktopTaskOwnership();
             if (managedArea) {
@@ -581,6 +581,29 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     displayId, intentUri);
             reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch fullscreen task: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    int launchFullscreenTask(
+            final int displayId,
+            final String intentUri) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalArgumentException(
+                    "display is not configured: " + displayId);
+        }
+        try {
+            final int taskId = mTaskLauncher.launchFullscreen(
+                    displayId, intentUri);
+            reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -701,7 +724,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskCreated(
             final int taskId,
             final ComponentName componentName) {
-        mWindowedTaskLauncher.onTaskCreated(taskId, componentName);
+        mTaskLauncher.onTaskCreated(taskId, componentName);
         if (PHONE_TOUCHPAD_ACTIVITY.equals(componentName)) {
             synchronized (this) {
                 mPhoneTouchpadTaskId = taskId;

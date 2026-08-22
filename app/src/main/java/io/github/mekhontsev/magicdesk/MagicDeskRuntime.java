@@ -362,6 +362,16 @@ public final class MagicDeskRuntime {
         return tasks.launchFullscreenTaskInDesktopArea(displayId, intent);
     }
 
+    static int launchFullscreenTask(
+            final int displayId,
+            final Intent intent) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.launchFullscreenTask(displayId, intent);
+    }
+
     static void launchTaskAction(
             final int displayId,
             final int taskId,

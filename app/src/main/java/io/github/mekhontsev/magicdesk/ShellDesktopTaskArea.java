@@ -29,7 +29,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
 
     private final Object mService;
     private final ShellDesktopTaskOwnership mOwnership;
-    private final ShellWindowedTaskLauncher mWindowedTaskLauncher;
+    private final ShellTaskLauncher mTaskLauncher;
     private final Set<Integer> mTaskIds = new LinkedHashSet<>();
 
     private TaskDisplayAreaHandle mArea;
@@ -42,10 +42,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     ShellDesktopTaskArea(
             final Object service,
             final ShellDesktopTaskOwnership ownership,
-            final ShellWindowedTaskLauncher windowedTaskLauncher) {
+            final ShellTaskLauncher taskLauncher) {
         mService = service;
         mOwnership = ownership;
-        mWindowedTaskLauncher = windowedTaskLauncher;
+        mTaskLauncher = taskLauncher;
     }
 
     synchronized void configure(
@@ -128,7 +128,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             final Rect bounds) throws ReflectiveOperationException {
         requireConfigured(displayId, bounds);
         ensureArea();
-        final int taskId = mWindowedTaskLauncher.launch(
+        final int taskId = mTaskLauncher.launchWindowed(
                 displayId, intentUri, bounds, mArea.token());
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, mArea.featureId(), true);

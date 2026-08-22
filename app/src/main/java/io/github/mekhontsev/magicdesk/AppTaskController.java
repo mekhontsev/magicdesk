@@ -587,9 +587,8 @@ final class AppTaskController {
             return MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
                     displayId, launchIntent);
         }
-        FullscreenAppLauncher.launch(launchIntent, displayId);
-        return ExistingTaskController.normalizeLaunchedFullscreen(
-                app.launchTarget, displayId).taskId;
+        return MagicDeskRuntime.launchFullscreenTask(
+                displayId, launchIntent);
     }
 
     private void showMissingLauncher(final AppItem app) {

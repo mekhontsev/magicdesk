@@ -16,7 +16,7 @@ import java.util.Map;
 
 /** Preserves an explicitly selected task mode across activity handoffs. */
 final class ShellTaskActivityModeGuard implements
-        ShellWindowedTaskLauncher.Listener,
+        ShellTaskLauncher.Listener,
         ShellActivityStartController.Listener {
     interface Listener {
         void onTaskCorrected(
@@ -40,6 +40,7 @@ final class ShellTaskActivityModeGuard implements
     private final ArrayDeque<PendingStart> mPendingStarts = new ArrayDeque<>();
 
     private ComponentName mInitialLaunchComponent;
+    private int mInitialLaunchWindowingMode;
     private int mDisplayId = Display.INVALID_DISPLAY;
 
     ShellTaskActivityModeGuard(
@@ -57,37 +58,49 @@ final class ShellTaskActivityModeGuard implements
         }
         mDisplayId = displayId;
         mInitialLaunchComponent = null;
+        mInitialLaunchWindowingMode = 0;
         mTasks.clear();
         mPendingStarts.clear();
     }
 
     @Override
-    public synchronized void onWindowedLaunchStarting(
-            final ComponentName component) {
+    public synchronized void onTaskLaunchStarting(
+            final ComponentName component,
+            final int windowingMode) {
         mInitialLaunchComponent = component;
+        mInitialLaunchWindowingMode = windowingMode;
     }
 
     @Override
-    public synchronized void onWindowedTaskIdentified(
+    public synchronized void onTaskIdentified(
             final int taskId,
             final ComponentName component,
             final int displayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int windowingMode) {
         if (displayId != mDisplayId
                 || component == null
-                || bounds == null
-                || bounds.isEmpty()) {
+                || !isSupportedMode(windowingMode)
+                || (windowingMode == WINDOWING_MODE_FREEFORM
+                        && (bounds == null || bounds.isEmpty()))) {
             return;
         }
         mInitialLaunchComponent = null;
+        mInitialLaunchWindowingMode = 0;
+        final TaskRecord record = new TaskRecord(
+                taskId,
+                component,
+                displayId,
+                bounds == null ? new Rect() : bounds,
+                windowingMode);
+        if (windowingMode == WINDOWING_MODE_FULLSCREEN) {
+            // A vendor organizer may report the newly created task as
+            // freeform before the requested launch mode is committed.
+            record.activityState.arm(null, component.getPackageName());
+        }
         mTasks.put(
                 Integer.valueOf(taskId),
-                new TaskRecord(
-                        taskId,
-                        component,
-                        displayId,
-                        bounds,
-                        WINDOWING_MODE_FREEFORM));
+                record);
     }
 
     synchronized boolean onExplicitFullscreenTaskIdentified(
@@ -98,6 +111,11 @@ final class ShellTaskActivityModeGuard implements
             return false;
         }
         final TaskRecord previous = mTasks.get(Integer.valueOf(taskId));
+        if (previous != null
+                && previous.preferredWindowingMode
+                        == WINDOWING_MODE_FULLSCREEN) {
+            return true;
+        }
         mTasks.put(
                 Integer.valueOf(taskId),
                 new TaskRecord(
@@ -110,10 +128,14 @@ final class ShellTaskActivityModeGuard implements
     }
 
     @Override
-    public synchronized void onWindowedLaunchFinished(
-            final ComponentName component) {
-        if (component != null && component.equals(mInitialLaunchComponent)) {
+    public synchronized void onTaskLaunchFinished(
+            final ComponentName component,
+            final int windowingMode) {
+        if (component != null
+                && component.equals(mInitialLaunchComponent)
+                && windowingMode == mInitialLaunchWindowingMode) {
             mInitialLaunchComponent = null;
+            mInitialLaunchWindowingMode = 0;
         }
     }
 
@@ -186,12 +208,22 @@ final class ShellTaskActivityModeGuard implements
                                 == WINDOWING_MODE_FREEFORM
                         && observation.rootComponent != null
                         && !observation.bounds.isEmpty()) {
+                    final boolean pendingFullscreen =
+                            isInitialFullscreenTask(
+                                    observation.rootComponent);
                     record = new TaskRecord(
                             observation.taskId,
                             observation.rootComponent,
                             displayId,
                             observation.bounds,
-                            WINDOWING_MODE_FREEFORM);
+                            pendingFullscreen
+                                    ? WINDOWING_MODE_FULLSCREEN
+                                    : WINDOWING_MODE_FREEFORM);
+                    if (pendingFullscreen) {
+                        record.activityState.arm(
+                                null,
+                                observation.rootComponent.getPackageName());
+                    }
                     mTasks.put(Integer.valueOf(observation.taskId), record);
                 }
                 if (record == null) {
@@ -293,6 +325,20 @@ final class ShellTaskActivityModeGuard implements
 
     private synchronized int configuredDisplayId() {
         return mDisplayId;
+    }
+
+    private boolean isInitialFullscreenTask(
+            final ComponentName component) {
+        return mInitialLaunchWindowingMode == WINDOWING_MODE_FULLSCREEN
+                && mInitialLaunchComponent != null
+                && component != null
+                && mInitialLaunchComponent.getPackageName().equals(
+                        component.getPackageName());
+    }
+
+    private static boolean isSupportedMode(final int windowingMode) {
+        return windowingMode == WINDOWING_MODE_FULLSCREEN
+                || windowingMode == WINDOWING_MODE_FREEFORM;
     }
 
     private void correlatePendingStarts(final List<ObservedTask> observations) {

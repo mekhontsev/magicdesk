@@ -313,6 +313,21 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object service,
             final int displayId,
             final Intent intent,
+            final String expectedPackage) throws ReflectiveOperationException {
+        return launchFullscreenTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                null,
+                null,
+                ACTIVITY_TYPE_UNDEFINED);
+    }
+
+    static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
             final String expectedPackage,
             final Class<?> containerTokenClass,
             final Object areaToken) throws ReflectiveOperationException {
@@ -335,15 +350,17 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
         if (intent == null || intent.getComponent() == null
-                || areaToken == null) {
+                || (areaToken == null) != (containerTokenClass == null)) {
             throw new IllegalArgumentException(
-                    "fullscreen task-area launch requires an explicit target");
+                    "fullscreen launch requires an explicit target");
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        ActivityOptions.class.getMethod(
-                "setLaunchTaskDisplayArea", containerTokenClass)
-                .invoke(options, areaToken);
+        if (areaToken != null) {
+            ActivityOptions.class.getMethod(
+                    "setLaunchTaskDisplayArea", containerTokenClass)
+                    .invoke(options, areaToken);
+        }
         ActivityOptions.class.getMethod(
                 "setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, Integer.valueOf(WINDOWING_MODE_FULLSCREEN));

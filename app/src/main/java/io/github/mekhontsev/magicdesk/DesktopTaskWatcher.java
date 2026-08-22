@@ -201,6 +201,18 @@ final class DesktopTaskWatcher {
                 intent.toUri(Intent.URI_INTENT_SCHEME));
     }
 
+    int launchFullscreenTask(
+            final int displayId,
+            final Intent intent) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || intent == null) {
+            throw new IOException("desktop task observer is unavailable");
+        }
+        return handle.launchFullscreenTask(
+                displayId,
+                intent.toUri(Intent.URI_INTENT_SCHEME));
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,

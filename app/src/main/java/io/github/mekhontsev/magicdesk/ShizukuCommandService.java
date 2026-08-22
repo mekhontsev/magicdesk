@@ -470,6 +470,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public int launchFullscreenTask(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String intentUri) {
+        return mTaskObserverManager.launchFullscreenTask(
+                callback, displayId, intentUri);
+    }
+
+    @Override
     public void launchTaskAction(
             final ITaskObserverCallback callback,
             final int displayId,
