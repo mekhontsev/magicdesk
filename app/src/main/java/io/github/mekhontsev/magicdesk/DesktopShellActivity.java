@@ -1663,6 +1663,15 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.launchForMode(app, mode, onPrepared);
     }
 
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
+            final Runnable onPrepared) {
+        mAppTasks.launchForMode(
+                app, mode, preferredBounds, onPrepared);
+    }
+
     void launchFloating(final AppItem app) {
         mAppTasks.launchFloating(app);
     }

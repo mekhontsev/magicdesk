@@ -106,8 +106,10 @@ public final class DesktopRuntimeBridge {
     static boolean launchApplication(
             final AppLaunchTarget target,
             final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
             final int displayId) {
-        return UI.launchApplication(target, mode, displayId);
+        return UI.launchApplication(
+                target, mode, preferredBounds, displayId);
     }
 
     static boolean invokeAppAction(

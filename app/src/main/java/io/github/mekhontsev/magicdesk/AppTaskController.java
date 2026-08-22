@@ -93,12 +93,22 @@ final class AppTaskController {
             final AppItem app,
             final DesktopLaunchMode mode,
             final Runnable onPrepared) {
+        launchForMode(app, mode, null, onPrepared);
+    }
+
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
+            final Runnable onPrepared) {
         if (mode == DesktopLaunchMode.WINDOWED) {
             final AppWindowState saved = savedWindowState(app);
             launchFloating(
                     app,
                     true,
-                    saved == null ? null : saved.windowBounds,
+                    preferredBounds != null
+                            ? preferredBounds
+                            : saved == null ? null : saved.windowBounds,
                     WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
                     onPrepared);
         } else if (mode == DesktopLaunchMode.FULLSCREEN) {

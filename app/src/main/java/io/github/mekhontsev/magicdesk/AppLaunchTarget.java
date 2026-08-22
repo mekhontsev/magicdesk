@@ -50,6 +50,16 @@ public final class AppLaunchTarget {
         if (activityClassName.isEmpty()) {
             return packageManager.getLaunchIntentForPackage(packageName);
         }
+        if (action.isEmpty() || Intent.ACTION_MAIN.equals(action)) {
+            final Intent launcher =
+                    packageManager.getLaunchIntentForPackage(packageName);
+            if (launcher != null
+                    && launcher.getComponent() != null
+                    && activityClassName.equals(
+                            launcher.getComponent().getClassName())) {
+                return launcher;
+            }
+        }
         return new Intent(action.isEmpty() ? Intent.ACTION_MAIN : action)
                 .setClassName(packageName, activityClassName);
     }

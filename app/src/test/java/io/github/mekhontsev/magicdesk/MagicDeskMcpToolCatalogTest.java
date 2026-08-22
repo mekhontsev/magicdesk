@@ -63,6 +63,23 @@ public final class MagicDeskMcpToolCatalogTest {
         assertFalse(shell.contains("run_self_test"));
     }
 
+    @Test
+    public void launchAppAcceptsOptionalInitialWindowBounds()
+            throws Exception {
+        final JSONObject schema = tool(
+                MagicDeskMcpToolCatalog.create(false), "launch_app")
+                .getJSONObject("inputSchema");
+        final JSONObject bounds = schema.getJSONObject("properties")
+                .getJSONObject("bounds");
+
+        assertEquals("object", bounds.getString("type"));
+        assertFalse(bounds.getBoolean("additionalProperties"));
+        assertEquals(4, bounds.getJSONArray("required").length());
+        final JSONArray required = schema.getJSONArray("required");
+        assertEquals(1, required.length());
+        assertEquals("package", required.getString(0));
+    }
+
     private static Set<String> names(final JSONArray tools)
             throws Exception {
         final Set<String> result = new HashSet<>();
@@ -70,5 +87,17 @@ public final class MagicDeskMcpToolCatalogTest {
             result.add(tools.getJSONObject(index).getString("name"));
         }
         return result;
+    }
+
+    private static JSONObject tool(
+            final JSONArray tools,
+            final String name) throws Exception {
+        for (int index = 0; index < tools.length(); index++) {
+            final JSONObject tool = tools.getJSONObject(index);
+            if (name.equals(tool.getString("name"))) {
+                return tool;
+            }
+        }
+        throw new AssertionError("tool not found: " + name);
     }
 }

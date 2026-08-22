@@ -105,7 +105,9 @@ final class MagicDeskMcpToolCatalog {
                                                 "Launch mode.", "auto",
                                                 "windowed", "fullscreen"))
                                         .put("displayId", integerProperty(
-                                                "Active desktop display id.")),
+                                                "Active desktop display id."))
+                                        .put("bounds", boundsProperty(
+                                                "Initial bounds for a newly launched windowed task.")),
                                 "package")))
                 .put(actionTool(
                         "focus_task",

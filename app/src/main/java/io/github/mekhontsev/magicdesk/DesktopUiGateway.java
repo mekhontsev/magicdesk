@@ -258,6 +258,7 @@ final class DesktopUiGateway {
     boolean launchApplication(
             final AppLaunchTarget target,
             final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
             final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
@@ -273,7 +274,8 @@ final class DesktopUiGateway {
             final AppItem app = activity.findOrLoadApp(
                     activity.getLauncherApps(), target);
             if (app != null) {
-                activity.launchForMode(app, mode, null);
+                activity.launchForMode(
+                        app, mode, preferredBounds, null);
             }
         });
         return true;

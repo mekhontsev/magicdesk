@@ -298,7 +298,7 @@ final class DesktopAutomationController {
     }
 
     private DesktopAutomationResult launchApp(final JSONObject args)
-            throws JSONException, InterruptedException {
+            throws IOException, JSONException, InterruptedException {
         final String packageName = requiredString(args, "package");
         final AppLaunchTarget target = appTarget(args);
         final DesktopLaunchMode mode = parseLaunchMode(
@@ -313,8 +313,10 @@ final class DesktopAutomationController {
                     DesktopAutomationErrorCode.DISPLAY_NOT_AVAILABLE,
                     "the requested display has no active desktop host", true);
         }
+        final RelativeWindowBounds preferredBounds = readLaunchBounds(
+                args, mode, displayId);
         if (!DesktopRuntimeBridge.launchApplication(
-                target, mode, displayId)) {
+                target, mode, preferredBounds, displayId)) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                     "desktop host is unavailable", true);
@@ -326,6 +328,9 @@ final class DesktopAutomationController {
                 .put("displayId", displayId)
                 .put("mode", mode.wireName)
                 .put("taskObserved", launchedTask != null);
+        if (args.has("bounds")) {
+            data.put("requestedBounds", args.getJSONObject("bounds"));
+        }
         if (launchedTask != null) {
             data.put("taskId", launchedTask.taskId)
                     .put("observedMode", DesktopLaunchMode
@@ -1157,6 +1162,36 @@ final class DesktopAutomationController {
             throw new IllegalArgumentException("invalid bounds");
         }
         return bounds;
+    }
+
+    private static RelativeWindowBounds readLaunchBounds(
+            final JSONObject args,
+            final DesktopLaunchMode mode,
+            final int displayId) throws IOException {
+        if (!args.has("bounds")) {
+            return null;
+        }
+        if (mode != DesktopLaunchMode.WINDOWED) {
+            throw new IllegalArgumentException(
+                    "bounds require mode=windowed");
+        }
+        final Rect bounds = readBounds(
+                requiredObject(args, "bounds"), displayId);
+        final Rect workArea = FloatingWindowController.getWorkAreaBounds(
+                displayId);
+        if (bounds.left < workArea.left
+                || bounds.top < workArea.top
+                || bounds.right > workArea.right
+                || bounds.bottom > workArea.bottom) {
+            throw new IllegalArgumentException(
+                    "bounds must be inside the desktop work area");
+        }
+        final RelativeWindowBounds relative = RelativeWindowBounds.from(
+                bounds, workArea);
+        if (relative == null) {
+            throw new IllegalArgumentException("invalid bounds");
+        }
+        return relative;
     }
 
     private static DesktopLaunchMode parseLaunchMode(final String value) {
