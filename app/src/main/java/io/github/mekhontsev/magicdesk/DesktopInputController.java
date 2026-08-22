@@ -10,6 +10,8 @@ final class DesktopInputController {
     private boolean mPanelBackDown;
     private boolean mContextButtonDown;
     private boolean mContextButtonTouchSequence;
+    private float mContextClickX;
+    private float mContextClickY;
     private float mLastPointerX;
     private float mLastPointerY;
 
@@ -41,12 +43,14 @@ final class DesktopInputController {
         }
         if (action == MotionEvent.ACTION_DOWN && contextButtonDown) {
             mContextButtonTouchSequence = true;
-            beginContextButtonClick();
+            beginContextButtonSequence();
             return true;
         }
         if (mContextButtonTouchSequence) {
-            if (action == MotionEvent.ACTION_UP
-                    || action == MotionEvent.ACTION_CANCEL) {
+            if (action == MotionEvent.ACTION_UP) {
+                completeContextButtonClick();
+                resetContextButtonState();
+            } else if (action == MotionEvent.ACTION_CANCEL) {
                 resetContextButtonState();
             }
             return true;
@@ -71,7 +75,7 @@ final class DesktopInputController {
                                 && contextButtonState)
                         || (contextButtonState && !mContextButtonDown);
         if (contextPress) {
-            beginContextButtonClick();
+            beginContextButtonSequence();
             return true;
         }
         if ((action == MotionEvent.ACTION_BUTTON_RELEASE
@@ -79,7 +83,7 @@ final class DesktopInputController {
                 || (action == MotionEvent.ACTION_UP && mContextButtonDown)
                 || (mContextButtonDown && !contextButtonState)) {
             if (!mContextButtonTouchSequence) {
-                mContextButtonDown = false;
+                completeContextButtonClick();
             }
             return true;
         }
@@ -145,13 +149,24 @@ final class DesktopInputController {
         return event.getActionButton() == MotionEvent.BUTTON_SECONDARY;
     }
 
-    private void beginContextButtonClick() {
+    private void beginContextButtonSequence() {
         if (mContextButtonDown) {
             return;
         }
         mContextButtonDown = true;
+        mContextClickX = mLastPointerX;
+        mContextClickY = mLastPointerY;
         mActivity.captureInteractionStackForPanel();
-        mActivity.handleSecondaryClick(mLastPointerX, mLastPointerY);
+    }
+
+    private void completeContextButtonClick() {
+        if (!mContextButtonDown) {
+            return;
+        }
+        mContextButtonDown = false;
+        // Replacing an overlay while its button sequence is still active can
+        // route the remaining events to the desktop underneath it.
+        mActivity.handleSecondaryClick(mContextClickX, mContextClickY);
     }
 
     private void resetContextButtonState() {

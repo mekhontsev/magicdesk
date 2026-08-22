@@ -139,9 +139,11 @@ final class DesktopContextMenuController {
             showTaskbarMenu(x, y);
             return;
         }
-        ContextTarget target = findHoveredTarget();
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        final boolean insidePanel = overlays != null && overlays.contains(x, y);
+        ContextTarget target = findHoveredTarget(x, y, insidePanel);
         if (target == null) {
-            target = findTargetAt(x, y);
+            target = findTargetAt(x, y, insidePanel);
         }
         if (target != null) {
             showTargetMenu(x, y, target);
@@ -150,8 +152,7 @@ final class DesktopContextMenuController {
         if (taskbarArea == TaskbarController.ContextArea.ACTION) {
             return;
         }
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && overlays.contains(x, y)) {
+        if (insidePanel) {
             return;
         }
         showDesktopMenu(x, y);
@@ -306,25 +307,46 @@ final class DesktopContextMenuController {
         positionAndShow(x, y);
     }
 
-    private ContextTarget findHoveredTarget() {
+    private ContextTarget findHoveredTarget(
+            final float x,
+            final float y,
+            final boolean insidePanel) {
         final View view = mHoveredTargetView;
-        if (view == null || !view.isAttachedToWindow() || !view.isShown()) {
+        if (!isEligibleTarget(view, x, y, insidePanel)) {
             mHoveredTargetView = null;
             return null;
         }
         return mTargets.get(view);
     }
 
-    private ContextTarget findTargetAt(final float x, final float y) {
+    private ContextTarget findTargetAt(
+            final float x,
+            final float y,
+            final boolean insidePanel) {
         for (final Map.Entry<View, ContextTarget> entry : mTargets.entrySet()) {
             final View view = entry.getKey();
-            if (view != null
-                    && view.isShown()
-                    && mActivity.isPointInside(view, x, y)) {
+            if (isEligibleTarget(view, x, y, insidePanel)) {
                 return entry.getValue();
             }
         }
         return null;
+    }
+
+    private boolean isEligibleTarget(
+            final View view,
+            final float x,
+            final float y,
+            final boolean insidePanel) {
+        if (view == null
+                || !view.isAttachedToWindow()
+                || !view.isShown()
+                || !mActivity.isPointInside(view, x, y)) {
+            return false;
+        }
+        final OverlayPanelController overlays = mActivity.overlayPanels();
+        return !insidePanel
+                || (overlays != null
+                        && overlays.containsVisiblePanelView(view));
     }
 
     private void showForView(

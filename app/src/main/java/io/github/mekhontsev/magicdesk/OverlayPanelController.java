@@ -15,6 +15,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewParent;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -510,6 +511,21 @@ final class OverlayPanelController {
 
     boolean contains(final float x, final float y) {
         return hasVisiblePanel() && mBounds.contains(Math.round(x), Math.round(y));
+    }
+
+    boolean containsVisiblePanelView(final View view) {
+        if (!hasVisiblePanel() || view == null) {
+            return false;
+        }
+        View current = view;
+        while (current != null) {
+            if (current == mVisiblePanel) {
+                return true;
+            }
+            final ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        return false;
     }
 
     private InputConnection textInputConnection(final View focused) {
