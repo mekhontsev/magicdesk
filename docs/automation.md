@@ -86,11 +86,12 @@ cursors are tool failures rather than transport-level JSON-RPC exceptions.
 
 Normal read tools include:
 
-- `magicdesk.get_state`: session, shell, platform, runtime, and MagicDesk-owned
-  UI state;
+- `magicdesk.get_state`: session, shell, platform, runtime, MagicDesk-owned UI,
+  actual focused input windows, and system error dialogs;
 - `magicdesk.list_displays`: display modes, dimensions, density, and work area;
-- `magicdesk.list_tasks`: task focus, visibility, bounds, display, and native
-  and normalized window modes;
+- `magicdesk.list_tasks`: task focus, visibility, bounds, display, native and
+  normalized window modes, rendered-window state, process health, and blocking
+  system dialogs;
 - `magicdesk.list_apps`: launchable Android activities;
 - `magicdesk.get_events`, `magicdesk.get_diagnostics`, and
   `magicdesk.get_self_test`;
@@ -105,6 +106,15 @@ touchpad, and phone control panel. Bounds are included for surfaces owned by
 the desktop host. Screenshot capture returns PNG bytes as MCP image content and
 does not create a file. Pixel sampling reads up to 64 coordinates in one shell
 capture operation and returns exact ARGB and component values.
+
+`get_state.windows` distinguishes Android's focused application record from
+the actual focused input window on each display. This matters when a crash,
+ANR, permission, or other system-owned window is above an application whose
+task still looks active. Each task's `health` reports whether its application
+window is rendered, whether it owns input focus, whether a replacement process
+is alive, and whether a system dialog blocks it. Process failures come from the
+existing shell task observer; input-window state is read through the shell
+service and does not create another observer.
 
 ## Desktop Commands
 
@@ -145,7 +155,8 @@ bounded by the server lifetime. At most eight sessions may exist at once.
 `magicdesk://events` and `magicdesk.get_events` expose a bounded, process-local
 journal. Events come from the existing production observers and include:
 
-- task add/remove, display move, focus, visibility, window mode, and bounds;
+- task add/remove, display move, focus, top activity, visibility, window mode,
+  and bounds;
 - display add/remove/change;
 - taskbar, popup, wallpaper, touchpad, and control-panel state;
 - pointer bridge loss and restoration;
@@ -160,7 +171,9 @@ file contents. It is observability, not persistent telemetry.
 on the shared event journal, and checks again only after a runtime change or
 timeout. It does not poll every 200 ms. Conditions include desktop
 active/inactive, task present/absent/mode/focus/bounds, pointer readiness,
-MagicDesk UI visibility, taskbar, wallpaper, and self-test completion.
+application ready/crashed/not-responding state, blocking system-dialog
+visibility, MagicDesk UI visibility, taskbar, wallpaper, and self-test
+completion.
 
 Asynchronous commands return when MagicDesk accepts the request. Use
 `wait_for_state` to establish the required postcondition instead of assuming a

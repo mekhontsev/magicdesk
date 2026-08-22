@@ -61,13 +61,18 @@ final class DesktopAutomationTaskEventTracker {
                         .put("previousWindowingMode", previous.windowingMode),
                         previous.windowingMode + " -> " + next.windowingMode);
             }
-            if (!previous.bounds.equals(next.bounds)) {
+            if (!sameBounds(previous.bounds, next.bounds)) {
                 record("bounds_changed", taskId, next.toJson()
                         .put("previousBounds", rectJson(previous.bounds)),
                         next.bounds.toShortString());
             }
             if (!previous.active && next.active) {
                 record("focused", taskId, next.toJson(), next.packageName);
+            }
+            if (!previous.topActivity.equals(next.topActivity)) {
+                record("top_activity_changed", taskId, next.toJson()
+                        .put("previousTopActivity", previous.topActivity),
+                        next.topActivity);
             }
             if (previous.visible != next.visible) {
                 record("visibility_changed", taskId, next.toJson()
@@ -123,11 +128,19 @@ final class DesktopAutomationTaskEventTracker {
                 .put("bottom", rect.bottom);
     }
 
+    private static boolean sameBounds(final Rect first, final Rect second) {
+        return first.left == second.left
+                && first.top == second.top
+                && first.right == second.right
+                && first.bottom == second.bottom;
+    }
+
     private static final class State {
         final int displayId;
         final String windowingMode;
         final Rect bounds;
         final String packageName;
+        final String topActivity;
         final boolean visible;
         final boolean active;
 
@@ -136,6 +149,8 @@ final class DesktopAutomationTaskEventTracker {
             windowingMode = task.windowingMode;
             bounds = new Rect(task.bounds);
             packageName = task.packageName;
+            topActivity = task.topActivityName == null
+                    ? "" : task.topActivityName;
             visible = task.visible;
             active = task.active;
         }
@@ -147,6 +162,7 @@ final class DesktopAutomationTaskEventTracker {
                     .put("mode", windowingMode)
                     .put("bounds", rectJson(bounds))
                     .put("package", packageName)
+                    .put("topActivity", topActivity)
                     .put("visible", visible)
                     .put("active", active);
         }

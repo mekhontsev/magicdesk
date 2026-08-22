@@ -333,6 +333,9 @@ final class DesktopAutomationController {
                                     launchedTask.windowingMode))
                     .put("nativeWindowingMode",
                             launchedTask.windowingMode);
+            data.put("health", DesktopWindowObservation.capture()
+                    .health(launchedTask)
+                    .toJson());
         }
         return DesktopAutomationResult.success(
                 "application launch accepted",
@@ -860,6 +863,62 @@ final class DesktopAutomationController {
                 }
                 return observation;
             }
+            case "app_ready":
+            case "app_crashed":
+            case "app_not_responding": {
+                final int taskId = requiredInt(args, "taskId");
+                final TaskRepository.Snapshot snapshot =
+                        TaskRepository.loadAllNow();
+                final TaskRepository.TaskEntry task =
+                        findTask(snapshot, taskId);
+                final DesktopWindowObservation windows =
+                        DesktopWindowObservation.capture();
+                final DesktopWindowObservation.TaskHealth health =
+                        windows.health(task);
+                final DesktopProcessHealthRegistry.Failure failure =
+                        task == null
+                                ? DesktopProcessHealthRegistry.find(taskId)
+                                : health.failure;
+                final boolean matched;
+                if ("app_ready".equals(condition)) {
+                    matched = windows.available() && health.ready;
+                } else if ("app_crashed".equals(condition)) {
+                    matched = health.crashed
+                            || (failure != null && failure.crashed());
+                } else {
+                    matched = health.notResponding
+                            || (failure != null
+                                    && failure.notResponding());
+                }
+                observation.put("matched", matched)
+                        .put("taskId", taskId)
+                        .put("windowStateAvailable", windows.available())
+                        .put("health", health.toJson());
+                if (failure != null && health.failure == null) {
+                    observation.put("lastFailure", failure.toJson());
+                }
+                return observation;
+            }
+            case "system_dialog_visible": {
+                final int displayId = optionalDisplayId(args);
+                final Integer taskId = args.has("taskId")
+                        ? Integer.valueOf(requiredInt(args, "taskId")) : null;
+                final String packageName = optionalString(
+                        args, "package", "");
+                final TaskRepository.Snapshot snapshot =
+                        TaskRepository.loadAllNow();
+                final DesktopWindowObservation windows =
+                        DesktopWindowObservation.capture();
+                return observation
+                        .put("matched", windows.available()
+                                && windows.hasBlockingSystemDialog(
+                                        Integer.valueOf(displayId),
+                                        taskId,
+                                        packageName,
+                                        snapshot))
+                        .put("displayId", displayId)
+                        .put("windowState", windows.toJson());
+            }
             case "pointer_ready":
                 return observation.put(
                         "matched", MagicDeskRuntime.isDesktopMouseBridgeReady());
@@ -931,6 +990,11 @@ final class DesktopAutomationController {
 
     private TaskRepository.TaskEntry findTask(final int taskId) {
         final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
+        return findTask(snapshot, taskId);
+    }
+
+    private static TaskRepository.TaskEntry findTask(
+            final TaskRepository.Snapshot snapshot, final int taskId) {
         if (!snapshot.available) {
             return null;
         }

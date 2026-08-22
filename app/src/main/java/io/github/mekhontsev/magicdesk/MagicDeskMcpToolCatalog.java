@@ -165,7 +165,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool(
                         "magicdesk.wait_for_state",
                         "Wait for state",
-                        "Wait for an observable desktop, task, taskbar, wallpaper, or self-test condition.",
+                        "Wait for an observable desktop, task, application health, system dialog, UI, or self-test condition.",
                         waitSchema()));
         tools.put(readTool(
                         "magicdesk.sample_pixels",
@@ -288,11 +288,16 @@ final class MagicDeskMcpToolCatalog {
                                 "desktop_active", "desktop_inactive",
                                 "task_present", "task_absent",
                                 "task_windowing_mode", "task_focused",
-                                "task_bounds", "pointer_ready", "ui_visible",
+                                "task_bounds", "app_ready", "app_crashed",
+                                "app_not_responding",
+                                "system_dialog_visible",
+                                "pointer_ready", "ui_visible",
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished"))
                         .put("taskId", integerProperty(
-                                "Task id for task conditions."))
+                                "Task id for task or application conditions."))
+                        .put("package", stringProperty(
+                                "Optional package filter for a system dialog."))
                         .put("mode", enumProperty(
                                 "Expected task mode.",
                                 "windowed", "freeform", "fullscreen"))

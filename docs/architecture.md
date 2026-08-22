@@ -388,13 +388,18 @@ runtime integration and are not distributed through the same release path.
   `DesktopAutomationResult`. It does not implement a second desktop policy.
 - `DesktopAutomationStateReader` exposes immutable snapshots of runtime,
   displays, tasks, launchable applications, MagicDesk-owned UI, diagnostics,
-  and self-test state. Task and application queries share bounded filtering
-  and cursor pagination.
+  self-test state, and the actual input window above each focused application.
+  `DesktopWindowObservation` joins that shell-owned input state with bounded
+  crash/ANR state from the existing task observer, so a surviving
+  `ActivityRecord` is not mistaken for a usable application behind a system
+  error dialog. Task and application queries share bounded filtering and
+  cursor pagination.
 - `DesktopAutomationEventJournal` retains at most 256 process-local structured
   events and provides the condition variable used by event-driven automation
   waits. `DesktopAutomationTaskEventTracker` derives task lifecycle, display,
-  focus, mode, bounds, and visibility events from snapshots already delivered
-  by `DesktopTaskWatcher`; it does not register another task observer.
+  focus, top-activity, mode, bounds, and visibility events from snapshots
+  already delivered by `DesktopTaskWatcher`; it does not register another task
+  observer.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
   enabled, it starts one bounded Streamable HTTP server on literal
   `127.0.0.1:8765`; stopping the runtime closes the listener and workers.

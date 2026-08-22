@@ -705,6 +705,13 @@ final class DesktopTaskWatcher {
             final String topActivity,
             final String reason) {
         postIfActive(generation, () -> {
+            DesktopProcessHealthRegistry.record(
+                    type,
+                    processName,
+                    pid,
+                    taskId,
+                    displayId,
+                    reason);
             final String code = DesktopProcessFailure.code(type);
             final String message = DesktopProcessFailure.message(type);
             if (code.isEmpty() || message.isEmpty()) {

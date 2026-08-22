@@ -230,4 +230,88 @@ public final class TaskInputWindowParserTest {
         assertEquals(6362,
                 TaskInputWindowParser.findFocusedTaskId(focusDump, 155));
     }
+
+    @Test
+    public void exposesFocusedCrashDialogSeparatelyFromFocusedApplication() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "    displayId=20, name='ActivityRecord{123 u0 "
+                        + "com.example.game/.MainActivity t42}', "
+                        + "dispatchingTimeout=8000ms\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=20, name='error1 Application Error: "
+                        + "com.example.game'\n"
+                        + "  FocusRequests:\n"
+                        + "  Display: 20\n"
+                        + "    Windows:\n"
+                        + "      0: name=error1 Application Error: "
+                        + "com.example.game, id=1, displayId=20, "
+                        + "inputConfig=0x0, alpha=1, "
+                        + "applicationInfo.name=, applicationInfo.token=<null>, "
+                        + "ownerPid=1000, ownerUid=1000, token=x\n"
+                        + "      1: name=app1 com.example.game/.MainActivity, "
+                        + "id=2, displayId=20, inputConfig=0x0, alpha=1, "
+                        + "applicationInfo.name=ActivityRecord{123 u0 "
+                        + "com.example.game/.MainActivity t42}, "
+                        + "applicationInfo.token=x, ownerPid=4321, "
+                        + "ownerUid=10123, token=y\n"
+                        + "Input Dispatcher State at time of last ANR:\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=20, name='stale old/.Main'\n";
+
+        final TaskInputWindowParser.WindowSnapshot snapshot =
+                TaskInputWindowParser.readWindowSnapshot(focusDump);
+        final TaskInputWindowParser.FocusedWindow focused =
+                snapshot.focusedWindow(20);
+
+        assertTrue(snapshot.available);
+        assertNotNull(focused);
+        assertEquals(-1, focused.taskId);
+        assertEquals(42, focused.applicationTaskId);
+        assertEquals("com.example.game", focused.packageName);
+        assertEquals("crash_dialog", focused.kind);
+        assertEquals(1, snapshot.systemDialogs().size());
+        assertEquals(4321,
+                snapshot.processWindow(
+                        20, 42, "com.example.game").ownerPid);
+    }
+
+    @Test
+    public void doesNotTreatUnfocusedSystemOverlaysAsDialogs() {
+        final String focusDump =
+                "Input Dispatcher State:\n"
+                        + "  FocusedApplications:\n"
+                        + "  FocusedWindows:\n"
+                        + "    displayId=0, name='app com.example/.Main'\n"
+                        + "  FocusRequests:\n"
+                        + "  Display: 0\n"
+                        + "    Windows:\n"
+                        + "      0: name=gesture Gesture Monitor, id=1, "
+                        + "displayId=0, inputConfig=TRUSTED_OVERLAY, alpha=1, "
+                        + "applicationInfo.name=, ownerPid=100, ownerUid=1000, "
+                        + "token=x\n"
+                        + "      1: name=app com.example/.Main, id=2, "
+                        + "displayId=0, inputConfig=0x0, alpha=1, "
+                        + "applicationInfo.name=ActivityRecord{123 u0 "
+                        + "com.example/.Main t7}, ownerPid=200, "
+                        + "ownerUid=10100, token=y\n";
+
+        final TaskInputWindowParser.WindowSnapshot snapshot =
+                TaskInputWindowParser.readWindowSnapshot(focusDump);
+
+        assertTrue(snapshot.systemDialogs().isEmpty());
+        assertEquals("application", snapshot.focusedWindow(0).kind);
+    }
+
+    @Test
+    public void rejectsTruncatedWindowSnapshot() {
+        final TaskInputWindowParser.WindowSnapshot snapshot =
+                TaskInputWindowParser.readWindowSnapshot(
+                        "Input Dispatcher State:\n"
+                                + "  FocusedWindows:\n"
+                                + "[MagicDesk: command output truncated]");
+
+        assertFalse(snapshot.available);
+    }
 }

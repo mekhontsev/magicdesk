@@ -42,6 +42,8 @@ final class DesktopAutomationStateReader {
         final DesktopUiSnapshot ui = activeDisplayId >= Display.DEFAULT_DISPLAY
                 ? DesktopRuntimeBridge.getAutomationUiSnapshot(activeDisplayId)
                 : DesktopUiSnapshot.UNAVAILABLE;
+        final DesktopWindowObservation windows =
+                DesktopWindowObservation.capture();
         final JSONObject result = new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("app", new JSONObject()
@@ -73,6 +75,7 @@ final class DesktopAutomationStateReader {
                                 MagicDeskRuntime.isSessionWakeLockHeld())
                         .put("selfTestRunning",
                                 DesktopSelfTestController.isRunning()))
+                .put("windows", windows.toJson())
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
@@ -123,6 +126,8 @@ final class DesktopAutomationStateReader {
     JSONObject tasks(final JSONObject arguments) throws JSONException {
         final TaskRepository.Snapshot snapshot =
                 TaskRepository.loadAllNow();
+        final DesktopWindowObservation windows =
+                DesktopWindowObservation.capture();
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final Integer displayFilter = optionalInteger(args, "displayId");
@@ -161,12 +166,14 @@ final class DesktopAutomationStateReader {
         final int end = Math.min(filtered.size(), offset + limit);
         for (int index = Math.min(offset, filtered.size());
                 index < end; index++) {
-            tasks.put(taskJson(filtered.get(index)));
+            final TaskRepository.TaskEntry task = filtered.get(index);
+            tasks.put(taskJson(task, windows.health(task)));
         }
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("available", snapshot.available)
                 .put("error", snapshot.error)
+                .put("windows", windows.toJson())
                 .put("tasks", tasks)
                 .put("items", tasks)
                 .put("count", tasks.length())
@@ -337,7 +344,9 @@ final class DesktopAutomationStateReader {
     }
 
     private static JSONObject taskJson(
-            final TaskRepository.TaskEntry task) throws JSONException {
+            final TaskRepository.TaskEntry task,
+            final DesktopWindowObservation.TaskHealth health)
+            throws JSONException {
         return new JSONObject()
                 .put("rootTaskId", task.rootTaskId)
                 .put("taskId", task.taskId)
@@ -351,7 +360,8 @@ final class DesktopAutomationStateReader {
                 .put("bounds", rectJson(task.bounds))
                 .put("home", task.home)
                 .put("visible", task.visible)
-                .put("active", task.active);
+                .put("active", task.active)
+                .put("health", health.toJson());
     }
 
     private static JSONObject rectJson(final Rect rect)
