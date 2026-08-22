@@ -123,7 +123,7 @@ final class DesktopInputController {
                     && mActivity.hasVisiblePanel()) {
                 mPanelBackDown = true;
                 mActivity.resetAltTabState();
-                mActivity.hideAllPanels();
+                mActivity.hideTopPanel();
                 return true;
             }
             if (event.getAction() == KeyEvent.ACTION_UP && mPanelBackDown) {

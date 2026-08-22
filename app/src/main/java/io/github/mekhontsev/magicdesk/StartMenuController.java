@@ -643,7 +643,7 @@ final class StartMenuController {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            mActivity.hideAllPanels();
+            mActivity.hideTopPanel();
             return true;
         }
         return false;

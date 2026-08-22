@@ -677,7 +677,7 @@ public abstract class DesktopShellActivity extends Activity
         // or leave an external display blank.
         if (hasVisiblePanel()) {
             resetAltTabState();
-            hideAllPanels();
+            hideTopPanel();
             return;
         }
         Log.i(TAG, "ignored Back on desktop host display="
@@ -1518,6 +1518,15 @@ public abstract class DesktopShellActivity extends Activity
         }
         if (mOverlayPanelController != null) {
             mOverlayPanelController.hideAll();
+        }
+    }
+
+    void hideTopPanel() {
+        if (mTaskOverviewController != null) {
+            mTaskOverviewController.cancelPendingShow();
+        }
+        if (mOverlayPanelController != null) {
+            mOverlayPanelController.hideTop();
         }
     }
 

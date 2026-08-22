@@ -19,6 +19,7 @@ import android.view.ViewParent;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.widget.FrameLayout;
 
 final class OverlayPanelController {
     private static final String TAG = "MagicDeskPanels";
@@ -28,14 +29,19 @@ final class OverlayPanelController {
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final WindowManager mWindowManager;
     private final Rect mBounds = new Rect();
+    private final Rect mChildBounds = new Rect();
     private final Rect mPersistentBounds = new Rect();
 
     private View mVisiblePanel;
     private String mVisibleTitle = "";
+    private View mChildPanel;
+    private FrameLayout mChildHost;
+    private String mChildTitle = "";
     private View mPersistentView;
     private WindowManager.LayoutParams mPersistentParams;
     private View mTransientView;
     private boolean mAdded;
+    private boolean mChildAdded;
     private boolean mPersistentAdded;
     private boolean mTransientAdded;
     private boolean mOverlayPermissionGranted;
@@ -127,8 +133,12 @@ final class OverlayPanelController {
 
         panel.setVisibility(View.VISIBLE);
         panel.setOnTouchListener((target, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_OUTSIDE
+            final int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_OUTSIDE
                     && target == mVisiblePanel
+                    && !mChildBounds.contains(
+                            Math.round(event.getRawX()),
+                            Math.round(event.getRawY()))
                     && !mPersistentBounds.contains(
                             Math.round(event.getRawX()), Math.round(event.getRawY()))) {
                 hideAll();
@@ -169,6 +179,119 @@ final class OverlayPanelController {
             CompatibilityDiagnostics.record(
                     "OVERLAY-004",
                     "A desktop panel could not be shown",
+                    "panel=" + title,
+                    e);
+            return false;
+        }
+    }
+
+    /** Shows one modal child while retaining its owning desktop panel. */
+    @SuppressLint("ClickableViewAccessibility")
+    boolean showChild(final View panel, final int left, final int top,
+            final int width, final int height, final String title) {
+        if (!mAdded || mVisiblePanel == null) {
+            return show(panel, left, top, width, height, false, title);
+        }
+        if (mReleased || panel == null || mWindowManager == null
+                || !Settings.canDrawOverlays(mApplicationContext)) {
+            return false;
+        }
+        hideChild();
+
+        final Rect hostBounds = new Rect(mBounds);
+        hostBounds.union(left, top, left + width, top + height);
+        final Rect menuBounds = new Rect(
+                left - hostBounds.left,
+                top - hostBounds.top,
+                left - hostBounds.left + width,
+                top - hostBounds.top + height);
+        final FrameLayout host = new FrameLayout(panel.getContext()) {
+            @Override
+            public boolean dispatchTouchEvent(final MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                        && !menuBounds.contains(
+                                Math.round(event.getX()),
+                                Math.round(event.getY()))) {
+                    post(OverlayPanelController.this::hideChild);
+                    return true;
+                }
+                return super.dispatchTouchEvent(event);
+            }
+        };
+        final FrameLayout.LayoutParams panelParams =
+                new FrameLayout.LayoutParams(width, height);
+        panelParams.leftMargin = menuBounds.left;
+        panelParams.topMargin = menuBounds.top;
+        host.addView(panel, panelParams);
+
+        final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                hostBounds.width(),
+                hostBounds.height(),
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                flags,
+                PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.x = hostBounds.left;
+        params.y = hostBounds.top;
+        params.setTitle(title);
+
+        panel.setVisibility(View.VISIBLE);
+        host.setOnTouchListener((target, event) -> {
+            if (event.getActionMasked() != MotionEvent.ACTION_OUTSIDE
+                    || target != mChildHost) {
+                return false;
+            }
+            final int x = Math.round(event.getRawX());
+            final int y = Math.round(event.getRawY());
+            if (mPersistentBounds.contains(x, y)) {
+                hideChild();
+            } else {
+                hideAll();
+            }
+            return false;
+        });
+        try {
+            mWindowManager.addView(host, params);
+            mChildPanel = panel;
+            mChildHost = host;
+            mChildTitle = title == null ? "" : title;
+            mChildAdded = true;
+            mChildBounds.set(left, top, left + width, top + height);
+            recordPanelState(true, mChildTitle, mChildBounds);
+            host.postOnAnimation(() -> {
+                if (!mChildAdded || mChildHost != host) {
+                    return;
+                }
+                panel.invalidate();
+                try {
+                    mWindowManager.updateViewLayout(host, params);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "failed to request child panel frame " + title, e);
+                    CompatibilityDiagnostics.record(
+                            "OVERLAY-009",
+                            "A desktop child panel could not be redrawn",
+                            "panel=" + title,
+                            e);
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            host.removeView(panel);
+            panel.setVisibility(View.GONE);
+            mChildPanel = null;
+            mChildHost = null;
+            mChildTitle = "";
+            mChildAdded = false;
+            mChildBounds.setEmpty();
+            Log.w(TAG, "failed to show child panel " + title, e);
+            CompatibilityDiagnostics.record(
+                    "OVERLAY-010",
+                    "A desktop child panel could not be shown",
                     "panel=" + title,
                     e);
             return false;
@@ -330,12 +453,23 @@ final class OverlayPanelController {
     }
 
     void hide(final View panel) {
-        if (panel != null && panel == mVisiblePanel) {
+        if (panel != null && panel == mChildPanel) {
+            hideChild();
+        } else if (panel != null && panel == mVisiblePanel) {
+            hideAll();
+        }
+    }
+
+    void hideTop() {
+        if (mChildAdded && mChildPanel != null) {
+            hideChild();
+        } else {
             hideAll();
         }
     }
 
     void hideAll() {
+        hideChild();
         hideTransient();
         clearTextInputConnection();
         final View panel = mVisiblePanel;
@@ -357,6 +491,30 @@ final class OverlayPanelController {
         mVisibleTitle = "";
         mAdded = false;
         mBounds.setEmpty();
+    }
+
+    private void hideChild() {
+        final View panel = mChildPanel;
+        final FrameLayout host = mChildHost;
+        if (mChildAdded && host != null && mWindowManager != null) {
+            recordPanelState(false, mChildTitle, mChildBounds);
+            try {
+                mWindowManager.removeViewImmediate(host);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "failed to remove child panel", e);
+            }
+        }
+        if (host != null && panel != null && panel.getParent() == host) {
+            host.removeView(panel);
+        }
+        if (panel != null) {
+            panel.setVisibility(View.GONE);
+        }
+        mChildPanel = null;
+        mChildHost = null;
+        mChildTitle = "";
+        mChildAdded = false;
+        mChildBounds.setEmpty();
     }
 
     void release() {
@@ -439,19 +597,22 @@ final class OverlayPanelController {
     }
 
     boolean hasVisiblePanel() {
-        return mAdded && mVisiblePanel != null;
+        return (mChildAdded && mChildPanel != null)
+                || (mAdded && mVisiblePanel != null);
     }
 
     Rect visibleBounds() {
-        return new Rect(mBounds);
+        return new Rect(mChildAdded ? mChildBounds : mBounds);
     }
 
     String visibleTitle() {
-        return mVisibleTitle;
+        return mChildAdded ? mChildTitle : mVisibleTitle;
     }
 
     boolean isVisible(final View panel) {
-        return panel != null && panel == mVisiblePanel && mAdded;
+        return panel != null
+                && ((panel == mChildPanel && mChildAdded)
+                        || (panel == mVisiblePanel && mAdded));
     }
 
     boolean hasTextInputTarget() {
@@ -510,16 +671,28 @@ final class OverlayPanelController {
     }
 
     boolean contains(final float x, final float y) {
-        return hasVisiblePanel() && mBounds.contains(Math.round(x), Math.round(y));
+        final int roundedX = Math.round(x);
+        final int roundedY = Math.round(y);
+        return (mChildAdded && mChildBounds.contains(roundedX, roundedY))
+                || (mAdded && mBounds.contains(roundedX, roundedY));
     }
 
     boolean containsVisiblePanelView(final View view) {
-        if (!hasVisiblePanel() || view == null) {
-            return false;
-        }
+        return isDescendantOf(view, mChildAdded ? mChildPanel : null)
+                || isDescendantOf(view, mAdded ? mVisiblePanel : null);
+    }
+
+    boolean containsTopPanelView(final View view) {
+        return isDescendantOf(
+                view, mChildAdded ? mChildPanel : mVisiblePanel);
+    }
+
+    private static boolean isDescendantOf(
+            final View view,
+            final View ancestor) {
         View current = view;
-        while (current != null) {
-            if (current == mVisiblePanel) {
+        while (current != null && ancestor != null) {
+            if (current == ancestor) {
                 return true;
             }
             final ViewParent parent = current.getParent();
@@ -555,24 +728,31 @@ final class OverlayPanelController {
     }
 
     private void recordPanelState(final boolean visible) {
+        recordPanelState(visible, mVisibleTitle, mBounds);
+    }
+
+    private void recordPanelState(
+            final boolean visible,
+            final String title,
+            final Rect bounds) {
         try {
             DesktopAutomationEventJournal.record(
                     "ui",
                     visible ? "popup_shown" : "popup_hidden",
                     true,
-                    mVisibleTitle,
+                    title,
                     new org.json.JSONObject()
                             .put("visible", visible)
-                            .put("title", mVisibleTitle)
+                            .put("title", title)
                             .put("bounds", new org.json.JSONObject()
-                                    .put("left", mBounds.left)
-                                    .put("top", mBounds.top)
-                                    .put("right", mBounds.right)
-                                    .put("bottom", mBounds.bottom)));
+                                    .put("left", bounds.left)
+                                    .put("top", bounds.top)
+                                    .put("right", bounds.right)
+                                    .put("bottom", bounds.bottom)));
         } catch (org.json.JSONException ignored) {
             DesktopAutomationEventJournal.record(
                     "ui", visible ? "popup_shown" : "popup_hidden",
-                    true, mVisibleTitle);
+                    true, title);
         }
     }
 }

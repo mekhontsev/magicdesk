@@ -26,6 +26,7 @@ final class DesktopContextMenuController {
     private LinearLayout mPanel;
     private ScrollView mMenuRoot;
     private View mHoveredTargetView;
+    private boolean mRetainOwnerPanel;
 
     DesktopContextMenuController(
             final DesktopShellActivity activity,
@@ -146,7 +147,7 @@ final class DesktopContextMenuController {
             target = findTargetAt(x, y, insidePanel);
         }
         if (target != null) {
-            showTargetMenu(x, y, target);
+            showTargetMenu(x, y, target, insidePanel);
             return;
         }
         if (taskbarArea == TaskbarController.ContextArea.ACTION) {
@@ -159,6 +160,7 @@ final class DesktopContextMenuController {
     }
 
     void showStartButtonMenu(final float x, final float y) {
+        mRetainOwnerPanel = false;
         prepareMenuTitle(mActivity.getString(R.string.action_start));
         addAction(
                 R.string.section_apps,
@@ -195,6 +197,7 @@ final class DesktopContextMenuController {
     }
 
     void showTaskbarMenu(final float x, final float y) {
+        mRetainOwnerPanel = false;
         prepareMenuTitle(mActivity.getString(R.string.context_taskbar));
         addAction(
                 R.string.action_show_desktop,
@@ -234,6 +237,7 @@ final class DesktopContextMenuController {
         if (mPanel == null || overlays == null) {
             return;
         }
+        mRetainOwnerPanel = false;
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
 
@@ -346,7 +350,7 @@ final class DesktopContextMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         return !insidePanel
                 || (overlays != null
-                        && overlays.containsVisiblePanelView(view));
+                        && overlays.containsTopPanelView(view));
     }
 
     private void showForView(
@@ -354,16 +358,20 @@ final class DesktopContextMenuController {
             final ContextTarget target) {
         final int[] location = new int[2];
         view.getLocationOnScreen(location);
+        final OverlayPanelController overlays = mActivity.overlayPanels();
         showTargetMenu(
                 location[0] + view.getWidth() / 2f,
                 location[1] + view.getHeight() / 2f,
-                target);
+                target,
+                overlays != null && overlays.containsVisiblePanelView(view));
     }
 
     private void showTargetMenu(
             final float x,
             final float y,
-            final ContextTarget target) {
+            final ContextTarget target,
+            final boolean retainOwnerPanel) {
+        mRetainOwnerPanel = retainOwnerPanel;
         if (target.app != null) {
             showAppMenu(
                     x, y, target.app, target.task, target.file);
@@ -897,14 +905,24 @@ final class DesktopContextMenuController {
 
         final OverlayPanelController overlays = mActivity.overlayPanels();
         mMenuRoot.scrollTo(0, 0);
-        if (overlays == null || !overlays.show(
-                mMenuRoot,
-                left,
-                top,
-                width,
-                menuHeight,
-                false,
-                "MagicDesk context menu")) {
+        final boolean shown = overlays != null
+                && (mRetainOwnerPanel
+                        ? overlays.showChild(
+                                mMenuRoot,
+                                left,
+                                top,
+                                width,
+                                menuHeight,
+                                "MagicDesk context menu")
+                        : overlays.show(
+                                mMenuRoot,
+                                left,
+                                top,
+                                width,
+                                menuHeight,
+                                false,
+                                "MagicDesk context menu"));
+        if (!shown) {
             mActivity.setErrorStatus(
                     "OVERLAY-001",
                     mActivity.getString(
