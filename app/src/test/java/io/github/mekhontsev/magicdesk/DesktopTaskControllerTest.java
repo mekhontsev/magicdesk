@@ -47,6 +47,41 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
+    public void shortcutKeepsExplicitlyFocusedTaskAcrossStaleSnapshot() {
+        final TaskRepository.TaskEntry staleActive = task(
+                10, "com.example.previous/.MainActivity", true, true);
+        final TaskRepository.TaskEntry focused = task(
+                11, "com.example.focused/.MainActivity", true, false);
+
+        assertEquals(focused, DesktopTaskController.selectShortcutTask(
+                Arrays.asList(staleActive, focused), 11, true));
+    }
+
+    @Test
+    public void shortcutFallsBackWhenFocusedTaskDisappeared() {
+        final TaskRepository.TaskEntry active = task(
+                10, "com.example.active/.MainActivity", true, true);
+
+        assertEquals(active, DesktopTaskController.selectShortcutTask(
+                Arrays.asList(active), 11, true));
+    }
+
+    @Test
+    public void boundedShortcutRejectsFullscreenFocusedTask() {
+        final TaskRepository.TaskEntry fallback = task(
+                10, "com.example.window/.MainActivity", true, false);
+        final TaskRepository.TaskEntry fullscreen = task(
+                11,
+                "com.example.fullscreen/.MainActivity",
+                "fullscreen",
+                true,
+                true);
+
+        assertEquals(fallback, DesktopTaskController.selectShortcutTask(
+                Arrays.asList(fallback, fullscreen), 11, true));
+    }
+
+    @Test
     public void closeSelectsNextVisibleTaskBeforeDesktopHost() {
         final TaskRepository.TaskEntry closing = task(
                 10, "com.example.top/.MainActivity", true, true);
@@ -123,6 +158,15 @@ public final class DesktopTaskControllerTest {
             final String componentName,
             final boolean visible,
             final boolean active) {
+        return task(taskId, componentName, "freeform", visible, active);
+    }
+
+    private static TaskRepository.TaskEntry task(
+            final int taskId,
+            final String componentName,
+            final String windowingMode,
+            final boolean visible,
+            final boolean active) {
         final String packageName = componentName.substring(
                 0, componentName.indexOf('/'));
         final TaskRepository.TaskEntry task = new TaskRepository.TaskEntry(
@@ -132,7 +176,7 @@ public final class DesktopTaskControllerTest {
                 packageName,
                 componentName,
                 componentName,
-                "freeform",
+                windowingMode,
                 new Rect(0, 0, 100, 100),
                 false,
                 visible,

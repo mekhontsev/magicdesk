@@ -52,6 +52,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private int mGeneration;
     private int mTaskWatcherGeneration;
     private volatile int mFocusingTaskId = -1;
+    private volatile int mActiveTaskId = -1;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
     private boolean mTaskWatcherRunning;
@@ -231,9 +232,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
                     @Override
                     public void onTaskGone(
-                            final int generation,
-                            final int taskId) {
+                        final int generation,
+                        final int taskId) {
                         if (mRunning) {
+                            clearTrackedFocus(taskId);
                             mWindowTransitions.forgetTaskState(taskId);
                         }
                     }
@@ -370,6 +372,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mWindowContext = null;
         mDisplayId = -1;
         mFocusingTaskId = -1;
+        mActiveTaskId = -1;
         mRestoringLocalDesktop = false;
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
@@ -650,15 +653,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     topFirstTasks, topTask, callback);
             return;
         }
-        final int focusedTaskId = topTask == null ? -1 : topTask.taskId;
-        mFocusingTaskId = focusedTaskId;
-        final TaskRepository.ActionCallback trackedCallback = result -> {
-            if (!result.success && mFocusingTaskId == focusedTaskId) {
-                mFocusingTaskId = -1;
-            }
-            completeActionCallback(callback, result.success, result.message);
-        };
-
         final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
         if (topFirstTasks != null) {
             for (int index = topFirstTasks.size() - 1; index >= 0; index--) {
@@ -677,10 +671,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             completeActionCallback(callback, true, "no tasks");
             return;
         }
+        final List<Integer> orderedTaskIdList =
+                new ArrayList<>(orderedTaskIds);
+        final int focusedTaskId = orderedTaskIdList.get(
+                orderedTaskIdList.size() - 1).intValue();
         sendFocusTasks(
                 mDisplayId,
-                new ArrayList<>(orderedTaskIds),
-                trackedCallback);
+                orderedTaskIdList,
+                beginFocusTracking(focusedTaskId, callback));
     }
 
     @Override
@@ -696,7 +694,33 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             TaskRepository.runFocusAction(displayId, taskIds, callback);
             return;
         }
-        sendFocusTasks(displayId, new ArrayList<>(taskIds), callback);
+        final int focusedTaskId = taskIds.get(taskIds.size() - 1).intValue();
+        sendFocusTasks(
+                displayId,
+                new ArrayList<>(taskIds),
+                beginFocusTracking(focusedTaskId, callback));
+    }
+
+    private TaskRepository.ActionCallback beginFocusTracking(
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        mFocusingTaskId = taskId;
+        mActiveTaskId = taskId;
+        return result -> {
+            if (!result.success) {
+                clearTrackedFocus(taskId);
+            }
+            completeActionCallback(callback, result.success, result.message);
+        };
+    }
+
+    private void clearTrackedFocus(final int taskId) {
+        if (mFocusingTaskId == taskId) {
+            mFocusingTaskId = -1;
+        }
+        if (mActiveTaskId == taskId) {
+            mActiveTaskId = -1;
+        }
     }
 
     private void sendFocusTasks(
@@ -725,7 +749,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (!mRunning) {
             return false;
         }
-        mHandler.post(() -> handleActiveTaskShortcutInternal(shortcut));
+        final int activeTaskId = mActiveTaskId;
+        mHandler.post(() -> handleActiveTaskShortcutInternal(
+                shortcut, activeTaskId));
         return true;
     }
 
@@ -896,11 +922,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }));
     }
 
-    private void handleActiveTaskShortcutInternal(final int shortcut) {
-        handleNativeTaskShortcut(shortcut);
+    private void handleActiveTaskShortcutInternal(
+            final int shortcut,
+            final int activeTaskId) {
+        handleNativeTaskShortcut(shortcut, activeTaskId);
     }
 
-    private void handleNativeTaskShortcut(final int shortcut) {
+    private void handleNativeTaskShortcut(
+            final int shortcut,
+            final int activeTaskId) {
         final int displayId = mDisplayId;
         final int generation = mGeneration;
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
@@ -910,9 +940,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final boolean supportsFullscreenTask =
                     DesktopWindowTransitionController
                             .supportsFullscreenTask(shortcut);
-            final TaskRepository.TaskEntry task = supportsFullscreenTask
-                    ? findTopVisibleAppTask(snapshot.tasks)
-                    : findTopVisibleFreeformTask(snapshot.tasks);
+            final TaskRepository.TaskEntry task = selectShortcutTask(
+                    snapshot.tasks,
+                    activeTaskId,
+                    !supportsFullscreenTask);
             if (task == null) {
                 if (shortcut == SHORTCUT_RESTORE) {
                     mWindowTransitions.restoreTopFullscreenTask();
@@ -963,6 +994,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private static TaskRepository.TaskEntry findTopVisibleFreeformTask(
             final List<TaskRepository.TaskEntry> tasks) {
         return selectTopVisibleTask(tasks, true);
+    }
+
+    static TaskRepository.TaskEntry selectShortcutTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int activeTaskId,
+            final boolean requireBoundedFreeform) {
+        if (tasks != null && activeTaskId >= 0) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task != null
+                        && task.taskId == activeTaskId
+                        && task.visible
+                        && (!requireBoundedFreeform
+                                || task.isBoundedFreeform())
+                        && isFocusableTask(task)) {
+                    return task;
+                }
+            }
+        }
+        return selectTopVisibleTask(tasks, requireBoundedFreeform);
     }
 
     static TaskRepository.TaskEntry selectTopVisibleTask(
@@ -1207,9 +1257,16 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (focusingTaskId >= 0) {
             final TaskRepository.TaskEntry focusingTask =
                     findTask(snapshot.tasks, focusingTaskId);
-            if (focusingTask == null || focusingTask.active) {
+            if (focusingTask == null) {
+                clearTrackedFocus(focusingTaskId);
+            } else if (focusingTask.active) {
+                mActiveTaskId = focusingTaskId;
                 mFocusingTaskId = -1;
             }
+        } else {
+            final TaskRepository.TaskEntry activeTask =
+                    findTopVisibleAppTask(snapshot.tasks);
+            mActiveTaskId = activeTask == null ? -1 : activeTask.taskId;
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
         mWindowTransitions.reconcile(snapshot.tasks, visibleTasks);
