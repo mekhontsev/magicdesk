@@ -76,7 +76,8 @@ final class DesktopTaskSnapshotController {
             return false;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.visible) {
+            if (task != null && task.visible
+                    && !TaskAreaBackstopActivity.isBackstopTask(task)) {
                 return DesktopTaskController.isDesktopHostTask(task);
             }
         }

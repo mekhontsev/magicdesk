@@ -624,7 +624,12 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 .invoke(transaction, hostToken, Boolean.FALSE);
         transactionClass.getMethod(
                 "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                .invoke(transaction, hostToken, mArea.token(), Boolean.FALSE);
+                // The structural HOME task already occupies the bottom of the
+                // new area. Place the desktop host above it so neither the
+                // backstop task surface nor its input sink can cover the
+                // desktop between application windows. Later app launches are
+                // added above the host by the same task area.
+                .invoke(transaction, hostToken, mArea.token(), Boolean.TRUE);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass,
                 transaction,

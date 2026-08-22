@@ -8,12 +8,15 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import android.window.OnBackInvokedDispatcher;
 
 /** Inert structural task that keeps an organizer-owned task area non-empty. */
 public final class TaskAreaBackstopActivity extends Activity {
+    private static final String CLASS_NAME =
+            BuildConfig.APPLICATION_ID + ".TaskAreaBackstopActivity";
     static final ComponentName COMPONENT = new ComponentName(
             BuildConfig.APPLICATION_ID,
-            TaskAreaBackstopActivity.class.getName());
+            CLASS_NAME);
 
     static Intent createIntent(final String instanceKey) {
         if (instanceKey == null || instanceKey.isEmpty()) {
@@ -34,12 +37,30 @@ public final class TaskAreaBackstopActivity extends Activity {
         return COMPONENT.equals(component);
     }
 
+    static boolean isBackstopTask(final TaskRepository.TaskEntry task) {
+        if (task == null
+                || !BuildConfig.APPLICATION_ID.equals(task.packageName)) {
+            return false;
+        }
+        final String componentName = task.componentName;
+        return (BuildConfig.APPLICATION_ID + "/" + CLASS_NAME)
+                        .equals(componentName)
+                || (BuildConfig.APPLICATION_ID
+                        + "/.TaskAreaBackstopActivity")
+                        .equals(componentName);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().addFlags(
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+        // Some WMS implementations briefly select the structural HOME child
+        // while a finishing client task is being removed. Give that temporary
+        // selection a valid input channel, but never let it consume pointer
+        // input or finish in response to Back.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                () -> { });
         final View content = new View(this);
         content.setBackgroundColor(Color.TRANSPARENT);
         content.setImportantForAccessibility(

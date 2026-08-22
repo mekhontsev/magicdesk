@@ -1017,21 +1017,41 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean allowPhoneUiStart(
             final Intent intent,
             final String ignoredPackageName) {
-        final boolean suppress;
+        // ActivityTaskManager invokes this callback synchronously while it can
+        // hold its global lock. Read only volatile/local state here: calling a
+        // synchronized task-area method can deadlock against a shell command
+        // that holds that monitor while waiting for ActivityTaskManager.
+        final boolean suppressLocalHome = !mClosed
+                && mConfiguredDisplayId == Display.DEFAULT_DISPLAY
+                && isHomeIntent(intent);
+        final boolean suppressExternalSecondaryHome;
         synchronized (this) {
+            // Back on the last local desktop client can make Android launch its
+            // ordinary HOME task even though the session host remains alive in
+            // our task area. Reject that fallback before it can cover the host
+            // or a surviving client. Session shutdown releases the observer
+            // before intentionally returning to the phone launcher.
             // Nubia starts its secondary launcher on the phone while removing
             // an external task. Reject it before it can cover the requested
             // touchpad; post-start task correction still produces a blink.
-            suppress = !mClosed
+            suppressExternalSecondaryHome = !mClosed
                     && mPhoneTouchpadRequested
                     && mConfiguredDisplayId > Display.DEFAULT_DISPLAY
                     && mPhoneUi.isTransientSecondaryHomeIntent(intent);
         }
-        if (suppress) {
+        if (suppressLocalHome) {
+            Log.i(TAG, "suppressed HOME fallback inside local desktop session");
+        } else if (suppressExternalSecondaryHome) {
             Log.i(TAG, "suppressed transient secondary HOME while phone "
                     + "touchpad is requested");
         }
-        return !suppress;
+        return !suppressLocalHome && !suppressExternalSecondaryHome;
+    }
+
+    private static boolean isHomeIntent(final Intent intent) {
+        return intent != null
+                && Intent.ACTION_MAIN.equals(intent.getAction())
+                && intent.hasCategory(Intent.CATEGORY_HOME);
     }
 
     private int findPhoneTouchpadTaskId() {

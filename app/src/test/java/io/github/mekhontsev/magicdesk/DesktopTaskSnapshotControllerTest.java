@@ -23,6 +23,18 @@ public final class DesktopTaskSnapshotControllerTest {
     }
 
     @Test
+    public void taskAreaBackstopDoesNotHideForegroundDesktopHost() {
+        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
+                Arrays.asList(backstop(true), desktopHost(true))));
+    }
+
+    @Test
+    public void taskAreaBackstopDoesNotHideForegroundApplication() {
+        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
+                Arrays.asList(backstop(true), app(true), desktopHost(true))));
+    }
+
+    @Test
     public void ordinaryHomeTaskIsNotDesktopHost() {
         assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
                 Arrays.asList(new TaskRepository.TaskEntry(
@@ -68,5 +80,21 @@ public final class DesktopTaskSnapshotControllerTest {
                 false,
                 visible,
                 true);
+    }
+
+    private static TaskRepository.TaskEntry backstop(
+            final boolean visible) {
+        return new TaskRepository.TaskEntry(
+                30,
+                30,
+                2,
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + "/.TaskAreaBackstopActivity",
+                BuildConfig.APPLICATION_ID + "/.TaskAreaBackstopActivity",
+                "fullscreen",
+                new Rect(0, 0, 1920, 1080),
+                true,
+                visible,
+                false);
     }
 }
