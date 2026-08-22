@@ -305,7 +305,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // session tasks are reparented to the default task container.
             // An empty task area makes affected WMS priority traversal fail.
             mFullscreenTaskArea.configure(
-                    Display.INVALID_DISPLAY, 0, null);
+                    Display.INVALID_DISPLAY,
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    0,
+                    null);
             mDesktopTaskArea.configure(
                     Display.INVALID_DISPLAY, false, -1);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
@@ -332,7 +335,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // The fullscreen sibling releases tasks into the current session
             // and is deleted before that session becomes a reparent target.
             mFullscreenTaskArea.configure(
-                    Display.INVALID_DISPLAY, 0, null);
+                    Display.INVALID_DISPLAY,
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    0,
+                    null);
             mDesktopTaskArea.configure(
                     Display.INVALID_DISPLAY, false, -1);
         }
@@ -342,6 +348,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 desktopHostTaskId);
         mFullscreenTaskArea.configure(
                 displayId,
+                managedTaskArea
+                        ? DesktopTaskAreaPolicy.SESSION
+                        : DesktopTaskAreaPolicy.DEFAULT,
                 mDesktopTaskArea.fullscreenAreaParentFeatureId(),
                 mDesktopTaskArea.fullscreenTaskReleaseParentToken(
                         displayId));

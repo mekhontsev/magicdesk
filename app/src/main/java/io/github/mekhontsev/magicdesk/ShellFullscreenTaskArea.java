@@ -13,12 +13,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Keeps a reordered stack of true fullscreen tasks in a fullscreen parent.
+ * Keeps a reordered stack of true fullscreen tasks in a stable hierarchy.
  *
- * <p>The dedicated parent is the invariant: reordering the same tasks in the
- * active freeform-oriented desktop parent lets some firmware resolve them as
- * freeform. Do not replace this with a delayed fullscreen repair. See
- * {@code docs/architecture.md#keep-true-fullscreen-tasks-under-one-fullscreen-parent}.
+ * <p>Isolated displays keep the complete stack under one dedicated parent;
+ * phone sessions retain application immersive tasks in their session parent.
+ * Do not replace either policy with a delayed fullscreen repair. See
+ * {@code docs/architecture.md#select-fullscreen-hierarchy-by-task-area-ownership}.
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellFullscreenTaskArea implements AutoCloseable {
@@ -45,6 +45,8 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private int mConfiguredDisplayId = -1;
     private int mParentFeatureId = FEATURE_ROOT;
     private Object mReleaseParentToken;
+    private DesktopTaskAreaPolicy mTaskAreaPolicy =
+            DesktopTaskAreaPolicy.DEFAULT;
 
     ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
         if (ownership == null) {
@@ -526,7 +528,13 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     }
 
     private boolean isAppFullscreenOutsideArea(final int taskId) {
-        return mAppRestoreBounds.containsKey(Integer.valueOf(taskId))
+        // Display 0 owns a session task area alongside the primary launcher,
+        // so application immersive tasks must retain that session hierarchy.
+        // Isolated secondary displays instead use the stronger invariant from
+        // MagicDesk 1.8: every stacked fullscreen task is a sibling in this
+        // dedicated fullscreen area.
+        return mTaskAreaPolicy.usesSessionFullscreenHierarchy()
+                && mAppRestoreBounds.containsKey(Integer.valueOf(taskId))
                 && !mTaskIds.contains(Integer.valueOf(taskId));
     }
 
@@ -825,6 +833,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     synchronized void configure(
             final int displayId,
+            final DesktopTaskAreaPolicy taskAreaPolicy,
             final int parentFeatureId,
             final Object releaseParentToken) {
         if (displayId < 0) {
@@ -832,18 +841,25 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             mConfiguredDisplayId = -1;
             mParentFeatureId = FEATURE_ROOT;
             mReleaseParentToken = null;
+            mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
             return;
+        }
+        if (taskAreaPolicy == null) {
+            throw new IllegalArgumentException(
+                    "missing fullscreen task area policy");
         }
         if (parentFeatureId < 0) {
             throw new IllegalArgumentException(
                     "invalid fullscreen parent feature");
         }
         if (mConfiguredDisplayId != displayId
+                || mTaskAreaPolicy != taskAreaPolicy
                 || mParentFeatureId != parentFeatureId
                 || mReleaseParentToken != releaseParentToken) {
             close();
         }
         mConfiguredDisplayId = displayId;
+        mTaskAreaPolicy = taskAreaPolicy;
         mParentFeatureId = parentFeatureId;
         mReleaseParentToken = releaseParentToken;
     }

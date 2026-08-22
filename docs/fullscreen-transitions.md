@@ -30,17 +30,18 @@ poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
 
 When an application initiates immersive mode itself, the long-lived shell task
-observer retains its freeform bounds while the task stays directly under the
-active desktop parent. That parent is Android's default task area on external
-displays and MagicDesk's shell-owned session area on the phone. The
+observer retains its freeform bounds and does not recreate the Activity. The
 application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
-Fullscreen API session. The task remains outside the managed fullscreen child
-even when another fullscreen task is present. MagicDesk keeps managed peers in
-the organizer area and atomically focuses across both parents, avoiding the
-configuration change that can cancel the application's fullscreen session.
-The same rule preserves projection displays whose task host is invalidated by
-that reparent operation.
+Fullscreen API session.
+
+Task-area ownership determines the hierarchy used when another fullscreen
+task appears. On an isolated secondary display, all fullscreen tasks enter the
+same organizer area in one transition and later focus changes reorder siblings
+only. On the phone, the immersive task remains under MagicDesk's session area;
+managed peers stay in the fullscreen sibling and both parents are focused in
+one transition. This keeps the strong external-display invariant without
+letting a phone fullscreen root compete with primary HOME and Recents.
 
 An orientation change can make Android report the saved freeform mode and bounds
 before WMShell has recreated the task decoration. Orientation task callbacks
@@ -65,8 +66,9 @@ desktop session; while it contains no application task, the whole parent
 remains below the real desktop host. The phone fullscreen parent is placed
 beside MagicDesk's persistent session area in Android's default task container,
 and restored tasks return to the session area through its token. Phone,
-simulated, and external displays use the same persistent parent, structural
-task, shell observer, and task transitions.
+simulated, and external displays share the structural lifecycle and transition
+commands, while `DesktopTaskAreaPolicy` determines which fullscreen tasks enter
+the parent.
 
 At phone-session teardown, applications leave the fullscreen sibling first.
 Framework deletion then removes the sibling together with its structural HOME
