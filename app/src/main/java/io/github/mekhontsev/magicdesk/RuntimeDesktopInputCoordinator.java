@@ -43,6 +43,7 @@ final class RuntimeDesktopInputCoordinator {
     private int mInputSourceRefreshGeneration;
     private boolean mShowImeOverrideActive;
     private boolean mLastReportedMouseBridgeReady;
+    private boolean mPointerReleaseExpected;
     private String mPreviousShowImeWithHardKeyboard;
     private int mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
     private boolean mDestroyed;
@@ -197,7 +198,7 @@ final class RuntimeDesktopInputCoordinator {
         // Release the physical source while its current display still exists.
         // Waiting for the display callback leaves vendor pointer controllers
         // processing virtual motion against an already removed display.
-        mMouseBridge.stop();
+        stopMouseBridge();
         return true;
     }
 
@@ -329,20 +330,26 @@ final class RuntimeDesktopInputCoordinator {
             final boolean ready = mMouseBridge.isReady();
             if (ready != mLastReportedMouseBridgeReady) {
                 mLastReportedMouseBridgeReady = ready;
+                final boolean released = !ready && mPointerReleaseExpected;
+                mPointerReleaseExpected = false;
+                final String operation = ready
+                        ? "pointer_ready"
+                        : released ? "pointer_released" : "pointer_lost";
                 try {
                     DesktopAutomationEventJournal.record(
                             "input",
-                            ready ? "pointer_ready" : "pointer_lost",
-                            ready,
+                            operation,
+                            ready || released,
                             "display=" + mDesktopDisplayId,
                             new org.json.JSONObject()
                                     .put("displayId", mDesktopDisplayId)
-                                    .put("pointerReady", ready));
+                                    .put("pointerReady", ready)
+                                    .put("expectedRelease", released));
                 } catch (org.json.JSONException ignored) {
                     DesktopAutomationEventJournal.record(
                             "input",
-                            ready ? "pointer_ready" : "pointer_lost",
-                            ready,
+                            operation,
+                            ready || released,
                             "display=" + mDesktopDisplayId);
                 }
             }
@@ -424,8 +431,15 @@ final class RuntimeDesktopInputCoordinator {
                 mMouseBridgeSuspendedDisplayId)) {
             mMouseBridge.start();
         } else {
-            mMouseBridge.stop();
+            stopMouseBridge();
         }
+    }
+
+    private void stopMouseBridge() {
+        if (mMouseBridge.isReady()) {
+            mPointerReleaseExpected = true;
+        }
+        mMouseBridge.stop();
     }
 
     private void updateInputBridges() {
