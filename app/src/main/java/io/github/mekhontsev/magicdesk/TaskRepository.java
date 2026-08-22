@@ -15,6 +15,12 @@ public final class TaskRepository {
     private static final String TAG = "MagicDeskTasks";
     private static final String CMD = "/system/bin/cmd";
     private static final String AM = "/system/bin/am";
+    private static final String DUMPSYS_INPUT =
+            "/system/bin/dumpsys input";
+    private static final String CLOSE_SYSTEM_DIALOGS =
+            AM + " broadcast --user 0"
+                    + " -a android.intent.action.CLOSE_SYSTEM_DIALOGS"
+                    + " --es reason magicdesk-force-stop";
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
     private static final String TASK_FULLSCREEN_TRANSITION_COMMAND =
@@ -369,7 +375,36 @@ public final class TaskRepository {
             complete(callback, false, "invalid package");
             return;
         }
-        runAction(AM + " force-stop --user 0 " + packageName, callback);
+        TaskCommandQueue.execute(() -> {
+            final boolean closeErrorDialog = hasPackageErrorDialog(packageName);
+            final CommandResult stop = runCommand(
+                    AM + " force-stop --user 0 " + packageName);
+            if (!stop.success) {
+                complete(callback, false, stop.output.trim());
+                return;
+            }
+            if (closeErrorDialog) {
+                final CommandResult closeDialogs = runCommand(
+                        CLOSE_SYSTEM_DIALOGS);
+                if (!closeDialogs.success) {
+                    complete(
+                            callback,
+                            false,
+                            "app force-stopped but its error dialog could not"
+                                    + " be closed: "
+                                    + closeDialogs.output.trim());
+                    return;
+                }
+            }
+            complete(callback, true, stop.output.trim());
+        });
+    }
+
+    private static boolean hasPackageErrorDialog(final String packageName) {
+        final CommandResult input = runCommand(DUMPSYS_INPUT);
+        return input.success
+                && TaskInputWindowParser.readWindowSnapshot(input.output)
+                        .hasErrorDialogForPackage(packageName);
     }
 
     private static void runAction(final String command, final ActionCallback callback) {

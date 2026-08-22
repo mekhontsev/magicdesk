@@ -272,6 +272,8 @@ public final class TaskInputWindowParserTest {
         assertEquals("com.example.game", focused.packageName);
         assertEquals("crash_dialog", focused.kind);
         assertEquals(1, snapshot.systemDialogs().size());
+        assertTrue(snapshot.hasErrorDialogForPackage("com.example.game"));
+        assertFalse(snapshot.hasErrorDialogForPackage("com.example.other"));
         assertEquals(4321,
                 snapshot.processWindow(
                         20, 42, "com.example.game").ownerPid);

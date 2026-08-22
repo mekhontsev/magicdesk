@@ -583,6 +583,19 @@ final class TaskInputWindowParser {
             }
             return null;
         }
+
+        boolean hasErrorDialogForPackage(final String packageName) {
+            if (packageName == null || packageName.isEmpty()) {
+                return false;
+            }
+            for (final WindowState dialog : mSystemDialogs) {
+                if (dialog.isErrorDialog()
+                        && packageName.equals(dialog.packageName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     static class WindowState {

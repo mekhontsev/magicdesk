@@ -499,10 +499,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!removal.success) {
                             Log.w(TAG, "desktop force-stop removal failed: "
                                     + removal.message);
-                            completeActionCallback(
-                                    callback, false, removal.message);
-                            return;
                         }
+                        // The task may have disappeared because the process
+                        // already crashed. Task removal preserves the desktop
+                        // handoff, but it is not a prerequisite for honoring
+                        // an explicit package force-stop request.
                         TaskRepository.forceStop(
                                 packageName,
                                 result -> {
