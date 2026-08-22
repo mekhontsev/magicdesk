@@ -7,7 +7,9 @@ import java.util.List;
 
 /** Samples one desktop pixel around a self-test task transition. */
 public final class DesktopTransitionSurfaceProbe {
-    private static final int COLOR_TOLERANCE = 4;
+    // Window composition can shift an unchanged wallpaper by a few channel
+    // levels. Keep that noise distinct from a replaced desktop surface.
+    private static final int COLOR_TOLERANCE = 8;
 
     private DesktopTransitionSurfaceProbe() {
     }

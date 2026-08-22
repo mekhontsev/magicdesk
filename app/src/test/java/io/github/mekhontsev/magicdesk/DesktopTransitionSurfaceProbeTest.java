@@ -70,6 +70,8 @@ public final class DesktopTransitionSurfaceProbeTest {
     public void comparesPixelColorsWithSmallCaptureTolerance() {
         assertTrue(DesktopTransitionSurfaceProbe.sameColor(
                 0xFF102030, 0xFF14242C));
+        assertTrue(DesktopTransitionSurfaceProbe.sameColor(
+                0xFFE8CDDD, 0xFFE6C8DA));
         assertFalse(DesktopTransitionSurfaceProbe.sameColor(
                 0xFF102030, 0xFF303030));
     }
