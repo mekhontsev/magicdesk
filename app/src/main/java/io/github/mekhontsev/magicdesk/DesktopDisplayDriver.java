@@ -23,7 +23,8 @@ interface DesktopDisplayDriver {
         return DisplayCaptureSource.logical(captureDisplayId(target));
     }
 
-    void show(Activity source, int displayId);
+    /** Opens the desktop on a ready logical task-host display. */
+    void showReady(Activity source, DesktopDisplayTarget target);
 
     boolean isSessionDisplayRemoval(
             DesktopDisplayTarget target,

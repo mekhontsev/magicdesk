@@ -310,7 +310,7 @@ public final class DiagnosticsActivity extends Activity {
         }
         DesktopDisplayDrivers
                 .forKind(DesktopDisplayTarget.Kind.PHONE)
-                .show(this, Display.DEFAULT_DISPLAY);
+                .showReady(this, DesktopDisplayTarget.phone());
         waitForPreparedDesktop(DesktopSelfTestTarget.PHONE, false);
     }
 
@@ -336,9 +336,7 @@ public final class DiagnosticsActivity extends Activity {
                     || physicalWiredDisplayId > Display.DEFAULT_DISPLAY)) {
                 final boolean restoreMirror =
                         activeWiredDisplayId <= Display.DEFAULT_DISPLAY;
-                DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.WIRED)
-                        .show(null, activeWiredDisplayId);
+                ConsoleModeSwitcher.showWiredDesktop();
                 runOnUiThread(() -> {
                     if (!isFinishing() && !isDestroyed()) {
                         waitForPreparedDesktop(

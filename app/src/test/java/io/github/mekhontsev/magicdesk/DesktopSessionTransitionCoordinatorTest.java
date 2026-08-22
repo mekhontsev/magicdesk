@@ -39,4 +39,18 @@ public final class DesktopSessionTransitionCoordinatorTest {
                                         .MAGICDESK_REQUESTED),
                         false));
     }
+
+    @Test
+    public void adoptedDisplayReusesVisiblePhonePanel() {
+        assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
+                true, false, true));
+        assertTrue(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
+                true, false, false));
+    }
+
+    @Test
+    public void managedDisplayRestoresPanelAfterModeTransition() {
+        assertTrue(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
+                true, true, true));
+    }
 }

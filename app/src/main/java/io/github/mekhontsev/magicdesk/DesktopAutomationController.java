@@ -244,11 +244,17 @@ final class DesktopAutomationController {
                 SimulatedDesktopDisplayController.show();
                 break;
             case "wired":
-                DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.WIRED)
-                        .show(null,
-                                ConsoleDisplayController
-                                        .findExternalDisplayId());
+                if (ConsoleModeSwitcher.getActiveConsoleDisplayId()
+                                <= Display.DEFAULT_DISPLAY
+                        && ConsoleDisplayController.findExternalDisplayId()
+                                <= Display.DEFAULT_DISPLAY) {
+                    return DesktopAutomationResult.failure(
+                            "no connected wired display");
+                }
+                // A physical HDMI display can back a separate vendor Console
+                // display. Use the same activation path as the control panel
+                // so the physical output is never mistaken for the task host.
+                ConsoleModeSwitcher.showWiredDesktop();
                 break;
             case "wireless":
                 final int wirelessDisplayId =

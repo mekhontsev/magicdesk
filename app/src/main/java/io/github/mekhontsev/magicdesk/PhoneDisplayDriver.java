@@ -31,11 +31,17 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
-    public void show(final Activity source, final int displayId) {
+    public void showReady(
+            final Activity source,
+            final DesktopDisplayTarget target) {
         if (source == null) {
             throw new IllegalArgumentException("phone launch source is required");
         }
-        DesktopActivity.launch(source, target(displayId));
+        if (target == null
+                || target.kind != DesktopDisplayTarget.Kind.PHONE) {
+            throw new IllegalArgumentException("phone target is required");
+        }
+        DesktopActivity.launch(source, target);
     }
 
     @Override

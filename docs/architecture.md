@@ -1247,6 +1247,14 @@ Requests are serialized and duplicate requests during transition are ignored.
 With no external display, the shortcut cannot accidentally create a second
 desktop on display 0.
 
+Display activation and display hosting are separate contracts. A driver may
+activate a missing wired Console display, but the shared desktop-session path
+accepts only a ready `DesktopDisplayTarget`. That target identifies the logical
+display which owns tasks; its optional profile display identifies the physical
+output behind it. Raw physical display IDs never enter the ready-host API.
+Phone, simulated, wired, wireless, UI, self-test, MCP, and App Functions starts
+all converge on this boundary before the common session controller runs.
+
 ### Output timing and fill policy
 
 Before activation, the phone control panel reads Nubia's current and available

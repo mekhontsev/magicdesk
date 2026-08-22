@@ -311,7 +311,7 @@ public final class ControlActivity extends Activity
             refresh();
             return;
         }
-        DesktopDisplayDrivers.forTarget(target).show(this, displayId);
+        DesktopDisplayDrivers.forTarget(target).showReady(this, target);
     }
 
     @Override
@@ -327,7 +327,7 @@ public final class ControlActivity extends Activity
         if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
             mStatus = getString(R.string.status_console_starting);
             refresh();
-            ConsoleModeSwitcher.showMagicDesk(consoleDisplayId);
+            ConsoleModeSwitcher.showWiredDesktop();
             return;
         }
         final int activeDesktopDisplayId =
@@ -389,7 +389,7 @@ public final class ControlActivity extends Activity
         mStatus = getString(R.string.status_console_starting);
         refresh();
         if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
-            ConsoleModeSwitcher.showMagicDesk();
+            ConsoleModeSwitcher.showWiredDesktop();
         } else if (mWirelessDisplayId > Display.DEFAULT_DISPLAY) {
             ConsoleModeSwitcher.showDesktop(
                     DesktopDisplayTarget.wireless(mWirelessDisplayId));

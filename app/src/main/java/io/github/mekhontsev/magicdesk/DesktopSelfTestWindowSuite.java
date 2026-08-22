@@ -60,7 +60,10 @@ final class DesktopSelfTestWindowSuite {
                 // including profiles and the phone-side touchpad.
                 DesktopDisplayDrivers
                         .forKind(DesktopDisplayTarget.Kind.SIMULATED)
-                        .show(null, targetDisplayId);
+                        .showReady(
+                                null,
+                                DesktopDisplayTarget.simulated(
+                                        targetDisplayId));
             }
             final TaskStackParser.Entry desktop = waitForTask(
                     targetDisplayId, DESKTOP_CLASS, null);

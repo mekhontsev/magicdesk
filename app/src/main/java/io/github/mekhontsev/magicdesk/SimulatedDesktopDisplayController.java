@@ -22,7 +22,9 @@ final class SimulatedDesktopDisplayController {
             displayId = acquire();
             DesktopDisplayDrivers
                     .forKind(DesktopDisplayTarget.Kind.SIMULATED)
-                    .show(null, displayId);
+                    .showReady(
+                            null,
+                            DesktopDisplayTarget.simulated(displayId));
             if (DesktopRuntimeBridge.getDesktopTarget(displayId) == null) {
                 release(displayId);
             }

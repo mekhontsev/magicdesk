@@ -7,7 +7,7 @@ final class DesktopDisplayDrivers {
     private static final PlatformDriver PLATFORM = PlatformDrivers.current();
     private static final PlatformFeatures FEATURES = PLATFORM.features();
     private static final DesktopDisplayDriver PHONE = new PhoneDisplayDriver();
-    private static final DesktopDisplayDriver WIRED =
+    private static final WiredDisplayDriver WIRED =
             new WiredDisplayDriver(PLATFORM.projection());
     private static final DesktopDisplayDriver WIRELESS =
             new WirelessDisplayDriver();
@@ -53,6 +53,10 @@ final class DesktopDisplayDrivers {
             throw new IllegalArgumentException("display target is required");
         }
         return forKind(target.kind);
+    }
+
+    static void activateWired(final android.app.Activity source) {
+        WIRED.activate(source);
     }
 
     static DesktopDisplayDriver forActiveDisplay(final int displayId) {

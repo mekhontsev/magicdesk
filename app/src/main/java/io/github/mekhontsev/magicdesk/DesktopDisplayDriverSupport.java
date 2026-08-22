@@ -13,12 +13,6 @@ final class DesktopDisplayDriverSupport {
     private DesktopDisplayDriverSupport() {
     }
 
-    static void showReadySecondary(
-            final DesktopDisplayDriver driver,
-            final int displayId) {
-        showReadySecondary(driver.target(displayId));
-    }
-
     static void showReadySecondary(final DesktopDisplayTarget target) {
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY) {

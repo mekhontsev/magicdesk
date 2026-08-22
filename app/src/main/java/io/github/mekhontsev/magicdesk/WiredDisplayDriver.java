@@ -65,15 +65,15 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         }
     }
 
-    @Override
-    public void show(final Activity source, final int displayId) {
+    void activate(final Activity source) {
         if (mProjection.ownsTransportLifecycle(
                 PlatformProjectionDriver.Transport.WIRED)) {
-            ConsoleSessionController.show(displayId, mProjection);
+            ConsoleSessionController.show(
+                    android.view.Display.INVALID_DISPLAY, mProjection);
             return;
         }
-        final int connectedDisplayId = displayId > 0
-                ? displayId : ConsoleDisplayController.findExternalDisplayId();
+        final int connectedDisplayId =
+                ConsoleDisplayController.findExternalDisplayId();
         if (connectedDisplayId <= 0) {
             CompatibilityDiagnostics.record(
                     "DISPLAY-EXTERNAL-001",
@@ -81,8 +81,20 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "no connected wired display was reported");
             return;
         }
-        DesktopDisplayDriverSupport.showReadySecondary(
-                this, connectedDisplayId);
+        showReady(source, target(connectedDisplayId));
+    }
+
+    @Override
+    public void showReady(
+            final Activity source,
+            final DesktopDisplayTarget target) {
+        requireTarget(target);
+        if (mProjection.ownsTransportLifecycle(
+                PlatformProjectionDriver.Transport.WIRED)) {
+            ConsoleSessionController.show(target.displayId, mProjection);
+            return;
+        }
+        DesktopDisplayDriverSupport.showReadySecondary(target);
     }
 
     private static boolean isBackedBySeparateOutput(

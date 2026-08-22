@@ -84,11 +84,11 @@ public final class ConsoleModeSwitcher {
     }
 
     static void showMagicDesk() {
-        showMagicDesk(-1);
+        TRANSITIONS.showPreferredDesktop();
     }
 
-    static void showMagicDesk(final int knownConsoleDisplayId) {
-        TRANSITIONS.showPreferredDesktop(knownConsoleDisplayId);
+    static void showWiredDesktop() {
+        TRANSITIONS.showWiredDesktop();
     }
 
     static void showDesktop(final DesktopDisplayTarget target) {

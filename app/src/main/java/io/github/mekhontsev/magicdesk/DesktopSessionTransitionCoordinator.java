@@ -34,22 +34,18 @@ final class DesktopSessionTransitionCoordinator {
         mProjection = projection;
     }
 
-    void showPreferredDesktop(final int knownConsoleDisplayId) {
-        if (mGate.isCloseInProgress()) {
-            Log.i(TAG, "Desktop close is already in progress");
-            return;
+    void showPreferredDesktop() {
+        enqueueDesktopStart(this::showPreferredDesktopNow);
+    }
+
+    void showWiredDesktop() {
+        if (!mFeatures.supportsDisplay(
+                DesktopDisplayTarget.Kind.WIRED)) {
+            throw new IllegalStateException(
+                    "wired displays are unsupported by the current platform");
         }
-        if (!mGate.beginDesktopStart()) {
-            Log.i(TAG, "MagicDesk activation is already in progress");
-            return;
-        }
-        mOperations.execute(() -> {
-            try {
-                showPreferredDesktopNow(knownConsoleDisplayId);
-            } finally {
-                mGate.finishStart();
-            }
-        });
+        enqueueDesktopStart(
+                () -> DesktopDisplayDrivers.activateWired(null));
     }
 
     void showDesktop(final DesktopDisplayTarget target) {
@@ -62,18 +58,8 @@ final class DesktopSessionTransitionCoordinator {
             throw new IllegalStateException(
                     "display target is unsupported by the current platform");
         }
-        if (!mGate.beginDesktopStart()) {
-            Log.i(TAG, "MagicDesk activation is already in progress");
-            return;
-        }
-        mOperations.execute(() -> {
-            try {
-                DesktopDisplayDrivers.forTarget(target)
-                        .show(null, target.displayId);
-            } finally {
-                mGate.finishStart();
-            }
-        });
+        enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
+                .showReady(null, target));
     }
 
     void closeDesktop(
@@ -198,10 +184,24 @@ final class DesktopSessionTransitionCoordinator {
             }
             success = true;
         }
-        if (restorePhonePanel) {
+        if (shouldOpenPhonePanel(
+                restorePhonePanel,
+                platformOwned,
+                ControlActivity.isControlPanelVisible())) {
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         }
         return success;
+    }
+
+    static boolean shouldOpenPhonePanel(
+            final boolean restorePhonePanel,
+            final boolean platformOwned,
+            final boolean panelVisible) {
+        // A system-owned extended display remains alive after Close Desktop.
+        // Reuse its existing phone panel instead of launching a duplicate;
+        // Nubia may force-stop the package when that duplicate is started
+        // while the extended display is still active.
+        return restorePhonePanel && (platformOwned || !panelVisible);
     }
 
     static boolean shouldReturnTransportToMirror(
@@ -241,20 +241,16 @@ final class DesktopSessionTransitionCoordinator {
         return success;
     }
 
-    private void showPreferredDesktopNow(
-            final int knownConsoleDisplayId) {
+    private void showPreferredDesktopNow() {
         final boolean wiredSupported = mFeatures.supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRED);
         final boolean wirelessSupported = mFeatures.supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS);
         if (wiredSupported
-                && (knownConsoleDisplayId > Display.DEFAULT_DISPLAY
-                || activeDesktopDisplayId() > Display.DEFAULT_DISPLAY
+                && (activeDesktopDisplayId() > Display.DEFAULT_DISPLAY
                 || ConsoleDisplayController.findExternalDisplayId()
                         > Display.DEFAULT_DISPLAY)) {
-            DesktopDisplayDrivers
-                    .forKind(DesktopDisplayTarget.Kind.WIRED)
-                    .show(null, knownConsoleDisplayId);
+            DesktopDisplayDrivers.activateWired(null);
             return;
         }
         final int wirelessDisplayId =
@@ -263,7 +259,10 @@ final class DesktopSessionTransitionCoordinator {
                 && wirelessDisplayId > Display.DEFAULT_DISPLAY) {
             DesktopDisplayDrivers
                     .forKind(DesktopDisplayTarget.Kind.WIRELESS)
-                    .show(null, wirelessDisplayId);
+                    .showReady(
+                            null,
+                            DesktopDisplayTarget.wireless(
+                                    wirelessDisplayId));
             return;
         }
         if (mFeatures.supportsDisplay(
@@ -272,6 +271,24 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         Log.i(TAG, "No desktop display is available");
+    }
+
+    private void enqueueDesktopStart(final Runnable action) {
+        if (mGate.isCloseInProgress()) {
+            Log.i(TAG, "Desktop close is already in progress");
+            return;
+        }
+        if (!mGate.beginDesktopStart()) {
+            Log.i(TAG, "MagicDesk activation is already in progress");
+            return;
+        }
+        mOperations.execute(() -> {
+            try {
+                action.run();
+            } finally {
+                mGate.finishStart();
+            }
+        });
     }
 
     private static PlatformProjectionDriver.Transport transportFor(
