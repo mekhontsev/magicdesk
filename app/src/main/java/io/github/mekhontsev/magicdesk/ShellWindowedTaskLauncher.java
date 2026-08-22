@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.util.Log;
@@ -22,6 +23,7 @@ final class ShellWindowedTaskLauncher {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
+    private final PackageManager mPackageManager;
     private final ShellDesktopTaskOwnership mOwnership;
     private final Listener mListener;
 
@@ -29,9 +31,11 @@ final class ShellWindowedTaskLauncher {
 
     ShellWindowedTaskLauncher(
             final Object service,
+            final PackageManager packageManager,
             final ShellDesktopTaskOwnership ownership,
             final Listener listener) {
         mService = service;
+        mPackageManager = packageManager;
         mOwnership = ownership;
         mListener = listener;
     }
@@ -47,8 +51,11 @@ final class ShellWindowedTaskLauncher {
         }
         final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
                 intentUri);
+        final LaunchActivityIdentity activityIdentity =
+                LaunchActivityIdentity.resolve(
+                        mPackageManager, intent.getComponent());
         final PendingLaunch pending = new PendingLaunch(
-                intent.getComponent(), displayId, bounds);
+                activityIdentity, displayId, bounds);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another windowed task launch is in progress");
@@ -100,7 +107,7 @@ final class ShellWindowedTaskLauncher {
     }
 
     private final class PendingLaunch {
-        private final ComponentName mComponent;
+        private final LaunchActivityIdentity mActivityIdentity;
         private final int mDisplayId;
         private final Rect mBounds;
         private int mObservedTaskId = -1;
@@ -110,10 +117,10 @@ final class ShellWindowedTaskLauncher {
         private boolean mIdentified;
 
         PendingLaunch(
-                final ComponentName component,
+                final LaunchActivityIdentity activityIdentity,
                 final int displayId,
                 final Rect bounds) {
-            mComponent = component;
+            mActivityIdentity = activityIdentity;
             mDisplayId = displayId;
             mBounds = new Rect(bounds);
         }
@@ -121,9 +128,10 @@ final class ShellWindowedTaskLauncher {
         synchronized void onTaskCreated(
                 final int taskId,
                 final ComponentName componentName) {
+            final boolean matches = mActivityIdentity.matches(componentName);
             if (!mApplied
                     && mObservedTaskId < 0
-                    && mComponent.equals(componentName)) {
+                    && matches) {
                 mObservedTaskId = taskId;
                 mObservedByCallback = true;
                 identify(taskId);
@@ -179,7 +187,10 @@ final class ShellWindowedTaskLauncher {
             mOwnership.markDesktop(taskId);
             if (mListener != null) {
                 mListener.onWindowedTaskIdentified(
-                        taskId, mComponent, mDisplayId, mBounds);
+                        taskId,
+                        mActivityIdentity.requestedComponent(),
+                        mDisplayId,
+                        mBounds);
             }
         }
     }

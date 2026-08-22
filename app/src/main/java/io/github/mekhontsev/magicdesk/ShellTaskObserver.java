@@ -99,6 +99,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 windowing.requiresNativeFullscreenCaptionRefresh());
         mWindowedTaskLauncher = new ShellWindowedTaskLauncher(
                 mService,
+                context.getPackageManager(),
                 mDesktopOwnership,
                 mTaskActivityModeGuard);
         mDesktopTaskArea = new ShellDesktopTaskArea(
