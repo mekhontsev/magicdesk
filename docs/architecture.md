@@ -387,22 +387,36 @@ runtime integration and are not distributed through the same release path.
   task, window, capture, and UI controllers, and returns a uniform
   `DesktopAutomationResult`. It does not implement a second desktop policy.
 - `DesktopAutomationStateReader` exposes immutable snapshots of runtime,
-  displays, tasks, launchable applications, diagnostics, and self-test state.
-  `DesktopAutomationEventJournal` retains at most 256 process-local structured
-  action results. It is an observability aid, not persistent telemetry.
+  displays, tasks, launchable applications, MagicDesk-owned UI, diagnostics,
+  and self-test state. Task and application queries share bounded filtering
+  and cursor pagination.
+- `DesktopAutomationEventJournal` retains at most 256 process-local structured
+  events and provides the condition variable used by event-driven automation
+  waits. `DesktopAutomationTaskEventTracker` derives task lifecycle, display,
+  focus, mode, bounds, and visibility events from snapshots already delivered
+  by `DesktopTaskWatcher`; it does not register another task observer.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
   enabled, it starts one bounded Streamable HTTP server on literal
   `127.0.0.1:8765`; stopping the runtime closes the listener and workers.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
   and state boundary. Developer input, self-test, and force-stop tools require
   a separate setting and disappear when that setting is disabled.
+- Direct Files and Console automation has a second independent setting.
+  `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
+  service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
+  set of lifecycle-scoped `ConsoleShellSession` instances and closes them with
+  the MCP backend.
+- `DesktopAutomationCapture` resolves the active display and asks the shell
+  service for either one PNG pipe or one bounded pixel batch. Image bytes are
+  returned as MCP image content and are never staged in a filesystem cache.
 - `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
   protects it with `BIND_APP_FUNCTION_SERVICE`; resource gating disables the
   component on Android 15. It exposes only a small non-developer subset and
   executes it through `DesktopAutomationController`.
-- Neither adapter accepts arbitrary shell commands. The built-in Console is a
-  separate, explicitly user-driven shell surface. Transport authentication,
-  platform permissions, and action validation remain independent checks.
+- App Functions never accept arbitrary shell commands. MCP exposes shell and
+  broad filesystem operations only behind its explicit Files and Console
+  setting. Transport authentication, optional tool gates, platform
+  permissions, and action validation remain independent checks.
 
 ### Desktop UI
 
