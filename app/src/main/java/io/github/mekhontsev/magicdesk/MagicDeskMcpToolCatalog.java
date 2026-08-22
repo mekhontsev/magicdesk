@@ -19,17 +19,17 @@ final class MagicDeskMcpToolCatalog {
             final boolean includeShellTools) throws JSONException {
         final JSONArray tools = new JSONArray()
                 .put(readTool(
-                        "magicdesk.get_state",
+                        "get_state",
                         "Get desktop state",
                         "Read current MagicDesk runtime and desktop session state.",
                         emptySchema()))
                 .put(readTool(
-                        "magicdesk.list_displays",
+                        "list_displays",
                         "List displays",
                         "List connected displays, current modes and supported modes.",
                         emptySchema()))
                 .put(readTool(
-                        "magicdesk.list_tasks",
+                        "list_tasks",
                         "List tasks",
                         "List Android tasks and native window state on all or one display.",
                         objectSchema(new JSONObject()
@@ -47,7 +47,7 @@ final class MagicDeskMcpToolCatalog {
                                 .put("cursor", stringProperty(
                                         "Opaque cursor from the previous page.")))))
                 .put(readTool(
-                        "magicdesk.list_apps",
+                        "list_apps",
                         "List applications",
                         "List launchable Android application activities.",
                         objectSchema(new JSONObject()
@@ -60,7 +60,7 @@ final class MagicDeskMcpToolCatalog {
                                 .put("cursor", stringProperty(
                                         "Opaque cursor from the previous page.")))))
                 .put(readTool(
-                        "magicdesk.get_events",
+                        "get_events",
                         "Get automation events",
                         "Read the bounded structured automation event history.",
                         objectSchema(new JSONObject()
@@ -69,17 +69,17 @@ final class MagicDeskMcpToolCatalog {
                                 .put("limit", integerProperty(
                                         "Maximum number of events, up to 256.")))))
                 .put(readTool(
-                        "magicdesk.get_diagnostics",
+                        "get_diagnostics",
                         "Get diagnostics",
                         "Build the full MagicDesk compatibility report.",
                         emptySchema()))
                 .put(readTool(
-                        "magicdesk.get_self_test",
+                        "get_self_test",
                         "Get self-test result",
                         "Read the current status and latest desktop self-test report.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.start_desktop",
+                        "start_desktop",
                         "Start desktop",
                         "Start MagicDesk on the requested available display target.",
                         objectSchema(new JSONObject().put(
@@ -88,12 +88,12 @@ final class MagicDeskMcpToolCatalog {
                                         "auto", "phone", "simulated",
                                         "wired", "wireless")))))
                 .put(actionTool(
-                        "magicdesk.close_desktop",
+                        "close_desktop",
                         "Close desktop",
                         "Run the normal Close Desktop procedure for the active session.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.launch_app",
+                        "launch_app",
                         "Launch application",
                         "Launch an Android application through the native MagicDesk window pipeline.",
                         objectSchema(new JSONObject()
@@ -108,17 +108,17 @@ final class MagicDeskMcpToolCatalog {
                                                 "Active desktop display id.")),
                                 "package")))
                 .put(actionTool(
-                        "magicdesk.focus_task",
+                        "focus_task",
                         "Focus task",
                         "Focus a task through MagicDesk's ordered task focus path.",
                         taskIdSchema()))
                 .put(destructiveTool(
-                        "magicdesk.close_task",
+                        "close_task",
                         "Close task",
                         "Close a managed application task without force-stopping its package.",
                         taskIdSchema()))
                 .put(actionTool(
-                        "magicdesk.set_window_mode",
+                        "set_window_mode",
                         "Set window mode",
                         "Change a task between native windowed and fullscreen modes.",
                         objectSchema(new JSONObject()
@@ -131,7 +131,7 @@ final class MagicDeskMcpToolCatalog {
                                                 "Optional bounds for windowed mode.")),
                                 "taskId", "mode")))
                 .put(actionTool(
-                        "magicdesk.set_window_bounds",
+                        "set_window_bounds",
                         "Set window bounds",
                         "Resize a native freeform task to explicit display coordinates.",
                         objectSchema(new JSONObject()
@@ -141,39 +141,39 @@ final class MagicDeskMcpToolCatalog {
                                                 "Required task bounds.")),
                                 "taskId", "bounds")))
                 .put(actionTool(
-                        "magicdesk.show_start",
+                        "show_start",
                         "Show Start",
                         "Open the MagicDesk Start menu on the active desktop.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.show_desktop",
+                        "show_desktop",
                         "Toggle desktop",
                         "Toggle between the desktop and the current application workspace.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.open_settings",
+                        "open_settings",
                         "Open settings",
                         "Open MagicDesk settings on the active desktop or phone.",
                         emptySchema()))
                 .put(readTool(
-                        "magicdesk.capture_screenshot",
+                        "capture_screenshot",
                         "Capture screenshot",
                         "Capture the active desktop as an in-memory PNG image.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
                                         "Optional active desktop display id.")))))
                 .put(readTool(
-                        "magicdesk.wait_for_state",
+                        "wait_for_state",
                         "Wait for state",
                         "Wait for an observable desktop, task, application health, system dialog, UI, or self-test condition.",
                         waitSchema()));
         tools.put(readTool(
-                        "magicdesk.sample_pixels",
+                        "sample_pixels",
                         "Sample display pixels",
                         "Read up to 64 exact pixels from the active desktop without creating a file.",
                         pixelSampleSchema()))
                 .put(actionTool(
-                        "magicdesk.open_builtin",
+                        "open_builtin",
                         "Open built-in window",
                         "Open a MagicDesk Files, Console, Task Manager, or Settings window.",
                         objectSchema(new JSONObject().put(
@@ -183,7 +183,7 @@ final class MagicDeskMcpToolCatalog {
                                         "task_manager", "settings")),
                                 "builtin")))
                 .put(actionTool(
-                        "magicdesk.arrange_task",
+                        "arrange_task",
                         "Arrange task",
                         "Apply the same native task transition used by MagicDesk window shortcuts.",
                         objectSchema(new JSONObject()
@@ -195,38 +195,38 @@ final class MagicDeskMcpToolCatalog {
                                                 "maximize", "restore")),
                                 "taskId", "arrangement")))
                 .put(readTool(
-                        "magicdesk.list_app_actions",
+                        "list_app_actions",
                         "List application actions",
                         "List supported manifest shortcuts for an application.",
                         appTargetSchema(false)))
                 .put(actionTool(
-                        "magicdesk.invoke_app_action",
+                        "invoke_app_action",
                         "Invoke application action",
                         "Launch one manifest shortcut through the desktop window pipeline.",
                         appTargetSchema(true)))
                 .put(actionTool(
-                        "magicdesk.launch_spec",
+                        "launch_spec",
                         "Launch desktop specification",
                         "Launch a .desktop file or an Android launch specification through the shared coordinator.",
                         launchSpecSchema()))
                 .put(readTool(
-                        "magicdesk.get_recording_status",
+                        "get_recording_status",
                         "Get recording status",
                         "Read the current desktop screen recording state.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.start_recording",
+                        "start_recording",
                         "Start screen recording",
                         "Start recording the active desktop with the configured audio mode.",
                         emptySchema()))
                 .put(actionTool(
-                        "magicdesk.stop_recording",
+                        "stop_recording",
                         "Stop screen recording",
                         "Finalize and save the active desktop recording.",
                         emptySchema()));
         if (includeDeveloperTools) {
             tools.put(destructiveTool(
-                        "magicdesk.force_stop_app",
+                        "force_stop_app",
                         "Force stop application",
                         "Force-stop an Android package. Developer automation only.",
                         objectSchema(new JSONObject().put(
@@ -234,7 +234,7 @@ final class MagicDeskMcpToolCatalog {
                                         "Android package name.")),
                                 "package")))
                 .put(actionTool(
-                        "magicdesk.run_self_test",
+                        "run_self_test",
                         "Run desktop self-test",
                         "Launch the built-in UI self-test on an exact display target.",
                         objectSchema(new JSONObject().put(
@@ -243,7 +243,7 @@ final class MagicDeskMcpToolCatalog {
                                         "phone", "simulated",
                                         "wired", "wireless")))))
                 .put(actionTool(
-                        "magicdesk.send_key",
+                        "send_key",
                         "Send key",
                         "Inject one Android key event on a desktop display. Developer automation only.",
                         objectSchema(new JSONObject()
@@ -253,7 +253,7 @@ final class MagicDeskMcpToolCatalog {
                                                 "Android KEYCODE name.")),
                                 "keyCode")))
                 .put(actionTool(
-                        "magicdesk.move_pointer",
+                        "move_pointer",
                         "Move pointer",
                         "Move the MagicDesk pointer to absolute display coordinates.",
                         objectSchema(new JSONObject()
@@ -265,7 +265,7 @@ final class MagicDeskMcpToolCatalog {
                                                 "Vertical display coordinate.")),
                                 "x", "y")))
                 .put(actionTool(
-                        "magicdesk.click_pointer",
+                        "click_pointer",
                         "Click pointer",
                         "Inject a primary or secondary pointer click at the current position.",
                         objectSchema(new JSONObject()
@@ -321,7 +321,7 @@ final class MagicDeskMcpToolCatalog {
     private static void addShellTools(final JSONArray tools)
             throws JSONException {
         tools.put(readTool(
-                        "magicdesk.files.list",
+                        "files.list",
                         "List files",
                         "List a directory through the same shell file service used by Files.",
                         objectSchema(new JSONObject()
@@ -341,12 +341,12 @@ final class MagicDeskMcpToolCatalog {
                                                 "descending")),
                                 "path")))
                 .put(readTool(
-                        "magicdesk.files.stat",
+                        "files.stat",
                         "Read file information",
                         "Read metadata for one shell-visible file or directory.",
                         pathSchema()))
                 .put(actionTool(
-                        "magicdesk.files.create",
+                        "files.create",
                         "Create file entry",
                         "Create a file or directory through the shared Files backend.",
                         objectSchema(new JSONObject()
@@ -358,7 +358,7 @@ final class MagicDeskMcpToolCatalog {
                                                 "Create a directory.")),
                                 "parent", "name")))
                 .put(actionTool(
-                        "magicdesk.files.rename",
+                        "files.rename",
                         "Rename file entry",
                         "Rename a file or directory through the shared Files backend.",
                         objectSchema(new JSONObject()
@@ -368,14 +368,14 @@ final class MagicDeskMcpToolCatalog {
                                                 "New entry name.")),
                                 "path", "newName")))
                 .put(actionTool(
-                        "magicdesk.console.open",
+                        "console.open",
                         "Open console session",
                         "Open a bounded persistent Android shell session.",
                         objectSchema(new JSONObject().put(
                                 "directory", stringProperty(
                                         "Initial absolute working directory.")))))
                 .put(actionTool(
-                        "magicdesk.console.execute",
+                        "console.execute",
                         "Execute console command",
                         "Execute a command in a persistent gated console session.",
                         objectSchema(new JSONObject()
@@ -385,12 +385,12 @@ final class MagicDeskMcpToolCatalog {
                                                 "Shell command.")),
                                 "sessionId", "command")))
                 .put(readTool(
-                        "magicdesk.console.status",
+                        "console.status",
                         "Get console session",
                         "Read a console session's current working directory.",
                         sessionSchema()))
                 .put(destructiveTool(
-                        "magicdesk.console.close",
+                        "console.close",
                         "Close console session",
                         "Close one persistent MCP console session.",
                         sessionSchema()));
@@ -533,17 +533,17 @@ final class MagicDeskMcpToolCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
-            case "magicdesk.get_state":
+            case "get_state":
                 properties.put("generatedAtMillis", integerProperty("Timestamp."))
                         .put("session", openObjectProperty("Desktop session."))
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
                 break;
-            case "magicdesk.list_displays":
+            case "list_displays":
                 properties.put("displays", arrayProperty(
                         "Connected displays.", openObjectProperty("Display.")));
                 break;
-            case "magicdesk.list_tasks":
+            case "list_tasks":
                 properties.put("tasks", arrayProperty(
                                 "Task page.", openObjectProperty("Task.")))
                         .put("count", integerProperty("Returned count."))
@@ -551,7 +551,7 @@ final class MagicDeskMcpToolCatalog {
                         .put("nextCursor", nullableStringProperty(
                                 "Next page cursor."));
                 break;
-            case "magicdesk.list_apps":
+            case "list_apps":
                 properties.put("apps", arrayProperty(
                                 "Application page.", openObjectProperty("App.")))
                         .put("count", integerProperty("Returned count."))
@@ -559,63 +559,63 @@ final class MagicDeskMcpToolCatalog {
                         .put("nextCursor", nullableStringProperty(
                                 "Next page cursor."));
                 break;
-            case "magicdesk.get_events":
+            case "get_events":
                 properties.put("latestId", integerProperty("Latest event id."))
                         .put("events", arrayProperty(
                                 "Structured events.", openObjectProperty("Event.")));
                 break;
-            case "magicdesk.get_diagnostics":
+            case "get_diagnostics":
                 properties.put("report", stringProperty(
                         "Compatibility report."));
                 break;
-            case "magicdesk.get_self_test":
+            case "get_self_test":
                 properties.put("running", booleanProperty("Test is running."))
                         .put("report", stringProperty("Latest test report."));
                 break;
-            case "magicdesk.capture_screenshot":
+            case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))
                         .put("width", integerProperty("Image width."))
                         .put("height", integerProperty("Image height."))
                         .put("mimeType", stringProperty("Image MIME type."))
                         .put("captureSource", stringProperty("Capture source."));
                 break;
-            case "magicdesk.sample_pixels":
+            case "sample_pixels":
                 properties.put("displayId", integerProperty("Display id."))
                         .put("samples", arrayProperty(
                                 "Pixel values.", openObjectProperty("Pixel.")));
                 break;
-            case "magicdesk.get_recording_status":
-            case "magicdesk.start_recording":
-            case "magicdesk.stop_recording":
+            case "get_recording_status":
+            case "start_recording":
+            case "stop_recording":
                 properties.put("state", stringProperty("Recording state."))
                         .put("message", stringProperty("Recording detail."));
                 break;
-            case "magicdesk.list_app_actions":
+            case "list_app_actions":
                 properties.put("package", stringProperty("Package."))
                         .put("actions", arrayProperty(
                                 "Available actions.",
                                 openObjectProperty("Application action.")));
                 break;
-            case "magicdesk.files.list":
+            case "files.list":
                 properties.put("path", stringProperty("Directory path."))
                         .put("entries", arrayProperty(
                                 "File entries.", openObjectProperty("File.")))
                         .put("nextCursor", nullableStringProperty(
                                 "Next page cursor."));
                 break;
-            case "magicdesk.files.stat":
-            case "magicdesk.files.create":
-            case "magicdesk.files.rename":
+            case "files.stat":
+            case "files.create":
+            case "files.rename":
                 properties.put("file", openObjectProperty("File metadata."));
                 break;
-            case "magicdesk.console.open":
-            case "magicdesk.console.status":
-            case "magicdesk.console.close":
+            case "console.open":
+            case "console.status":
+            case "console.close":
                 properties.put("sessionId", stringProperty("Session id."))
                         .put("workingDirectory", stringProperty(
                                 "Current directory."));
                 break;
-            case "magicdesk.console.execute":
+            case "console.execute":
                 properties.put("sessionId", stringProperty("Session id."))
                         .put("exitCode", integerProperty("Command exit code."))
                         .put("output", stringProperty("Combined output."))

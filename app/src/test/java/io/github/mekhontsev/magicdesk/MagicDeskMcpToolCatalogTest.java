@@ -19,10 +19,10 @@ public final class MagicDeskMcpToolCatalogTest {
         final Set<String> developerNames = names(
                 MagicDeskMcpToolCatalog.create(true));
 
-        assertTrue(publicNames.contains("magicdesk.get_state"));
-        assertTrue(publicNames.contains("magicdesk.launch_app"));
-        assertFalse(publicNames.contains("magicdesk.run_self_test"));
-        assertTrue(developerNames.contains("magicdesk.run_self_test"));
+        assertTrue(publicNames.contains("get_state"));
+        assertTrue(publicNames.contains("launch_app"));
+        assertFalse(publicNames.contains("run_self_test"));
+        assertTrue(developerNames.contains("run_self_test"));
         assertTrue(developerNames.containsAll(publicNames));
         assertTrue(developerNames.size() > publicNames.size());
     }
@@ -33,6 +33,7 @@ public final class MagicDeskMcpToolCatalogTest {
         final Set<String> names = new HashSet<>();
         for (int index = 0; index < tools.length(); index++) {
             final JSONObject tool = tools.getJSONObject(index);
+            assertFalse(tool.getString("name").startsWith("magicdesk."));
             assertTrue(names.add(tool.getString("name")));
             assertEquals("object",
                     tool.getJSONObject("inputSchema").getString("type"));
@@ -55,11 +56,11 @@ public final class MagicDeskMcpToolCatalogTest {
         final Set<String> shell = names(
                 MagicDeskMcpToolCatalog.create(false, true));
 
-        assertFalse(normal.contains("magicdesk.console.execute"));
-        assertFalse(normal.contains("magicdesk.files.list"));
-        assertTrue(shell.contains("magicdesk.console.execute"));
-        assertTrue(shell.contains("magicdesk.files.list"));
-        assertFalse(shell.contains("magicdesk.run_self_test"));
+        assertFalse(normal.contains("console.execute"));
+        assertFalse(normal.contains("files.list"));
+        assertTrue(shell.contains("console.execute"));
+        assertTrue(shell.contains("files.list"));
+        assertFalse(shell.contains("run_self_test"));
     }
 
     private static Set<String> names(final JSONArray tools)

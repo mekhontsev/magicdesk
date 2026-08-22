@@ -84,6 +84,9 @@ cursors are tool failures rather than transport-level JSON-RPC exceptions.
 
 ## State and Observation
 
+The MCP catalog exposes unqualified tool names such as `get_state`; clients
+add the configured server name, so documentation uses `magicdesk.get_state`.
+
 Normal read tools include:
 
 - `magicdesk.get_state`: session, shell, platform, runtime, MagicDesk-owned UI,

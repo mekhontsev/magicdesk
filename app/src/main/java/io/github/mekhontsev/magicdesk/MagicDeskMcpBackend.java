@@ -8,8 +8,6 @@ import org.json.JSONObject;
 
 /** Maps MCP tools and resources onto the shared desktop automation gateway. */
 final class MagicDeskMcpBackend implements McpBackend {
-    private static final String PREFIX = "magicdesk.";
-
     private final Context mContext;
     private final DesktopAutomationController mAutomation;
     private final DesktopAutomationFileTools mFiles =
@@ -59,36 +57,36 @@ final class MagicDeskMcpBackend implements McpBackend {
                 ? new JSONObject() : arguments;
         final JSONObject data;
         switch (name) {
-            case "magicdesk.get_state":
+            case "get_state":
                 data = mAutomation.stateReader().state();
                 return successResult(data);
-            case "magicdesk.list_displays":
+            case "list_displays":
                 data = mAutomation.stateReader().displays();
                 return successResult(data);
-            case "magicdesk.list_tasks":
+            case "list_tasks":
                 data = mAutomation.stateReader().tasks(args);
                 return successResult(data);
-            case "magicdesk.list_apps":
+            case "list_apps":
                 data = mAutomation.stateReader().apps(args);
                 return successResult(data);
-            case "magicdesk.get_events":
+            case "get_events":
                 data = mAutomation.stateReader().events(
                         Math.max(0L, args.optLong("afterId", 0L)),
                         Math.max(1, args.optInt("limit", 100)));
                 return successResult(data);
-            case "magicdesk.get_diagnostics":
+            case "get_diagnostics":
                 data = mAutomation.stateReader().diagnostics();
                 return successResult(data);
-            case "magicdesk.get_self_test":
+            case "get_self_test":
                 data = mAutomation.stateReader().selfTest();
                 return successResult(data);
-            case "magicdesk.wait_for_state":
+            case "wait_for_state":
                 return actionResult(mAutomation.waitFor(args));
             default:
                 break;
         }
-        if (name.startsWith("magicdesk.files.")
-                || name.startsWith("magicdesk.console.")) {
+        if (name.startsWith("files.")
+                || name.startsWith("console.")) {
             if (!MagicDeskMcpPreferences.load(mContext).shellTools) {
                 return actionResult(DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.TOOL_DISABLED,
@@ -96,31 +94,28 @@ final class MagicDeskMcpBackend implements McpBackend {
                         false));
             }
             switch (name) {
-                case "magicdesk.files.list":
+                case "files.list":
                     return actionResult(mFiles.list(args));
-                case "magicdesk.files.stat":
+                case "files.stat":
                     return actionResult(mFiles.stat(args));
-                case "magicdesk.files.create":
+                case "files.create":
                     return actionResult(mFiles.create(args));
-                case "magicdesk.files.rename":
+                case "files.rename":
                     return actionResult(mFiles.rename(args));
-                case "magicdesk.console.open":
+                case "console.open":
                     return actionResult(mConsole.open(args));
-                case "magicdesk.console.execute":
+                case "console.execute":
                     return actionResult(mConsole.execute(args));
-                case "magicdesk.console.status":
+                case "console.status":
                     return actionResult(mConsole.status(args));
-                case "magicdesk.console.close":
+                case "console.close":
                     return actionResult(mConsole.close(args));
                 default:
                     return errorResult("unknown gated tool");
             }
         }
-        if (!name.startsWith(PREFIX)) {
-            return errorResult("unknown tool");
-        }
         final DesktopAutomationResult result = mAutomation.execute(
-                name.substring(PREFIX.length()),
+                name,
                 args,
                 MagicDeskMcpPreferences.load(mContext).developerTools);
         return actionResult(result);
