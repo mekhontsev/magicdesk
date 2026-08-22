@@ -24,6 +24,10 @@ import android.widget.FrameLayout;
 final class OverlayPanelController {
     private static final String TAG = "MagicDeskPanels";
 
+    interface ChildInputListener {
+        void onSecondaryClick(float x, float y);
+    }
+
     private final Context mApplicationContext;
     private final AppOpsManager mAppOpsManager;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
@@ -42,6 +46,8 @@ final class OverlayPanelController {
     private View mTransientView;
     private boolean mAdded;
     private boolean mChildAdded;
+    private boolean mVisibleFocusable;
+    private boolean mChildFocusable;
     private boolean mPersistentAdded;
     private boolean mTransientAdded;
     private boolean mOverlayPermissionGranted;
@@ -49,6 +55,7 @@ final class OverlayPanelController {
     private boolean mReleased;
     private View mTextInputView;
     private InputConnection mTextInputConnection;
+    private View mOwnerFocusBeforeChild;
     private final Runnable mTransientTimeout = this::hideTransient;
     private final AppOpsManager.OnOpChangedListener mOverlayPermissionListener;
 
@@ -150,6 +157,7 @@ final class OverlayPanelController {
             mVisiblePanel = panel;
             mVisibleTitle = title == null ? "" : title;
             mAdded = true;
+            mVisibleFocusable = focusable;
             mBounds.set(left, top, left + width, top + height);
             recordPanelState(true);
             panel.postOnAnimation(() -> {
@@ -174,6 +182,7 @@ final class OverlayPanelController {
             mVisiblePanel = null;
             mVisibleTitle = "";
             mAdded = false;
+            mVisibleFocusable = false;
             mBounds.setEmpty();
             Log.w(TAG, "failed to show panel " + title, e);
             CompatibilityDiagnostics.record(
@@ -188,7 +197,8 @@ final class OverlayPanelController {
     /** Shows one modal child while retaining its owning desktop panel. */
     @SuppressLint("ClickableViewAccessibility")
     boolean showChild(final View panel, final int left, final int top,
-            final int width, final int height, final String title) {
+            final int width, final int height, final String title,
+            final ChildInputListener inputListener) {
         if (!mAdded || mVisiblePanel == null) {
             return show(panel, left, top, width, height, false, title);
         }
@@ -196,7 +206,13 @@ final class OverlayPanelController {
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }
-        hideChild();
+        final View ownerFocus = mChildAdded
+                ? mOwnerFocusBeforeChild : mVisiblePanel.findFocus();
+        hideChild(false);
+        mOwnerFocusBeforeChild = ownerFocus;
+        if (mVisibleFocusable) {
+            clearTextInputConnection();
+        }
 
         final Rect hostBounds = new Rect(mBounds);
         hostBounds.union(left, top, left + width, top + height);
@@ -205,30 +221,23 @@ final class OverlayPanelController {
                 top - hostBounds.top,
                 left - hostBounds.left + width,
                 top - hostBounds.top + height);
-        final FrameLayout host = new FrameLayout(panel.getContext()) {
-            @Override
-            public boolean dispatchTouchEvent(final MotionEvent event) {
-                if (event.getActionMasked() == MotionEvent.ACTION_DOWN
-                        && !menuBounds.contains(
-                                Math.round(event.getX()),
-                                Math.round(event.getY()))) {
-                    post(OverlayPanelController.this::hideChild);
-                    return true;
-                }
-                return super.dispatchTouchEvent(event);
-            }
-        };
+        final FrameLayout host = new ChildPanelHost(
+                panel.getContext(), menuBounds, inputListener);
         final FrameLayout.LayoutParams panelParams =
                 new FrameLayout.LayoutParams(width, height);
         panelParams.leftMargin = menuBounds.left;
         panelParams.topMargin = menuBounds.top;
         host.addView(panel, panelParams);
 
-        final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        if (!mVisibleFocusable) {
+            flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        } else {
+            flags |= WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        }
         final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 hostBounds.width(),
                 hostBounds.height(),
@@ -261,6 +270,7 @@ final class OverlayPanelController {
             mChildHost = host;
             mChildTitle = title == null ? "" : title;
             mChildAdded = true;
+            mChildFocusable = mVisibleFocusable;
             mChildBounds.set(left, top, left + width, top + height);
             recordPanelState(true, mChildTitle, mChildBounds);
             host.postOnAnimation(() -> {
@@ -287,7 +297,10 @@ final class OverlayPanelController {
             mChildHost = null;
             mChildTitle = "";
             mChildAdded = false;
+            mChildFocusable = false;
+            mOwnerFocusBeforeChild = null;
             mChildBounds.setEmpty();
+            restoreOwnerFocus(ownerFocus);
             Log.w(TAG, "failed to show child panel " + title, e);
             CompatibilityDiagnostics.record(
                     "OVERLAY-010",
@@ -469,7 +482,7 @@ final class OverlayPanelController {
     }
 
     void hideAll() {
-        hideChild();
+        hideChild(false);
         hideTransient();
         clearTextInputConnection();
         final View panel = mVisiblePanel;
@@ -490,12 +503,19 @@ final class OverlayPanelController {
         mVisiblePanel = null;
         mVisibleTitle = "";
         mAdded = false;
+        mVisibleFocusable = false;
         mBounds.setEmpty();
     }
 
     private void hideChild() {
+        hideChild(true);
+    }
+
+    private void hideChild(final boolean restoreOwnerFocus) {
         final View panel = mChildPanel;
         final FrameLayout host = mChildHost;
+        final View ownerFocus = mOwnerFocusBeforeChild;
+        final boolean wasFocusable = mChildFocusable;
         if (mChildAdded && host != null && mWindowManager != null) {
             recordPanelState(false, mChildTitle, mChildBounds);
             try {
@@ -514,7 +534,24 @@ final class OverlayPanelController {
         mChildHost = null;
         mChildTitle = "";
         mChildAdded = false;
+        mChildFocusable = false;
+        mOwnerFocusBeforeChild = null;
         mChildBounds.setEmpty();
+        if (restoreOwnerFocus && wasFocusable) {
+            restoreOwnerFocus(ownerFocus);
+        }
+    }
+
+    private void restoreOwnerFocus(final View ownerFocus) {
+        if (!mAdded || !mVisibleFocusable || mVisiblePanel == null) {
+            return;
+        }
+        final View target = ownerFocus == null ? mVisiblePanel : ownerFocus;
+        target.post(() -> {
+            if (mAdded && !mChildAdded && target.isAttachedToWindow()) {
+                target.requestFocusFromTouch();
+            }
+        });
     }
 
     void release() {
@@ -616,12 +653,12 @@ final class OverlayPanelController {
     }
 
     boolean hasTextInputTarget() {
+        final View inputPanel = topInputPanel();
         if (Looper.myLooper() != Looper.getMainLooper()
-                || !mAdded
-                || mVisiblePanel == null) {
+                || inputPanel == null) {
             return false;
         }
-        final View focused = mVisiblePanel.findFocus();
+        final View focused = inputPanel.findFocus();
         return focused != null && focused.onCheckIsTextEditor();
     }
 
@@ -631,12 +668,12 @@ final class OverlayPanelController {
             final int arg1,
             final int arg2,
             final int arg3) {
+        final View inputPanel = topInputPanel();
         if (Looper.myLooper() != Looper.getMainLooper()
-                || !mAdded
-                || mVisiblePanel == null) {
+                || inputPanel == null) {
             return false;
         }
-        final View focused = mVisiblePanel.findFocus();
+        final View focused = inputPanel.findFocus();
         if (focused == null || !focused.onCheckIsTextEditor()) {
             clearTextInputConnection();
             return false;
@@ -670,6 +707,13 @@ final class OverlayPanelController {
         }
     }
 
+    private View topInputPanel() {
+        if (mChildAdded && mChildPanel != null) {
+            return mChildPanel;
+        }
+        return mAdded ? mVisiblePanel : null;
+    }
+
     boolean contains(final float x, final float y) {
         final int roundedX = Math.round(x);
         final int roundedY = Math.round(y);
@@ -682,9 +726,83 @@ final class OverlayPanelController {
                 || isDescendantOf(view, mAdded ? mVisiblePanel : null);
     }
 
-    boolean containsTopPanelView(final View view) {
-        return isDescendantOf(
-                view, mChildAdded ? mChildPanel : mVisiblePanel);
+    boolean isTopPanelFocusable() {
+        return mChildAdded ? mChildFocusable : mVisibleFocusable;
+    }
+
+    private final class ChildPanelHost extends FrameLayout {
+        private final Rect mMenuBounds;
+        private final ChildInputListener mInputListener;
+        private boolean mOutsideSecondaryDown;
+        private float mSecondaryX;
+        private float mSecondaryY;
+
+        ChildPanelHost(
+                final Context context,
+                final Rect menuBounds,
+                final ChildInputListener inputListener) {
+            super(context);
+            mMenuBounds = new Rect(menuBounds);
+            mInputListener = inputListener;
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(final MotionEvent event) {
+            if (handleOutsideEvent(event)) {
+                return true;
+            }
+            return super.dispatchTouchEvent(event);
+        }
+
+        @Override
+        public boolean dispatchGenericMotionEvent(final MotionEvent event) {
+            if (handleOutsideEvent(event)) {
+                return true;
+            }
+            return super.dispatchGenericMotionEvent(event);
+        }
+
+        private boolean handleOutsideEvent(final MotionEvent event) {
+            if (mMenuBounds.contains(
+                    Math.round(event.getX()), Math.round(event.getY()))) {
+                return false;
+            }
+            final int action = event.getActionMasked();
+            final boolean secondary = (event.getButtonState()
+                    & MotionEvent.BUTTON_SECONDARY) != 0
+                    || event.getActionButton() == MotionEvent.BUTTON_SECONDARY;
+            if ((action == MotionEvent.ACTION_DOWN
+                    || action == MotionEvent.ACTION_BUTTON_PRESS)
+                    && secondary) {
+                mOutsideSecondaryDown = true;
+                mSecondaryX = event.getRawX();
+                mSecondaryY = event.getRawY();
+                return true;
+            }
+            if (mOutsideSecondaryDown
+                    && (action == MotionEvent.ACTION_UP
+                            || action == MotionEvent.ACTION_BUTTON_RELEASE)) {
+                mOutsideSecondaryDown = false;
+                final float x = mSecondaryX;
+                final float y = mSecondaryY;
+                post(() -> {
+                    hideChild(false);
+                    if (mInputListener != null) {
+                        mInputListener.onSecondaryClick(x, y);
+                    }
+                });
+                return true;
+            }
+            if (action == MotionEvent.ACTION_CANCEL) {
+                mOutsideSecondaryDown = false;
+                return true;
+            }
+            if (action == MotionEvent.ACTION_DOWN) {
+                post(OverlayPanelController.this::hideChild);
+                return true;
+            }
+            return mOutsideSecondaryDown;
+        }
     }
 
     private static boolean isDescendantOf(

@@ -40,9 +40,11 @@ final class DesktopViewport {
         if (metrics == null) {
             return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
         }
+        // Desktop geometry reserves system bars even while they are transiently
+        // hidden. Focus moving to an overlay must not resize the workspace.
         final Insets insets = windowInsets == null
                 ? Insets.NONE
-                : windowInsets.getInsets(
+                : windowInsets.getInsetsIgnoringVisibility(
                         WindowInsets.Type.statusBars()
                                 | WindowInsets.Type.navigationBars());
         return new DesktopViewport(

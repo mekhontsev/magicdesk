@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.graphics.Rect;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -34,6 +35,7 @@ final class TaskbarOverflowController {
     private final DesktopUiFactory mUi;
     private final Listener mListener;
     private final List<Entry> mItems = new ArrayList<>();
+    private final DesktopMenuNavigator mMenuNavigator;
 
     private ScrollView mPanel;
     private LinearLayout mList;
@@ -45,6 +47,7 @@ final class TaskbarOverflowController {
         mActivity = activity;
         mUi = ui;
         mListener = listener;
+        mMenuNavigator = new DesktopMenuNavigator(activity::hideTopPanel);
     }
 
     View createButton(final List<Entry> items) {
@@ -53,7 +56,7 @@ final class TaskbarOverflowController {
         final int hiddenCount = mItems.size();
 
         final FrameLayout button = new FrameLayout(mActivity);
-        button.setBackground(mUi.rounded(
+        button.setBackground(mUi.interactiveRounded(
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 desktopDp(10, 8),
                 DesktopUiFactory.COLOR_CYAN));
@@ -125,17 +128,18 @@ final class TaskbarOverflowController {
         populate();
         mActivity.captureInteractionStackForPanel();
 
-        final int areaLeft = mActivity.getDesktopAreaLeft();
-        final int areaTop = mActivity.getDesktopAreaTop();
-        final int areaWidth = mActivity.getDesktopAreaWidth();
+        final Rect workArea = mActivity.getDesktopViewport()
+                .workAreaBounds(mActivity.getTaskbarHeight());
+        final int areaLeft = workArea.left;
+        final int areaTop = workArea.top;
+        final int areaWidth = workArea.width();
         final int rowHeight = desktopDp(54, 44);
         final int width = Math.min(
                 desktopDp(300, 230),
                 Math.max(1, areaWidth - dp(16)));
         final int maxHeight = Math.max(
                 rowHeight,
-                mActivity.getDesktopAreaHeight()
-                        - mActivity.getTaskbarHeight() - dp(16));
+                workArea.height() - dp(16));
         final int height = Math.min(
                 maxHeight,
                 mItems.size() * rowHeight + dp(12));
@@ -152,12 +156,15 @@ final class TaskbarOverflowController {
                 top,
                 width,
                 height,
+                true,
                 false,
                 "MagicDesk taskbar overflow")) {
             mActivity.setErrorStatus(
                     "OVERLAY-001",
                     mActivity.getString(
                             R.string.status_overlay_panel_unavailable));
+        } else {
+            mMenuNavigator.activate(mPanel);
         }
     }
 
@@ -182,6 +189,7 @@ final class TaskbarOverflowController {
 
     private void populate() {
         mList.removeAllViews();
+        mMenuNavigator.prepare(null);
         final int rowHeight = desktopDp(54, 44);
         for (final Entry item : mItems) {
             mList.addView(
@@ -197,7 +205,7 @@ final class TaskbarOverflowController {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(7), dp(4), dp(7), dp(4));
-        row.setBackground(mUi.rounded(
+        row.setBackground(mUi.interactiveRounded(
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 desktopDp(7, 5),
                 item.task != null && item.task.active

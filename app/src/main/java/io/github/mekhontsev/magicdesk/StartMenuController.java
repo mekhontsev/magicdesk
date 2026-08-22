@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
-import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -88,29 +87,6 @@ final class StartMenuController {
                 dp(18),
                 DesktopUiFactory.COLOR_CYAN));
         menu.setVisibility(View.GONE);
-        final LinearLayout header = new LinearLayout(mActivity);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        final TextView title = new TextView(mActivity);
-        title.setText(R.string.action_start);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
-        final Button close = mUi.smallButton(
-                R.string.action_close,
-                DesktopUiFactory.COLOR_PANEL_ALT);
-        close.setOnClickListener(view -> setVisible(false));
-        header.addView(close, new LinearLayout.LayoutParams(
-                dp(86), LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        menu.addView(header, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
         mSearch = new EditText(mActivity);
         mSearch.setHint(R.string.search_apps_hint);
         mSearch.setHintTextColor(DesktopUiFactory.COLOR_MUTED);

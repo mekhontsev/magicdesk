@@ -21,6 +21,7 @@ public final class DesktopUiFactory {
     public static final int COLOR_CYAN = 0xFF22D3EE;
     static final int COLOR_RED = 0xFFF43F5E;
     static final int COLOR_AMBER = 0xFFF59E0B;
+    private static final int COLOR_PANEL_FOCUS = 0xFF26344A;
 
     private final Context mContext;
 
@@ -70,6 +71,12 @@ public final class DesktopUiFactory {
                 new int[] {-android.R.attr.state_enabled},
                 rounded(COLOR_PANEL, dp(10), COLOR_MUTED));
         background.addState(
+                new int[] {android.R.attr.state_pressed},
+                rounded(COLOR_PANEL_FOCUS, dp(10), accentColor));
+        background.addState(
+                new int[] {android.R.attr.state_focused},
+                rounded(COLOR_PANEL_FOCUS, dp(10), accentColor));
+        background.addState(
                 new int[0],
                 rounded(COLOR_PANEL_ALT, dp(10), accentColor));
         button.setBackground(background);
@@ -105,6 +112,23 @@ public final class DesktopUiFactory {
         button.setContentDescription(mContext.getString(descriptionResId));
         button.setTooltipText(mContext.getString(descriptionResId));
         return button;
+    }
+
+    StateListDrawable interactiveRounded(
+            final int color,
+            final int radius,
+            final int accentColor) {
+        final StateListDrawable background = new StateListDrawable();
+        background.addState(
+                new int[] {android.R.attr.state_pressed},
+                rounded(COLOR_PANEL_FOCUS, radius, accentColor));
+        background.addState(
+                new int[] {android.R.attr.state_focused},
+                rounded(COLOR_PANEL_FOCUS, radius, accentColor));
+        background.addState(
+                new int[0],
+                rounded(color, radius, accentColor));
+        return background;
     }
 
     public GradientDrawable rounded(

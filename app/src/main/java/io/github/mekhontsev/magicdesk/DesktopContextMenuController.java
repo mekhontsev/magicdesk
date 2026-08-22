@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.appwidget.AppWidgetProviderInfo;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
@@ -22,6 +23,7 @@ final class DesktopContextMenuController {
     private final DesktopUiFactory mUi;
     private final AppShortcutRepository mShortcuts;
     private final Map<View, ContextTarget> mTargets = new WeakHashMap<>();
+    private final DesktopMenuNavigator mMenuNavigator;
 
     private LinearLayout mPanel;
     private ScrollView mMenuRoot;
@@ -34,6 +36,7 @@ final class DesktopContextMenuController {
         mActivity = activity;
         mUi = ui;
         mShortcuts = new AppShortcutRepository(activity);
+        mMenuNavigator = new DesktopMenuNavigator(activity::hideTopPanel);
     }
 
     View create() {
@@ -240,6 +243,7 @@ final class DesktopContextMenuController {
         mRetainOwnerPanel = false;
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
+        mMenuNavigator.prepare(null);
 
         final TextView title = new TextView(mActivity);
         title.setText(R.string.context_desktop);
@@ -288,7 +292,6 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_CYAN,
                 true,
                 view -> {
-                    mActivity.hideAllPanels();
                     mActivity.renderApps();
                     mActivity.refreshDesktopFolder(true);
                 });
@@ -350,7 +353,7 @@ final class DesktopContextMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         return !insidePanel
                 || (overlays != null
-                        && overlays.containsTopPanelView(view));
+                        && overlays.containsVisiblePanelView(view));
     }
 
     private void showForView(
@@ -391,6 +394,7 @@ final class DesktopContextMenuController {
             return;
         }
         overlays.hide(mMenuRoot);
+        mMenuNavigator.prepare(null);
         FileItemContextMenu.populate(
                 mActivity,
                 mUi,
@@ -457,7 +461,7 @@ final class DesktopContextMenuController {
                         mActivity.showDesktopFileProperties(file);
                     }
                 },
-                () -> overlays.hide(mMenuRoot));
+                mActivity::hideAllPanels);
         positionAndShow(x, y);
     }
 
@@ -515,6 +519,7 @@ final class DesktopContextMenuController {
         }
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
+        mMenuNavigator.prepare(null);
         final TextView title = new TextView(mActivity);
         title.setText(text);
         title.setTextColor(DesktopUiFactory.COLOR_TEXT);
@@ -559,7 +564,6 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_CYAN,
                 true,
                 view -> {
-                    mActivity.hideAllPanels();
                     if (state.task == null) {
                         mActivity.launchDefault(state.app);
                     } else {
@@ -582,10 +586,7 @@ final class DesktopContextMenuController {
                     pinned ? R.string.action_unpin : R.string.action_pin,
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.togglePinned(state.app);
-                    });
+                    view -> mActivity.togglePinned(state.app));
         }
         if (state.desktopFile != null) {
             addAction(
@@ -608,10 +609,7 @@ final class DesktopContextMenuController {
                             : R.string.action_add_to_desktop,
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.toggleDesktopShortcut(state.app);
-                    });
+                    view -> mActivity.toggleDesktopShortcut(state.app));
         }
         if (mActivity.hasDesktopWidgets(state.app.packageName)) {
             addAction(
@@ -625,10 +623,7 @@ final class DesktopContextMenuController {
                 R.string.action_app_info,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
-                view -> {
-                    mActivity.hideAllPanels();
-                    mActivity.openAppInfo(state.app);
-                });
+                view -> mActivity.openAppInfo(state.app));
         addAction(
                 R.string.action_close_window,
                 DesktopUiFactory.COLOR_AMBER,
@@ -657,10 +652,7 @@ final class DesktopContextMenuController {
                     shortcut.icon,
                     DesktopUiFactory.COLOR_CYAN,
                     true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.launchShortcut(state.app, shortcut);
-                    });
+                    view -> mActivity.launchShortcut(state.app, shortcut));
         }
         positionAndShow(state.x, state.y);
     }
@@ -677,11 +669,8 @@ final class DesktopContextMenuController {
                     shortcut.icon,
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.addDesktopShortcut(
-                                state.app, shortcut);
-                    });
+                    view -> mActivity.addDesktopShortcut(
+                            state.app, shortcut));
         }
         positionAndShow(state.x, state.y);
     }
@@ -699,20 +688,14 @@ final class DesktopContextMenuController {
                     R.string.action_open_floating,
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
-                    view -> {
-                        mActivity.hideAllPanels();
-                        mActivity.launchWindowed(state.app);
-                    });
+                    view -> mActivity.launchWindowed(state.app));
             if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
                     state.app.launchTarget)) {
                 addAction(
                         R.string.action_new_window,
                         DesktopUiFactory.COLOR_PANEL_ALT,
                         true,
-                        view -> {
-                            mActivity.hideAllPanels();
-                            mActivity.launchNewWindow(state.app);
-                        });
+                        view -> mActivity.launchNewWindow(state.app));
             }
         }
         addAction(
@@ -720,7 +703,6 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
                 view -> {
-                    mActivity.hideAllPanels();
                     if (state.task == null) {
                         mActivity.launchFullscreen(state.app);
                     } else {
@@ -748,6 +730,7 @@ final class DesktopContextMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
+        mMenuNavigator.prepare(null);
 
         final TextView title = new TextView(mActivity);
         title.setText(app.label);
@@ -785,6 +768,7 @@ final class DesktopContextMenuController {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
+        mMenuNavigator.prepare(() -> backListener.onClick(mMenuRoot));
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -834,6 +818,18 @@ final class DesktopContextMenuController {
             final int color,
             final boolean enabled,
             final View.OnClickListener listener) {
+        return addMenuItem(
+                text, icon, color, enabled, true, false, listener);
+    }
+
+    private Button addMenuItem(
+            final String text,
+            final Drawable icon,
+            final int color,
+            final boolean enabled,
+            final boolean dismissBeforeAction,
+            final boolean submenu,
+            final View.OnClickListener listener) {
         final Button button = mUi.actionButton(text, color);
         button.setEnabled(enabled);
         button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -844,7 +840,16 @@ final class DesktopContextMenuController {
             button.setCompoundDrawables(menuIcon, null, null, null);
             button.setCompoundDrawablePadding(dp(10));
         }
-        button.setOnClickListener(listener);
+        button.setOnClickListener(view -> {
+            if (dismissBeforeAction) {
+                mActivity.hideAllPanels();
+            }
+            listener.onClick(view);
+        });
+        mMenuNavigator.prefer(button);
+        if (submenu) {
+            mMenuNavigator.markSubmenu(button);
+        }
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -857,9 +862,12 @@ final class DesktopContextMenuController {
     private void addSubmenuAction(
             final int textResId,
             final View.OnClickListener listener) {
-        final Button button = addAction(
-                textResId,
+        final Button button = addMenuItem(
+                mActivity.getString(textResId),
+                null,
                 DesktopUiFactory.COLOR_PANEL_ALT,
+                true,
+                false,
                 true,
                 listener);
         final Drawable arrow = mActivity.getDrawable(
@@ -872,8 +880,10 @@ final class DesktopContextMenuController {
     private void positionAndShow(
             final float pointerX,
             final float pointerY) {
-        final int width = getWidth();
-        final int maxHeight = mActivity.getDesktopAreaHeight();
+        final Rect workArea = mActivity.getDesktopViewport()
+                .workAreaBounds(mActivity.getTaskbarHeight());
+        final int width = getWidth(workArea.width());
+        final int maxHeight = workArea.height();
         mPanel.measure(
                 View.MeasureSpec.makeMeasureSpec(
                         width, View.MeasureSpec.EXACTLY),
@@ -882,12 +892,10 @@ final class DesktopContextMenuController {
         final int menuHeight = Math.min(
                 mPanel.getMeasuredHeight(),
                 Math.max(1, maxHeight - dp(16)));
-        final int areaLeft = mActivity.getDesktopAreaLeft();
-        final int areaTop = mActivity.getDesktopAreaTop();
-        final int areaRight =
-                areaLeft + mActivity.getDesktopAreaWidth();
-        final int areaBottom =
-                areaTop + mActivity.getDesktopAreaHeight();
+        final int areaLeft = workArea.left;
+        final int areaTop = workArea.top;
+        final int areaRight = workArea.right;
+        final int areaBottom = workArea.bottom;
         int left = Math.round(pointerX) + dp(8);
         int top = Math.round(pointerY) + dp(8);
         if (left + width > areaRight - dp(8)) {
@@ -913,13 +921,15 @@ final class DesktopContextMenuController {
                                 top,
                                 width,
                                 menuHeight,
-                                "MagicDesk context menu")
+                                "MagicDesk context menu",
+                                mActivity::handleSecondaryClick)
                         : overlays.show(
                                 mMenuRoot,
                                 left,
                                 top,
                                 width,
                                 menuHeight,
+                                true,
                                 false,
                                 "MagicDesk context menu"));
         if (!shown) {
@@ -927,13 +937,13 @@ final class DesktopContextMenuController {
                     "OVERLAY-001",
                     mActivity.getString(
                             R.string.status_overlay_panel_unavailable));
+        } else if (overlays.isTopPanelFocusable()) {
+            mMenuNavigator.activate(mMenuRoot);
         }
     }
 
-    private int getWidth() {
-        final int width =
-                mActivity.getResources().getDisplayMetrics().widthPixels;
-        return Math.min(dp(310), Math.max(dp(250), width - dp(24)));
+    private int getWidth(final int availableWidth) {
+        return Math.min(dp(310), Math.max(1, availableWidth - dp(16)));
     }
 
     private int dp(final int value) {
