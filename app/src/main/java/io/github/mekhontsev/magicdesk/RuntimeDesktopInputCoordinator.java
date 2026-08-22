@@ -128,9 +128,16 @@ final class RuntimeDesktopInputCoordinator {
         if (mDestroyed) {
             return;
         }
+        final int previousDisplayId = mDesktopDisplayId;
         mDesktopDisplayId = displayId;
         if (displayId > Display.DEFAULT_DISPLAY) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
+        } else if (shouldRecoverPointerViewport(
+                previousDisplayId, displayId, ownershipChanged)) {
+            // A desktop host can close while HDMI or a wireless display stays
+            // connected. Complete the same pointer handoff used when a
+            // desktop display is physically removed.
+            mPointerViewportRecoveryDisplayId = previousDisplayId;
         }
         clearCompletedMouseBridgeSuspension(displayId);
         if (!ownershipChanged) {
@@ -469,7 +476,7 @@ final class RuntimeDesktopInputCoordinator {
         // ordering. Complete recovery from the ownership transition itself,
         // after the removed desktop can no longer be selected as a viewport.
         if (ShellAccess.refreshPointerViewport()) {
-            Log.i(TAG, "phone pointer viewport finalized after display removal="
+            Log.i(TAG, "phone pointer viewport finalized after desktop release="
                     + mPointerViewportRecoveryDisplayId);
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         }
@@ -638,5 +645,14 @@ final class RuntimeDesktopInputCoordinator {
                 && externalInputBridge
                 && desktopDisplayId > Display.DEFAULT_DISPLAY
                 && desktopDisplayId != suspendedDisplayId;
+    }
+
+    static boolean shouldRecoverPointerViewport(
+            final int previousDisplayId,
+            final int displayId,
+            final boolean ownershipChanged) {
+        return ownershipChanged
+                && previousDisplayId > Display.DEFAULT_DISPLAY
+                && displayId <= Display.DEFAULT_DISPLAY;
     }
 }

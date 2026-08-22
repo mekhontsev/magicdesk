@@ -50,4 +50,18 @@ public final class RuntimeDesktopInputCoordinatorTest {
         assertTrue(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
                 true, 8, true, 7));
     }
+
+    @Test
+    public void pointerViewportRecoversWhenExternalOwnershipEnds() {
+        assertTrue(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
+                7, Display.INVALID_DISPLAY, true));
+        assertTrue(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
+                7, Display.DEFAULT_DISPLAY, true));
+        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
+                7, Display.INVALID_DISPLAY, false));
+        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
+                Display.DEFAULT_DISPLAY, Display.INVALID_DISPLAY, true));
+        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
+                7, 8, true));
+    }
 }
