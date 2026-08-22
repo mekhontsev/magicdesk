@@ -229,19 +229,20 @@ can destroy an Activity and its user session. Use same-display transactions
 and the client-preserving refresh described in
 [Fullscreen transitions](fullscreen-transitions.md).
 
-### Keep true-fullscreen tasks under one fullscreen parent
+### Keep managed fullscreen tasks under a stable fullscreen parent
 
 The active desktop task parent is freeform-oriented: it is the display's
 default task area on external displays and the shell-owned session task area
 on the phone. Reordering independent fullscreen roots there can make a task
 inherit freeform mode during Alt+Tab, even when its final mode is repaired
-afterward. MagicDesk therefore reparents a reordered stack of true-fullscreen
-tasks into one organizer-owned fullscreen `TaskDisplayArea` under the default
-task container. It is a sibling of the phone session area, while restored
-phone tasks use that session area as their destination parent. A lone
-application-driven fullscreen task stays directly under the active parent:
-some projection displays remove their task-hosting virtual display when that
-task is moved under an organizer-created parent.
+afterward. MagicDesk therefore reparents reordered, MagicDesk-managed
+true-fullscreen tasks into one organizer-owned fullscreen `TaskDisplayArea`
+under the default task container. It is a sibling of the phone session area,
+while restored phone tasks use that session area as their destination parent.
+Application-driven immersive tasks stay directly under their original active
+desktop parent for the lifetime of the request. Reparenting such a task can
+deliver an application configuration change, cancel browser HTML fullscreen,
+or remove the task-hosting virtual display on affected projection firmware.
 
 The long-lived shell task observer owns that area. Switching only reorders
 children inside the same parent; restoring a window releases that task to the
@@ -249,15 +250,18 @@ active desktop parent while it is hidden or still fullscreen. Application-
 driven restores are completed in the observer before their result crosses
 Binder. They use a hidden fullscreen-to-freeform mode boundary in the active
 parent to rebuild native decoration without changing desktop sessions.
-The area is created only for a stack of at least two fullscreen tasks. After
-that stack is split, a lone survivor remains under the same parent until it is
-restored or removed; moving it merely to retire the area can invalidate a
-projection display. Some projection firmware also removes an organizer area
-when its last Activity leaves. A transparent, non-focusable HOME-typed
-structural task therefore keeps every fullscreen area non-empty until session
-teardown. It also protects WMS implementations that cannot calculate root-task
-priority for an empty child task area. The task is excluded from Recents,
-accessibility, input, user task lists, and focus selection.
+The area is created when a reordered stack contains at least two fullscreen
+tasks, but only managed members move into it. When an application-driven task
+and a managed task occupy different parents, MagicDesk reorders both tasks and
+their parents atomically. If a managed stack is split, a lone managed survivor
+remains under the same parent until it is restored or removed; moving it merely
+to retire the area can invalidate a projection display. Some projection
+firmware also removes an organizer area when its last Activity leaves. A
+transparent, non-focusable HOME-typed structural task therefore keeps every
+fullscreen area non-empty until session teardown. It also protects WMS
+implementations that cannot calculate root-task priority for an empty child
+task area. The task is excluded from Recents, accessibility, input, user task
+lists, and focus selection.
 
 The phone fullscreen area is a sibling of MagicDesk's persistent session area
 inside Android's default task container. Restored tasks return to the session
@@ -562,9 +566,11 @@ runtime integration and are not distributed through the same release path.
   fullscreen/freeform activation; it must not wait for both tasks to become
   fullscreen first. Restore and close transactions retain a lone peer in the
   existing fullscreen parent while preserving its state and focus.
-  Application-requested immersive tasks remain
-  directly under that parent and share only the observer's saved-bounds
-  lifecycle.
+  Application-requested immersive tasks remain directly under their original
+  desktop parent and share only the observer's saved-bounds lifecycle. A
+  split-parent fullscreen stack is focused through one parent-inclusive
+  WMShell transition, so the application does not receive a hierarchy-driven
+  configuration change.
   An inert HOME-typed structural task retains the area without accepting input
   or entering user task lists. With no application members, the observer keeps
   that area below the real desktop host; session teardown removes the

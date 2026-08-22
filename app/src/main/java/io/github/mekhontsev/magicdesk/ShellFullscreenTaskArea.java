@@ -152,8 +152,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
         final Object areaToken = mArea.token();
+        boolean hasExternalParent = false;
         for (final Integer fullscreenTaskId : fullscreenTaskIds) {
             final int taskId = fullscreenTaskId.intValue();
+            if (isAppFullscreenOutsideArea(taskId)) {
+                hasExternalParent = true;
+                continue;
+            }
+            if (!mTaskIds.add(fullscreenTaskId)) {
+                continue;
+            }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             transactionClass.getMethod(
@@ -162,11 +170,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                             Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
             transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                     .invoke(transaction, taskToken, new Rect());
-            if (mTaskIds.add(fullscreenTaskId)) {
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
-            }
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
         }
         final int targetTaskId = focusTaskIds[focusTaskIds.length - 1];
         final Object targetTask = HiddenTaskApi.requireTask(
@@ -178,12 +184,21 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         if (targetFullscreen) {
             moveToEnd(fullscreenTaskIds, targetTaskId);
             reorderArea(transactionClass, transaction, tokenClass, true);
-            TaskWindowingCommand.focusTasksWithinCurrentParent(
-                    service,
-                    displayId,
-                    toIntArray(fullscreenTaskIds),
-                    transactionClass,
-                    transaction);
+            if (hasExternalParent) {
+                TaskWindowingCommand.focusTasks(
+                        service,
+                        displayId,
+                        toIntArray(fullscreenTaskIds),
+                        transactionClass,
+                        transaction);
+            } else {
+                TaskWindowingCommand.focusTasksWithinCurrentParent(
+                        service,
+                        displayId,
+                        toIntArray(fullscreenTaskIds),
+                        transactionClass,
+                        transaction);
+            }
         } else {
             reorderArea(transactionClass, transaction, tokenClass, false);
             TaskWindowingCommand.focusTasks(
@@ -470,7 +485,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         final Object transaction = transactionClass.getConstructor().newInstance();
         final Object areaToken = mArea.token();
         reorderArea(transactionClass, transaction, tokenClass, true);
+        boolean hasExternalParent = false;
         for (final int taskId : appTaskIds) {
+            if (isAppFullscreenOutsideArea(taskId)) {
+                hasExternalParent = true;
+                continue;
+            }
+            if (!mTaskIds.add(Integer.valueOf(taskId))) {
+                continue;
+            }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             transactionClass.getMethod(
@@ -479,20 +502,32 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                             Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
             transactionClass.getMethod("setBounds", tokenClass, Rect.class)
                     .invoke(transaction, taskToken, new Rect());
-            if (mTaskIds.add(Integer.valueOf(taskId))) {
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
-            }
+            transactionClass.getMethod(
+                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
+                    .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
         }
         // Include hierarchy preservation and focus ordering in the same
         // transition so WMShell serializes both against native transitions.
-        TaskWindowingCommand.focusTasksWithinCurrentParent(
-                service,
-                displayId,
-                appTaskIds,
-                transactionClass,
-                transaction);
+        if (hasExternalParent) {
+            TaskWindowingCommand.focusTasks(
+                    service,
+                    displayId,
+                    appTaskIds,
+                    transactionClass,
+                    transaction);
+        } else {
+            TaskWindowingCommand.focusTasksWithinCurrentParent(
+                    service,
+                    displayId,
+                    appTaskIds,
+                    transactionClass,
+                    transaction);
+        }
+    }
+
+    private boolean isAppFullscreenOutsideArea(final int taskId) {
+        return mAppRestoreBounds.containsKey(Integer.valueOf(taskId))
+                && !mTaskIds.contains(Integer.valueOf(taskId));
     }
 
     private boolean isFullscreenStack(

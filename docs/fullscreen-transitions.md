@@ -35,9 +35,12 @@ active desktop parent. That parent is Android's default task area on external
 displays and MagicDesk's shell-owned session area on the phone. The
 application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
-Fullscreen API session. Keeping a lone immersive task out of the managed
-multi-fullscreen child also preserves projection displays whose task host is
-invalidated by that reparent operation.
+Fullscreen API session. The task remains outside the managed fullscreen child
+even when another fullscreen task is present. MagicDesk keeps managed peers in
+the organizer area and atomically focuses across both parents, avoiding the
+configuration change that can cancel the application's fullscreen session.
+The same rule preserves projection displays whose task host is invalidated by
+that reparent operation.
 
 An orientation change can make Android report the saved freeform mode and bounds
 before WMShell has recreated the task decoration. Orientation task callbacks
