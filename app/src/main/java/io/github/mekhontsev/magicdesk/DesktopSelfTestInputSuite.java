@@ -5,7 +5,6 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
-import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForDesktopHostFront;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTaskAbsent;
 
@@ -999,28 +998,11 @@ final class DesktopSelfTestInputSuite {
             throw new IOException("desktop host is unavailable");
         }
         final int hostTaskId = session.hostTaskId();
-        ShellAccess.run("/system/bin/input -d " + displayId
-                + " keyevent KEYCODE_BACK");
+        DesktopSelfTestTasks.sendSystemBack(displayId);
         waitForTaskAbsent(taskId);
-        // External drivers host DesktopActivity as Home, while the phone
-        // session keeps it as a regular fullscreen task. Verify the active
-        // host through the representation selected by the display driver.
-        waitForDesktopHostFront(displayId, hostTaskId);
-
-        final long deadline = SystemClock.uptimeMillis()
-                + STEP_TIMEOUT_MILLIS;
-        do {
-            if (DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
-                    && DesktopRuntimeBridge.isTaskbarVisibleOnDisplay(
-                            displayId)) {
-                return "closed=" + taskId
-                        + ", host=" + hostTaskId
-                        + ", taskbar=visible";
-            }
-            SystemClock.sleep(POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException(
-                "desktop host returned without a visible taskbar");
+        return "closed=" + taskId + ", "
+                + DesktopSelfTestTasks.waitForReadyDesktopHost(
+                        displayId, hostTaskId);
     }
 
     private static String prepareFullscreenPair(
@@ -1538,7 +1520,7 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static void typeAndVerifyText(
+    static void typeAndVerifyText(
             final Context context,
             final int displayId,
             final int taskId,
@@ -1550,7 +1532,7 @@ final class DesktopSelfTestInputSuite {
                 context, token, displayId, digit);
     }
 
-    private static void waitForTaskInputFocus(
+    static void waitForTaskInputFocus(
             final int displayId, final int taskId) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;

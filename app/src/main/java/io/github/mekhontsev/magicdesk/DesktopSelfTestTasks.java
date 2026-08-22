@@ -1,5 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.ComponentName;
+import android.content.Intent;
+import android.graphics.Rect;
 import android.os.SystemClock;
 
 import java.io.IOException;
@@ -88,6 +91,62 @@ final class DesktopSelfTestTasks {
                 + " did not become the front desktop task on display "
                 + displayId + "; host=" + describe(lastHost)
                 + ", front-app=" + describe(lastApp));
+    }
+
+    static String waitForReadyDesktopHost(
+            final int displayId,
+            final int taskId) throws IOException {
+        // External drivers host DesktopActivity as Home, while the phone
+        // session keeps it as a regular fullscreen task.
+        waitForDesktopHostFront(displayId, taskId);
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
+                    && DesktopRuntimeBridge.isTaskbarVisibleOnDisplay(
+                            displayId)) {
+                return "host=" + taskId + ", taskbar=visible";
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException(
+                "desktop host returned without a visible taskbar");
+    }
+
+    static void sendSystemBack(final int displayId) throws IOException {
+        ShellAccess.run("/system/bin/input -d " + displayId
+                + " keyevent KEYCODE_BACK");
+    }
+
+    static DesktopTaskLaunchProbe.Observation launchWindowedAndObserve(
+            final int displayId,
+            final Rect bounds,
+            final String fixtureClass,
+            final Intent launchIntent) throws IOException {
+        final ComponentName component = launchIntent == null
+                ? null : launchIntent.getComponent();
+        if (component == null) {
+            throw new IOException("test window component is unavailable");
+        }
+        if (!hasClass(component.flattenToShortString(), fixtureClass)) {
+            throw new IOException("unexpected test window component: "
+                    + component.flattenToShortString());
+        }
+        try (DesktopTaskLaunchProbe probe =
+                     DesktopTaskLaunchProbe.open(-1, component)) {
+            final int launchedTaskId = MagicDeskRuntime.launchWindowedTask(
+                    displayId, launchIntent, bounds);
+            final DesktopTaskLaunchProbe.Observation observation =
+                    probe.awaitObservation();
+            if (observation.displayId != displayId
+                    || (launchedTaskId >= 0
+                            && observation.taskId != launchedTaskId)) {
+                throw new IOException(
+                        "test window launched on the wrong display: "
+                                + observation);
+            }
+            return observation;
+        }
     }
 
     static void waitForTaskAbsent(final int taskId) throws IOException {

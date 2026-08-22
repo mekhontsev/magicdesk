@@ -882,23 +882,8 @@ final class DesktopSelfTestWindowSuite {
             final Rect bounds,
             final String fixtureClass,
             final Intent launchIntent) throws IOException {
-        final ComponentName component =
-                new ComponentName(PACKAGE_NAME, fixtureClass);
-        try (DesktopTaskLaunchProbe probe =
-                     DesktopTaskLaunchProbe.open(-1, component)) {
-            final int launchedTaskId = MagicDeskRuntime.launchWindowedTask(
-                    displayId, launchIntent, bounds);
-            final DesktopTaskLaunchProbe.Observation observation =
-                    probe.awaitObservation();
-            if (observation.displayId != displayId
-                    || (launchedTaskId >= 0
-                            && observation.taskId != launchedTaskId)) {
-                throw new IOException(
-                        "test window launched on the wrong display: "
-                                + observation);
-            }
-            return observation;
-        }
+        return DesktopSelfTestTasks.launchWindowedAndObserve(
+                displayId, bounds, fixtureClass, launchIntent);
     }
 
     private static TaskTransferObservation observeTaskTransfer(
@@ -1338,6 +1323,8 @@ final class DesktopSelfTestWindowSuite {
                 secondToken,
                 rightBounds,
                 geometry);
+        DesktopSelfTestBackNavigationSuite.run(
+                context, result, displayId, geometry);
     }
 
     private static void waitForWindowFocus(

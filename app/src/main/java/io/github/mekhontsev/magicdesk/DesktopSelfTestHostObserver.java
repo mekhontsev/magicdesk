@@ -19,6 +19,7 @@ final class DesktopSelfTestHostObserver {
     private static int sFirstFrameCount;
     private static boolean sReady;
     private static boolean sLostReadyUi;
+    private static int sTaskbarHiddenGeneration;
     private static int sAltTabPanelGeneration;
     private static int sGeneration;
     private static final List<String> EVENTS = new ArrayList<>();
@@ -36,6 +37,7 @@ final class DesktopSelfTestHostObserver {
         sFirstFrameCount = 0;
         sReady = false;
         sLostReadyUi = false;
+        sTaskbarHiddenGeneration = 0;
         sAltTabPanelGeneration = 0;
         EVENTS.clear();
     }
@@ -71,6 +73,24 @@ final class DesktopSelfTestHostObserver {
     static synchronized void noteAltTabPanelShown() {
         if (sActive) {
             sAltTabPanelGeneration++;
+        }
+    }
+
+    static synchronized int taskbarHiddenGeneration() {
+        return sTaskbarHiddenGeneration;
+    }
+
+    static synchronized void noteTaskbarVisibilityChanged(
+            final int displayId,
+            final boolean visible) {
+        if (!sActive || visible) {
+            return;
+        }
+        sTaskbarHiddenGeneration++;
+        if (EVENTS.size() < MAX_EVENTS) {
+            EVENTS.add("+" + (SystemClock.uptimeMillis() - sStartedAt)
+                    + "ms " + sStage
+                    + " taskbar-hidden display=" + displayId);
         }
     }
 
@@ -120,6 +140,7 @@ final class DesktopSelfTestHostObserver {
         sFirstFrameCount = 0;
         sReady = false;
         sLostReadyUi = false;
+        sTaskbarHiddenGeneration = 0;
         sAltTabPanelGeneration = 0;
         EVENTS.clear();
     }

@@ -1761,6 +1761,8 @@ public abstract class DesktopShellActivity extends Activity
             mTaskbarController.setVisible(visible);
         }
         if (changed) {
+            DesktopSelfTestHostObserver.noteTaskbarVisibilityChanged(
+                    getCurrentDisplayId(), visible);
             try {
                 DesktopAutomationEventJournal.record(
                         "ui",
