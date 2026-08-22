@@ -38,6 +38,7 @@ final class DesktopUiGateway {
         final DesktopShellActivity previous;
         final boolean replacingSameTask;
         final boolean previousWasLocal;
+        final int previousDisplayId;
         final int displayId = activity.getCurrentDisplayId();
         synchronized (mHostLock) {
             previous = mDesktop.get();
@@ -48,11 +49,18 @@ final class DesktopUiGateway {
                     && previous != activity
                     && previous.getCurrentDisplayId()
                             == Display.DEFAULT_DISPLAY;
+            previousDisplayId = previous == null
+                    ? Display.INVALID_DISPLAY
+                    : previous.getCurrentDisplayId();
             mDesktop = new WeakReference<>(activity);
             mSession.registerHost(
                     displayId, activity.getTaskId(), replacingSameTask);
         }
         if (previous != null && previous != activity) {
+            if (previousDisplayId >= Display.DEFAULT_DISPLAY
+                    && previousDisplayId != displayId) {
+                MagicDeskRuntime.preserveDesktopTasks(previousDisplayId);
+            }
             // Nubia may move the phone task before the dedicated Console HOME
             // starts.
             Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
@@ -95,6 +103,7 @@ final class DesktopUiGateway {
         if (!desktopRemoved || changingConfigurations) {
             return;
         }
+        MagicDeskRuntime.preserveDesktopTasks(displayId);
         MagicDeskRuntime.refreshDesktopTasks();
         recordSession("host_unregistered", displayId, activity.getTaskId());
         if (displayId == Display.DEFAULT_DISPLAY) {
@@ -119,6 +128,7 @@ final class DesktopUiGateway {
             }
             mSession.close();
         }
+        MagicDeskRuntime.preserveDesktopTasks(displayId);
         final Runnable closeHost = () -> {
             activity.releaseDesktopOverlays();
             if (!activity.isFinishing()) {

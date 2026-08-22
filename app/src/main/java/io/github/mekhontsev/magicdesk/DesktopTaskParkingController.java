@@ -22,6 +22,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private final Object mLock = new Object();
     private final Map<Integer, ParkedTask> mParked =
             new LinkedHashMap<>();
+    private int mObservedDisplayId = Display.INVALID_DISPLAY;
+    private List<ParkedTask> mObservedTopFirst = Collections.emptyList();
+    private boolean mObservedSessionTaskArea;
+    private boolean mObservedSessionOwnershipReady;
+    private Set<Integer> mObservedSessionOwnedTaskIds = Collections.emptySet();
     private DesktopDisplayTarget mPendingTarget;
     private boolean mRestoreInProgress;
     private long mGeneration;
@@ -29,13 +34,49 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     DesktopTaskParkingController() {
     }
 
+    void observe(
+            final int displayId,
+            final List<TaskRepository.TaskEntry> tasks,
+            final Rect workArea,
+            final boolean sessionTaskArea,
+            final boolean sessionOwnershipReady,
+            final Set<Integer> sessionOwnedTaskIds) {
+        if (displayId < Display.DEFAULT_DISPLAY
+                || tasks == null
+                || !hasArea(workArea)) {
+            return;
+        }
+        final Set<Integer> ownedTaskIds = copyTaskIds(sessionOwnedTaskIds);
+        final List<ParkedTask> observed = sessionTaskArea
+                && !sessionOwnershipReady
+                        ? Collections.emptyList()
+                        : captureTasks(
+                                tasks,
+                                workArea,
+                                sessionTaskArea ? ownedTaskIds : null);
+        final DesktopDisplayTarget pendingTarget;
+        synchronized (mLock) {
+            mObservedDisplayId = displayId;
+            mObservedTopFirst = observed;
+            mObservedSessionTaskArea = sessionTaskArea;
+            mObservedSessionOwnershipReady = sessionOwnershipReady;
+            mObservedSessionOwnedTaskIds = ownedTaskIds;
+            pendingTarget = mPendingTarget != null
+                            && mPendingTarget.displayId == displayId
+                    ? mPendingTarget : null;
+        }
+        if (pendingTarget != null) {
+            restoreIfReady(pendingTarget);
+        }
+    }
+
     @Override
     public void park(
             final DesktopDisplayTarget source,
             final ResultCallback callback) {
         if (source == null
-                || source.displayId <= Display.DEFAULT_DISPLAY) {
-            complete(callback, true);
+                || source.displayId < Display.DEFAULT_DISPLAY) {
+            complete(callback, false);
             return;
         }
         final long generation;
@@ -47,9 +88,29 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     }
 
     @Override
+    public void preserve(final int displayId) {
+        final int saved;
+        synchronized (mLock) {
+            if (displayId < Display.DEFAULT_DISPLAY
+                    || displayId != mObservedDisplayId
+                    || (mObservedSessionTaskArea
+                            && !mObservedSessionOwnershipReady)) {
+                return;
+            }
+            mGeneration++;
+            mergePreservedTasks(
+                    mParked, mObservedTopFirst, false);
+            mPendingTarget = null;
+            mRestoreInProgress = false;
+            saved = mObservedTopFirst.size();
+        }
+        Log.i(TAG, "preserved=" + saved + " display=" + displayId);
+    }
+
+    @Override
     public void restoreWhenReady(final DesktopDisplayTarget target) {
         if (target == null
-                || target.displayId <= Display.DEFAULT_DISPLAY) {
+                || target.displayId < Display.DEFAULT_DISPLAY) {
             return;
         }
         synchronized (mLock) {
@@ -78,6 +139,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         synchronized (mLock) {
             mGeneration++;
             mParked.clear();
+            mObservedDisplayId = Display.INVALID_DISPLAY;
+            mObservedTopFirst = Collections.emptyList();
+            mObservedSessionTaskArea = false;
+            mObservedSessionOwnershipReady = false;
+            mObservedSessionOwnedTaskIds = Collections.emptySet();
             mPendingTarget = null;
             mRestoreInProgress = false;
         }
@@ -103,9 +169,47 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             complete(callback, false);
             return;
         }
+        final boolean sessionTaskArea = usesSessionTaskArea(source);
+        final boolean ownershipReady;
+        final Set<Integer> ownedTaskIds;
+        synchronized (mLock) {
+            ownershipReady = source.displayId == mObservedDisplayId
+                    && mObservedSessionOwnershipReady;
+            ownedTaskIds = source.displayId == mObservedDisplayId
+                    ? mObservedSessionOwnedTaskIds : Collections.emptySet();
+        }
+        if (sessionTaskArea && !ownershipReady) {
+            recordFailure(
+                    "Could not inspect desktop task ownership",
+                    "display=" + source.displayId);
+            complete(callback, false);
+            return;
+        }
         final List<ParkedTask> candidates = captureTasks(
-                snapshot.tasks, workArea);
+                snapshot.tasks,
+                workArea,
+                sessionTaskArea ? ownedTaskIds : null);
+        observe(
+                source.displayId,
+                snapshot.tasks,
+                workArea,
+                sessionTaskArea,
+                ownershipReady,
+                ownedTaskIds);
         if (candidates.isEmpty()) {
+            complete(callback, true);
+            return;
+        }
+
+        if (source.displayId == Display.DEFAULT_DISPLAY) {
+            synchronized (mLock) {
+                if (generation == mGeneration) {
+                    mergePreservedTasks(mParked, candidates, true);
+                    mPendingTarget = null;
+                }
+            }
+            Log.i(TAG, "parked=" + candidates.size()
+                    + " display=" + source.displayId);
             complete(callback, true);
             return;
         }
@@ -128,13 +232,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final Set<Integer> returnedTaskIds = parseReturnedTaskIds(output);
         synchronized (mLock) {
             if (generation == mGeneration) {
-                for (final ParkedTask task : candidates) {
-                    if (returnedTaskIds.contains(
-                            Integer.valueOf(task.taskId))) {
-                        mParked.remove(Integer.valueOf(task.taskId));
-                        mParked.put(Integer.valueOf(task.taskId), task);
-                    }
-                }
+                // Preserve the complete observed workspace even when Android
+                // migrates one task only after the display disappears. The
+                // restore path still requires the exact live task ID and
+                // package, so a failed or closed task is never relaunched.
+                mergePreservedTasks(mParked, candidates, true);
                 mPendingTarget = null;
             }
         }
@@ -153,9 +255,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
     private void restoreIfReady(final DesktopDisplayTarget target) {
         if (target == null
-                || target.displayId <= Display.DEFAULT_DISPLAY
+                || target.displayId < Display.DEFAULT_DISPLAY
                 || !DesktopRuntimeBridge.isDesktopReadyOnDisplay(
-                        target.displayId)) {
+                        target.displayId)
+                || (usesSessionTaskArea(target)
+                        && !MagicDeskRuntime.isTaskObserverReady())) {
             return;
         }
         final long generation;
@@ -200,7 +304,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                         findLiveTask(desktop.tasks, parked);
                 if (alreadyRestored != null) {
                     try {
-                        restoreMode(alreadyRestored, parked, target);
+                        restoreTask(alreadyRestored, parked, target);
                         completed.add(Integer.valueOf(parked.taskId));
                         restoredTaskIds.add(Integer.valueOf(parked.taskId));
                     } catch (IOException | RuntimeException error) {
@@ -220,7 +324,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     continue;
                 }
                 try {
-                    moveToDesktop(live, parked, target);
+                    restoreTask(live, parked, target);
                     completed.add(Integer.valueOf(parked.taskId));
                     restoredTaskIds.add(Integer.valueOf(parked.taskId));
                 } catch (IOException | RuntimeException error) {
@@ -228,8 +332,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 }
             }
             if (isCurrentGeneration(generation)) {
-                restoreFreeformLayout(
-                        target, saved, restoredTaskIds);
+                if (!usesSessionTaskArea(target)) {
+                    restoreFreeformLayout(
+                            target, saved, restoredTaskIds);
+                }
                 restoreStackState(target.displayId, saved, restoredTaskIds);
             }
         } catch (IOException | RuntimeException error) {
@@ -286,6 +392,37 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                         bounds);
         ShellAccess.run(moveCommand);
         restoreMode(live, parked, target);
+    }
+
+    private static void restoreTask(
+            final TaskRepository.TaskEntry live,
+            final ParkedTask parked,
+            final DesktopDisplayTarget target) throws IOException {
+        if (usesSessionTaskArea(target)) {
+            if (parked.fullscreen) {
+                MagicDeskRuntime.placeFullscreenTaskInDesktopArea(
+                        live.taskId, live.displayId, target.displayId);
+            } else {
+                MagicDeskRuntime.placeTaskInDesktopArea(
+                        live.taskId,
+                        live.displayId,
+                        target.displayId,
+                        FloatingWindowController.getWindowBounds(
+                                target.displayId, parked.bounds));
+            }
+            return;
+        }
+        if (live.displayId != target.displayId) {
+            moveToDesktop(live, parked, target);
+        } else {
+            restoreMode(live, parked, target);
+        }
+    }
+
+    private static boolean usesSessionTaskArea(
+            final DesktopDisplayTarget target) {
+        return DesktopDisplayDrivers.forTarget(target)
+                .features().taskAreaPolicy == DesktopTaskAreaPolicy.SESSION;
     }
 
     private static void restoreMode(
@@ -393,6 +530,13 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     static List<ParkedTask> captureTasks(
             final List<TaskRepository.TaskEntry> tasks,
             final Rect workArea) {
+        return captureTasks(tasks, workArea, null);
+    }
+
+    static List<ParkedTask> captureTasks(
+            final List<TaskRepository.TaskEntry> tasks,
+            final Rect workArea,
+            final Set<Integer> ownedTaskIds) {
         final List<ParkedTask> result = new ArrayList<>();
         if (tasks == null || workArea == null
                 || workArea.right <= workArea.left
@@ -400,7 +544,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             return result;
         }
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (!shouldParkTask(task)) {
+            if (!shouldParkTask(task)
+                    || (ownedTaskIds != null
+                            && !ownedTaskIds.contains(
+                                    Integer.valueOf(task.taskId)))) {
                 continue;
             }
             result.add(new ParkedTask(
@@ -413,6 +560,34 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                             : null));
         }
         return result;
+    }
+
+    static void mergePreservedTasks(
+            final Map<Integer, ParkedTask> parked,
+            final List<ParkedTask> observedTopFirst,
+            final boolean replaceExisting) {
+        if (parked == null || observedTopFirst == null) {
+            return;
+        }
+        for (final ParkedTask task : observedTopFirst) {
+            final Integer taskId = Integer.valueOf(task.taskId);
+            if (replaceExisting || !parked.containsKey(taskId)) {
+                parked.remove(taskId);
+                parked.put(taskId, task);
+            }
+        }
+    }
+
+    private static boolean hasArea(final Rect bounds) {
+        return bounds != null
+                && bounds.right > bounds.left
+                && bounds.bottom > bounds.top;
+    }
+
+    private static Set<Integer> copyTaskIds(
+            final Set<Integer> taskIds) {
+        return taskIds == null || taskIds.isEmpty()
+                ? Collections.emptySet() : new HashSet<>(taskIds);
     }
 
     static boolean shouldParkTask(final TaskRepository.TaskEntry task) {

@@ -40,6 +40,8 @@ final class DesktopTaskWatcher {
         void onInputFocusRefreshRequired(int generation);
         void onDesktopTaskAreaForegroundChanged(
                 int generation, boolean foreground);
+        void onDesktopTaskOwnershipChanged(
+                int generation, int displayId, int[] taskIds);
         void onDisconnected(int generation);
     }
 
@@ -676,6 +678,17 @@ final class DesktopTaskWatcher {
                         generation, foreground));
     }
 
+    private void onDesktopTaskOwnershipChanged(
+            final int generation,
+            final int displayId,
+            final int[] taskIds) {
+        final int[] snapshot = taskIds == null
+                ? new int[0] : taskIds.clone();
+        postIfActive(generation, () ->
+                mListener.onDesktopTaskOwnershipChanged(
+                        generation, displayId, snapshot));
+    }
+
     private void onPhoneTaskNormalized(
             final int generation,
             final int taskId) {
@@ -952,6 +965,14 @@ final class DesktopTaskWatcher {
                     windowingMode,
                     topActivity,
                     reason);
+        }
+
+        @Override
+        public void onDesktopTaskOwnershipChanged(
+                final int displayId,
+                final int[] taskIds) throws RemoteException {
+            mOwner.onDesktopTaskOwnershipChanged(
+                    mGeneration, displayId, taskIds);
         }
     }
 }

@@ -65,6 +65,15 @@ final class ShellDesktopTaskOwnership {
         return mDesktopHostTaskId;
     }
 
+    synchronized int[] desktopTaskIds() {
+        final int[] taskIds = new int[mDesktopTaskIds.size()];
+        int index = 0;
+        for (final Integer taskId : mDesktopTaskIds) {
+            taskIds[index++] = taskId.intValue();
+        }
+        return taskIds;
+    }
+
     synchronized List<Integer> observeTasks(
             final int displayId,
             final List<?> tasks) {

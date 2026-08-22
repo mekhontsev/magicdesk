@@ -506,11 +506,16 @@ runtime integration and are not distributed through the same release path.
   survivor focus and removal in one transition, while package force-stop first
   commits the surviving desktop task and only then stops the package.
   Pre-focus host relayout is enabled only by the selected windowing driver.
-- `DesktopTaskParkingController` snapshots live managed tasks when an external
-  desktop is closed, parks them on display 0 as fullscreen tasks, and restores
-  only the same still-live task IDs when a later desktop host becomes ready.
-  It preserves each task's desktop mode, relative bounds, visibility, and
-  stacking order without relaunching tasks that Android or the user closed.
+- `DesktopTaskParkingController` continuously derives a lightweight workspace
+  snapshot from the task state already read by `DesktopTaskController`; it does
+  not run a second task poll. A normal desktop close refreshes that snapshot
+  before external tasks are parked on display 0. Host replacement, vendor mode
+  exit, and sudden display removal preserve the latest complete snapshot before
+  session teardown, including when the disappearing display can no longer be
+  queried. A later desktop host restores only the same still-live task IDs on
+  external, simulated, or phone desktops. Mode, relative bounds, visibility,
+  and stacking order survive without relaunching tasks Android or the user
+  closed.
 - `ShellExternalTaskMigrationGuard` intercepts launcher requests for a task
   hosted on an external desktop. It also observes already completed system
   moves, including `Alt+Tab`, and scans display 0 when protection starts and
@@ -1310,12 +1315,15 @@ not acquire this vendor state.
 
 ### Teardown
 
-**Close desktop** first captures live managed application tasks and moves them
-to display 0 in fullscreen mode. The in-memory parking record is consumed when
-the next external desktop host becomes ready. Restoration matches both task ID
-and package, so it never creates a replacement for a task Android closed. An
-explicit **Exit MagicDesk** clears this record and closes built-in MagicDesk
-windows instead.
+**Close desktop** first captures live managed application tasks. External tasks
+move to display 0 in fullscreen mode; phone-desktop tasks remain on display 0
+and are normalized by the normal phone cleanup. The in-memory parking record is
+consumed when the next desktop host becomes ready. Restoration matches both
+task ID and package, so it never creates a replacement for a task Android
+closed. The same record is captured from the latest observed task snapshot when
+a display disappears or a desktop host is replaced before an explicit close can
+query it. An explicit **Exit MagicDesk** clears this record and closes built-in
+MagicDesk windows instead.
 
 Switching to mirroring, physical display removal, and **Exit MagicDesk** then
 share the common cleanup path:

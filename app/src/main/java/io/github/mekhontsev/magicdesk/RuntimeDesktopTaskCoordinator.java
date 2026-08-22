@@ -26,7 +26,12 @@ final class RuntimeDesktopTaskCoordinator {
             final PlatformPhoneUiDriver phoneUi,
             final Runnable taskStackChanged) {
         mTasks = new DesktopTaskController(
-                context, handler, taskStackChanged, windowing, phoneUi);
+                context,
+                handler,
+                taskStackChanged,
+                mParking::observe,
+                windowing,
+                phoneUi);
     }
 
     void reconcile(

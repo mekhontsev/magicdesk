@@ -62,6 +62,7 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.preparePhysicalPointerHandoff(7);
         assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
         MagicDeskRuntime.cancelDesktopDisplayRemoval(7);
+        MagicDeskRuntime.preserveDesktopTasks(7);
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.showStart());
@@ -84,6 +85,7 @@ public final class MagicDeskRuntimeTest {
         assertEquals(7, mAttached.pointerHandoffDisplayId);
         assertEquals(7, mAttached.pointerSuspensionDisplayId);
         assertEquals(7, mAttached.pointerSuspensionCancelledDisplayId);
+        assertEquals(7, mAttached.preservedDesktopDisplayId);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
         assertEquals(0x1ff, mAttached.uiCommands);
@@ -128,6 +130,7 @@ public final class MagicDeskRuntimeTest {
         private int pointerHandoffDisplayId = -1;
         private int pointerSuspensionDisplayId = -1;
         private int pointerSuspensionCancelledDisplayId = -1;
+        private int preservedDesktopDisplayId = -1;
         private boolean parkingCleared;
         private boolean startShown;
         private int uiCommands;
@@ -140,6 +143,11 @@ public final class MagicDeskRuntimeTest {
                         if (callback != null) {
                             callback.onComplete(true);
                         }
+                    }
+
+                    @Override
+                    public void preserve(final int displayId) {
+                        preservedDesktopDisplayId = displayId;
                     }
 
                     @Override

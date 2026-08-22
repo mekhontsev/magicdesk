@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -22,6 +23,22 @@ public final class ShellDesktopTaskOwnershipTest {
         ownership.markDesktopHost(43);
         ownership.configure(5);
         assertFalse(ownership.isDesktopHostTask(43));
+    }
+
+    @Test
+    public void taskIdSnapshotTracksExactOwnedSet() {
+        final ShellDesktopTaskOwnership ownership =
+                new ShellDesktopTaskOwnership();
+
+        ownership.configure(0);
+        ownership.markDesktopHost(40);
+        ownership.markDesktop(41);
+        assertArrayEquals(new int[]{40, 41}, ownership.desktopTaskIds());
+
+        ownership.forget(40);
+        assertArrayEquals(new int[]{41}, ownership.desktopTaskIds());
+        ownership.configure(-1);
+        assertArrayEquals(new int[0], ownership.desktopTaskIds());
     }
 
     private static final int WINDOWING_MODE_FULLSCREEN = 1;

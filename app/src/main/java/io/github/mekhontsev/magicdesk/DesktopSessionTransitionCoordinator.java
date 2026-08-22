@@ -101,8 +101,7 @@ final class DesktopSessionTransitionCoordinator {
             }
             finishDesktopClose(callback, success);
         });
-        if (restorePhonePanel
-                && target.displayId > Display.DEFAULT_DISPLAY) {
+        if (restorePhonePanel) {
             MagicDeskRuntime.parkDesktopTasks(target, parked -> {
                 if (!parked) {
                     Log.w(TAG,

@@ -301,6 +301,13 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void preserveDesktopTasks(final int displayId) {
+        final DesktopTaskParkingRuntime parking = desktopTaskParking();
+        if (parking != null) {
+            parking.preserve(displayId);
+        }
+    }
+
     static void restoreParkedDesktopTasksWhenReady(
             final DesktopDisplayTarget target) {
         final DesktopTaskParkingRuntime parking = desktopTaskParking();

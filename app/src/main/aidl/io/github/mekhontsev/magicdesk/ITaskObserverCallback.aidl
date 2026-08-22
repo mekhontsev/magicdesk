@@ -35,4 +35,7 @@ oneway interface ITaskObserverCallback {
         int type, String processName, int pid, int taskId,
         int displayId, int windowingMode, String topActivity,
         String reason) = 12;
+
+    void onDesktopTaskOwnershipChanged(
+        int displayId, in int[] taskIds) = 13;
 }

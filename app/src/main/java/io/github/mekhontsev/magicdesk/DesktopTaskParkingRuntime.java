@@ -8,6 +8,8 @@ interface DesktopTaskParkingRuntime {
 
     void park(DesktopDisplayTarget source, ResultCallback callback);
 
+    void preserve(int displayId);
+
     void restoreWhenReady(DesktopDisplayTarget target);
 
     void onDesktopHostReady(int displayId);

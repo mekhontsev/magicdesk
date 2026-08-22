@@ -54,6 +54,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private int mPhoneTouchpadTaskId = -1;
     private Boolean mDesktopTaskAreaForeground;
     private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
+    private int mReportedOwnershipDisplayId = Display.INVALID_DISPLAY;
+    private int[] mReportedDesktopTaskIds = new int[0];
 
     ShellTaskObserver(
             final Context context,
@@ -170,6 +172,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             restoreUnexpectedPhoneFreeform(
                                     displayId, taskId.intValue());
                         }
+                        reportDesktopTaskOwnership();
                         mDesktopTaskArea.removeOrphanedTransientTasks(
                                 displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
@@ -296,6 +299,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopTaskArea.configure(
                     Display.INVALID_DISPLAY, false, -1);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
+            reportDesktopTaskOwnership();
             mDesktopTaskAreaForeground = null;
             return;
         }
@@ -347,6 +351,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mWindowedActivityGuard.configure(displayId);
         mProcessFailureTracker.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
+        reportDesktopTaskOwnership();
     }
 
     void setExternalTaskMigrationProtection(final boolean enabled) {
@@ -423,6 +428,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             final int taskId = mDesktopTaskArea.launchHost(
                     displayId, intentUri);
+            reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -516,6 +522,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     ? mDesktopTaskArea.launch(displayId, intentUri, bounds)
                     : mWindowedTaskLauncher.launch(
                             displayId, intentUri, bounds, null);
+            reportDesktopTaskOwnership();
             if (managedArea) {
                 reportDesktopTaskAreaForeground(true);
             }
@@ -542,6 +549,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             final int taskId = mDesktopTaskArea.launchFullscreen(
                     displayId, intentUri);
+            reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -584,6 +592,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             mDesktopTaskArea.placeTask(
                     taskId, sourceDisplayId, targetDisplayId, bounds);
+            reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -603,6 +612,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             mDesktopTaskArea.placeFullscreenTask(
                     taskId, sourceDisplayId, targetDisplayId);
+            reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -678,6 +688,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
             mDesktopOwnership.forget(taskId);
+            reportDesktopTaskOwnership();
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange("task-removed");
         }
@@ -691,6 +702,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mFullscreenTaskArea.onTaskMovedToFront(
                     displayId, taskInfo.taskId);
             mDesktopOwnership.observeTask(taskInfo);
+            reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(taskInfo);
             mMigrationGuard.onTaskMovedToFront(taskInfo);
             if (isPhoneTouchpadTask(taskInfo)) {
@@ -892,6 +904,19 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mDesktopTaskAreaForeground = Boolean.valueOf(foreground);
         callCallback(() -> mCallback
                 .onDesktopTaskAreaForegroundChanged(foreground));
+    }
+
+    private synchronized void reportDesktopTaskOwnership() {
+        final int displayId = mConfiguredDisplayId;
+        final int[] taskIds = mDesktopOwnership.desktopTaskIds();
+        if (displayId == mReportedOwnershipDisplayId
+                && Arrays.equals(taskIds, mReportedDesktopTaskIds)) {
+            return;
+        }
+        mReportedOwnershipDisplayId = displayId;
+        mReportedDesktopTaskIds = taskIds;
+        callCallback(() -> mCallback.onDesktopTaskOwnershipChanged(
+                displayId, taskIds));
     }
 
     private void preservePhoneTouchpad() {

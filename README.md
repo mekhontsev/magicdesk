@@ -351,9 +351,11 @@ display size, density, and scaling to platform defaults.
 4. For a wireless session, connect a Miracast receiver through the system UI
    or, on a supported platform, select **Wireless**. After the
    display appears in Phone Control Panel, select **Start external desktop**.
-5. Select **Close desktop** to leave the desktop and park its live application
-   tasks on the phone. Starting the desktop again restores tasks that are still
-   alive, including their previous desktop modes and layouts. A
+5. Select **Close desktop** to leave the desktop and preserve its live
+   application workspace. Starting a desktop again restores tasks that are
+   still alive, including their previous modes, layouts, visibility, and
+   stacking order. The same state is retained when an external display is
+   disconnected unexpectedly. A
    platform-managed transport also returns to mirroring; a direct Android
    secondary display remains connected under system control. Select **Exit
    MagicDesk** to close MagicDesk windows, clear the saved live session, and

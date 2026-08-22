@@ -17,6 +17,16 @@ import java.util.List;
 import java.util.Set;
 
 final class DesktopTaskController implements DesktopTaskRuntime {
+    interface SnapshotListener {
+        void onSnapshot(
+                int displayId,
+                List<TaskRepository.TaskEntry> tasks,
+                Rect workArea,
+                boolean sessionTaskArea,
+                boolean sessionOwnershipReady,
+                Set<Integer> sessionOwnedTaskIds);
+    }
+
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE = "io.github.mekhontsev.magicdesk";
     private static final long EVENT_DEBOUNCE_MILLIS = 120;
@@ -34,6 +44,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final Context mApplicationContext;
     private final Handler mHandler;
     private final Runnable mTaskStackChanged;
+    private final SnapshotListener mSnapshotListener;
     private final DesktopTaskWatcher mTaskWatcher;
     private final DesktopPhoneUiReconciler mPhoneUiReconciler;
     private final PlatformPhoneUiDriver mPhoneUi;
@@ -58,16 +69,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
     private boolean mRestoringLocalDesktop;
+    private boolean mSessionOwnershipReady;
+    private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
 
     DesktopTaskController(
             final Context context,
             final Handler handler,
             final Runnable taskStackChanged,
+            final SnapshotListener snapshotListener,
             final PlatformWindowingDriver windowing,
             final PlatformPhoneUiDriver phoneUi) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
         mTaskStackChanged = taskStackChanged;
+        mSnapshotListener = snapshotListener;
         mPhoneUi = phoneUi;
         mWindowing = windowing;
         mPhoneUiReconciler = new DesktopPhoneUiReconciler(
@@ -318,8 +333,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public void onDesktopTaskOwnershipChanged(
+                            final int generation,
+                            final int displayId,
+                            final int[] taskIds) {
+                        if (!mRunning || displayId != mDisplayId) {
+                            return;
+                        }
+                        final Set<Integer> owned = new HashSet<>();
+                        if (taskIds != null) {
+                            for (final int taskId : taskIds) {
+                                if (taskId >= 0) {
+                                    owned.add(Integer.valueOf(taskId));
+                                }
+                            }
+                        }
+                        mSessionOwnedTaskIds = owned;
+                        mSessionOwnershipReady = true;
+                        scheduleRefresh(0);
+                    }
+
+                    @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
+                        clearSessionOwnership();
                         if (mRunning) {
                             scheduleRefresh(0);
                         }
@@ -351,6 +388,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             stop();
         }
         mDisplayId = displayId;
+        clearSessionOwnership();
         mRunning = createWindowContext(displayId);
         if (!mRunning) {
             return;
@@ -374,6 +412,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mFocusingTaskId = -1;
         mActiveTaskId = -1;
         mRestoringLocalDesktop = false;
+        clearSessionOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
@@ -1207,6 +1246,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
+        if (mSnapshotListener != null) {
+            mSnapshotListener.onSnapshot(
+                    mDisplayId,
+                    snapshot.tasks,
+                    DesktopRuntimeBridge.getDesktopWorkAreaBounds(mDisplayId),
+                    taskAreaPolicy() == DesktopTaskAreaPolicy.SESSION,
+                    mSessionOwnershipReady,
+                    mSessionOwnedTaskIds);
+        }
         mAutomationEvents.observe(snapshot);
         final boolean shouldRestoreLocalDesktop =
                 mPhoneUi.shouldRestoreLocalDesktopHost(
@@ -1271,6 +1319,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
         mWindowTransitions.reconcile(snapshot.tasks, visibleTasks);
+    }
+
+    private void clearSessionOwnership() {
+        mSessionOwnershipReady = false;
+        mSessionOwnedTaskIds = Collections.emptySet();
     }
 
     private boolean isActiveOnDisplay(final int displayId) {
