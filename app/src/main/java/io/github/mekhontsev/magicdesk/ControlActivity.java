@@ -229,6 +229,8 @@ public final class ControlActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        DesktopAutomationEventJournal.record(
+                "ui", "control_panel_shown", true, "phone");
         // Returning from a cancelled picker already leaves the panel visible.
         mReturnToPanelAfterWirelessConnection = false;
         MagicDeskRuntime.refreshNotification();
@@ -239,6 +241,13 @@ public final class ControlActivity extends Activity
             scheduleExternalDisplayProbe(false, 0L);
         }
         refresh();
+    }
+
+    @Override
+    protected void onPause() {
+        DesktopAutomationEventJournal.record(
+                "ui", "control_panel_hidden", true, "phone");
+        super.onPause();
     }
 
     @Override

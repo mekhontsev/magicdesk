@@ -38,7 +38,28 @@ public final class MagicDeskMcpToolCatalogTest {
                     tool.getJSONObject("inputSchema").getString("type"));
             assertFalse(tool.getJSONObject("inputSchema")
                     .getBoolean("additionalProperties"));
+            final JSONObject output = tool.getJSONObject("outputSchema");
+            assertEquals("object", output.getString("type"));
+            assertTrue(output.getJSONObject("properties")
+                    .has("error"));
+            assertEquals(tool.getString("name") + " data",
+                    output.getJSONObject("properties")
+                            .getJSONObject("data").getString("title"));
         }
+    }
+
+    @Test
+    public void shellToolsHaveAnIndependentGate() throws Exception {
+        final Set<String> normal = names(
+                MagicDeskMcpToolCatalog.create(true, false));
+        final Set<String> shell = names(
+                MagicDeskMcpToolCatalog.create(false, true));
+
+        assertFalse(normal.contains("magicdesk.console.execute"));
+        assertFalse(normal.contains("magicdesk.files.list"));
+        assertTrue(shell.contains("magicdesk.console.execute"));
+        assertTrue(shell.contains("magicdesk.files.list"));
+        assertFalse(shell.contains("magicdesk.run_self_test"));
     }
 
     private static Set<String> names(final JSONArray tools)

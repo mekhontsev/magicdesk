@@ -159,6 +159,27 @@ final class ShellDesktopProcessFailureTracker implements
         if (failure == null || mListener == null) {
             return;
         }
+        final String operation = failure.type == DesktopProcessFailure.ANR
+                ? "anr" : "crash";
+        try {
+            DesktopAutomationEventJournal.record(
+                    "process",
+                    operation,
+                    false,
+                    failure.processName,
+                    new org.json.JSONObject()
+                            .put("process", failure.processName)
+                            .put("pid", failure.pid)
+                            .put("taskId", failure.task.taskId)
+                            .put("displayId", failure.task.displayId)
+                            .put("windowingMode",
+                                    failure.task.windowingMode)
+                            .put("topActivity", failure.task.topActivity)
+                            .put("reason", failure.reason));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "process", operation, false, failure.processName);
+        }
         mListener.onDesktopProcessFailure(
                 failure.type,
                 failure.processName,

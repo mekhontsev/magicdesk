@@ -12,6 +12,10 @@ final class MagicDeskMcpBackend implements McpBackend {
 
     private final Context mContext;
     private final DesktopAutomationController mAutomation;
+    private final DesktopAutomationFileTools mFiles =
+            new DesktopAutomationFileTools();
+    private final DesktopAutomationConsoleSessions mConsole =
+            new DesktopAutomationConsoleSessions();
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
@@ -19,15 +23,40 @@ final class MagicDeskMcpBackend implements McpBackend {
     }
 
     @Override
+    public void close() {
+        mConsole.closeAll();
+    }
+
+    @Override
     public JSONArray listTools() throws JSONException {
+        final MagicDeskMcpPreferences.Values settings =
+                MagicDeskMcpPreferences.load(mContext);
         return MagicDeskMcpToolCatalog.create(
-                MagicDeskMcpPreferences.load(mContext).developerTools);
+                settings.developerTools, settings.shellTools);
     }
 
     @Override
     public JSONObject callTool(
             final String name,
             final JSONObject arguments) throws JSONException {
+        try {
+            return callToolChecked(name, arguments);
+        } catch (IllegalArgumentException error) {
+            return actionResult(DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                    ShellAccess.usefulMessage(error), false));
+        } catch (RuntimeException error) {
+            return actionResult(DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    ShellAccess.usefulMessage(error), false));
+        }
+    }
+
+    private JSONObject callToolChecked(
+            final String name,
+            final JSONObject arguments) throws JSONException {
+        final JSONObject args = arguments == null
+                ? new JSONObject() : arguments;
         final JSONObject data;
         switch (name) {
             case "magicdesk.get_state":
@@ -37,16 +66,15 @@ final class MagicDeskMcpBackend implements McpBackend {
                 data = mAutomation.stateReader().displays();
                 return successResult(data);
             case "magicdesk.list_tasks":
-                data = mAutomation.stateReader().tasks(
-                        optionalInteger(arguments, "displayId"));
+                data = mAutomation.stateReader().tasks(args);
                 return successResult(data);
             case "magicdesk.list_apps":
-                data = mAutomation.stateReader().apps();
+                data = mAutomation.stateReader().apps(args);
                 return successResult(data);
             case "magicdesk.get_events":
                 data = mAutomation.stateReader().events(
-                        Math.max(0L, arguments.optLong("afterId", 0L)),
-                        Math.max(1, arguments.optInt("limit", 100)));
+                        Math.max(0L, args.optLong("afterId", 0L)),
+                        Math.max(1, args.optInt("limit", 100)));
                 return successResult(data);
             case "magicdesk.get_diagnostics":
                 data = mAutomation.stateReader().diagnostics();
@@ -55,16 +83,45 @@ final class MagicDeskMcpBackend implements McpBackend {
                 data = mAutomation.stateReader().selfTest();
                 return successResult(data);
             case "magicdesk.wait_for_state":
-                return actionResult(mAutomation.waitFor(arguments));
+                return actionResult(mAutomation.waitFor(args));
             default:
                 break;
+        }
+        if (name.startsWith("magicdesk.files.")
+                || name.startsWith("magicdesk.console.")) {
+            if (!MagicDeskMcpPreferences.load(mContext).shellTools) {
+                return actionResult(DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.TOOL_DISABLED,
+                        "Files and Console automation tools are disabled",
+                        false));
+            }
+            switch (name) {
+                case "magicdesk.files.list":
+                    return actionResult(mFiles.list(args));
+                case "magicdesk.files.stat":
+                    return actionResult(mFiles.stat(args));
+                case "magicdesk.files.create":
+                    return actionResult(mFiles.create(args));
+                case "magicdesk.files.rename":
+                    return actionResult(mFiles.rename(args));
+                case "magicdesk.console.open":
+                    return actionResult(mConsole.open(args));
+                case "magicdesk.console.execute":
+                    return actionResult(mConsole.execute(args));
+                case "magicdesk.console.status":
+                    return actionResult(mConsole.status(args));
+                case "magicdesk.console.close":
+                    return actionResult(mConsole.close(args));
+                default:
+                    return errorResult("unknown gated tool");
+            }
         }
         if (!name.startsWith(PREFIX)) {
             return errorResult("unknown tool");
         }
         final DesktopAutomationResult result = mAutomation.execute(
                 name.substring(PREFIX.length()),
-                arguments,
+                args,
                 MagicDeskMcpPreferences.load(mContext).developerTools);
         return actionResult(result);
     }
@@ -110,7 +167,8 @@ final class MagicDeskMcpBackend implements McpBackend {
             case "magicdesk://displays":
                 return mAutomation.stateReader().displays().toString(2);
             case "magicdesk://tasks":
-                return mAutomation.stateReader().tasks(null).toString(2);
+                return mAutomation.stateReader()
+                        .tasks((Integer) null).toString(2);
             case "magicdesk://apps":
                 return mAutomation.stateReader().apps().toString(2);
             case "magicdesk://events":
@@ -137,10 +195,17 @@ final class MagicDeskMcpBackend implements McpBackend {
     private static JSONObject actionResult(
             final DesktopAutomationResult result) throws JSONException {
         final JSONObject structured = result.toJson();
+        final JSONArray content = new JSONArray().put(new JSONObject()
+                .put("type", "text")
+                .put("text", structured.toString(2)));
+        if (result.image != null) {
+            content.put(new JSONObject()
+                    .put("type", "image")
+                    .put("data", result.image.base64Data)
+                    .put("mimeType", result.image.mimeType));
+        }
         return new JSONObject()
-                .put("content", new JSONArray().put(new JSONObject()
-                        .put("type", "text")
-                        .put("text", structured.toString(2))))
+                .put("content", content)
                 .put("structuredContent", structured)
                 .put("isError", !result.success);
     }

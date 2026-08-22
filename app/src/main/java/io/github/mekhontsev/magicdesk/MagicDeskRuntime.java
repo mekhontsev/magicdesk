@@ -493,6 +493,11 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.handleActiveTaskShortcut(shortcut);
     }
 
+    static boolean arrangeTask(final int taskId, final int shortcut) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks != null && tasks.arrangeTask(taskId, shortcut);
+    }
+
     static void noteManualFreeformTransition(final int taskId) {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {

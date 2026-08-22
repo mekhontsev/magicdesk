@@ -15,6 +15,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -111,26 +113,80 @@ final class DesktopAutomationStateReader {
     }
 
     JSONObject tasks(final Integer displayFilter) throws JSONException {
+        final JSONObject arguments = new JSONObject();
+        if (displayFilter != null) {
+            arguments.put("displayId", displayFilter.intValue());
+        }
+        return tasks(arguments);
+    }
+
+    JSONObject tasks(final JSONObject arguments) throws JSONException {
         final TaskRepository.Snapshot snapshot =
                 TaskRepository.loadAllNow();
-        final JSONArray tasks = new JSONArray();
+        final JSONObject args = arguments == null
+                ? new JSONObject() : arguments;
+        final Integer displayFilter = optionalInteger(args, "displayId");
+        final String packageFilter = normalized(args, "package");
+        final String modeFilter = normalized(args, "mode");
+        final String query = normalized(args, "query").toLowerCase(Locale.ROOT);
+        final int limit = pageLimit(args);
+        final int offset = pageOffset(args);
+        final List<TaskRepository.TaskEntry> filtered = new ArrayList<>();
         if (snapshot.available) {
             for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-                if (displayFilter == null
-                        || task.displayId == displayFilter.intValue()) {
-                    tasks.put(taskJson(task));
+                if (displayFilter != null
+                        && task.displayId != displayFilter.intValue()) {
+                    continue;
                 }
+                if (!packageFilter.isEmpty()
+                        && !packageFilter.equals(task.packageName)) {
+                    continue;
+                }
+                if (!modeFilter.isEmpty()
+                        && !DesktopLaunchMode.matchesWindowingMode(
+                                modeFilter, task.windowingMode)) {
+                    continue;
+                }
+                if (!query.isEmpty()
+                        && !task.packageName.toLowerCase(Locale.ROOT)
+                                .contains(query)
+                        && !task.componentName.toLowerCase(Locale.ROOT)
+                                .contains(query)) {
+                    continue;
+                }
+                filtered.add(task);
             }
+        }
+        final JSONArray tasks = new JSONArray();
+        final int end = Math.min(filtered.size(), offset + limit);
+        for (int index = Math.min(offset, filtered.size());
+                index < end; index++) {
+            tasks.put(taskJson(filtered.get(index)));
         }
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("available", snapshot.available)
                 .put("error", snapshot.error)
-                .put("tasks", tasks);
+                .put("tasks", tasks)
+                .put("items", tasks)
+                .put("count", tasks.length())
+                .put("total", filtered.size())
+                .put("nextCursor", end < filtered.size()
+                        ? Integer.toString(end) : JSONObject.NULL);
     }
 
     JSONObject apps() throws JSONException {
-        final JSONArray result = new JSONArray();
+        return apps(new JSONObject());
+    }
+
+    JSONObject apps(final JSONObject arguments) throws JSONException {
+        final JSONObject args = arguments == null
+                ? new JSONObject() : arguments;
+        final String packageFilter = normalized(args, "package");
+        final String query = normalized(args, "query").toLowerCase(Locale.ROOT);
+        final int limit = pageLimit(args);
+        final int offset = pageOffset(args);
+        final List<AppRow> rows = new ArrayList<>();
         final LauncherApps launcherApps =
                 mContext.getSystemService(LauncherApps.class);
         if (launcherApps != null) {
@@ -144,18 +200,44 @@ final class DesktopAutomationStateReader {
                     continue;
                 }
                 final CharSequence label = activity.getLabel();
-                result.put(new JSONObject()
-                        .put("package", activity.getComponentName()
-                                .getPackageName())
-                        .put("component", component)
-                        .put("label", label == null
-                                ? activity.getComponentName().getPackageName()
-                                : label.toString()));
+                final String packageName = activity.getComponentName()
+                        .getPackageName();
+                final String resolvedLabel = label == null
+                        ? packageName : label.toString();
+                if (!packageFilter.isEmpty()
+                        && !packageFilter.equals(packageName)) {
+                    continue;
+                }
+                if (!query.isEmpty()
+                        && !packageName.toLowerCase(Locale.ROOT).contains(query)
+                        && !component.toLowerCase(Locale.ROOT).contains(query)
+                        && !resolvedLabel.toLowerCase(Locale.ROOT)
+                                .contains(query)) {
+                    continue;
+                }
+                rows.add(new AppRow(packageName, component, resolvedLabel));
             }
+        }
+        rows.sort(Comparator
+                .comparing((AppRow row) -> row.label.toLowerCase(Locale.ROOT))
+                .thenComparing(row -> row.component));
+        final JSONArray result = new JSONArray();
+        final int end = Math.min(rows.size(), offset + limit);
+        for (int index = Math.min(offset, rows.size()); index < end; index++) {
+            final AppRow row = rows.get(index);
+            result.put(new JSONObject()
+                    .put("package", row.packageName)
+                    .put("component", row.component)
+                    .put("label", row.label));
         }
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
-                .put("apps", result);
+                .put("apps", result)
+                .put("items", result)
+                .put("count", result.length())
+                .put("total", rows.size())
+                .put("nextCursor", end < rows.size()
+                        ? Integer.toString(end) : JSONObject.NULL);
     }
 
     JSONObject events(final long afterId, final int limit)
@@ -279,5 +361,64 @@ final class DesktopAutomationStateReader {
                 .put("top", rect.top)
                 .put("right", rect.right)
                 .put("bottom", rect.bottom);
+    }
+
+    private static int pageLimit(final JSONObject arguments) {
+        final int limit = arguments.optInt("limit", 100);
+        if (limit < 1 || limit > 200) {
+            throw new IllegalArgumentException(
+                    "limit must be between 1 and 200");
+        }
+        return limit;
+    }
+
+    private static int pageOffset(final JSONObject arguments) {
+        final String cursor = normalized(arguments, "cursor");
+        if (cursor.isEmpty()) {
+            return 0;
+        }
+        try {
+            final int offset = Integer.parseInt(cursor);
+            if (offset < 0) {
+                throw new NumberFormatException();
+            }
+            return offset;
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException("invalid cursor");
+        }
+    }
+
+    private static Integer optionalInteger(
+            final JSONObject arguments,
+            final String name) {
+        if (!arguments.has(name)) {
+            return null;
+        }
+        final Object value = arguments.opt(name);
+        if (!(value instanceof Number)) {
+            throw new IllegalArgumentException(name + " must be an integer");
+        }
+        return Integer.valueOf(((Number) value).intValue());
+    }
+
+    private static String normalized(
+            final JSONObject arguments,
+            final String name) {
+        return arguments.optString(name, "").trim();
+    }
+
+    private static final class AppRow {
+        final String packageName;
+        final String component;
+        final String label;
+
+        AppRow(
+                final String packageName,
+                final String component,
+                final String label) {
+            this.packageName = packageName;
+            this.component = component;
+            this.label = label;
+        }
     }
 }

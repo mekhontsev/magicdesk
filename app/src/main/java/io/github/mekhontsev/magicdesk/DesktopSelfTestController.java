@@ -482,6 +482,23 @@ final class DesktopSelfTestController {
             final DesktopSelfTestResult result, final Context context) {
         result.finish(System.currentTimeMillis());
         result.save(context);
+        try {
+            DesktopAutomationEventJournal.record(
+                    "self_test",
+                    "finished",
+                    !result.hasFailures(),
+                    result.summary(),
+                    new org.json.JSONObject()
+                            .put("failed", result.hasFailures())
+                            .put("summary", result.summary())
+                            .put("resultModifiedAtMillis",
+                                    DesktopSelfTestResult.lastModifiedMillis(
+                                            context)));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "self_test", "finished", !result.hasFailures(),
+                    result.summary());
+        }
         if (result.hasFailures()) {
             CompatibilityDiagnostics.record(
                     "SELFTEST-004",

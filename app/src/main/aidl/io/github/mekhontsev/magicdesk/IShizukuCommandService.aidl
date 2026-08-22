@@ -308,4 +308,18 @@ interface IShizukuCommandService {
         int sourceDisplayId,
         int targetDisplayId) = 81;
 
+    ParcelFileDescriptor openDisplayCapture(
+        String captureSource,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int outputWidth,
+        int outputHeight) = 82;
+
+    int[] captureDisplayPixels(
+        String captureSource,
+        in int[] xCoordinates,
+        in int[] yCoordinates) = 83;
+
 }

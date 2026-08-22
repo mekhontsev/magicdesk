@@ -27,6 +27,8 @@ final class SettingsView {
 
         void setMcpDeveloperTools(boolean enabled);
 
+        void setMcpShellTools(boolean enabled);
+
         void copyMcpConnection();
 
         void regenerateMcpToken();
@@ -51,6 +53,7 @@ final class SettingsView {
     private Switch mOpenFilesWithSingleClick;
     private Switch mMcpEnabled;
     private Switch mMcpDeveloperTools;
+    private Switch mMcpShellTools;
     private TextView mMcpStatus;
     private boolean mRendering;
 
@@ -123,6 +126,13 @@ final class SettingsView {
         mMcpDeveloperTools.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) {
                 mActions.setMcpDeveloperTools(checked);
+            }
+        });
+        mMcpShellTools = addSwitch(
+                content, R.string.settings_mcp_shell_tools);
+        mMcpShellTools.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setMcpShellTools(checked);
             }
         });
         mMcpStatus = new TextView(mActivity);
@@ -199,6 +209,7 @@ final class SettingsView {
                 || mOpenFilesWithSingleClick == null
                 || mcp == null || runtime == null
                 || mMcpEnabled == null || mMcpDeveloperTools == null
+                || mMcpShellTools == null
                 || mMcpStatus == null) {
             return;
         }
@@ -213,6 +224,9 @@ final class SettingsView {
         mMcpDeveloperTools.setChecked(mcp.developerTools);
         mMcpDeveloperTools.setEnabled(mcp.enabled);
         mMcpDeveloperTools.setAlpha(mcp.enabled ? 1f : 0.5f);
+        mMcpShellTools.setChecked(mcp.shellTools);
+        mMcpShellTools.setEnabled(mcp.enabled);
+        mMcpShellTools.setAlpha(mcp.enabled ? 1f : 0.5f);
         final int status = runtime.running
                 ? R.string.settings_mcp_status_running
                 : mcp.enabled

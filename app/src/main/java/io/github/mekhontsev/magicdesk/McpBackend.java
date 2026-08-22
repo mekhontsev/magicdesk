@@ -5,7 +5,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Transport-independent MCP capabilities supplied by MagicDesk. */
-interface McpBackend {
+interface McpBackend extends java.io.Closeable {
     JSONArray listTools() throws JSONException;
 
     JSONObject callTool(String name, JSONObject arguments)
@@ -14,4 +14,8 @@ interface McpBackend {
     JSONArray listResources() throws JSONException;
 
     String readResource(String uri) throws JSONException;
+
+    @Override
+    default void close() {
+    }
 }

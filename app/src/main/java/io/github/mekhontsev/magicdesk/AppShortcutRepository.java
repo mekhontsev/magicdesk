@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -30,9 +31,9 @@ final class AppShortcutRepository {
     private final PackageManager mPackageManager;
     private final int mDensityDpi;
 
-    AppShortcutRepository(final DesktopShellActivity activity) {
-        mPackageManager = activity.getPackageManager();
-        mDensityDpi = activity.getResources()
+    AppShortcutRepository(final Context context) {
+        mPackageManager = context.getPackageManager();
+        mDensityDpi = context.getResources()
                 .getDisplayMetrics().densityDpi;
     }
 
@@ -40,7 +41,19 @@ final class AppShortcutRepository {
         if (app == null) {
             return java.util.Collections.emptyList();
         }
-        final ComponentName launcher = resolveLauncher(app.launchTarget);
+        return load(app.packageName, app.launchTarget);
+    }
+
+    List<AppShortcutAction> load(final AppLaunchTarget target) {
+        return target == null
+                ? java.util.Collections.emptyList()
+                : load(target.packageName, target);
+    }
+
+    private List<AppShortcutAction> load(
+            final String packageName,
+            final AppLaunchTarget target) {
+        final ComponentName launcher = resolveLauncher(target);
         if (launcher == null) {
             return java.util.Collections.emptyList();
         }
@@ -54,13 +67,13 @@ final class AppShortcutRepository {
                     mPackageManager, SHORTCUTS_METADATA)) {
                 return parser == null
                         ? java.util.Collections.emptyList()
-                        : parse(app.packageName, resources, parser);
+                        : parse(packageName, resources, parser);
             }
         } catch (PackageManager.NameNotFoundException
                 | IOException
                 | XmlPullParserException
                 | RuntimeException error) {
-            Log.w(TAG, "Cannot read shortcuts for " + app.packageName, error);
+            Log.w(TAG, "Cannot read shortcuts for " + packageName, error);
             return java.util.Collections.emptyList();
         }
     }

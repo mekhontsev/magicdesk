@@ -43,6 +43,8 @@ public final class DiagnosticsActivity extends Activity {
     private String mReport = "";
     private boolean mLoading;
     private boolean mSelfTestRunning;
+    private DesktopSelfTestTarget mPendingSelfTestTarget;
+    private DesktopDisplayTarget.Kind mPendingSelfTestDisplayKind;
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mWirelessDisplayListener;
 
@@ -77,8 +79,12 @@ public final class DiagnosticsActivity extends Activity {
         // activity recreation during a display test from starting another run.
         intent.removeExtra(EXTRA_SELF_TEST_TARGET);
         intent.removeExtra(EXTRA_SELF_TEST_DISPLAY_KIND);
-        if (mLoading || mSelfTestRunning
-                || DesktopSelfTestController.isRunning()) {
+        if (mSelfTestRunning || DesktopSelfTestController.isRunning()) {
+            return true;
+        }
+        if (mLoading) {
+            mPendingSelfTestTarget = target;
+            mPendingSelfTestDisplayKind = displayKind;
             return true;
         }
         getWindow().addFlags(
@@ -197,8 +203,24 @@ public final class DiagnosticsActivity extends Activity {
                 mStatus.setText(R.string.diagnostics_ready);
                 mLoading = false;
                 setActionsEnabled(true);
+                runPendingAutomatedSelfTest();
             });
         }, "MagicDeskDiagnostics").start();
+    }
+
+    private void runPendingAutomatedSelfTest() {
+        final DesktopSelfTestTarget target = mPendingSelfTestTarget;
+        if (target == null || mSelfTestRunning
+                || DesktopSelfTestController.isRunning()) {
+            return;
+        }
+        final DesktopDisplayTarget.Kind displayKind =
+                mPendingSelfTestDisplayKind;
+        mPendingSelfTestTarget = null;
+        mPendingSelfTestDisplayKind = null;
+        getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        mSelfTest.post(() -> prepareSelfTest(target, displayKind));
     }
 
     private void chooseDesktopSelfTestTarget() {

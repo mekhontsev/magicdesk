@@ -117,7 +117,7 @@ final class DisplayPixelProbe {
                 RegionSignature.fromPixels(pixels, width, height));
     }
 
-    private static Bitmap capture(
+    static Bitmap captureBitmap(
             final DisplayCaptureSource source,
             final Rect sourceCrop,
             final int outputWidth,
@@ -137,6 +137,14 @@ final class DisplayPixelProbe {
                         sourceCrop,
                         outputWidth,
                         outputHeight);
+    }
+
+    private static Bitmap capture(
+            final DisplayCaptureSource source,
+            final Rect sourceCrop,
+            final int outputWidth,
+            final int outputHeight) throws IOException {
+        return captureBitmap(source, sourceCrop, outputWidth, outputHeight);
     }
 
     private static Bitmap captureLogical(

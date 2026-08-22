@@ -216,6 +216,35 @@ final class DesktopUiGateway {
                 && activity.launchDesktopWebShortcut(shortcut);
     }
 
+    boolean launchAutomationRequest(
+            final DesktopLaunchRequest request,
+            final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || request == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        final boolean[] launched = new boolean[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            if (isUsable(activity)) {
+                launched[0] = activity.launchAutomationRequest(request);
+            }
+            ready.countDown();
+        });
+        return await(ready) && launched[0];
+    }
+
+    boolean openFilesAt(final String path, final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || path == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        activity.runOnUiThread(() -> activity.openFilesAt(path));
+        return true;
+    }
+
     boolean launchApplication(
             final AppLaunchTarget target,
             final DesktopLaunchMode mode,
@@ -238,6 +267,37 @@ final class DesktopUiGateway {
             }
         });
         return true;
+    }
+
+    boolean invokeAppAction(
+            final AppLaunchTarget target,
+            final String actionId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || target == null
+                || actionId == null || actionId.isEmpty()) {
+            return false;
+        }
+        final boolean[] invoked = new boolean[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            if (isUsable(activity)) {
+                final AppItem app = activity.findOrLoadApp(
+                        activity.getLauncherApps(), target);
+                for (final AppShortcutAction action
+                        : new AppShortcutRepository(activity).load(app)) {
+                    if (actionId.equals(action.id)) {
+                        // Lookup is the acceptance boundary; native launch may
+                        // block this UI callback while its task is prepared.
+                        invoked[0] = true;
+                        ready.countDown();
+                        activity.launchShortcut(app, action);
+                        return;
+                    }
+                }
+            }
+            ready.countDown();
+        });
+        return await(ready) && invoked[0];
     }
 
     boolean dispatchOverlayTextInput(
@@ -442,6 +502,32 @@ final class DesktopUiGateway {
         return true;
     }
 
+    boolean openBuiltin(final String builtin) {
+        final DesktopShellActivity activity = usableDesktop(true);
+        if (activity == null || builtin == null) {
+            return false;
+        }
+        final Runnable action;
+        switch (builtin) {
+            case "files":
+                action = activity::openFiles;
+                break;
+            case "console":
+                action = activity::openConsole;
+                break;
+            case "task_manager":
+                action = activity::openTaskManager;
+                break;
+            case "settings":
+                action = activity::openSettings;
+                break;
+            default:
+                return false;
+        }
+        activity.runOnUiThread(action);
+        return true;
+    }
+
     void refreshSettings() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity != null) {
@@ -597,6 +683,15 @@ final class DesktopUiGateway {
         return activity != null
                 && !activity.isFinishing()
                 && !activity.isDestroyed();
+    }
+
+    private static boolean await(final CountDownLatch ready) {
+        try {
+            return ready.await(2L, TimeUnit.SECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private static void recordSession(

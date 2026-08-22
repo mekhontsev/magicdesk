@@ -74,6 +74,7 @@ final class MagicDeskMcpRuntime implements Closeable {
                     sSnapshot.enabled,
                     live.running,
                     sSnapshot.developerTools,
+                    sSnapshot.shellTools,
                     sSnapshot.endpoint,
                     live.connections,
                     live.requests,
@@ -89,6 +90,7 @@ final class MagicDeskMcpRuntime implements Closeable {
                 .put("enabled", snapshot.enabled)
                 .put("running", snapshot.running)
                 .put("developerTools", snapshot.developerTools)
+                .put("shellTools", snapshot.shellTools)
                 .put("endpoint", snapshot.endpoint)
                 .put("connections", snapshot.connections)
                 .put("requests", snapshot.requests)
@@ -115,6 +117,7 @@ final class MagicDeskMcpRuntime implements Closeable {
                     settings.enabled,
                     server != null && server.running,
                     settings.developerTools,
+                    settings.shellTools,
                     settings.endpoint(),
                     server == null ? 0L : server.connections,
                     server == null ? 0L : server.requests,
@@ -129,6 +132,7 @@ final class MagicDeskMcpRuntime implements Closeable {
         final boolean enabled;
         final boolean running;
         final boolean developerTools;
+        final boolean shellTools;
         final String endpoint;
         final long connections;
         final long requests;
@@ -139,6 +143,7 @@ final class MagicDeskMcpRuntime implements Closeable {
                 final boolean enabled,
                 final boolean running,
                 final boolean developerTools,
+                final boolean shellTools,
                 final String endpoint,
                 final long connections,
                 final long requests,
@@ -147,6 +152,7 @@ final class MagicDeskMcpRuntime implements Closeable {
             this.enabled = enabled;
             this.running = running;
             this.developerTools = developerTools;
+            this.shellTools = shellTools;
             this.endpoint = endpoint == null ? "" : endpoint;
             this.connections = connections;
             this.requests = requests;
@@ -156,7 +162,7 @@ final class MagicDeskMcpRuntime implements Closeable {
 
         static Snapshot inactive() {
             return new Snapshot(
-                    false, false, false, "", 0L, 0L, 0L, "");
+                    false, false, false, false, "", 0L, 0L, 0L, "");
         }
     }
 }

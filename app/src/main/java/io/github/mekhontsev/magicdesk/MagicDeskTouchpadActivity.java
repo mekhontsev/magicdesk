@@ -185,6 +185,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         synchronized (STATE_LOCK) {
             sVisibleActivity = new WeakReference<>(this);
         }
+        recordAutomationVisibility(true);
         DesktopSelfTestPhoneUiObserver.noteTouchpadStarted(mTargetDisplayId);
         registerDisplayListener();
         finishIfTargetUnavailable();
@@ -215,8 +216,28 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 sVisibleActivity.clear();
             }
         }
+        recordAutomationVisibility(false);
         unregisterDisplayListener();
         super.onStop();
+    }
+
+    private void recordAutomationVisibility(final boolean visible) {
+        try {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    visible ? "touchpad_shown" : "touchpad_hidden",
+                    true,
+                    "display=" + mTargetDisplayId,
+                    new org.json.JSONObject()
+                            .put("displayId", mTargetDisplayId)
+                            .put("visible", visible));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    visible ? "touchpad_shown" : "touchpad_hidden",
+                    true,
+                    "display=" + mTargetDisplayId);
+        }
     }
 
     @Override

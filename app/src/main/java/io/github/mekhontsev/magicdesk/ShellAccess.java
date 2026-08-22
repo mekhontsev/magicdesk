@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Point;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
@@ -245,6 +246,66 @@ public final class ShellAccess {
             handleServiceFailure(error);
             throw new IOException("Shell system monitor failed: "
                     + usefulMessage(error), error);
+        }
+    }
+
+    static ParcelFileDescriptor openDisplayCapture(
+            final DisplayCaptureSource source,
+            final Rect crop,
+            final int outputWidth,
+            final int outputHeight) throws IOException {
+        if (source == null || crop == null) {
+            throw new IllegalArgumentException("display capture is required");
+        }
+        try {
+            final ParcelFileDescriptor descriptor = requireService()
+                    .openDisplayCapture(
+                            source.commandArgument(),
+                            crop.left,
+                            crop.top,
+                            crop.right,
+                            crop.bottom,
+                            outputWidth,
+                            outputHeight);
+            if (descriptor == null) {
+                throw new IOException(
+                        "shell service returned no display capture");
+            }
+            return descriptor;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "display capture failed: " + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "display capture failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static int[] captureDisplayPixels(
+            final DisplayCaptureSource source,
+            final int[] xCoordinates,
+            final int[] yCoordinates) throws IOException {
+        if (source == null) {
+            throw new IllegalArgumentException("display capture is required");
+        }
+        try {
+            final int[] pixels = requireService().captureDisplayPixels(
+                    source.commandArgument(), xCoordinates, yCoordinates);
+            if (pixels == null || pixels.length != xCoordinates.length) {
+                throw new IOException(
+                        "shell service returned invalid pixel data");
+            }
+            return pixels;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "display pixel capture failed: "
+                            + usefulMessage(error), error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "display pixel capture failed: "
+                            + usefulMessage(error), error);
         }
     }
 

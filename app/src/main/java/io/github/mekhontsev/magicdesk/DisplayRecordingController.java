@@ -89,11 +89,24 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
     }
 
     void toggle() {
-        final State operation;
+        requestTransition(snapshot().state);
+    }
+
+    boolean requestStart() {
+        return requestTransition(State.IDLE);
+    }
+
+    boolean requestStop() {
+        return requestTransition(State.RECORDING);
+    }
+
+    private boolean requestTransition(final State operation) {
         final Snapshot snapshot;
         final long generation;
         synchronized (this) {
-            operation = mSnapshot.state;
+            if (mSnapshot.state != operation) {
+                return false;
+            }
             switch (operation) {
                 case IDLE:
                     snapshot = setSnapshotLocked(
@@ -108,7 +121,7 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
                 case STARTING:
                 case FINALIZING:
                 default:
-                    return;
+                    return false;
             }
             generation = ++mOperationGeneration;
         }
@@ -125,6 +138,7 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
             default:
                 break;
         }
+        return true;
     }
 
     @Override
@@ -318,6 +332,23 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
         }
         MagicDeskRuntime.setOperationStatus(
                 snapshot.state == State.IDLE ? null : snapshot.message);
+        try {
+            DesktopAutomationEventJournal.record(
+                    "recording",
+                    snapshot.state.name().toLowerCase(Locale.ROOT),
+                    true,
+                    snapshot.message,
+                    new org.json.JSONObject()
+                            .put("state", snapshot.state.name()
+                                    .toLowerCase(Locale.ROOT))
+                            .put("message", snapshot.message));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "recording",
+                    snapshot.state.name().toLowerCase(Locale.ROOT),
+                    true,
+                    snapshot.message);
+        }
         mMainHandler.post(() -> {
             if (snapshot != snapshot()) {
                 return;

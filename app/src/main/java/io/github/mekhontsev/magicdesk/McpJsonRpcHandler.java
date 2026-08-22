@@ -5,7 +5,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /** Minimal MCP 2025-11-25 JSON-RPC implementation for stateless HTTP. */
-final class McpJsonRpcHandler {
+final class McpJsonRpcHandler implements java.io.Closeable {
     static final String PROTOCOL_VERSION = "2025-11-25";
 
     private static final int PARSE_ERROR = -32700;
@@ -76,6 +76,11 @@ final class McpJsonRpcHandler {
             return json(500, error(id, INTERNAL_ERROR,
                     "Internal error"));
         }
+    }
+
+    @Override
+    public void close() {
+        mBackend.close();
     }
 
     private JSONObject initialize(final JSONObject params)

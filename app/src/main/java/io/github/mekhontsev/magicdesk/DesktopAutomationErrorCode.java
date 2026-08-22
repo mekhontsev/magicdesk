@@ -4,10 +4,10 @@ package io.github.mekhontsev.magicdesk;
 final class DesktopAutomationErrorCode {
     static final String ACTION_FAILED = "ACTION_FAILED";
     static final String CAPTURE_UNAVAILABLE = "CAPTURE_UNAVAILABLE";
-    static final String CONSOLE_ACCESS_DISABLED = "CONSOLE_ACCESS_DISABLED";
+    static final String CONSOLE_ACCESS_FAILED = "CONSOLE_ACCESS_FAILED";
     static final String DESKTOP_NOT_ACTIVE = "DESKTOP_NOT_ACTIVE";
     static final String DISPLAY_NOT_AVAILABLE = "DISPLAY_NOT_AVAILABLE";
-    static final String FILE_ACCESS_DISABLED = "FILE_ACCESS_DISABLED";
+    static final String FILE_ACCESS_FAILED = "FILE_ACCESS_FAILED";
     static final String HOST_UNAVAILABLE = "HOST_UNAVAILABLE";
     static final String INVALID_ARGUMENT = "INVALID_ARGUMENT";
     static final String SHELL_UNAVAILABLE = "SHELL_UNAVAILABLE";

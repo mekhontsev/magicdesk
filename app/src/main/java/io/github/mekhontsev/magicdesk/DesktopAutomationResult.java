@@ -11,6 +11,7 @@ final class DesktopAutomationResult {
     final String errorCode;
     final boolean retryable;
     final JSONObject observation;
+    final DesktopAutomationImage image;
 
     private DesktopAutomationResult(
             final boolean success,
@@ -18,7 +19,8 @@ final class DesktopAutomationResult {
             final JSONObject data,
             final String errorCode,
             final boolean retryable,
-            final JSONObject observation) {
+            final JSONObject observation,
+            final DesktopAutomationImage image) {
         this.success = success;
         this.message = message == null ? "" : message;
         this.data = data == null ? new JSONObject() : data;
@@ -26,12 +28,21 @@ final class DesktopAutomationResult {
         this.retryable = retryable;
         this.observation = observation == null
                 ? new JSONObject() : observation;
+        this.image = image;
     }
 
     static DesktopAutomationResult success(
             final String message, final JSONObject data) {
         return new DesktopAutomationResult(
-                true, message, data, "", false, null);
+                true, message, data, "", false, null, null);
+    }
+
+    static DesktopAutomationResult success(
+            final String message,
+            final JSONObject data,
+            final DesktopAutomationImage image) {
+        return new DesktopAutomationResult(
+                true, message, data, "", false, null, image);
     }
 
     static DesktopAutomationResult failure(final String message) {
@@ -50,7 +61,8 @@ final class DesktopAutomationResult {
                 data,
                 DesktopAutomationErrorCode.ACTION_FAILED,
                 false,
-                data);
+                data,
+                null);
     }
 
     static DesktopAutomationResult failure(
@@ -71,7 +83,8 @@ final class DesktopAutomationResult {
                 null,
                 errorCode,
                 retryable,
-                observation);
+                observation,
+                null);
     }
 
     JSONObject toJson() throws JSONException {

@@ -730,6 +730,39 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public boolean arrangeTask(final int taskId, final int shortcut) {
+        if (!mRunning || taskId < 0) {
+            return false;
+        }
+        final int displayId = mDisplayId;
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !snapshot.available) {
+                return;
+            }
+            TaskRepository.TaskEntry task = null;
+            for (final TaskRepository.TaskEntry candidate : snapshot.tasks) {
+                if (candidate != null && candidate.taskId == taskId) {
+                    task = candidate;
+                    break;
+                }
+            }
+            if (task == null) {
+                return;
+            }
+            final TaskRepository.TaskEntry minimizeFocusTask =
+                    shortcut == SHORTCUT_RESTORE
+                            ? findFocusAfterMinimize(
+                                    snapshot.tasks, task.taskId)
+                            : null;
+            mWindowTransitions.applyShortcut(
+                    task, shortcut, minimizeFocusTask);
+        }));
+        return true;
+    }
+
+    @Override
     public void noteManualFreeformTransition(final int taskId) {
         if (mRunning) {
             mWindowTransitions.noteManualFreeformTransition(taskId);

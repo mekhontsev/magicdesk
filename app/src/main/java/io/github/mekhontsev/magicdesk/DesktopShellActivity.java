@@ -1724,6 +1724,17 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
+    boolean launchAutomationRequest(final DesktopLaunchRequest request) {
+        return mLaunchCoordinator.launch(request);
+    }
+
+    void openFilesAt(final String path) {
+        launchInternalWindow(
+                FileManagerActivity.createIntent(this, path),
+                BuiltInDesktopAppCatalog.filesTarget(),
+                getString(R.string.file_manager_title));
+    }
+
     void openAppInfo(final AppItem app) {
         mAppTasks.openAppInfo(app);
     }

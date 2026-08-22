@@ -65,6 +65,8 @@ interface DesktopTaskRuntime {
 
     boolean handleActiveTaskShortcut(int shortcut);
 
+    boolean arrangeTask(int taskId, int shortcut);
+
     void noteManualFreeformTransition(int taskId);
 
     void beginExplicitWindowedLaunch(int taskId);

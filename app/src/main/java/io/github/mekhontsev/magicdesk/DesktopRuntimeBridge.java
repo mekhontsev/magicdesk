@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 
+
 /** Stable process-local facade for desktop session state and live UI access. */
 public final class DesktopRuntimeBridge {
     private static final DesktopSessionRegistry SESSION =
@@ -92,11 +93,27 @@ public final class DesktopRuntimeBridge {
         return UI.launchDesktopWebShortcut(shortcut, displayId);
     }
 
+    static boolean launchAutomationRequest(
+            final DesktopLaunchRequest request,
+            final int displayId) {
+        return UI.launchAutomationRequest(request, displayId);
+    }
+
+    static boolean openFilesAt(final String path, final int displayId) {
+        return UI.openFilesAt(path, displayId);
+    }
+
     static boolean launchApplication(
             final AppLaunchTarget target,
             final DesktopLaunchMode mode,
             final int displayId) {
         return UI.launchApplication(target, mode, displayId);
+    }
+
+    static boolean invokeAppAction(
+            final AppLaunchTarget target,
+            final String actionId) {
+        return UI.invokeAppAction(target, actionId);
     }
 
     static boolean dispatchOverlayTextInput(
@@ -172,6 +189,10 @@ public final class DesktopRuntimeBridge {
 
     static boolean openSettings() {
         return UI.openSettings();
+    }
+
+    static boolean openBuiltin(final String builtin) {
+        return UI.openBuiltin(builtin);
     }
 
     static void refreshSettings() {

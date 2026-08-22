@@ -14,6 +14,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +28,7 @@ final class DesktopAutomationController {
 
     private final Context mContext;
     private final DesktopAutomationStateReader mState;
+    private final DesktopAutomationCapture mCapture;
 
     DesktopAutomationController(final Context context) {
         if (context == null) {
@@ -33,6 +36,7 @@ final class DesktopAutomationController {
         }
         mContext = context.getApplicationContext();
         mState = new DesktopAutomationStateReader(mContext);
+        mCapture = new DesktopAutomationCapture(mContext);
     }
 
     DesktopAutomationStateReader stateReader() {
@@ -70,6 +74,15 @@ final class DesktopAutomationController {
                 case LAUNCH_APP:
                     result = launchApp(args);
                     break;
+                case LIST_APP_ACTIONS:
+                    result = listAppActions(args);
+                    break;
+                case INVOKE_APP_ACTION:
+                    result = invokeAppAction(args);
+                    break;
+                case LAUNCH_SPEC:
+                    result = launchSpec(args);
+                    break;
                 case FOCUS_TASK:
                     result = focusTask(requiredInt(args, "taskId"));
                     break;
@@ -85,6 +98,9 @@ final class DesktopAutomationController {
                 case SET_WINDOW_BOUNDS:
                     result = setWindowBounds(args);
                     break;
+                case ARRANGE_TASK:
+                    result = arrangeTask(args);
+                    break;
                 case SHOW_START:
                     result = simpleRuntimeAction(
                             MagicDeskRuntime.showStart(), "Start menu shown");
@@ -97,8 +113,23 @@ final class DesktopAutomationController {
                 case OPEN_SETTINGS:
                     result = openSettings();
                     break;
+                case OPEN_BUILTIN:
+                    result = openBuiltin(args);
+                    break;
                 case CAPTURE_SCREENSHOT:
-                    result = captureScreenshot();
+                    result = captureScreenshot(args);
+                    break;
+                case SAMPLE_PIXELS:
+                    result = mCapture.samplePixels(args);
+                    break;
+                case GET_RECORDING_STATUS:
+                    result = recordingStatus("screen recording status");
+                    break;
+                case START_RECORDING:
+                    result = startRecording();
+                    break;
+                case STOP_RECORDING:
+                    result = stopRecording();
                     break;
                 case RUN_SELF_TEST:
                     result = runSelfTest(args);
@@ -264,21 +295,7 @@ final class DesktopAutomationController {
     private DesktopAutomationResult launchApp(final JSONObject args)
             throws JSONException, InterruptedException {
         final String packageName = requiredString(args, "package");
-        final String componentValue = optionalString(args, "component", "");
-        final AppLaunchTarget target;
-        if (componentValue.isEmpty()) {
-            target = AppLaunchTarget.packageDefault(packageName);
-        } else {
-            final ComponentName component = ComponentName.unflattenFromString(
-                    componentValue);
-            if (component == null
-                    || !packageName.equals(component.getPackageName())) {
-                throw new IllegalArgumentException(
-                        "component must belong to package");
-            }
-            target = AppLaunchTarget.explicit(
-                    packageName, component.getClassName(), Intent.ACTION_MAIN);
-        }
+        final AppLaunchTarget target = appTarget(args);
         final DesktopLaunchMode mode = parseLaunchMode(
                 optionalString(args, "mode", "auto"));
         final int activeDisplayId =
@@ -317,6 +334,159 @@ final class DesktopAutomationController {
                 data);
     }
 
+    private DesktopAutomationResult listAppActions(final JSONObject args)
+            throws JSONException {
+        final AppLaunchTarget target = appTarget(args);
+        final org.json.JSONArray actions = new org.json.JSONArray();
+        for (final AppShortcutAction action
+                : new AppShortcutRepository(mContext).load(target)) {
+            actions.put(new JSONObject()
+                    .put("id", action.id)
+                    .put("label", action.label));
+        }
+        return DesktopAutomationResult.success(
+                "application actions listed",
+                new JSONObject()
+                        .put("package", target.packageName)
+                        .put("actions", actions));
+    }
+
+    private DesktopAutomationResult invokeAppAction(final JSONObject args)
+            throws JSONException {
+        final AppLaunchTarget target = appTarget(args);
+        final String actionId = requiredString(args, "actionId");
+        if (!DesktopRuntimeBridge.invokeAppAction(target, actionId)) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "application action was not found or could not launch",
+                    false,
+                    new JSONObject()
+                            .put("package", target.packageName)
+                            .put("actionId", actionId));
+        }
+        return DesktopAutomationResult.success(
+                "application action launch accepted",
+                new JSONObject()
+                        .put("package", target.packageName)
+                        .put("actionId", actionId));
+    }
+
+    private DesktopAutomationResult launchSpec(final JSONObject args)
+            throws IOException, JSONException {
+        final String desktopPath = optionalString(args, "desktopPath", "");
+        final JSONObject android = args.optJSONObject("android");
+        if (desktopPath.isEmpty() == (android == null)) {
+            throw new IllegalArgumentException(
+                    "provide exactly one of desktopPath or android");
+        }
+        final int displayId = optionalDisplayId(args);
+        final boolean launched;
+        final String kind;
+        if (!desktopPath.isEmpty()) {
+            if (!ShellAccess.isReady()) {
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
+                        "shell command service is unavailable", true);
+            }
+            final ShellFileInfo file = ShellAccess.getShellFileInfo(
+                    desktopPath);
+            final DesktopEntry entry = DesktopEntryFile.read(file);
+            if (entry == null) {
+                throw new IllegalArgumentException(
+                        "unsupported or invalid .desktop file");
+            }
+            if (entry instanceof DesktopFolderShortcut) {
+                launched = DesktopRuntimeBridge.openFilesAt(
+                        ((DesktopFolderShortcut) entry).targetPath,
+                        displayId);
+                kind = "folder";
+            } else if (entry instanceof DesktopWebShortcut) {
+                launched = DesktopRuntimeBridge.launchDesktopWebShortcut(
+                        (DesktopWebShortcut) entry, displayId);
+                kind = "web";
+            } else if (entry instanceof DesktopApplicationShortcut) {
+                final DesktopLaunchRequest request = DesktopLaunchRequest.from(
+                        (DesktopApplicationShortcut) entry,
+                        launchArguments(args),
+                        desktopPath);
+                launched = DesktopRuntimeBridge.launchAutomationRequest(
+                        request, displayId);
+                kind = "application";
+            } else {
+                throw new IllegalArgumentException(
+                        "unsupported .desktop entry type");
+            }
+        } else {
+            final String packageName = optionalString(
+                    android, "package", "");
+            final String componentValue = optionalString(
+                    android, "component", "");
+            final String action = optionalString(
+                    android, "action", Intent.ACTION_MAIN);
+            final String intentUri = optionalString(
+                    android, "intentUri", "");
+            AppLaunchTarget target = null;
+            if (!packageName.isEmpty()) {
+                if (componentValue.isEmpty()) {
+                    target = AppLaunchTarget.packageDefault(packageName);
+                } else {
+                    final ComponentName component =
+                            ComponentName.unflattenFromString(componentValue);
+                    if (component == null || !packageName.equals(
+                            component.getPackageName())) {
+                        throw new IllegalArgumentException(
+                                "component must belong to package");
+                    }
+                    target = AppLaunchTarget.explicit(
+                            packageName, component.getClassName(), action);
+                }
+            }
+            final AndroidLaunchSpec launch;
+            if (!intentUri.isEmpty()) {
+                launch = AndroidLaunchSpec.intent(target, intentUri);
+            } else if (target != null) {
+                launch = AndroidLaunchSpec.defaultLaunch(target);
+            } else {
+                throw new IllegalArgumentException(
+                        "android package or intentUri is required");
+            }
+            final DesktopLaunchRequest request = new DesktopLaunchRequest(
+                    optionalString(android, "name",
+                            packageName.isEmpty() ? "Android app" : packageName),
+                    "",
+                    launch,
+                    null,
+                    parseLaunchMode(optionalString(
+                            android, "mode", "auto")));
+            launched = DesktopRuntimeBridge.launchAutomationRequest(
+                    request, displayId);
+            kind = "android";
+        }
+        if (!launched) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                    "desktop launch request was not accepted", true);
+        }
+        return DesktopAutomationResult.success(
+                "desktop launch request accepted",
+                new JSONObject()
+                        .put("kind", kind)
+                        .put("displayId", displayId));
+    }
+
+    private static DesktopLaunchArguments launchArguments(
+            final JSONObject args) throws JSONException {
+        final org.json.JSONArray files = args.optJSONArray("files");
+        if (files == null || files.length() == 0) {
+            return DesktopLaunchArguments.empty();
+        }
+        final List<String> paths = new ArrayList<>();
+        for (int index = 0; index < files.length(); index++) {
+            paths.add(files.getString(index));
+        }
+        return DesktopLaunchArguments.files(paths);
+    }
+
     private DesktopAutomationResult focusTask(final int taskId)
             throws InterruptedException {
         final TaskRepository.TaskEntry task = findTask(taskId);
@@ -348,10 +518,10 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult setWindowMode(final JSONObject args)
             throws IOException, JSONException, InterruptedException {
-        final TaskRepository.TaskEntry task = findTask(
-                requiredInt(args, "taskId"));
+        final int taskId = requiredInt(args, "taskId");
+        final TaskRepository.TaskEntry task = findTask(taskId);
         if (task == null) {
-            return DesktopAutomationResult.failure("task not found");
+            return taskNotFound(taskId);
         }
         final String mode = requiredString(args, "mode")
                 .toLowerCase(Locale.ROOT);
@@ -371,10 +541,10 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult setWindowBounds(final JSONObject args)
             throws IOException, JSONException, InterruptedException {
-        final TaskRepository.TaskEntry task = findTask(
-                requiredInt(args, "taskId"));
+        final int taskId = requiredInt(args, "taskId");
+        final TaskRepository.TaskEntry task = findTask(taskId);
         if (task == null) {
-            return DesktopAutomationResult.failure("task not found");
+            return taskNotFound(taskId);
         }
         final Rect bounds = readBounds(
                 requiredObject(args, "bounds"), task.displayId);
@@ -393,15 +563,113 @@ final class DesktopAutomationController {
                 "settings launch accepted", new JSONObject());
     }
 
-    private DesktopAutomationResult captureScreenshot() {
-        if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                < Display.DEFAULT_DISPLAY) {
+    private DesktopAutomationResult openBuiltin(final JSONObject args)
+            throws JSONException {
+        final String builtin = requiredString(args, "builtin")
+                .toLowerCase(Locale.ROOT);
+        if (!DesktopRuntimeBridge.openBuiltin(builtin)) {
             return DesktopAutomationResult.failure(
-                    "no active desktop session");
+                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                    "desktop host or built-in window is unavailable", true,
+                    new JSONObject().put("builtin", builtin));
         }
-        ConsoleModeSwitcher.captureScreenshot();
         return DesktopAutomationResult.success(
-                "screenshot requested", new JSONObject());
+                "built-in window launch accepted",
+                new JSONObject().put("builtin", builtin));
+    }
+
+    private DesktopAutomationResult arrangeTask(final JSONObject args)
+            throws JSONException {
+        final int taskId = requiredInt(args, "taskId");
+        final TaskRepository.TaskEntry task = findTask(taskId);
+        if (task == null) {
+            return taskNotFound(taskId);
+        }
+        final String arrangement = requiredString(args, "arrangement")
+                .toLowerCase(Locale.ROOT);
+        final int shortcut;
+        switch (arrangement) {
+            case "left":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_LEFT;
+                break;
+            case "right":
+                shortcut = DesktopTaskController.SHORTCUT_SNAP_RIGHT;
+                break;
+            case "maximize":
+                shortcut = DesktopTaskController.SHORTCUT_FULLSCREEN;
+                break;
+            case "restore":
+                shortcut = DesktopTaskController.SHORTCUT_RESTORE;
+                break;
+            default:
+                throw new IllegalArgumentException(
+                        "arrangement must be left, right, maximize, or restore");
+        }
+        if (!MagicDeskRuntime.arrangeTask(taskId, shortcut)) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                    "desktop task runtime is unavailable", true);
+        }
+        return DesktopAutomationResult.success(
+                "task arrangement accepted",
+                new JSONObject()
+                        .put("taskId", taskId)
+                        .put("arrangement", arrangement));
+    }
+
+    private DesktopAutomationResult captureScreenshot(
+            final JSONObject args) {
+        return mCapture.screenshot(args.has("displayId")
+                ? Integer.valueOf(requiredInt(args, "displayId")) : null);
+    }
+
+    private DesktopAutomationResult startRecording()
+            throws JSONException {
+        final DisplayRecordingController controller =
+                DisplayRecordingController.get();
+        if (!controller.requestStart()) {
+            return recordingStateFailure(
+                    "screen recording is not idle", controller.snapshot());
+        }
+        return recordingStatus("screen recording start accepted");
+    }
+
+    private DesktopAutomationResult stopRecording()
+            throws JSONException {
+        final DisplayRecordingController controller =
+                DisplayRecordingController.get();
+        if (!controller.requestStop()) {
+            return recordingStateFailure(
+                    "screen recording is not active", controller.snapshot());
+        }
+        return recordingStatus("screen recording stop accepted");
+    }
+
+    private DesktopAutomationResult recordingStatus(final String message)
+            throws JSONException {
+        return DesktopAutomationResult.success(
+                message,
+                recordingJson(DisplayRecordingController.get().snapshot()));
+    }
+
+    private static DesktopAutomationResult recordingStateFailure(
+            final String message,
+            final DisplayRecordingController.Snapshot snapshot)
+            throws JSONException {
+        return DesktopAutomationResult.failure(
+                DesktopAutomationErrorCode.ACTION_FAILED,
+                message,
+                true,
+                recordingJson(snapshot));
+    }
+
+    private static JSONObject recordingJson(
+            final DisplayRecordingController.Snapshot snapshot)
+            throws JSONException {
+        return new JSONObject()
+                .put("state", snapshot.state.name()
+                        .toLowerCase(Locale.ROOT))
+                .put("message", snapshot.message);
     }
 
     private DesktopAutomationResult runSelfTest(final JSONObject args)
@@ -807,6 +1075,23 @@ final class DesktopAutomationController {
         }
         throw new IllegalArgumentException(
                 "mode must be auto, windowed, or fullscreen");
+    }
+
+    private static AppLaunchTarget appTarget(final JSONObject args) {
+        final String packageName = requiredString(args, "package");
+        final String componentValue = optionalString(args, "component", "");
+        if (componentValue.isEmpty()) {
+            return AppLaunchTarget.packageDefault(packageName);
+        }
+        final ComponentName component = ComponentName.unflattenFromString(
+                componentValue);
+        if (component == null
+                || !packageName.equals(component.getPackageName())) {
+            throw new IllegalArgumentException(
+                    "component must belong to package");
+        }
+        return AppLaunchTarget.explicit(
+                packageName, component.getClassName(), Intent.ACTION_MAIN);
     }
 
     private static String requiredString(

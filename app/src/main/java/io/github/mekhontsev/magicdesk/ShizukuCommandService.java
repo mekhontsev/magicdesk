@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 import android.graphics.Point;
+import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -126,6 +127,109 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public String probeCapabilities() {
         return ShizukuCapabilityProbe.run(mContext);
+    }
+
+    @Override
+    public ParcelFileDescriptor openDisplayCapture(
+            final String captureSource,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom,
+            final int outputWidth,
+            final int outputHeight) {
+        final DisplayCaptureSource source =
+                DisplayCaptureSource.parse(captureSource);
+        final Rect crop = new Rect(left, top, right, bottom);
+        if (crop.isEmpty() || outputWidth <= 0 || outputHeight <= 0
+                || outputWidth > 8192 || outputHeight > 8192) {
+            throw new IllegalArgumentException("invalid display capture size");
+        }
+        final ParcelFileDescriptor[] pipe;
+        try {
+            pipe = ParcelFileDescriptor.createPipe();
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot create display capture pipe", error);
+        }
+        final Thread writer = new Thread(() -> {
+            Bitmap bitmap = null;
+            final OutputStream output =
+                    new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]);
+            try {
+                bitmap = DisplayPixelProbe.captureBitmap(
+                        source, crop, outputWidth, outputHeight);
+                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                    throw new IOException("PNG encoding failed");
+                }
+            } catch (IOException | RuntimeException error) {
+                Log.w(TAG, "display capture failed", error);
+                try {
+                    pipe[1].closeWithError(usefulMessage(error));
+                } catch (IOException ignored) {
+                }
+            } finally {
+                try {
+                    output.close();
+                } catch (IOException ignored) {
+                }
+                if (bitmap != null) {
+                    bitmap.recycle();
+                }
+            }
+        }, "MagicDeskDisplayCapture");
+        writer.setDaemon(true);
+        writer.start();
+        return pipe[0];
+    }
+
+    @Override
+    public int[] captureDisplayPixels(
+            final String captureSource,
+            final int[] xCoordinates,
+            final int[] yCoordinates) {
+        if (xCoordinates == null || yCoordinates == null
+                || xCoordinates.length == 0
+                || xCoordinates.length != yCoordinates.length
+                || xCoordinates.length > 64) {
+            throw new IllegalArgumentException("invalid pixel coordinates");
+        }
+        int left = Integer.MAX_VALUE;
+        int top = Integer.MAX_VALUE;
+        int right = 0;
+        int bottom = 0;
+        for (int index = 0; index < xCoordinates.length; index++) {
+            if (xCoordinates[index] < 0 || yCoordinates[index] < 0) {
+                throw new IllegalArgumentException("invalid pixel coordinate");
+            }
+            left = Math.min(left, xCoordinates[index]);
+            top = Math.min(top, yCoordinates[index]);
+            right = Math.max(right, xCoordinates[index] + 1);
+            bottom = Math.max(bottom, yCoordinates[index] + 1);
+        }
+        Bitmap bitmap = null;
+        try {
+            bitmap = DisplayPixelProbe.captureBitmap(
+                    DisplayCaptureSource.parse(captureSource),
+                    new Rect(left, top, right, bottom),
+                    right - left,
+                    bottom - top);
+            final int[] colors = new int[xCoordinates.length];
+            for (int index = 0; index < colors.length; index++) {
+                colors[index] = bitmap.getPixel(
+                        xCoordinates[index] - left,
+                        yCoordinates[index] - top);
+            }
+            return colors;
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "display pixel capture failed: "
+                            + usefulMessage(error), error);
+        } finally {
+            if (bitmap != null) {
+                bitmap.recycle();
+            }
+        }
     }
 
     @Override

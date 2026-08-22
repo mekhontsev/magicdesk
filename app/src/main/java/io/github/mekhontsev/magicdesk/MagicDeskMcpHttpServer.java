@@ -104,6 +104,7 @@ final class MagicDeskMcpHttpServer implements Closeable {
             accept.interrupt();
         }
         mWorkers.shutdownNow();
+        mHandler.close();
         DesktopAutomationEventJournal.record(
                 "mcp", "server_stop", true, "server stopped");
     }

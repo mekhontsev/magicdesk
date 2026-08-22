@@ -381,6 +381,7 @@ public final class CompatibilityDiagnostics {
                 .append(mcp.enabled)
                 .append(", running=").append(mcp.running)
                 .append(", developerTools=").append(mcp.developerTools)
+                .append(", shellTools=").append(mcp.shellTools)
                 .append(", endpoint=").append(mcp.endpoint)
                 .append(", connections=").append(mcp.connections)
                 .append(", requests=").append(mcp.requests)

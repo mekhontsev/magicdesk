@@ -83,6 +83,11 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setMcpShellTools(final boolean enabled) {
+        saveSetting(MagicDeskMcpPreferences.setShellTools(this, enabled));
+    }
+
+    @Override
     public void copyMcpConnection() {
         final MagicDeskMcpPreferences.Values settings =
                 MagicDeskMcpPreferences.load(this);

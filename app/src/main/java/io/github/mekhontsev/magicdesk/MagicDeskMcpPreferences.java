@@ -14,6 +14,7 @@ final class MagicDeskMcpPreferences {
     private static final String PREFERENCES = "magicdesk_mcp";
     private static final String ENABLED = "enabled";
     private static final String DEVELOPER_TOOLS = "developer_tools";
+    private static final String SHELL_TOOLS = "shell_tools";
     private static final String TOKEN = "token";
 
     private MagicDeskMcpPreferences() {
@@ -31,6 +32,7 @@ final class MagicDeskMcpPreferences {
         return new Values(
                 preferences.getBoolean(ENABLED, false),
                 preferences.getBoolean(DEVELOPER_TOOLS, false),
+                preferences.getBoolean(SHELL_TOOLS, false),
                 token);
     }
 
@@ -40,6 +42,7 @@ final class MagicDeskMcpPreferences {
                 .putBoolean(ENABLED, enabled);
         if (!enabled) {
             editor.putBoolean(DEVELOPER_TOOLS, false);
+            editor.putBoolean(SHELL_TOOLS, false);
         }
         return editor.commit();
     }
@@ -48,6 +51,13 @@ final class MagicDeskMcpPreferences {
             final Context context, final boolean enabled) {
         return preferences(context).edit()
                 .putBoolean(DEVELOPER_TOOLS, enabled)
+                .commit();
+    }
+
+    static boolean setShellTools(
+            final Context context, final boolean enabled) {
+        return preferences(context).edit()
+                .putBoolean(SHELL_TOOLS, enabled)
                 .commit();
     }
 
@@ -71,14 +81,17 @@ final class MagicDeskMcpPreferences {
     static final class Values {
         final boolean enabled;
         final boolean developerTools;
+        final boolean shellTools;
         final String token;
 
         Values(
                 final boolean enabled,
                 final boolean developerTools,
+                final boolean shellTools,
                 final String token) {
             this.enabled = enabled;
             this.developerTools = developerTools;
+            this.shellTools = shellTools;
             this.token = token == null ? "" : token;
         }
 
