@@ -91,14 +91,6 @@ final class PhoneHomeComponents {
                         + ", secondary=" + mSecondary.size();
     }
 
-    String firstSecondaryClassName() {
-        if (mSecondary.isEmpty()) {
-            return "";
-        }
-        final String component = mSecondary.iterator().next();
-        return component.substring(component.indexOf('/') + 1);
-    }
-
     boolean hasSecondaryHomeOnTop(
             final TaskRepository.TaskEntry task) {
         if (task == null || !task.home) {
@@ -109,8 +101,17 @@ final class PhoneHomeComponents {
 
     boolean isDedicatedSecondaryTask(
             final TaskRepository.TaskEntry task) {
-        return hasSecondaryHomeOnTop(task)
-                && isSecondaryComponent(task.componentName);
+        return task != null && isDedicatedSecondaryTask(
+                task.home, task.componentName, task.topActivityName);
+    }
+
+    boolean isDedicatedSecondaryTask(
+            final boolean home,
+            final String componentName,
+            final String topActivityName) {
+        return home
+                && isSecondaryComponent(topActivityName)
+                && isSecondaryComponent(componentName);
     }
 
     boolean isSecondaryComponent(final String value) {

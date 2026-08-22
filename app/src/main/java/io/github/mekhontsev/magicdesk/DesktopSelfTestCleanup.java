@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
-import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTask;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 
@@ -120,19 +119,12 @@ final class DesktopSelfTestCleanup {
                         .append(" remained; ");
             }
             if (ShellAccess.isReady()) {
-                final String secondaryHomeClass = PhoneHomeComponents.resolve(
-                        MagicDeskApplication.applicationContext())
-                        .firstSecondaryClassName();
-                if (!secondaryHomeClass.isEmpty()) {
-                    try {
-                        waitForTaskAbsentOnDisplay(
-                                Display.DEFAULT_DISPLAY,
-                                secondaryHomeClass);
-                    } catch (IOException error) {
-                        clean = false;
-                        detail.append("phone launcher cleanup: ")
-                                .append(usefulMessage(error)).append("; ");
-                    }
+                try {
+                    waitForNoDedicatedSecondaryHomeTask();
+                } catch (IOException error) {
+                    clean = false;
+                    detail.append("phone launcher cleanup: ")
+                            .append(usefulMessage(error)).append("; ");
                 }
                 try {
                     waitForDesktopRepositoryEmpty(displayId);
@@ -312,22 +304,42 @@ final class DesktopSelfTestCleanup {
         throw new IOException("task " + className + " remained after close");
     }
 
-    private static void waitForTaskAbsentOnDisplay(
-            final int displayId,
-            final String className) throws IOException {
+    private static void waitForNoDedicatedSecondaryHomeTask()
+            throws IOException {
+        final PhoneHomeComponents home = PhoneHomeComponents.resolve(
+                MagicDeskApplication.applicationContext());
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskStackParser.Entry remaining = null;
         do {
-            final TaskStackParser.Entry task = findTask(
+            remaining = findDedicatedSecondaryHomeTask(
                     ShellAccess.run("/system/bin/cmd activity stack list"),
-                    displayId,
-                    className);
-            if (task == null) {
+                    home);
+            if (remaining == null) {
                 return;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("task " + className
-                + " remained on display " + displayId + " after close");
+        throw new IOException("secondary Home task " + remaining.taskId
+                + " remained on display " + Display.DEFAULT_DISPLAY
+                + " after close");
+    }
+
+    static TaskStackParser.Entry findDedicatedSecondaryHomeTask(
+            final String stack,
+            final PhoneHomeComponents home) {
+        if (home == null) {
+            return null;
+        }
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
+            if (task.displayId == Display.DEFAULT_DISPLAY
+                    && home.isDedicatedSecondaryTask(
+                            task.isHome(),
+                            task.componentName,
+                            task.topActivityName)) {
+                return task;
+            }
+        }
+        return null;
     }
 
     private static void waitForDesktopRepositoryEmpty(

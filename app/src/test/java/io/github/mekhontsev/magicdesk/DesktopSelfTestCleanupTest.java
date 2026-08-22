@@ -1,11 +1,36 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
 public final class DesktopSelfTestCleanupTest {
+    private static final String PRIMARY_HOME =
+            "com.zte.mifavor.launcher/"
+                    + "com.android.launcher3.uioverrides.QuickstepLauncher";
+    private static final String SECONDARY_HOME =
+            "com.zte.mifavor.launcher/"
+                    + "com.android.launcher3.secondarydisplay."
+                    + "SecondaryDisplayLauncher";
+    private static final PhoneHomeComponents HOME =
+            PhoneHomeComponents.forTests(PRIMARY_HOME, SECONDARY_HOME);
+
+    @Test
+    public void ignoresSecondaryBaseAfterPrimaryHomeTakesOverTask() {
+        assertNull(DesktopSelfTestCleanup.findDedicatedSecondaryHomeTask(
+                stack(SECONDARY_HOME, PRIMARY_HOME), HOME));
+    }
+
+    @Test
+    public void detectsDedicatedSecondaryHomeRemainingOnPhone() {
+        assertEquals(20988, DesktopSelfTestCleanup
+                .findDedicatedSecondaryHomeTask(
+                        stack(SECONDARY_HOME, SECONDARY_HOME), HOME).taskId);
+    }
+
     @Test
     public void leavesPhoneDeskBeforeRemovingOnlyPhoneFreeformFixture() {
         assertTrue(DesktopSelfTestCleanup
@@ -22,6 +47,17 @@ public final class DesktopSelfTestCleanupTest {
         assertFalse(DesktopSelfTestCleanup
                 .requiresPhoneDesktopExitBeforeRemoval(
                         task(0, "freeform"), false));
+    }
+
+    private static String stack(
+            final String component,
+            final String topActivity) {
+        return "RootTask id=1 bounds=[0,0][1216,2688] displayId=0\n"
+                + "  configuration={ mWindowingMode=fullscreen"
+                + " mActivityType=home }\n"
+                + "  taskId=20988: " + component
+                + " bounds=[0,0][1216,2688] userId=0 visible=false"
+                + " topActivity=ComponentInfo{" + topActivity + "}\n";
     }
 
     private static TaskStackParser.Entry task(
