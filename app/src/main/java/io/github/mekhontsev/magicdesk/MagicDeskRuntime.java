@@ -548,6 +548,13 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void setPhoneTouchpadRequested(final boolean requested) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.setPhoneTouchpadRequested(requested);
+        }
+    }
+
     static void disableExternalTaskMigrationProtection() {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {

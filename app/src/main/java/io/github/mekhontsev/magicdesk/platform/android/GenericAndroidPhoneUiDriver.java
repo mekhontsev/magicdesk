@@ -5,6 +5,7 @@ import io.github.mekhontsev.magicdesk.TaskRepository;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.os.IBinder;
 
 import java.util.List;
@@ -64,6 +65,11 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
 
     @Override
     public boolean requiresPhoneUiReconciliation() {
+        return false;
+    }
+
+    @Override
+    public boolean isTransientSecondaryHomeIntent(final Intent intent) {
         return false;
     }
 

@@ -23,6 +23,7 @@ final class PhoneTouchpadController {
         if (!isSupported(displayId)) {
             return;
         }
+        MagicDeskRuntime.setPhoneTouchpadRequested(true);
         MagicDeskTouchpadActivity.open(
                 MagicDeskApplication.applicationContext(), displayId);
     }
@@ -67,6 +68,7 @@ final class PhoneTouchpadController {
     }
 
     static void release(final int displayId) {
+        MagicDeskRuntime.setPhoneTouchpadRequested(false);
         MagicDeskTouchpadActivity.release(displayId);
     }
 

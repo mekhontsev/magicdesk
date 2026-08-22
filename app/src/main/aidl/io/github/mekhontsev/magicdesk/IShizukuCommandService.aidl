@@ -333,4 +333,7 @@ interface IShizukuCommandService {
         int displayId,
         int taskId) = 86;
 
+    void setPhoneTouchpadRequested(
+        ITaskObserverCallback callback, boolean requested) = 87;
+
 }

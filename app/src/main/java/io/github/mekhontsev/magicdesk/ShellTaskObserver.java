@@ -5,6 +5,7 @@ import android.app.ActivityManager;
 import android.app.TaskStackListener;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -28,6 +29,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Runnable mCallbackFailure;
     private final IBinder mOwnerToken;
     private final PlatformWindowingDriver mWindowing;
+    private final PlatformPhoneUiDriver mPhoneUi;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
@@ -49,6 +51,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private volatile boolean mClosed;
     private boolean mRegistered;
     private boolean mPreservePhoneTouchpad;
+    private boolean mPhoneTouchpadRequested;
     private boolean mRestoringPhoneTouchpad;
     private boolean mExternalNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
@@ -107,6 +110,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mOwnerToken = ownerToken;
         mWindowing = windowing;
+        mPhoneUi = phoneUi;
         mNavigationGuard = navigationGuard;
         mFocusController = new ShellDesktopFocusController(
                 mService,
@@ -148,6 +152,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
+                this::allowPhoneUiStart,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
         // The platform policy decides whether stale phone-side freeform
@@ -679,6 +684,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    synchronized void setPhoneTouchpadRequested(final boolean requested) {
+        mPhoneTouchpadRequested = requested;
+        if (requested && mPhoneTouchpadTaskId < 0) {
+            mPhoneTouchpadTaskId = findPhoneTouchpadTaskId();
+        }
+    }
+
     @Override
     public void onTaskStackChanged() {
         mMigrationGuard.onTaskStackChanged();
@@ -794,6 +806,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 updateExternalNavigationGuard(false));
         synchronized (this) {
             mPreservePhoneTouchpad = false;
+            mPhoneTouchpadRequested = false;
         }
         closeSafely("focus controller", mFocusController::close);
         closeSafely("input panel guard", mInputPanelGuard::close);
@@ -967,6 +980,26 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mRestoringPhoneTouchpad = false;
             }
         }
+    }
+
+    private boolean allowPhoneUiStart(
+            final Intent intent,
+            final String ignoredPackageName) {
+        final boolean suppress;
+        synchronized (this) {
+            // Nubia starts its secondary launcher on the phone while removing
+            // an external task. Reject it before it can cover the requested
+            // touchpad; post-start task correction still produces a blink.
+            suppress = !mClosed
+                    && mPhoneTouchpadRequested
+                    && mConfiguredDisplayId > Display.DEFAULT_DISPLAY
+                    && mPhoneUi.isTransientSecondaryHomeIntent(intent);
+        }
+        if (suppress) {
+            Log.i(TAG, "suppressed transient secondary HOME while phone "
+                    + "touchpad is requested");
+        }
+        return !suppress;
     }
 
     private int findPhoneTouchpadTaskId() {

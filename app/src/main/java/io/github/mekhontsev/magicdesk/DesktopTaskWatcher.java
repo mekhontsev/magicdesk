@@ -58,6 +58,7 @@ final class DesktopTaskWatcher {
     private long mLifecycleGeneration;
     private ShellTaskObserverHandle mHandle;
     private TaskObserverCallback mCallback;
+    private boolean mPhoneTouchpadRequested;
     private boolean mDestroyed;
 
     DesktopTaskWatcher(final Handler handler, final Listener listener) {
@@ -477,6 +478,21 @@ final class DesktopTaskWatcher {
         }
     }
 
+    synchronized boolean setPhoneTouchpadRequested(
+            final boolean requested) {
+        mPhoneTouchpadRequested = requested;
+        if (mHandle == null) {
+            return false;
+        }
+        try {
+            mHandle.setPhoneTouchpadRequested(requested);
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "failed to update phone touchpad request", error);
+            return false;
+        }
+    }
+
     boolean setExternalTaskMigrationProtection(
             final boolean enabled) {
         final ShellTaskObserverHandle handle = currentHandle();
@@ -539,6 +555,8 @@ final class DesktopTaskWatcher {
                         && active
                         && !handle.isClosed();
                 if (installed) {
+                    handle.setPhoneTouchpadRequested(
+                            mPhoneTouchpadRequested);
                     mHandle = handle;
                     mCallback = callback;
                 }

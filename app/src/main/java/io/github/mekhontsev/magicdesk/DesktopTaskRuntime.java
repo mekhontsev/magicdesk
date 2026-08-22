@@ -79,6 +79,8 @@ interface DesktopTaskRuntime {
 
     void finishTouchpadPreservation();
 
+    void setPhoneTouchpadRequested(boolean requested);
+
     void disableExternalTaskMigrationProtection();
 
     void restoreExternalTaskMigrationProtection();

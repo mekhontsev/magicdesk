@@ -618,10 +618,15 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void clearRequestedDisplay() {
+        boolean cleared = false;
         synchronized (STATE_LOCK) {
             if (sRequestedDisplayId == mTargetDisplayId) {
                 sRequestedDisplayId = Display.INVALID_DISPLAY;
+                cleared = true;
             }
+        }
+        if (cleared) {
+            MagicDeskRuntime.setPhoneTouchpadRequested(false);
         }
     }
 

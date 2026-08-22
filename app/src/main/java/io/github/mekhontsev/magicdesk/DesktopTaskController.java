@@ -406,6 +406,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mGeneration++;
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
+        mTaskWatcher.setPhoneTouchpadRequested(false);
         mTaskWatcher.clearConfiguration();
         mWindowContext = null;
         mDisplayId = -1;
@@ -873,6 +874,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mTaskWatcher.setPhoneTouchpadPreservation(false);
             mPhoneUiReconciler.finishTouchpadPreservation();
         }
+    }
+
+    @Override
+    public void setPhoneTouchpadRequested(final boolean requested) {
+        mTaskWatcher.setPhoneTouchpadRequested(requested);
     }
 
     @Override

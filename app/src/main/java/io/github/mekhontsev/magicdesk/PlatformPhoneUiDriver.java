@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.os.IBinder;
 
 import java.util.List;
@@ -52,6 +53,8 @@ public interface PlatformPhoneUiDriver {
     boolean isInputPanelTask(TaskRepository.TaskEntry task);
 
     boolean requiresPhoneUiReconciliation();
+
+    boolean isTransientSecondaryHomeIntent(Intent intent);
 
     boolean shouldRestoreLocalDesktopHost(
             int displayId,

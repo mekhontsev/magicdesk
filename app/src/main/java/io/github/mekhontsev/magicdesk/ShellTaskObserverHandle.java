@@ -241,6 +241,12 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, enabled));
     }
 
+    void setPhoneTouchpadRequested(final boolean requested)
+            throws IOException {
+        callService(() -> mService.setPhoneTouchpadRequested(
+                mCallback, requested));
+    }
+
     void setExternalTaskMigrationProtection(final boolean enabled)
             throws IOException {
         callService(() -> mService.setExternalTaskMigrationProtection(

@@ -547,6 +547,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void setPhoneTouchpadRequested(
+            final ITaskObserverCallback callback,
+            final boolean requested) {
+        mTaskObserverManager.setPhoneTouchpadRequested(
+                callback, requested);
+    }
+
+    @Override
     public void setExternalTaskMigrationProtection(
             final ITaskObserverCallback callback,
             final boolean enabled) {

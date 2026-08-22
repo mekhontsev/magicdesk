@@ -4,6 +4,7 @@ import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.TaskRepository;
 
 import android.content.Context;
+import android.content.Intent;
 
 import java.util.List;
 
@@ -11,6 +12,8 @@ import java.util.List;
 final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     private static final String INPUT_PANEL_ACTIVITY =
             "cn.nubia.keymapcenter.mirror.MirrorInputActivity";
+    private static final String SECONDARY_HOME_ACTIVITY =
+            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
     private static final String[] OBSERVED_SETTINGS = {
             ConsoleModeState.PHONE_SCREEN_OFF_SETTING
     };
@@ -39,6 +42,14 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
     public boolean requiresPhoneUiReconciliation() {
         return true;
+    }
+
+    @Override
+    public boolean isTransientSecondaryHomeIntent(final Intent intent) {
+        return intent != null && isTransientSecondaryHome(
+                intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME),
+                intent.getComponent() == null
+                        ? null : intent.getComponent().getClassName());
     }
 
     @Override
@@ -92,6 +103,13 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     private static boolean hasActivity(final String componentName) {
         return componentName != null
                 && componentName.endsWith(INPUT_PANEL_ACTIVITY);
+    }
+
+    static boolean isTransientSecondaryHome(
+            final boolean hasSecondaryHomeCategory,
+            final String activityName) {
+        return hasSecondaryHomeCategory
+                && SECONDARY_HOME_ACTIVITY.equals(activityName);
     }
 
     @Override
