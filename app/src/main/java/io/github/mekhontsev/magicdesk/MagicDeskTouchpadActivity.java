@@ -222,21 +222,27 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void recordAutomationVisibility(final boolean visible) {
+        recordAutomationVisibility(visible, mTargetDisplayId);
+    }
+
+    private void recordAutomationVisibility(
+            final boolean visible,
+            final int displayId) {
         try {
             DesktopAutomationEventJournal.record(
                     "ui",
                     visible ? "touchpad_shown" : "touchpad_hidden",
                     true,
-                    "display=" + mTargetDisplayId,
+                    "display=" + displayId,
                     new org.json.JSONObject()
-                            .put("displayId", mTargetDisplayId)
+                            .put("displayId", displayId)
                             .put("visible", visible));
         } catch (org.json.JSONException ignored) {
             DesktopAutomationEventJournal.record(
                     "ui",
                     visible ? "touchpad_shown" : "touchpad_hidden",
                     true,
-                    "display=" + mTargetDisplayId);
+                    "display=" + displayId);
         }
     }
 
@@ -526,11 +532,41 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void updateTargetDisplay(final Intent intent) {
-        mTargetDisplayId = intent == null
+        final int targetDisplayId = intent == null
                 ? Display.INVALID_DISPLAY
                 : intent.getIntExtra(
                         EXTRA_TARGET_DISPLAY_ID,
                         Display.INVALID_DISPLAY);
+        if (targetDisplayId == mTargetDisplayId) {
+            finishIfTargetUnavailable();
+            return;
+        }
+
+        final int previousDisplayId = mTargetDisplayId;
+        final boolean visible;
+        synchronized (STATE_LOCK) {
+            visible = sVisibleActivity.get() == this;
+        }
+        if (visible && previousDisplayId > Display.DEFAULT_DISPLAY) {
+            recordAutomationVisibility(false, previousDisplayId);
+            DesktopSelfTestPhoneUiObserver.noteTouchpadStopped(
+                    previousDisplayId);
+        }
+
+        finishPointerDrag();
+        mTargetDisplayId = targetDisplayId;
+        mPhysicalPointerPrepared = false;
+
+        if (visible && targetDisplayId > Display.DEFAULT_DISPLAY) {
+            recordAutomationVisibility(true, targetDisplayId);
+            DesktopSelfTestPhoneUiObserver.noteTouchpadStarted(
+                    targetDisplayId);
+            if (hasWindowFocus()) {
+                mPhysicalPointerPrepared = true;
+                MagicDeskRuntime.preparePhysicalPointerHandoff(
+                        targetDisplayId);
+            }
+        }
         finishIfTargetUnavailable();
     }
 
