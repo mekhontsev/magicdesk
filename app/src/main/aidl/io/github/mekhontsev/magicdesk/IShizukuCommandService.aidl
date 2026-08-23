@@ -360,4 +360,6 @@ interface IShizukuCommandService {
 
     String getPtyWorkingDirectory(long requestId) = 93;
 
+    long getPtyProcessId(long requestId) = 94;
+
 }

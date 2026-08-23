@@ -111,7 +111,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         Process process = null;
         try {
-            process = new ProcessBuilder("/system/bin/sh", "-c", command)
+            process = ShellExecutionEnvironment.processBuilder(
+                    false, "/system/bin/sh", "-c", command)
                     .redirectErrorStream(true)
                     .start();
             final BoundedProcessRunner.Result result =
@@ -287,8 +288,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         + " " + ShellCommandLine.quote(result.descriptor);
         Process process = null;
         try {
-            process = new ProcessBuilder(
-                    "/system/bin/sh", "-c", command)
+            process = ShellExecutionEnvironment.processBuilder(
+                    false, "/system/bin/sh", "-c", command)
                     .redirectErrorStream(true)
                     .start();
             final BoundedProcessRunner.Result output =
@@ -355,7 +356,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final File helper = new File(
                     mContext.getApplicationInfo().nativeLibraryDir,
                     PTY_HELPER_NAME);
-            process = new ProcessBuilder(
+            process = ShellExecutionEnvironment.processBuilder(
+                    true,
                     helper.getAbsolutePath(),
                     Integer.toString(rows),
                     Integer.toString(columns),
@@ -1176,7 +1178,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                     ParcelFileDescriptor.createPipe();
             readSide = pipe[0];
             writeSide = pipe[1];
-            process = new ProcessBuilder("/system/bin/sh", "-c", command)
+            process = ShellExecutionEnvironment.processBuilder(
+                    false, "/system/bin/sh", "-c", command)
                     .redirectErrorStream(true)
                     .start();
             final StreamSession session = new StreamSession(
@@ -1272,20 +1275,38 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public String getPtyWorkingDirectory(final long requestId) {
-        final OwnedStreamSession session =
-                mStreams.get(Long.valueOf(requestId));
-        if (!(session instanceof PtyStreamSession)) {
-            throw new IllegalStateException(
-                    "Shizuku PTY is not active: " + requestId);
-        }
+        final PtyStreamSession session = requirePtySession(requestId);
         try {
-            return ((PtyStreamSession) session).workingDirectory();
+            return session.workingDirectory();
         } catch (IOException error) {
             throw new IllegalStateException(
                     "cannot read Shizuku PTY directory: "
                             + usefulMessage(error),
                     error);
         }
+    }
+
+    @Override
+    public long getPtyProcessId(final long requestId) {
+        final PtyStreamSession session = requirePtySession(requestId);
+        try {
+            return session.processId();
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot read Shizuku PTY process: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    private PtyStreamSession requirePtySession(final long requestId) {
+        final OwnedStreamSession session =
+                mStreams.get(Long.valueOf(requestId));
+        if (!(session instanceof PtyStreamSession)) {
+            throw new IllegalStateException(
+                    "Shizuku PTY is not active: " + requestId);
+        }
+        return (PtyStreamSession) session;
     }
 
     @Override
@@ -1641,7 +1662,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             super.copyOutput(input, output);
         }
 
-        String workingDirectory() throws IOException {
+        long processId() throws IOException {
             try {
                 if (!shellPidReady.await(1, TimeUnit.SECONDS)) {
                     throw new IOException("PTY shell process is not ready");
@@ -1653,8 +1674,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             if (shellPid <= 0L) {
                 throw new IOException("PTY shell process is unavailable");
             }
+            return shellPid;
+        }
+
+        String workingDirectory() throws IOException {
+            final long processId = processId();
             final String directory = new File(
-                    "/proc/" + shellPid + "/cwd").getCanonicalPath();
+                    "/proc/" + processId + "/cwd").getCanonicalPath();
             if (!directory.startsWith("/")) {
                 throw new IOException("PTY shell directory is invalid");
             }

@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.view.GestureDetector;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -156,6 +157,35 @@ final class ConsoleTerminalView extends View {
     void scrollToBottom() {
         mTopRow = 0;
         invalidate();
+    }
+
+    String visibleText() {
+        if (mSession == null) {
+            return "";
+        }
+        return mSession.emulator().getSelectedText(
+                0,
+                mTopRow,
+                Math.max(0, mColumns - 1),
+                mTopRow + Math.max(0, mRows - 1));
+    }
+
+    boolean sendKey(final int keyCode, final int metaState) {
+        if (mSession == null || keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+            return false;
+        }
+        final long now = android.os.SystemClock.uptimeMillis();
+        return onKeyDown(keyCode, new KeyEvent(
+                now,
+                now,
+                KeyEvent.ACTION_DOWN,
+                keyCode,
+                0,
+                metaState,
+                KeyCharacterMap.VIRTUAL_KEYBOARD,
+                0,
+                0,
+                InputDevice.SOURCE_KEYBOARD));
     }
 
     @Override

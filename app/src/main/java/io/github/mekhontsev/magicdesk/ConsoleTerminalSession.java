@@ -60,7 +60,11 @@ final class ConsoleTerminalSession {
     private final TerminalEmulator mEmulator;
 
     private String mWorkingDirectory;
+    private String mTitle = "";
     private ShellPtyHandle mPty;
+    private long mProcessId = -1L;
+    private int mColumns;
+    private int mRows;
     private boolean mStarted;
     private boolean mClosed;
     private boolean mReady;
@@ -78,6 +82,8 @@ final class ConsoleTerminalSession {
                     "terminal working directory must be absolute");
         }
         mWorkingDirectory = initialDirectory;
+        mColumns = columns;
+        mRows = rows;
         mListener = listener;
         mEmulator = new TerminalEmulator(
                 new SessionOutput(),
@@ -102,6 +108,30 @@ final class ConsoleTerminalSession {
     boolean isReady() {
         synchronized (mLock) {
             return mReady && !mClosed;
+        }
+    }
+
+    long processId() {
+        synchronized (mLock) {
+            return mProcessId;
+        }
+    }
+
+    int columns() {
+        synchronized (mLock) {
+            return mColumns;
+        }
+    }
+
+    int rows() {
+        synchronized (mLock) {
+            return mRows;
+        }
+    }
+
+    String title() {
+        synchronized (mLock) {
+            return mTitle;
         }
     }
 
@@ -155,6 +185,10 @@ final class ConsoleTerminalSession {
         if (columns < 2 || rows < 2) {
             return;
         }
+        synchronized (mLock) {
+            mColumns = columns;
+            mRows = rows;
+        }
         mEmulator.resize(columns, rows, cellWidth, cellHeight);
         mListener.onScreenChanged();
         synchronized (mLock) {
@@ -186,29 +220,37 @@ final class ConsoleTerminalSession {
             return;
         }
         executeWriter(() -> {
-            final String directory;
-            final IOException failure;
-            final ShellPtyHandle pty;
-            synchronized (mLock) {
-                pty = mPty;
-                directory = mWorkingDirectory;
-            }
-            String resolved = directory;
+            String resolved;
             IOException error = null;
-            if (pty != null) {
-                try {
-                    resolved = pty.workingDirectory();
-                    synchronized (mLock) {
-                        mWorkingDirectory = resolved;
-                    }
-                } catch (IOException lookupError) {
-                    error = lookupError;
+            try {
+                resolved = resolveWorkingDirectory();
+            } catch (IOException lookupError) {
+                synchronized (mLock) {
+                    resolved = mWorkingDirectory;
                 }
+                error = lookupError;
             }
-            failure = error;
+            final IOException failure = error;
             final String result = resolved;
             mMainHandler.post(() -> listener.onDirectory(result, failure));
         });
+    }
+
+    String resolveWorkingDirectory() throws IOException {
+        final ShellPtyHandle pty;
+        synchronized (mLock) {
+            pty = mPty;
+            if (pty == null) {
+                return mWorkingDirectory;
+            }
+        }
+        final String resolved = pty.workingDirectory();
+        synchronized (mLock) {
+            if (!mClosed && mPty == pty) {
+                mWorkingDirectory = resolved;
+            }
+            return mWorkingDirectory;
+        }
     }
 
     private void executeWriter(final Runnable operation) {
@@ -232,6 +274,7 @@ final class ConsoleTerminalSession {
             }
             mClosed = true;
             mReady = false;
+            mProcessId = -1L;
             pty = mPty;
             mPty = null;
             mPendingInput.reset();
@@ -252,12 +295,20 @@ final class ConsoleTerminalSession {
             return;
         }
         final byte[] pending;
+        long processId = -1L;
+        try {
+            processId = pty.processId();
+        } catch (IOException ignored) {
+            // Process metadata is useful to automation but not required for
+            // an otherwise healthy interactive terminal.
+        }
         synchronized (mLock) {
             if (mClosed) {
                 pty.close();
                 return;
             }
             mPty = pty;
+            mProcessId = processId;
             mReady = true;
             pending = mPendingInput.toByteArray();
             mPendingInput.reset();
@@ -294,6 +345,7 @@ final class ConsoleTerminalSession {
                 if (mPty == pty) {
                     mPty = null;
                     mReady = false;
+                    mProcessId = -1L;
                 }
             }
             pty.close();
@@ -389,6 +441,9 @@ final class ConsoleTerminalSession {
         @Override
         public void titleChanged(
                 final String oldTitle, final String newTitle) {
+            synchronized (mLock) {
+                mTitle = newTitle == null ? "" : newTitle;
+            }
             mListener.onTitleChanged(newTitle);
         }
 

@@ -504,7 +504,7 @@
     <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
     <string name="settings_mcp_enabled">Local MCP automation server</string>
     <string name="settings_mcp_developer_tools">Developer automation tools</string>
-    <string name="settings_mcp_shell_tools">Files and Console automation tools</string>
+    <string name="settings_mcp_shell_tools">Files, shell, and Terminal automation</string>
     <string name="settings_mcp_connection">Copy MCP connection</string>
     <string name="settings_mcp_regenerate_token">Replace MCP access token</string>
     <string name="settings_mcp_regenerate_confirm">Existing MCP clients will lose access immediately.</string>

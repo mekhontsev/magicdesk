@@ -74,7 +74,9 @@ final class DesktopAutomationStateReader {
                         .put("wakeLockHeld",
                                 MagicDeskRuntime.isSessionWakeLockHeld())
                         .put("selfTestRunning",
-                                DesktopSelfTestController.isRunning()))
+                                DesktopSelfTestController.isRunning())
+                        .put("terminalWindows",
+                                ConsoleTerminalRegistry.registeredCount()))
                 .put("windows", windows.toJson())
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",

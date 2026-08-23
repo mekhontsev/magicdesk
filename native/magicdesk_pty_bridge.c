@@ -154,10 +154,9 @@ static int open_shell_pty(
     close_child_descriptors();
     if (chdir(working_directory) != 0) {
         perror("chdir");
+    } else {
+        (void) setenv("PWD", working_directory, 1);
     }
-    (void) setenv("TERM", "xterm-256color", 1);
-    (void) setenv("COLORTERM", "truecolor", 1);
-    (void) setenv("SHELL", "/system/bin/sh", 1);
     execl("/system/bin/sh", "sh", "-i", (char *) NULL);
     perror("exec /system/bin/sh");
     _exit(127);

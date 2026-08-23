@@ -426,15 +426,15 @@ final class MagicDeskMcpToolCatalog {
                                 "path", "newName")))
                 .put(actionTool(
                         "console.open",
-                        "Open console session",
-                        "Open a bounded persistent Android shell session.",
+                        "Open headless shell session",
+                        "Open a bounded persistent headless Android shell session for deterministic commands.",
                         objectSchema(new JSONObject().put(
                                 "directory", stringProperty(
                                         "Initial absolute working directory.")))))
                 .put(actionTool(
                         "console.execute",
-                        "Execute console command",
-                        "Execute a command in a persistent gated console session.",
+                        "Execute headless shell command",
+                        "Execute a command in a persistent gated headless shell session.",
                         objectSchema(new JSONObject()
                                         .put("sessionId", stringProperty(
                                                 "Console session id."))
@@ -450,7 +450,70 @@ final class MagicDeskMcpToolCatalog {
                         "console.close",
                         "Close console session",
                         "Close one persistent MCP console session.",
-                        sessionSchema()));
+                        sessionSchema()))
+                .put(actionTool(
+                        "terminal.open",
+                        "Open terminal window",
+                        "Open a visible interactive MagicDesk PTY terminal on the active desktop.",
+                        objectSchema(new JSONObject()
+                                .put("directory", stringProperty(
+                                        "Initial absolute working directory."))
+                                .put("command", stringProperty(
+                                        "Optional command to run after the terminal is ready.")))))
+                .put(readTool(
+                        "terminal.list",
+                        "List terminal windows",
+                        "List live interactive MagicDesk terminal windows using cached metadata; terminal.status refreshes the working directory.",
+                        emptySchema()))
+                .put(readTool(
+                        "terminal.status",
+                        "Get terminal status",
+                        "Read task, display, PTY process, dimensions, title, and working directory.",
+                        terminalSchema()))
+                .put(readTool(
+                        "terminal.read",
+                        "Read terminal screen",
+                        "Read the textual viewport or bounded transcript of an interactive terminal.",
+                        objectSchema(new JSONObject()
+                                        .put("terminalId", stringProperty(
+                                                "Interactive terminal id."))
+                                        .put("scope", enumProperty(
+                                                "Text region to read.",
+                                                "viewport", "transcript"))
+                                        .put("maxChars", integerProperty(
+                                                "Maximum returned characters, up to 65536.")),
+                                "terminalId")))
+                .put(actionTool(
+                        "terminal.write",
+                        "Write terminal input",
+                        "Write text directly to an interactive terminal PTY.",
+                        objectSchema(new JSONObject()
+                                        .put("terminalId", stringProperty(
+                                                "Interactive terminal id."))
+                                        .put("text", stringProperty(
+                                                "Text or terminal control sequence.")),
+                                "terminalId", "text")))
+                .put(actionTool(
+                        "terminal.send_key",
+                        "Send terminal key",
+                        "Send a semantic keyboard key with optional modifiers to an interactive terminal.",
+                        objectSchema(new JSONObject()
+                                        .put("terminalId", stringProperty(
+                                                "Interactive terminal id."))
+                                        .put("key", stringProperty(
+                                                "Android key name such as ENTER, C, ESC, or UP."))
+                                        .put("ctrl", booleanProperty(
+                                                "Hold Control."))
+                                        .put("alt", booleanProperty(
+                                                "Hold Alt."))
+                                        .put("shift", booleanProperty(
+                                                "Hold Shift.")),
+                                "terminalId", "key")))
+                .put(destructiveTool(
+                        "terminal.close",
+                        "Close terminal window",
+                        "Close one visible interactive terminal and its PTY process group.",
+                        terminalSchema()));
     }
 
     private static JSONObject pathSchema() throws JSONException {
@@ -462,6 +525,12 @@ final class MagicDeskMcpToolCatalog {
         return objectSchema(new JSONObject().put(
                 "sessionId", stringProperty("Console session id.")),
                 "sessionId");
+    }
+
+    private static JSONObject terminalSchema() throws JSONException {
+        return objectSchema(new JSONObject().put(
+                "terminalId", stringProperty("Interactive terminal id.")),
+                "terminalId");
     }
 
     private static JSONObject pixelSampleSchema() throws JSONException {
@@ -714,6 +783,54 @@ final class MagicDeskMcpToolCatalog {
                         .put("workingDirectory", stringProperty(
                                 "Current directory."));
                 break;
+            case "terminal.open":
+                properties.put("accepted", booleanProperty(
+                                "Whether the launch was accepted."))
+                        .put("terminalId", stringProperty(
+                                "Reserved interactive terminal id."))
+                        .put("observed", booleanProperty(
+                                "Whether the terminal registered before the response."))
+                        .put("workingDirectory", stringProperty(
+                                "Requested initial directory."))
+                        .put("commandProvided", booleanProperty(
+                                "Whether an initial command was supplied."));
+                break;
+            case "terminal.list":
+                properties.put("count", integerProperty(
+                                "Number of live terminal windows."))
+                        .put("terminals", arrayProperty(
+                                "Live terminal windows.",
+                                openObjectProperty("Terminal.")));
+                break;
+            case "terminal.status":
+                terminalResultProperties(properties);
+                break;
+            case "terminal.read":
+                properties.put("terminalId", stringProperty(
+                                "Interactive terminal id."))
+                        .put("scope", stringProperty("Returned text region."))
+                        .put("text", stringProperty("Terminal text."))
+                        .put("truncated", booleanProperty(
+                                "Whether older text was omitted."));
+                break;
+            case "terminal.write":
+                properties.put("terminalId", stringProperty(
+                                "Interactive terminal id."))
+                        .put("characters", integerProperty(
+                                "Number of accepted characters."));
+                break;
+            case "terminal.send_key":
+                properties.put("terminalId", stringProperty(
+                                "Interactive terminal id."))
+                        .put("keyCode", integerProperty(
+                                "Resolved Android key code."))
+                        .put("metaState", integerProperty(
+                                "Resolved Android modifier state."));
+                break;
+            case "terminal.close":
+                properties.put("terminalId", stringProperty(
+                        "Interactive terminal id."));
+                break;
             default:
                 properties.put("accepted", booleanProperty(
                         "Operation was accepted when present."));
@@ -724,6 +841,22 @@ final class MagicDeskMcpToolCatalog {
                 .put("title", toolName + " data")
                 .put("properties", properties)
                 .put("additionalProperties", true);
+    }
+
+    private static void terminalResultProperties(
+            final JSONObject properties) throws JSONException {
+        properties.put("terminalId", stringProperty(
+                        "Interactive terminal id."))
+                .put("taskId", integerProperty("Android task id."))
+                .put("displayId", integerProperty("Android display id."))
+                .put("focused", booleanProperty("Window focus state."))
+                .put("ready", booleanProperty("PTY readiness."))
+                .put("processId", integerProperty("Interactive shell PID."))
+                .put("columns", integerProperty("Terminal columns."))
+                .put("rows", integerProperty("Terminal rows."))
+                .put("workingDirectory", stringProperty(
+                        "Current shell directory."))
+                .put("title", stringProperty("Terminal OSC title."));
     }
 
     private static JSONObject emptySchema() throws JSONException {

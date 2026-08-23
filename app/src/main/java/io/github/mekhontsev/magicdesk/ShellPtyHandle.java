@@ -89,6 +89,20 @@ final class ShellPtyHandle implements Closeable {
         }
     }
 
+    long processId() throws IOException {
+        if (mClosed.get()) {
+            throw new IOException("Shizuku PTY is closed");
+        }
+        try {
+            return mService.getPtyProcessId(mRequestId);
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException(
+                    "Shizuku PTY process lookup failed: "
+                            + ShellAccess.usefulMessage(error),
+                    error);
+        }
+    }
+
     @Override
     public void close() {
         if (!mClosed.compareAndSet(false, true)) {

@@ -1498,6 +1498,22 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openConsole();
     }
 
+    void openConsole(
+            final String directory,
+            final String command,
+            final String terminalId) {
+        android.content.Intent intent = command == null
+                || command.isEmpty()
+                ? CommandConsoleActivity.createIntentAtDirectory(
+                        this, directory)
+                : CommandConsoleActivity.createPreparedCommandIntent(
+                        this, command, directory);
+        if (terminalId != null && !terminalId.isEmpty()) {
+            intent = CommandConsoleActivity.withTerminalId(intent, terminalId);
+        }
+        mSystemActions.openConsole(intent);
+    }
+
     void openTaskManager() {
         mSystemActions.openTaskManager();
     }

@@ -197,6 +197,13 @@ public final class DesktopRuntimeBridge {
         return UI.openBuiltin(builtin);
     }
 
+    static boolean openConsole(
+            final String directory,
+            final String command,
+            final String terminalId) {
+        return UI.openConsole(directory, command, terminalId);
+    }
+
     static void refreshSettings() {
         UI.refreshSettings();
     }

@@ -62,9 +62,39 @@ public final class MagicDeskMcpToolCatalogTest {
 
         assertFalse(normal.contains("console.execute"));
         assertFalse(normal.contains("files.list"));
+        assertFalse(normal.contains("terminal.read"));
         assertTrue(shell.contains("console.execute"));
         assertTrue(shell.contains("files.list"));
+        assertTrue(shell.contains("terminal.open"));
+        assertTrue(shell.contains("terminal.list"));
+        assertTrue(shell.contains("terminal.read"));
+        assertTrue(shell.contains("terminal.write"));
+        assertTrue(shell.contains("terminal.send_key"));
+        assertTrue(shell.contains("terminal.close"));
         assertFalse(shell.contains("run_self_test"));
+    }
+
+    @Test
+    public void terminalToolsUseOpaqueIdsAndSemanticInput() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false, true);
+        final JSONObject open = tool(tools, "terminal.open")
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+        final JSONObject read = tool(tools, "terminal.read")
+                .getJSONObject("inputSchema");
+        final JSONObject key = tool(tools, "terminal.send_key")
+                .getJSONObject("inputSchema");
+
+        assertTrue(open.has("terminalId"));
+        assertTrue(open.has("observed"));
+        assertEquals("terminalId", read.getJSONArray("required").getString(0));
+        assertTrue(read.getJSONObject("properties").has("scope"));
+        assertEquals(2, key.getJSONArray("required").length());
+        assertTrue(key.getJSONObject("properties").has("ctrl"));
+        assertTrue(key.getJSONObject("properties").has("alt"));
+        assertTrue(key.getJSONObject("properties").has("shift"));
     }
 
     @Test

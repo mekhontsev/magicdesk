@@ -437,7 +437,17 @@ public final class CompatibilityDiagnostics {
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
-        report.append("Console terminal backend: interactive PTY, TERM=xterm-256color\n");
+        report.append("Console terminal backend: interactive PTY, TERM=xterm-256color, windows=")
+                .append(ConsoleTerminalRegistry.registeredCount())
+                .append('\n');
+        final ShellAccess.Snapshot shellSnapshot =
+                ShellAccess.currentSnapshot();
+        report.append("Shell execution environment: ")
+                .append(shellSnapshot.isReady()
+                        ? ShellExecutionEnvironment.diagnostics(
+                                shellSnapshot.uid)
+                        : "unavailable")
+                .append('\n');
         appendPlatformDetails(
                 report, context, audit.platform);
         report.append('\n');

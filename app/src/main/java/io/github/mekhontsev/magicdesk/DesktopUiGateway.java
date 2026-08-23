@@ -540,6 +540,19 @@ final class DesktopUiGateway {
         return true;
     }
 
+    boolean openConsole(
+            final String directory,
+            final String command,
+            final String terminalId) {
+        final DesktopShellActivity activity = usableDesktop(true);
+        if (activity == null) {
+            return false;
+        }
+        activity.runOnUiThread(() -> activity.openConsole(
+                directory, command, terminalId));
+        return true;
+    }
+
     void refreshSettings() {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity != null) {

@@ -14,6 +14,8 @@ final class MagicDeskMcpBackend implements McpBackend {
             new DesktopAutomationFileTools();
     private final DesktopAutomationConsoleSessions mConsole =
             new DesktopAutomationConsoleSessions();
+    private final DesktopAutomationTerminalWindows mTerminals =
+            new DesktopAutomationTerminalWindows();
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
@@ -89,11 +91,12 @@ final class MagicDeskMcpBackend implements McpBackend {
                 break;
         }
         if (name.startsWith("files.")
-                || name.startsWith("console.")) {
+                || name.startsWith("console.")
+                || name.startsWith("terminal.")) {
             if (!MagicDeskMcpPreferences.load(mContext).shellTools) {
                 return actionResult(DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.TOOL_DISABLED,
-                        "Files and Console automation tools are disabled",
+                        "Files, shell, and Terminal automation tools are disabled",
                         false));
             }
             switch (name) {
@@ -113,6 +116,20 @@ final class MagicDeskMcpBackend implements McpBackend {
                     return actionResult(mConsole.status(args));
                 case "console.close":
                     return actionResult(mConsole.close(args));
+                case "terminal.open":
+                    return actionResult(mTerminals.open(args));
+                case "terminal.list":
+                    return actionResult(mTerminals.list());
+                case "terminal.status":
+                    return actionResult(mTerminals.status(args));
+                case "terminal.read":
+                    return actionResult(mTerminals.read(args));
+                case "terminal.write":
+                    return actionResult(mTerminals.write(args));
+                case "terminal.send_key":
+                    return actionResult(mTerminals.sendKey(args));
+                case "terminal.close":
+                    return actionResult(mTerminals.close(args));
                 default:
                     return errorResult("unknown gated tool");
             }

@@ -89,10 +89,14 @@ final class DesktopSystemActionsController {
     }
 
     void openConsole() {
+        openConsole(CommandConsoleActivity.createIntent(mActivity));
+    }
+
+    void openConsole(final android.content.Intent intent) {
         mActivity.hideAllPanels();
         try {
             mActivity.launchInternalWindow(
-                    CommandConsoleActivity.createIntent(mActivity),
+                    intent,
                     CommandConsoleActivity.launchTarget(),
                     mActivity.getString(R.string.console_title));
         } catch (RuntimeException error) {

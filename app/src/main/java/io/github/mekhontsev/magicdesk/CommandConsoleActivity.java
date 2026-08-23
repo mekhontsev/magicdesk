@@ -34,6 +34,8 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_DIRECTORY";
     private static final String EXTRA_AUTO_RUN_COMMAND =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_AUTO_RUN";
+    private static final String EXTRA_TERMINAL_ID =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_TERMINAL_ID";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -51,6 +53,7 @@ public final class CommandConsoleActivity extends Activity
     private ShellAccess.Snapshot mSnapshot;
     private String mPendingAutoRunCommand;
     private String mTerminalStatus = "";
+    private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
 
     static Intent createIntent(final Context context) {
@@ -102,6 +105,10 @@ public final class CommandConsoleActivity extends Activity
                         ShellScriptLauncher.command(absolutePath));
     }
 
+    static Intent withTerminalId(final Intent intent, final String id) {
+        return intent.putExtra(EXTRA_TERMINAL_ID, id);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -127,6 +134,11 @@ public final class CommandConsoleActivity extends Activity
                 mTerminalView.cellHeight(),
                 this);
         mTerminalView.attach(mSession, this);
+        mTerminalRegistryId = ConsoleTerminalRegistry.register(
+                this,
+                mSession,
+                mTerminalView,
+                getIntent().getStringExtra(EXTRA_TERMINAL_ID));
         applyLaunchRequest(getIntent(), false);
         updateShellStatus();
         updateActions();
@@ -172,6 +184,7 @@ public final class CommandConsoleActivity extends Activity
     @Override
     protected void onDestroy() {
         BuiltInWindowRegistry.unregister(this);
+        ConsoleTerminalRegistry.unregister(mTerminalRegistryId);
         if (mSession != null) {
             mSession.close();
         }
