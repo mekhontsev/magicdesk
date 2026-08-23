@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "platform": "nubia",
+      "name": "RedMagic 11 Pro EEA",
+      "models": ["NX809J"],
+      "devices": ["NX809J"],
+      "fingerprint": "REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys",
+      "support": "MAINTAINER_VERIFIED",
+      "confirmedScope": [
+        "wired", "wireless", "windows", "input", "display-modes",
+        "recording", "hardware-controls", "launcher-recovery"
+      ],
+      "limitations": ["XR hot-plug kernel fix is device and kernel specific"]
+    },
+    {
+      "platform": "nubia",
+      "name": "RedMagic 11 Pro Global",
+      "models": ["NX809J"],
+      "devices": ["NX809J"],
+      "fingerprint": "REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys",
+      "support": "COMMUNITY_TESTED",
+      "confirmedScope": [
+        "desktop-start", "external-sizing", "launcher-recovery",
+        "mora", "display-modes", "recording"
+      ],
+      "limitations": ["complete maintainer hardware matrix not run"]
+    },
+    {
+      "platform": "nubia",
+      "name": "nubia Z80 Ultra",
+      "models": ["NX741J"],
+      "devices": ["PQ85A01"],
+      "fingerprint": "nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys",
+      "support": "COMMUNITY_TESTED",
+      "confirmedScope": [
+        "wired", "freeform", "focus", "keyboard", "phone-screen-off",
+        "launcher-recovery", "simulated-cleanup"
+      ],
+      "limitations": [
+        "vendor HDMI timing node is unavailable to shell UID 2000"
+      ]
+    }
+  ]
+}

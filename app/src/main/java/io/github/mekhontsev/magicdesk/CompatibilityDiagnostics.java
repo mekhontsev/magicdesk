@@ -146,9 +146,12 @@ public final class CompatibilityDiagnostics {
         final Context appContext = context.getApplicationContext();
         final DeviceSetupManager.Audit audit =
                 DeviceSetupManager.audit(appContext, SessionProfile.load(appContext));
+        final CompatibilitySnapshot snapshot =
+                CompatibilitySnapshot.capture(appContext, audit);
         final StringBuilder report = new StringBuilder(24_000);
         report.append("# MagicDesk compatibility report\n\n")
-                .append("Report format: 1\n")
+                .append("Report format: ")
+                .append(CompatibilitySnapshot.SCHEMA_VERSION).append('\n')
                 .append("Generated UTC: ").append(utcNow()).append('\n')
                 .append("App: ").append(appVersion(appContext)).append('\n')
                 .append("Package: ").append(appContext.getPackageName()).append('\n')
@@ -156,14 +159,20 @@ public final class CompatibilityDiagnostics {
 
         appendDevice(report);
         appendCompatibility(report, appContext, audit);
+        snapshot.appendSelection(report);
         appendShizukuProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
         DesktopSelfTestResult.appendLastResult(report, appContext);
+        CompatibilityOnboardingStore.appendReport(report, appContext);
         appendDisplays(report, appContext);
         appendInputDevices(report);
+        VendorDiscoveryReport.appendSaved(report, appContext);
         appendAutomationEvents(report);
         appendEvents(report, appContext);
         appendMagicDeskLogcat(report);
+        report.append("\n## Machine-readable summary\n```json\n")
+                .append(snapshot.machineReadableJson())
+                .append("\n```\n");
         report.append("\n## Privacy note\n")
                 .append("This report omits notification contents, user files, account data, ")
                 .append("and the installed-app list. It may contain Android package names ")
@@ -266,8 +275,9 @@ public final class CompatibilityDiagnostics {
                 audit.firmwareSupport
                         != PlatformSupportLevel.UNVERIFIED,
                 "Firmware compatibility profile",
-                audit.platform.diagnostics().supportDetail(
-                        PlatformDevice.current(), audit.firmwareSupport));
+                audit.firmwareProfile == null
+                        ? "unverified exact firmware; capability probing is required"
+                        : audit.firmwareProfile.supportDetail());
         final boolean shellReady = audit.shellReady;
         appendCheck(report, "SHIZUKU-001",
                 shellReady,

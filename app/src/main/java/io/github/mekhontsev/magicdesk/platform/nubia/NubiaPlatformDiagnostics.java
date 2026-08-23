@@ -6,9 +6,7 @@ import io.github.mekhontsev.magicdesk.DesktopSelfTestCapabilityAudit;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestResult;
 import io.github.mekhontsev.magicdesk.DisplayProfileController;
 import io.github.mekhontsev.magicdesk.DisplayProfileStore;
-import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
-import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import android.content.Context;
 import android.provider.Settings;
@@ -193,26 +191,4 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 "API-NUBIA-006", "RedMagic SmartCast entry point");
     }
 
-    @Override
-    public String supportDetail(
-            final PlatformDevice device,
-            final PlatformSupportLevel supportLevel) {
-        switch (supportLevel) {
-            case MAINTAINER_VERIFIED:
-                return "maintainer-verified RedMagic 11 Pro / NX809J / "
-                        + "20260204.221845";
-            case COMMUNITY_TESTED:
-                if (device != null
-                        && "NX741J".equalsIgnoreCase(device.model)) {
-                    return "community-tested nubia Z80 Ultra / NX741J / "
-                            + "20251229.234747";
-                }
-                return "community-tested RedMagic 11 Pro / NX809J-UN / "
-                        + "20260625.022314";
-            case UNVERIFIED:
-            default:
-                return "unverified model or firmware; capability probing "
-                        + "is required";
-        }
-    }
 }

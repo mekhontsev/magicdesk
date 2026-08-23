@@ -12,7 +12,7 @@ import io.github.mekhontsev.magicdesk.PlatformInputRoutingDriver;
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
-import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
+import io.github.mekhontsev.magicdesk.PlatformSelection;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
 import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
@@ -65,13 +65,13 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
     }
 
     @Override
-    public PlatformSupportLevel supportLevel(final PlatformDevice device) {
-        return PlatformSupportLevel.UNVERIFIED;
+    public PlatformFeatures features() {
+        return FEATURES;
     }
 
     @Override
-    public PlatformFeatures features() {
-        return FEATURES;
+    public PlatformSelection selection() {
+        return PlatformSelection.baseline(id()).build();
     }
 
     @Override

@@ -34,8 +34,13 @@ public final class DeviceSetupManager {
         final PlatformDevice device = PlatformDevice.current();
         final PlatformDriver platform = PlatformDrivers.current();
         final boolean compatibleDevice = platform.supports(device);
+        final FirmwareProfileCatalog.Entry firmwareProfile =
+                FirmwareProfileCatalog.load(context)
+                        .find(platform.id(), device);
         final PlatformSupportLevel firmwareSupport =
-                platform.supportLevel(device);
+                firmwareProfile == null
+                        ? PlatformSupportLevel.UNVERIFIED
+                        : firmwareProfile.supportLevel;
         final SharedPreferences preferences = preferences(context);
 
         Map<String, String> values = readUnprivilegedValues(
@@ -106,6 +111,7 @@ public final class DeviceSetupManager {
                 shellReady,
                 compatibleDevice,
                 firmwareSupport,
+                firmwareProfile,
                 platform,
                 Build.MANUFACTURER,
                 Build.MODEL,
@@ -410,6 +416,7 @@ public final class DeviceSetupManager {
         final boolean shellReady;
         final boolean compatibleDevice;
         final PlatformSupportLevel firmwareSupport;
+        final FirmwareProfileCatalog.Entry firmwareProfile;
         final PlatformDriver platform;
         final String manufacturer;
         final String model;
@@ -434,6 +441,7 @@ public final class DeviceSetupManager {
                 final boolean shellReady,
                 final boolean compatibleDevice,
                 final PlatformSupportLevel firmwareSupport,
+                final FirmwareProfileCatalog.Entry firmwareProfile,
                 final PlatformDriver platform,
                 final String manufacturer,
                 final String model,
@@ -456,6 +464,7 @@ public final class DeviceSetupManager {
             this.shellReady = shellReady;
             this.compatibleDevice = compatibleDevice;
             this.firmwareSupport = firmwareSupport;
+            this.firmwareProfile = firmwareProfile;
             this.platform = platform;
             this.manufacturer = manufacturer;
             this.model = model;

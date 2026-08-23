@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    {
+      "name": "standard Android 15 device",
+      "manufacturer": "Google",
+      "brand": "google",
+      "model": "Pixel",
+      "device": "pixel",
+      "product": "pixel",
+      "fingerprint": "google/pixel/pixel:15/fixture:user/release-keys",
+      "sdk": 35,
+      "nubiaFirmwareAvailable": false,
+      "override": "",
+      "platform": "android",
+      "projectionProvider": "android"
+    },
+    {
+      "name": "Nubia hardware with stock firmware services",
+      "manufacturer": "nubia",
+      "brand": "nubia",
+      "model": "NX809J",
+      "device": "NX809J",
+      "product": "NX809J-EEA",
+      "fingerprint": "REDMAGIC/NX809J-EEA/NX809J:16/fixture:user/release-keys",
+      "sdk": 36,
+      "nubiaFirmwareAvailable": true,
+      "override": "",
+      "platform": "nubia",
+      "projectionProvider": "nubia"
+    },
+    {
+      "name": "Nubia hardware with AOSP-derived firmware",
+      "manufacturer": "nubia",
+      "brand": "nubia",
+      "model": "NX809J",
+      "device": "NX809J",
+      "product": "mustang",
+      "fingerprint": "google/mustang/mustang:16/fixture:user/release-keys",
+      "sdk": 36,
+      "nubiaFirmwareAvailable": false,
+      "override": "",
+      "platform": "android",
+      "projectionProvider": "android"
+    },
+    {
+      "name": "ZTE-branded non-Nubia device",
+      "manufacturer": "ZTE",
+      "brand": "zte",
+      "model": "ZTE A2026",
+      "device": "zte_device",
+      "product": "zte_product",
+      "fingerprint": "zte/device/product:16/fixture:user/release-keys",
+      "sdk": 36,
+      "nubiaFirmwareAvailable": true,
+      "override": "",
+      "platform": "android",
+      "projectionProvider": "android"
+    },
+    {
+      "name": "debug generic override on stock Nubia firmware",
+      "manufacturer": "nubia",
+      "brand": "nubia",
+      "model": "NX809J",
+      "device": "NX809J",
+      "product": "NX809J-EEA",
+      "fingerprint": "REDMAGIC/NX809J-EEA/NX809J:16/fixture:user/release-keys",
+      "sdk": 36,
+      "nubiaFirmwareAvailable": true,
+      "override": "android",
+      "platform": "android",
+      "projectionProvider": "android"
+    }
+  ]
+}

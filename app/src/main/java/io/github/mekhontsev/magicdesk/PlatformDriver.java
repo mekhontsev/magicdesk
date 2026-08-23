@@ -13,9 +13,9 @@ public interface PlatformDriver {
 
     boolean supports(PlatformDevice device);
 
-    PlatformSupportLevel supportLevel(PlatformDevice device);
-
     PlatformFeatures features();
+
+    PlatformSelection selection();
 
     PlatformWindowingDriver windowing();
 

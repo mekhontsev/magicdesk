@@ -4,15 +4,16 @@ import io.github.mekhontsev.magicdesk.AppLaunchTarget;
 import io.github.mekhontsev.magicdesk.DesktopShellActivity;
 import io.github.mekhontsev.magicdesk.DesktopUiFactory;
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
+import io.github.mekhontsev.magicdesk.PlatformComponent;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
-import io.github.mekhontsev.magicdesk.PlatformDriver;
+import io.github.mekhontsev.magicdesk.PlatformExtension;
 import io.github.mekhontsev.magicdesk.PlatformFeatures;
 import io.github.mekhontsev.magicdesk.PlatformInputRoutingDriver;
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
-import io.github.mekhontsev.magicdesk.PlatformSupportLevel;
+import io.github.mekhontsev.magicdesk.PlatformMatch;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
 import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
@@ -21,23 +22,17 @@ import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 import android.content.Context;
 import android.os.Build;
 
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /** Nubia/REDMAGIC firmware implementation of the MagicDesk platform contract. */
-public final class NubiaPlatformDriver implements PlatformDriver {
-    private static final String MAINTAINER_VERIFIED_NX809J_FINGERPRINT =
-            "REDMAGIC/NX809J-EEA/NX809J:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20260204.221845:user/release-keys";
-    private static final String COMMUNITY_TESTED_NX809J_FINGERPRINT =
-            "REDMAGIC/NX809J-UN/NX809J:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20260625.022314:user/release-keys";
-    private static final String COMMUNITY_TESTED_NX741J_FINGERPRINT =
-            "nubia/PQ85A01-UN/PQ85A01:16/"
-                    + "BQ2A.250705.001-BP2A.250605.031.A3/"
-                    + "20251229.234747:user/release-keys";
+public final class NubiaPlatformDriver implements PlatformExtension {
+    private static final Set<PlatformComponent> COMPONENTS =
+            Collections.unmodifiableSet(
+                    EnumSet.allOf(PlatformComponent.class));
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
             true, true, true, true);
     private static final PlatformWindowingDriver WINDOWING =
@@ -68,36 +63,34 @@ public final class NubiaPlatformDriver implements PlatformDriver {
     }
 
     @Override
-    public boolean supports(final PlatformDevice device) {
-        return device != null
-                && device.sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM
-                && isNubiaFamily(device);
+    public PlatformMatch match(final PlatformDevice device) {
+        return match(device, NubiaFirmwareDetector.isAvailable(device));
+    }
+
+    public PlatformMatch match(
+            final PlatformDevice device,
+            final boolean firmwareAvailable) {
+        if (device == null
+                || device.sdkInt < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            return PlatformMatch.unavailable("Android 15 baseline unavailable");
+        }
+        if (!isNubiaFamily(device)) {
+            return PlatformMatch.unavailable("device family is not Nubia/REDMAGIC");
+        }
+        return firmwareAvailable
+                ? PlatformMatch.matched(
+                        "Nubia/REDMAGIC firmware marker or service detected")
+                : PlatformMatch.unavailable(
+                        "Nubia hardware uses standard Android firmware");
     }
 
     @Override
-    public PlatformSupportLevel supportLevel(final PlatformDevice device) {
-        if (device == null) {
-            return PlatformSupportLevel.UNVERIFIED;
-        }
-        final boolean nx809j = "NX809J".equalsIgnoreCase(device.model)
-                || "NX809J".equalsIgnoreCase(device.device);
-        if (nx809j && MAINTAINER_VERIFIED_NX809J_FINGERPRINT.equals(
-                device.fingerprint)) {
-            return PlatformSupportLevel.MAINTAINER_VERIFIED;
-        }
-        final boolean nx741j = "NX741J".equalsIgnoreCase(device.model)
-                || "PQ85A01".equalsIgnoreCase(device.device);
-        if ((nx809j && COMMUNITY_TESTED_NX809J_FINGERPRINT.equals(
-                device.fingerprint))
-                || (nx741j && COMMUNITY_TESTED_NX741J_FINGERPRINT.equals(
-                device.fingerprint))) {
-            return PlatformSupportLevel.COMMUNITY_TESTED;
-        }
-        return PlatformSupportLevel.UNVERIFIED;
+    public Set<PlatformComponent> components() {
+        return COMPONENTS;
     }
 
     @Override
-    public PlatformFeatures features() {
+    public PlatformFeatures extendFeatures(final PlatformFeatures baseline) {
         return FEATURES;
     }
 

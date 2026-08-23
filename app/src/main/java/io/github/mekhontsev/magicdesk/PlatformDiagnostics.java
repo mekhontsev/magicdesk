@@ -15,7 +15,4 @@ public interface PlatformDiagnostics {
             DesktopSelfTestResult result,
             Map<String, DesktopSelfTestCapabilityAudit.ProbeEntry> capabilities);
 
-    String supportDetail(
-            PlatformDevice device,
-            PlatformSupportLevel supportLevel);
 }

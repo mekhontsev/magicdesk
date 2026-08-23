@@ -14,6 +14,10 @@ public final class PlatformDriversTest {
                 "nubia", "nubia", "NX809J", "NX809J", "NX809J"), true);
 
         assertEquals("nubia", driver.id());
+        assertEquals("android", driver.selection().baselineId());
+        assertEquals("nubia", driver.selection().extensionId());
+        assertEquals("nubia", driver.selection()
+                .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
         assertTrue(driver.features().externalInputBridge);
@@ -50,6 +54,9 @@ public final class PlatformDriversTest {
                 "Google", "google", "Pixel", "pixel", "pixel"), false);
 
         assertEquals("android", driver.id());
+        assertEquals("", driver.selection().extensionId());
+        assertEquals("android", driver.selection()
+                .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.PHONE));
         assertTrue(driver.features().supportsDisplay(

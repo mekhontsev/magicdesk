@@ -6,7 +6,8 @@ import io.github.mekhontsev.magicdesk.platform.nubia.NubiaPlatformDriver;
 
 /** Selects one platform driver for the lifetime of the process. */
 final class PlatformDrivers {
-    private static final PlatformDriver NUBIA = new NubiaPlatformDriver();
+    private static final NubiaPlatformDriver NUBIA =
+            new NubiaPlatformDriver();
     private static final PlatformDriver GENERIC =
             new GenericAndroidPlatformDriver();
     private static final PlatformDevice DEVICE = PlatformDevice.current();
@@ -31,19 +32,16 @@ final class PlatformDrivers {
         if ("android".equals(platformOverride)) {
             return GENERIC;
         }
-        if (nubiaFirmwareAvailable && NUBIA.supports(device)) {
-            return NUBIA;
-        }
-        return GENERIC;
+        final PlatformMatch nubiaMatch = NUBIA.match(
+                device, nubiaFirmwareAvailable);
+        return ComposedPlatformDriver.compose(
+                GENERIC, NUBIA, nubiaMatch);
     }
 
     static String selectionDetail() {
         if (!BuildConfig.PLATFORM_OVERRIDE.isEmpty()) {
             return "debug override=" + BuildConfig.PLATFORM_OVERRIDE;
         }
-        if (NUBIA.supports(DEVICE) && !NUBIA_FIRMWARE_AVAILABLE) {
-            return "automatic; Nubia-family hardware with standard Android firmware";
-        }
-        return "automatic";
+        return "automatic; " + CURRENT.selection().summary();
     }
 }

@@ -40,6 +40,8 @@ public final class DiagnosticsActivity extends Activity {
     private Button mCopy;
     private Button mShare;
     private Button mSelfTest;
+    private Button mOnboarding;
+    private Button mVendorProbe;
     private String mReport = "";
     private boolean mLoading;
     private boolean mSelfTestRunning;
@@ -174,6 +176,25 @@ public final class DiagnosticsActivity extends Activity {
                         LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
         selfTestParams.setMargins(0, dp(8), 0, 0);
         page.addView(mSelfTest, selfTestParams);
+
+        mOnboarding = createButton(
+                R.string.diagnostics_onboarding, COLOR_CYAN);
+        mOnboarding.setOnClickListener(view -> startActivity(
+                CompatibilityOnboardingActivity.createIntent(this)));
+        final LinearLayout.LayoutParams onboardingParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        onboardingParams.setMargins(0, dp(8), 0, 0);
+        page.addView(mOnboarding, onboardingParams);
+
+        mVendorProbe = createButton(
+                R.string.diagnostics_vendor_probe, COLOR_MUTED);
+        mVendorProbe.setOnClickListener(view -> confirmVendorProbe());
+        final LinearLayout.LayoutParams vendorProbeParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        vendorProbeParams.setMargins(0, dp(8), 0, 0);
+        page.addView(mVendorProbe, vendorProbeParams);
         return page;
     }
 
@@ -609,11 +630,63 @@ public final class DiagnosticsActivity extends Activity {
         startActivity(Intent.createChooser(share, getString(R.string.diagnostics_share)));
     }
 
+    private void confirmVendorProbe() {
+        if (mLoading || mSelfTestRunning || !ShellAccess.isReady()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.diagnostics_vendor_probe)
+                .setMessage(R.string.diagnostics_vendor_probe_description)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(
+                        R.string.diagnostics_vendor_probe_collect,
+                        (dialog, which) -> collectVendorProbe())
+                .show();
+    }
+
+    private void collectVendorProbe() {
+        mLoading = true;
+        setActionsEnabled(false);
+        mStatus.setText(R.string.diagnostics_vendor_probe_running);
+        new Thread(() -> {
+            String failure = "";
+            try {
+                VendorDiscoveryReport.save(
+                        getApplicationContext(),
+                        VendorDiscoveryReport.collect(
+                                getApplicationContext()));
+            } catch (java.io.IOException | RuntimeException error) {
+                failure = error.getMessage() == null
+                        ? error.getClass().getSimpleName()
+                        : error.getMessage();
+            }
+            final String report = CompatibilityDiagnostics.buildReport(
+                    getApplicationContext());
+            final String message = failure;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                mReport = report;
+                mReportView.setText(report);
+                mStatus.setText(message.isEmpty()
+                        ? getString(R.string.diagnostics_vendor_probe_complete)
+                        : getString(
+                                R.string.diagnostics_vendor_probe_failed,
+                                message));
+                mLoading = false;
+                setActionsEnabled(true);
+            });
+        }, "MagicDeskVendorProbe").start();
+    }
+
     private void setActionsEnabled(final boolean enabled) {
         mRefresh.setEnabled(enabled);
         mCopy.setEnabled(enabled);
         mShare.setEnabled(enabled);
         mSelfTest.setEnabled(enabled && ShellAccess.isReady());
+        mOnboarding.setEnabled(enabled);
+        mVendorProbe.setEnabled(enabled && ShellAccess.isReady());
     }
 
     private Button createButton(final int textResId, final int accentColor) {
