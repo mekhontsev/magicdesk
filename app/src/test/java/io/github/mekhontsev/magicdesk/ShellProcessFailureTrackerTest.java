@@ -10,18 +10,21 @@ import org.junit.Test;
 
 import java.util.Collections;
 
-public final class ShellDesktopProcessFailureTrackerTest {
+public final class ShellProcessFailureTrackerTest {
     private static final int DISPLAY_ID = 2;
     private static final int TASK_ID = 42;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final String APP_PACKAGE = "com.example.app";
+    private static final String LAUNCHER_PACKAGE = "example.launcher";
+    private static final String PRIMARY_HOME =
+            LAUNCHER_PACKAGE + "/.PrimaryHome";
     private static final String PERMISSION_PACKAGE =
             "com.android.permissioncontroller";
 
     @Test
     public void reportsCrashForDesktopProcessAndItsSubprocess() {
         final RecordingListener listener = new RecordingListener();
-        final ShellDesktopProcessFailureTracker tracker = tracker(listener);
+        final ShellProcessFailureTracker tracker = tracker(listener);
 
         tracker.onProcessCrashed(
                 APP_PACKAGE + ":renderer", 123, "Illegal state");
@@ -39,8 +42,7 @@ public final class ShellDesktopProcessFailureTrackerTest {
     @Test
     public void matchesTransientSystemProcessByTopPackage() {
         final RecordingListener listener = new RecordingListener();
-        final ShellDesktopProcessFailureTracker tracker =
-                new ShellDesktopProcessFailureTracker(listener);
+        final ShellProcessFailureTracker tracker = emptyTracker(listener);
         tracker.configure(DISPLAY_ID);
         tracker.observeTasks(
                 DISPLAY_ID,
@@ -58,7 +60,7 @@ public final class ShellDesktopProcessFailureTrackerTest {
     @Test
     public void ignoresProcessOutsideDesktopTaskSnapshot() {
         final RecordingListener listener = new RecordingListener();
-        final ShellDesktopProcessFailureTracker tracker = tracker(listener);
+        final ShellProcessFailureTracker tracker = tracker(listener);
 
         tracker.onProcessCrashed("com.example.other", 123, "Failure");
 
@@ -68,7 +70,7 @@ public final class ShellDesktopProcessFailureTrackerTest {
     @Test
     public void retainsEarlyAnrTaskContextUntilFinalCallback() {
         final RecordingListener listener = new RecordingListener();
-        final ShellDesktopProcessFailureTracker tracker = tracker(listener);
+        final ShellProcessFailureTracker tracker = tracker(listener);
 
         tracker.onProcessEarlyNotResponding(
                 APP_PACKAGE, 123, "Input dispatching\n timed out");
@@ -83,7 +85,7 @@ public final class ShellDesktopProcessFailureTrackerTest {
     @Test
     public void ignoresFinalAnrWithoutDesktopContext() {
         final RecordingListener listener = new RecordingListener();
-        final ShellDesktopProcessFailureTracker tracker = tracker(listener);
+        final ShellProcessFailureTracker tracker = tracker(listener);
         tracker.observeTasks(DISPLAY_ID, Collections.emptyList());
 
         tracker.onProcessNotResponding(APP_PACKAGE, 123);
@@ -91,10 +93,41 @@ public final class ShellDesktopProcessFailureTrackerTest {
         assertNull(listener.processName);
     }
 
-    private static ShellDesktopProcessFailureTracker tracker(
+    @Test
+    public void reportsPrimaryLauncherCrashWithoutDesktopTask() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = emptyTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onProcessCrashed(
+                LAUNCHER_PACKAGE + ":quickstep", 456, "Launcher failed");
+
+        assertEquals(PhoneLauncherEvent.CRASH, listener.launcherType);
+        assertEquals(
+                LAUNCHER_PACKAGE + ":quickstep",
+                listener.launcherProcessName);
+        assertEquals(456, listener.launcherPid);
+        assertEquals("Launcher failed", listener.launcherReason);
+        assertNull(listener.processName);
+    }
+
+    @Test
+    public void retainsEarlyLauncherAnrReason() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = emptyTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onProcessEarlyNotResponding(
+                LAUNCHER_PACKAGE, 789, "Input dispatch timed out");
+        tracker.onProcessNotResponding(LAUNCHER_PACKAGE, 789);
+
+        assertEquals(PhoneLauncherEvent.ANR, listener.launcherType);
+        assertEquals("Input dispatch timed out", listener.launcherReason);
+    }
+
+    private static ShellProcessFailureTracker tracker(
             final RecordingListener listener) {
-        final ShellDesktopProcessFailureTracker tracker =
-                new ShellDesktopProcessFailureTracker(listener);
+        final ShellProcessFailureTracker tracker = emptyTracker(listener);
         tracker.configure(DISPLAY_ID);
         tracker.observeTasks(
                 DISPLAY_ID,
@@ -102,6 +135,13 @@ public final class ShellDesktopProcessFailureTrackerTest {
                         APP_PACKAGE,
                         APP_PACKAGE)));
         return tracker;
+    }
+
+    private static ShellProcessFailureTracker emptyTracker(
+            final RecordingListener listener) {
+        return new ShellProcessFailureTracker(
+                listener,
+                PhoneHomeComponents.forTests(PRIMARY_HOME));
     }
 
     private static ShellTaskStateMonitor.TaskWindowState task(
@@ -122,7 +162,7 @@ public final class ShellDesktopProcessFailureTrackerTest {
     }
 
     private static final class RecordingListener implements
-            ShellDesktopProcessFailureTracker.Listener {
+            ShellProcessFailureTracker.Listener {
         int type;
         String processName;
         int pid;
@@ -131,6 +171,10 @@ public final class ShellDesktopProcessFailureTrackerTest {
         int windowingMode;
         String topActivity;
         String reason;
+        int launcherType;
+        String launcherProcessName;
+        int launcherPid;
+        String launcherReason;
 
         @Override
         public void onDesktopProcessFailure(
@@ -150,6 +194,18 @@ public final class ShellDesktopProcessFailureTrackerTest {
             windowingMode = failedWindowingMode;
             topActivity = failedTopActivity;
             reason = failureReason;
+        }
+
+        @Override
+        public void onPhoneLauncherEvent(
+                final int eventType,
+                final String eventProcessName,
+                final int eventPid,
+                final String eventReason) {
+            launcherType = eventType;
+            launcherProcessName = eventProcessName;
+            launcherPid = eventPid;
+            launcherReason = eventReason;
         }
     }
 }

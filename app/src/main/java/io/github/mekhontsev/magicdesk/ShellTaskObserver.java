@@ -35,7 +35,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
-    private final ShellDesktopProcessFailureTracker mProcessFailureTracker;
+    private final ShellProcessFailureTracker mProcessFailureTracker;
+    private final PhoneHomeComponents mPhoneHome;
+    private final ShellPhoneLauncherCircuitBreaker mPhoneLauncherCircuitBreaker;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellActivityStartController mActivityStartController;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
@@ -119,6 +121,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         mCallback::onInputFocusRefreshRequired));
         mInputPanelGuard = phoneUi.createInputPanelGuard(
                 mService, inputOwner);
+        mPhoneHome = PhoneHomeComponents.resolve(context);
+        mPhoneLauncherCircuitBreaker =
+                new ShellPhoneLauncherCircuitBreaker(
+                        phoneUi.protectsPhoneLauncherAfterCrash());
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
                 windowing.requiresNativeFullscreenCaptionRefresh(),
@@ -135,9 +141,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 mCallback.onPhoneTaskNormalized(taskId));
                     }
                 });
-        mProcessFailureTracker = new ShellDesktopProcessFailureTracker(
-                (type, processName, pid, taskId, displayId,
-                        windowingMode, topActivity, reason) ->
+        mProcessFailureTracker = new ShellProcessFailureTracker(
+                new ShellProcessFailureTracker.Listener() {
+                    @Override
+                    public void onDesktopProcessFailure(
+                            final int type,
+                            final String processName,
+                            final int pid,
+                            final int taskId,
+                            final int displayId,
+                            final int windowingMode,
+                            final String topActivity,
+                            final String reason) {
                         callCallback(() ->
                                 mCallback.onDesktopProcessFailure(
                                         type,
@@ -147,10 +162,32 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         displayId,
                                         windowingMode,
                                         topActivity,
-                                        reason)));
+                                        reason));
+                    }
+
+                    @Override
+                    public void onPhoneLauncherEvent(
+                            final int type,
+                            final String processName,
+                            final int pid,
+                            final String reason) {
+                        final boolean protectionActivated =
+                                mPhoneLauncherCircuitBreaker
+                                        .noteLauncherFailure(type);
+                        callCallback(() ->
+                                mCallback.onPhoneLauncherEvent(
+                                        type,
+                                        processName,
+                                        pid,
+                                        reason,
+                                        protectionActivated));
+                    }
+                },
+                mPhoneHome);
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
+                mProcessFailureTracker,
                 mProcessFailureTracker,
                 this::allowPhoneUiStart,
                 mMigrationGuard,
@@ -291,6 +328,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
             mActivityStartController.close();
+            mPhoneLauncherCircuitBreaker.configure(false);
             updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             mFocusController.configure(-1);
@@ -316,9 +354,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopTaskAreaForeground = null;
             return;
         }
+        mPhoneLauncherCircuitBreaker.configure(true);
+        mProcessFailureTracker.configure(displayId);
         try {
             mActivityStartController.start();
         } catch (ReflectiveOperationException error) {
+            mPhoneLauncherCircuitBreaker.configure(false);
+            mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             throw new IllegalStateException(
                     "cannot enable desktop activity-start observation: "
                             + usefulMessage(error),
@@ -368,7 +410,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
         mTaskActivityModeGuard.configure(displayId);
-        mProcessFailureTracker.configure(displayId);
         mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
         reportDesktopTaskOwnership();
     }
@@ -872,6 +913,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mPhoneLauncherCircuitBreaker.configure(false);
         final boolean registered = mRegistered;
         mRegistered = false;
         closeSafely("navigation guard", () ->
@@ -1056,7 +1098,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private boolean allowPhoneUiStart(
             final Intent intent,
-            final String ignoredPackageName) {
+            final String packageName) {
         // ActivityTaskManager invokes this callback synchronously while it can
         // hold its global lock. Read only volatile/local state here: calling a
         // synchronized task-area method can deadlock against a shell command
@@ -1064,6 +1106,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final boolean suppressLocalHome = !mClosed
                 && mConfiguredDisplayId == Display.DEFAULT_DISPLAY
                 && isHomeIntent(intent);
+        final boolean suppressCrashedPhoneLauncher =
+                !mPhoneLauncherCircuitBreaker.allowActivityStart(
+                        mPhoneHome.isPrimaryHomeStart(intent, packageName));
         final boolean suppressExternalSecondaryHome;
         synchronized (this) {
             // Back on the last local desktop client can make Android launch its
@@ -1081,11 +1126,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         if (suppressLocalHome) {
             Log.i(TAG, "suppressed HOME fallback inside local desktop session");
+        } else if (suppressCrashedPhoneLauncher) {
+            Log.i(TAG, "suppressed HOME after phone launcher crash");
         } else if (suppressExternalSecondaryHome) {
             Log.i(TAG, "suppressed transient secondary HOME while phone "
                     + "touchpad is requested");
         }
-        return !suppressLocalHome && !suppressExternalSecondaryHome;
+        return !suppressLocalHome
+                && !suppressCrashedPhoneLauncher
+                && !suppressExternalSecondaryHome;
     }
 
     private static boolean isHomeIntent(final Intent intent) {

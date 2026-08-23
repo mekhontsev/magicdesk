@@ -52,6 +52,8 @@ public interface PlatformPhoneUiDriver {
 
     boolean requiresPhoneUiReconciliation();
 
+    boolean protectsPhoneLauncherAfterCrash();
+
     boolean isTransientSecondaryHomeIntent(Intent intent);
 
     boolean usesMirrorInputPanel();

@@ -38,4 +38,8 @@ oneway interface ITaskObserverCallback {
 
     void onDesktopTaskOwnershipChanged(
         int displayId, in int[] taskIds) = 13;
+
+    void onPhoneLauncherEvent(
+        int type, String processName, int pid, String reason,
+        boolean protectionActivated) = 14;
 }

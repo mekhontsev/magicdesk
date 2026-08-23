@@ -67,6 +67,11 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
+    public boolean protectsPhoneLauncherAfterCrash() {
+        return false;
+    }
+
+    @Override
     public boolean isTransientSecondaryHomeIntent(final Intent intent) {
         return false;
     }

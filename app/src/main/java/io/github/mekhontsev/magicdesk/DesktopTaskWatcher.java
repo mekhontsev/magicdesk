@@ -5,6 +5,8 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.RemoteException;
 import android.util.Log;
+import android.view.Display;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -758,6 +760,86 @@ final class DesktopTaskWatcher {
         }
     }
 
+    private void onPhoneLauncherEvent(
+            final int generation,
+            final int type,
+            final String processName,
+            final int pid,
+            final String reason,
+            final boolean protectionActivated) {
+        postIfActive(generation, () -> {
+            final List<TaskRepository.TaskEntry> phoneFreeformTasks =
+                    MagicDeskRuntime.getVisibleFreeformTasks(
+                            Display.DEFAULT_DISPLAY);
+            final int desktopDisplayId =
+                    DesktopRuntimeBridge.getActiveDesktopDisplayId();
+            final boolean touchpadVisible =
+                    ConsoleModeSwitcher.isTouchpadVisible();
+            final boolean controlPanelVisible =
+                    ControlActivity.isControlPanelVisible();
+            final int visiblePhoneFreeformTasks = phoneFreeformTasks == null
+                    ? -1 : phoneFreeformTasks.size();
+            final String compactReason =
+                    DesktopProcessFailure.compactReason(reason);
+            PhoneTaskGuardDiagnostics.noteLauncherEvent(
+                    type, protectionActivated);
+            final String operation = PhoneLauncherEvent.label(type);
+            final boolean eventSuccess =
+                    type == PhoneLauncherEvent.HOME_START_ALLOWED;
+            try {
+                DesktopAutomationEventJournal.record(
+                        "phone-launcher",
+                        operation,
+                        eventSuccess,
+                        processName,
+                        new org.json.JSONObject()
+                                .put("process", processName)
+                                .put("pid", pid)
+                                .put("desktopDisplayId", desktopDisplayId)
+                                .put("touchpadVisible", touchpadVisible)
+                                .put("controlPanelVisible", controlPanelVisible)
+                                .put("visiblePhoneFreeformTasks",
+                                        visiblePhoneFreeformTasks)
+                                .put("protectionActivated",
+                                        protectionActivated)
+                                .put("reason", compactReason));
+            } catch (org.json.JSONException ignored) {
+                DesktopAutomationEventJournal.record(
+                        "phone-launcher",
+                        operation,
+                        eventSuccess,
+                        processName);
+            }
+            if (!PhoneLauncherEvent.isFailure(type)) {
+                return;
+            }
+            final String technicalDetail = "process=" + processName
+                    + " | pid=" + pid
+                    + " | desktopDisplay=" + desktopDisplayId
+                    + " | touchpad=" + touchpadVisible
+                    + " | controlPanel=" + controlPanelVisible
+                    + " | phoneFreeform=" + visiblePhoneFreeformTasks
+                    + " | protectionActivated=" + protectionActivated
+                    + (compactReason.isEmpty()
+                            ? "" : " | reason=" + compactReason);
+            CompatibilityDiagnostics.record(
+                    type == PhoneLauncherEvent.CRASH
+                            ? "PHONE-LAUNCHER-CRASH-001"
+                            : "PHONE-LAUNCHER-ANR-001",
+                    type == PhoneLauncherEvent.CRASH
+                            ? "Phone launcher crashed during a desktop session"
+                            : "Phone launcher stopped responding during a desktop session",
+                    technicalDetail);
+            if (protectionActivated) {
+                PhoneControlPanelLauncher.openOnPhoneWithShellAsync();
+                Toast.makeText(
+                        MagicDeskApplication.applicationContext(),
+                        R.string.phone_launcher_protected_after_crash,
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
     private void onTaskActivityModeCorrected(
             final int generation,
             final int taskId,
@@ -1036,6 +1118,22 @@ final class DesktopTaskWatcher {
                 final int[] taskIds) throws RemoteException {
             mOwner.onDesktopTaskOwnershipChanged(
                     mGeneration, displayId, taskIds);
+        }
+
+        @Override
+        public void onPhoneLauncherEvent(
+                final int type,
+                final String processName,
+                final int pid,
+                final String reason,
+                final boolean protectionActivated) throws RemoteException {
+            mOwner.onPhoneLauncherEvent(
+                    mGeneration,
+                    type,
+                    processName,
+                    pid,
+                    reason,
+                    protectionActivated);
         }
     }
 }

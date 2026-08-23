@@ -38,12 +38,7 @@ final class PhoneControlPanelLauncher {
             return;
         }
         if (crossDisplay && ShellAccess.isReady()) {
-            EXECUTOR.execute(() -> {
-                if (!openOnPhoneWithShell()) {
-                    context.getMainExecutor().execute(
-                            () -> openWithAndroidApi(context));
-                }
-            });
+            openOnPhoneWithShellAsync(context);
             return;
         }
         openWithAndroidApi(context);
@@ -72,7 +67,7 @@ final class PhoneControlPanelLauncher {
             }
             return true;
         } catch (IOException | RuntimeException error) {
-            Log.w(TAG, "phone panel launch after Mirror failed", error);
+            Log.w(TAG, "phone panel shell launch failed", error);
             CompatibilityDiagnostics.record(
                     "DISPLAY-MODE-003",
                     "Could not open the MagicDesk phone control panel",
@@ -80,6 +75,20 @@ final class PhoneControlPanelLauncher {
                     error);
             return false;
         }
+    }
+
+    static void openOnPhoneWithShellAsync() {
+        openOnPhoneWithShellAsync(
+                MagicDeskApplication.applicationContext());
+    }
+
+    private static void openOnPhoneWithShellAsync(final Context context) {
+        EXECUTOR.execute(() -> {
+            if (!openOnPhoneWithShell()) {
+                context.getMainExecutor().execute(
+                        () -> openWithAndroidApi(context));
+            }
+        });
     }
 
     static boolean commandFailed(final String output) {

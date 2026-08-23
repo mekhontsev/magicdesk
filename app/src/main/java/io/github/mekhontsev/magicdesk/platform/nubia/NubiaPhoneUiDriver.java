@@ -43,6 +43,11 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
+    public boolean protectsPhoneLauncherAfterCrash() {
+        return true;
+    }
+
+    @Override
     public boolean isTransientSecondaryHomeIntent(final Intent intent) {
         return intent != null && isTransientSecondaryHome(
                 intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME),

@@ -350,8 +350,10 @@ public final class CompatibilityDiagnostics {
                 phoneHome.hasPrimary(),
                 "Phone launcher HOME activity",
                 phoneHome.diagnosticDetail());
+        final PhoneTaskGuardDiagnostics.Snapshot phoneTaskGuard =
+                PhoneTaskGuardDiagnostics.snapshot();
         report.append("Phone task guard: ")
-                .append(PhoneTaskGuardDiagnostics.snapshot().reportLine())
+                .append(phoneTaskGuard.reportLine())
                 .append('\n');
         report.append("Task activity mode guard: ")
                 .append(TaskActivityModeDiagnostics

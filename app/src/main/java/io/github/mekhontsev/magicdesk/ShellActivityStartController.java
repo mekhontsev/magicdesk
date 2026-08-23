@@ -14,6 +14,11 @@ final class ShellActivityStartController implements AutoCloseable {
         void onError(String message);
     }
 
+    interface Observer {
+        void onActivityStarting(
+                Intent intent, String packageName, boolean allowed);
+    }
+
     interface ProcessFailureListener {
         void onProcessCrashed(
                 String processName, int pid, String shortMessage);
@@ -28,6 +33,7 @@ final class ShellActivityStartController implements AutoCloseable {
     private final Listener[] mListeners;
     private final ErrorListener mErrorListener;
     private final ProcessFailureListener mProcessFailureListener;
+    private final Observer mObserver;
     private final IActivityController mController =
             new IActivityController.Stub() {
                 @Override
@@ -37,18 +43,21 @@ final class ShellActivityStartController implements AutoCloseable {
                     if (!mEnabled) {
                         return true;
                     }
+                    boolean allowed = true;
                     for (final Listener listener : mListeners) {
                         try {
                             if (!listener.onActivityStarting(
                                     intent, packageName)) {
-                                return false;
+                                allowed = false;
+                                break;
                             }
                         } catch (RuntimeException error) {
                             report("activity-start observer failed: "
                                     + usefulMessage(error));
                         }
                     }
-                    return true;
+                    notifyActivityStart(intent, packageName, allowed);
+                    return allowed;
                 }
 
                 @Override
@@ -106,10 +115,12 @@ final class ShellActivityStartController implements AutoCloseable {
             final Object service,
             final ErrorListener errorListener,
             final ProcessFailureListener processFailureListener,
+            final Observer observer,
             final Listener... listeners) {
         mService = service;
         mErrorListener = errorListener;
         mProcessFailureListener = processFailureListener;
+        mObserver = observer;
         mListeners = listeners == null ? new Listener[0] : listeners.clone();
     }
 
@@ -169,6 +180,21 @@ final class ShellActivityStartController implements AutoCloseable {
             callback.run();
         } catch (RuntimeException error) {
             report("process-failure observer failed: "
+                    + usefulMessage(error));
+        }
+    }
+
+    private void notifyActivityStart(
+            final Intent intent,
+            final String packageName,
+            final boolean allowed) {
+        if (mObserver == null) {
+            return;
+        }
+        try {
+            mObserver.onActivityStarting(intent, packageName, allowed);
+        } catch (RuntimeException error) {
+            report("activity-start diagnostics failed: "
                     + usefulMessage(error));
         }
     }
