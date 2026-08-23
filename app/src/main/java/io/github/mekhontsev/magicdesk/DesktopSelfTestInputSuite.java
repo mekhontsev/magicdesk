@@ -34,6 +34,12 @@ final class DesktopSelfTestInputSuite {
     private static final int SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP = 44;
     private static final int SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP = 46;
 
+    private enum InputCoordinateSpace {
+        DISPLAY,
+        NATURAL,
+        TASK_LOCAL
+    }
+
     private DesktopSelfTestInputSuite() {
     }
 
@@ -488,7 +494,8 @@ final class DesktopSelfTestInputSuite {
             // uses the resulting WMS work area, so discard the geometry
             // captured before that transition once the live viewport settles.
             final DesktopSelfTestGeometry currentGeometry =
-                    awaitCurrentViewport(displayId, geometry);
+                    DesktopSelfTestViewportProbe.await(
+                            context, displayId, geometry);
             pair = prepareMaximizedPair(
                     displayId,
                     firstTaskId,
@@ -1056,42 +1063,6 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static DesktopSelfTestGeometry awaitCurrentViewport(
-            final int displayId,
-            final DesktopSelfTestGeometry geometry) throws IOException {
-        final long deadline = SystemClock.uptimeMillis()
-                + STEP_TIMEOUT_MILLIS;
-        Rect previousDisplay = null;
-        Rect previousWorkArea = null;
-        do {
-            final DesktopViewport viewport =
-                    DesktopRuntimeBridge.getDesktopViewport(displayId);
-            final Rect workArea =
-                    DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
-            if (viewport != null && workArea != null) {
-                final Rect display = viewport.displayBounds();
-                if (display.width() > 0
-                        && display.height() > 0
-                        && workArea.width() > 0
-                        && workArea.height() > 0
-                        && display.contains(workArea)) {
-                    if (display.equals(previousDisplay)
-                            && workArea.equals(previousWorkArea)) {
-                        return geometry.withViewport(display, workArea);
-                    }
-                    previousDisplay = new Rect(display);
-                    previousWorkArea = new Rect(workArea);
-                } else {
-                    previousDisplay = null;
-                    previousWorkArea = null;
-                }
-            }
-            SystemClock.sleep(POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("desktop viewport did not settle after "
-                + "application fullscreen");
-    }
-
     private static void enterFullscreenThroughShortcut(
             final int displayId,
             final int taskId) throws IOException {
@@ -1489,7 +1460,7 @@ final class DesktopSelfTestInputSuite {
             }
             focusTaskThroughDesktop(displayId, taskId);
             waitForFrontTask(displayId, taskId);
-            waitForCaptionInputFrame(
+            final InputCoordinateSpace inputSpace = waitForCaptionInputFrame(
                     displayId, taskId, captionBounds, geometry);
             final Rect beforeBounds = DesktopSelfTestGeometry.toRect(
                     before.bounds);
@@ -1500,7 +1471,13 @@ final class DesktopSelfTestInputSuite {
             final Rect menuFrame = geometry.inputFrame(menu.frame);
             // The detached SystemUI menu is laid out in phone-display density.
             final float menuDensity = defaultDisplayDensity();
-            final int x = menuFrame.right - Math.round(menuDensity * (left
+            // A menu published in natural coordinates exposes its side
+            // actions in natural screen-edge order. Once normalized into
+            // display space, left and right are therefore reversed.
+            final boolean menuLeft = inputSpace == InputCoordinateSpace.NATURAL
+                    ? !left : left;
+            final int x = menuFrame.right
+                    - Math.round(menuDensity * (menuLeft
                     ? SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP
                     : SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP));
             final int y = menuFrame.top
@@ -1524,6 +1501,7 @@ final class DesktopSelfTestInputSuite {
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
+                        + ", input=" + inputSpace.name().toLowerCase()
                         + ", click=" + x + "," + y);
             }
             result.add(DesktopSelfTestResult.State.PASS,
@@ -1722,7 +1700,7 @@ final class DesktopSelfTestInputSuite {
                         lastDump, displayId));
     }
 
-    private static void waitForCaptionInputFrame(
+    private static InputCoordinateSpace waitForCaptionInputFrame(
             final int displayId,
             final int taskId,
             final Rect bounds,
@@ -1736,19 +1714,25 @@ final class DesktopSelfTestInputSuite {
                             ShellAccess.run("/system/bin/dumpsys input"),
                             taskId);
             lastCaption = caption;
-            final Rect displayFrame = caption == null
+            final Rect directFrame = caption == null
+                    ? null : directFrame(caption.frame);
+            final Rect transformedFrame = caption == null
                     ? null : geometry.inputFrame(caption.frame);
             if (caption != null
                     && caption.displayId == displayId
                     && caption.hasInputChannel()
-                    && caption.hasTouchableRegion()
-                    && ((displayFrame.left == bounds.left
-                            && displayFrame.top == bounds.top
-                            && displayFrame.right == bounds.right)
-                        || (caption.frame.left == 0
+                    && caption.hasTouchableRegion()) {
+                if (captionMatches(directFrame, bounds)) {
+                    return InputCoordinateSpace.DISPLAY;
+                }
+                if (captionMatches(transformedFrame, bounds)) {
+                    return InputCoordinateSpace.NATURAL;
+                }
+                if (caption.frame.left == 0
                             && caption.frame.top == 0
-                            && caption.frame.right == bounds.width()))) {
-                return;
+                            && caption.frame.right == bounds.width()) {
+                    return InputCoordinateSpace.TASK_LOCAL;
+                }
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
@@ -1764,6 +1748,19 @@ final class DesktopSelfTestInputSuite {
                                 + lastCaption.hasInputChannel()
                                 + ", touchable="
                                 + lastCaption.hasTouchableRegion()));
+    }
+
+    private static boolean captionMatches(
+            final Rect frame, final Rect bounds) {
+        return frame != null
+                && frame.left == bounds.left
+                && frame.top == bounds.top
+                && frame.right == bounds.right;
+    }
+
+    private static Rect directFrame(
+            final TaskInputWindowParser.Frame frame) {
+        return new Rect(frame.left, frame.top, frame.right, frame.bottom);
     }
 
     private static void focusTaskThroughDesktop(
@@ -1815,25 +1812,31 @@ final class DesktopSelfTestInputSuite {
                 TaskInputWindowParser.findCaption(dump, taskId),
                 displayId,
                 "caption");
-        final Rect displayFrame = geometry.inputFrame(entry.frame);
-        final boolean displayCoordinates = displayFrame.left == bounds.left
-                && displayFrame.top == bounds.top
-                && displayFrame.right == bounds.right
-                && displayFrame.bottom > displayFrame.top
-                && displayFrame.bottom < bounds.bottom;
+        final Rect directFrame = directFrame(entry.frame);
+        final Rect transformedFrame = geometry.inputFrame(entry.frame);
+        final boolean directCoordinates = captionMatches(
+                directFrame, bounds)
+                && directFrame.bottom > directFrame.top
+                && directFrame.bottom < bounds.bottom;
+        final boolean transformedCoordinates = captionMatches(
+                transformedFrame, bounds)
+                && transformedFrame.bottom > transformedFrame.top
+                && transformedFrame.bottom < bounds.bottom;
         final boolean taskCoordinates = entry.frame.left == 0
                 && entry.frame.top == 0
                 && entry.frame.right == bounds.width()
                 && entry.frame.bottom > 0
                 && entry.frame.bottom < bounds.height();
-        if (!displayCoordinates && !taskCoordinates) {
+        if (!directCoordinates && !transformedCoordinates
+                && !taskCoordinates) {
             throw new IOException("caption input frame is misaligned: "
-                    + entry.frame + ", normalized=" + displayFrame);
+                    + entry.frame + ", normalized=" + transformedFrame);
         }
         return inputWindowDetail(entry,
-                displayCoordinates ? "display" : "task-local")
-                + (displayCoordinates
-                        ? ", normalized=" + displayFrame : "");
+                directCoordinates ? "display"
+                        : transformedCoordinates ? "natural" : "task-local")
+                + (transformedCoordinates
+                        ? ", normalized=" + transformedFrame : "");
     }
 
     private static String inspectResizeInputWindow(
@@ -1849,23 +1852,24 @@ final class DesktopSelfTestInputSuite {
         if (!entry.hasConfig("SPY")) {
             throw new IOException("resize input window is not a spy window");
         }
-        final Rect displayFrame = geometry.inputFrame(entry.frame);
-        final boolean displayCoordinates = displayFrame.left == bounds.left
-                && displayFrame.top == bounds.top
-                && displayFrame.right == bounds.right
-                && displayFrame.bottom == bounds.bottom;
+        final Rect directFrame = directFrame(entry.frame);
+        final Rect transformedFrame = geometry.inputFrame(entry.frame);
+        final boolean directCoordinates = directFrame.equals(bounds);
+        final boolean transformedCoordinates = transformedFrame.equals(bounds);
         final boolean taskCoordinates = entry.frame.left == 0
                 && entry.frame.top == 0
                 && entry.frame.right == bounds.width()
                 && entry.frame.bottom == bounds.height();
-        if (!displayCoordinates && !taskCoordinates) {
+        if (!directCoordinates && !transformedCoordinates
+                && !taskCoordinates) {
             throw new IOException("resize input frame is misaligned: "
-                    + entry.frame + ", normalized=" + displayFrame);
+                    + entry.frame + ", normalized=" + transformedFrame);
         }
         return inputWindowDetail(entry,
-                displayCoordinates ? "display" : "task-local")
-                + (displayCoordinates
-                        ? ", normalized=" + displayFrame : "");
+                directCoordinates ? "display"
+                        : transformedCoordinates ? "natural" : "task-local")
+                + (transformedCoordinates
+                        ? ", normalized=" + transformedFrame : "");
     }
 
     private static TaskInputWindowParser.Entry requireInputWindow(

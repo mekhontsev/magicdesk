@@ -1253,6 +1253,12 @@ final class DesktopSelfTestWindowSuite {
             final int firstTaskId,
             final String firstToken,
             final DesktopSelfTestGeometry geometry) throws AbortSelfTest {
+        final DesktopSelfTestGeometry currentInputGeometry = require(
+                result,
+                "DISPLAY-004",
+                "Refresh input viewport after application fullscreen",
+                () -> DesktopSelfTestViewportProbe.awaitInputViewport(
+                        context, displayId, geometry));
         final Rect leftBounds = geometry.leftWindow();
         final Rect rightBounds = geometry.rightWindow();
         final SurfaceReferenceResult surfaceReference =
@@ -1322,7 +1328,7 @@ final class DesktopSelfTestWindowSuite {
                 secondTaskId,
                 secondToken,
                 rightBounds,
-                geometry);
+                currentInputGeometry);
         DesktopSelfTestBackNavigationSuite.run(
                 context, result, displayId, geometry);
     }

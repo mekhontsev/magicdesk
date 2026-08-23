@@ -74,6 +74,22 @@ public final class DesktopSelfTestGeometryTest {
     }
 
     @Test
+    public void refreshesRotationUsedForNaturalInputFrames() {
+        final DesktopSelfTestGeometry geometry = new DesktopSelfTestGeometry(
+                rect(0, 0, 1216, 2688),
+                rect(0, 125, 1216, 2454),
+                520).withInputViewport(
+                        rect(0, 0, 2688, 1216),
+                        Surface.ROTATION_90);
+
+        assertRect(geometry.captionControlsWindow(false),
+                49, 335, 1154, 2081);
+        assertRect(geometry.inputFrame(new TaskInputWindowParser.Frame(
+                751, 49, 881, 1154)),
+                49, 335, 1154, 465);
+    }
+
+    @Test
     public void widensPhoneWindowForNativeCaptionControls() {
         final DesktopSelfTestGeometry geometry = new DesktopSelfTestGeometry(
                 rect(0, 0, 1216, 2688),
