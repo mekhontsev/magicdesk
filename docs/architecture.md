@@ -342,8 +342,9 @@ runtime integration and are not distributed through the same release path.
   lifecycle-bound remote operations and `FileManagerImportController` owns
   incoming Android URI drops. It has no vendor dependency.
 - `CommandConsoleActivity` is an ordinary multi-instance desktop task. Every
-  window owns one `ConsoleShellSession` and one persistent shell stream; no
-  process-global terminal state is shared between Console windows.
+  window owns one `ConsoleTerminalSession`, one terminal emulator, and one
+  lifecycle-bound PTY; no process-global terminal state is shared between
+  Console windows.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
   panel, which remains a quick control surface for the active session. Settings
@@ -435,8 +436,10 @@ runtime integration and are not distributed through the same release path.
 - Direct Files and Console automation has a second independent setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
-  set of lifecycle-scoped `ConsoleShellSession` instances and closes them with
-  the MCP backend.
+  set of lifecycle-scoped `PersistentAutomationShellSession` instances and
+  closes them with the MCP backend. These marker-delimited non-terminal shells
+  exist only to return structured command output, exit status, and current
+  directory to MCP; they are not a second user-facing Console implementation.
 - `DesktopAutomationCapture` resolves the active display and asks the shell
   service for either one PNG pipe or one bounded pixel batch. Image bytes are
   returned as MCP image content and are never staged in a filesystem cache.
@@ -741,13 +744,23 @@ periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
 one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
 
-Every built-in Console window owns another lifecycle-bound stream to a single
-`/system/bin/sh` process. `PersistentConsoleCommandExecutor` writes commands
-and private marker records to that stream; `ConsoleShellSession` parses the
-markers to track the current directory and completion status without opening a
-new shell for each command. Closing the window, running `exit`, Binder death,
-or stream failure ends that shell only. A failed stream is discarded rather
-than silently changing to a different privilege backend.
+Every built-in Console window owns another lifecycle-bound stream to a native
+PTY relay and a single interactive `/system/bin/sh`. The relay creates the
+session leader and controlling terminal, forwards raw terminal bytes, applies
+`TIOCSWINSZ`, and reports the shell PID used for a checked `/proc/<pid>/cwd`
+lookup. The UserService links that process to the APK owner's Binder token.
+Closing the window, running `exit`, Binder death, or stream failure ends only
+that PTY and shell. A failed stream is discarded rather than silently changing
+to a different privilege backend.
+
+`ConsoleTerminalSession` owns transport and terminal state for one window.
+The pinned Termux `terminal-emulator` module parses escape sequences and models
+the main screen, alternate screen, cursor, colors, and scrollback; MagicDesk
+does not use Termux process, JNI, session, or rendering code. Its own
+`ConsoleTerminalView` and `MagicDeskTerminalRenderer` provide Android input,
+mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
+The native relay has a small framed control protocol for input bytes and
+resize requests, while terminal output remains an unframed byte stream.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
 visibility or native freeform bounds on the verified firmware. While a desktop
@@ -1053,10 +1066,10 @@ the established WMShell transition controllers unchanged.
 default backend;
 `X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
-environment. `Terminal=true` opens shell commands in the built-in Console and
-foreground Termux commands in a named Termux session. A future PTY-backed
-Console remains an implementation of the shell backend and therefore does not
-require another Desktop Entry format or migration.
+environment. `Terminal=true` opens shell commands in the built-in PTY Console
+and foreground Termux commands in a named Termux session. The PTY is an
+implementation detail of the existing shell backend and therefore requires no
+additional Desktop Entry format or migration.
 
 `DesktopLaunchIntegrationRegistry` is intentionally a small in-process list,
 not a plugin framework. An integration recognizes an Android companion target,
@@ -1689,14 +1702,14 @@ the last valid cached system image, or MagicDesk's built-in background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
 
-`CommandConsoleActivity` is a permission-protected, multi-instance desktop task over the
-existing `ShellAccess` connection. Each Activity owns one
-`ConsoleShellSession`, a process-local command history, current-directory
-state, and a selectable stdout/stderr transcript. The session uses one
-long-lived `/system/bin/sh`; private marker records delimit commands and update
-the prompt without being shown to the user. Running `exit` or closing the
-Activity closes that shell. Initial commands supplied by Files are displayed
-for review and are never executed automatically.
+`CommandConsoleActivity` is a permission-protected, multi-instance desktop task
+over the existing `ShellAccess` connection. Each Activity owns one independent
+interactive PTY, terminal emulator, current-directory state, and selectable
+scrollback. Input is a byte stream rather than discrete command jobs, so shell
+editing, signals, ANSI output, alternate-screen applications, and terminal
+mouse protocols retain their normal semantics. Running `exit` or closing the
+Activity closes that shell. Commands supplied by explicit Files and Desktop
+actions are safely quoted and sent after the PTY becomes ready.
 
 `TaskManagerActivity` consumes the existing `TaskRepository`; it does not own
 another task-stack parser or windowing policy. Focus, task close, and explicit

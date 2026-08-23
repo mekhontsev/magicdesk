@@ -139,12 +139,15 @@ that can run on the device itself or on a secondary display:
   launch preset without introducing a separate profile database. Creating a
   desktop shortcut for Termux:X11 captures the current command in that file;
   launching its ordinary Start icon continues to use the live Settings value.
-- Prepare a selected `.sh` file in Console from its context menu. The command
-  is quoted and shown for review; it is never executed automatically.
+- Run a selected `.sh` file in Console from its context menu. Each Console
+  window owns an independent interactive Android shell with PTY semantics,
+  ANSI colors, scrollback, alternate-screen applications, direct hardware and
+  software keyboard input, mouse reporting, selection, copy, and paste.
 - Drop Files or Desktop items onto Console to insert safely quoted paths at the
-  command cursor. Console can open its current directory in Files, reveal a
-  selected output path after shell-side validation, and complete paths with
-  `Tab`.
+  command cursor. Console can open its current directory in Files or reveal a
+  selected output path after shell-side validation. Normal terminal keys,
+  including `Tab` and `Ctrl+C`, are delivered directly to the shell or active
+  terminal application.
 
 ### Desktop layout
 
@@ -566,7 +569,8 @@ On Termux, install `clang`; the build uses `$PREFIX/bin/clang`. On desktop
 systems, Gradle finds a side-by-side NDK through the Android SDK;
 `ANDROID_NDK_HOME` can override it. The native input helpers are compiled from
 `native/magicdesk_uinput_bridge.c` and
-`native/magicdesk_keyboard_bridge.c`.
+`native/magicdesk_keyboard_bridge.c`. The PTY relay used by Console is built
+from `native/magicdesk_pty_bridge.c`.
 
 See [Contributing](CONTRIBUTING.md) for IDE setup and verification commands.
 
@@ -603,6 +607,7 @@ Maintainer signing setup and encrypted CI secret names are described in
 - Minimum SDK: 35
 - Target SDK: 37
 - License: [MIT](LICENSE)
+- Third-party components: [notices and licenses](THIRD_PARTY_NOTICES.md)
 
 Samsung DeX is a trademark of Samsung Electronics. Its name is used here only
 to describe the desktop-product category and interaction model.
