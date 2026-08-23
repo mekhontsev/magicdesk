@@ -416,6 +416,15 @@ runtime integration and are not distributed through the same release path.
   focus, top-activity, mode, bounds, and visibility events from snapshots
   already delivered by `DesktopTaskWatcher`; it does not register another task
   observer.
+- `DesktopAutomationUiRegistry` is populated by the controllers that own live
+  desktop `View` objects. `DesktopUiGateway` is still the only bridge to the
+  Activity and marshals snapshots and semantic actions onto the UI thread.
+  Invoking an element delegates to its existing click or long-click listener;
+  automation therefore cannot grow a second Start, taskbar, or menu policy.
+- `DesktopAutomationTraceManager` defines a trace as a baseline in the same
+  bounded event journal plus final state and task snapshots. It adds no task
+  observer and no persistent log. Exact UI waits use journal notifications and
+  a bounded recheck for `View` state changes that Android does not publish.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
   enabled, it starts one bounded Streamable HTTP server on literal
   `127.0.0.1:8765`; stopping the runtime closes the listener and workers.

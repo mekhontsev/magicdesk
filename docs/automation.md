@@ -96,6 +96,8 @@ Normal read tools include:
   normalized window modes, rendered-window state, process health, and blocking
   system dialogs;
 - `magicdesk.list_apps`: launchable Android activities;
+- `magicdesk.list_ui_elements`: live MagicDesk controls with stable semantic
+  ids, roles, labels, state, supported actions, and display-coordinate bounds;
 - `magicdesk.get_events`, `magicdesk.get_diagnostics`, and
   `magicdesk.get_self_test`;
 - `magicdesk.capture_screenshot` and `magicdesk.sample_pixels`;
@@ -119,6 +121,14 @@ is alive, and whether a system dialog blocks it. Process failures come from the
 existing shell task observer; input-window state is read through the shell
 service and does not create another observer.
 
+Semantic UI elements are registered by the controllers that own their real
+Android `View` objects. For example, `taskbar.start`, `panel.start`,
+`start.tab.apps`, and `open_tasks.task.<taskId>` identify controls without
+screen coordinates. `magicdesk.invoke_ui_action` accepts an id returned by
+`list_ui_elements` and one of that element's advertised actions. It calls the
+same click or context-menu listener as user input; MCP does not contain a
+parallel menu policy.
+
 ## Desktop Commands
 
 Normal commands include:
@@ -128,6 +138,7 @@ Normal commands include:
 - arrange a task left, right, maximized, or restored through the same window
   transition path used by MagicDesk shortcuts;
 - show Start or the desktop and open Files, Console, Task Manager, or Settings;
+- inspect and invoke live desktop controls semantically;
 - list and invoke an application's manifest actions;
 - launch an Android specification or a supported `.desktop` file through the
   shared launch coordinator;
@@ -171,12 +182,25 @@ The journal keeps at most 256 entries and contains no keyboard text or user
 file contents. It is observability, not persistent telemetry.
 
 `magicdesk.wait_for_state` is event-driven. It observes the condition, waits
-on the shared event journal, and checks again only after a runtime change or
-timeout. It does not poll every 200 ms. Conditions include desktop
+on the shared event journal, and uses a bounded 200 ms recheck only for Android
+`View` properties that do not emit a journal event. Conditions include desktop
 active/inactive, task present/absent/mode/focus/bounds, pointer readiness,
 application ready/crashed/not-responding state, blocking system-dialog
 visibility, MagicDesk UI visibility, taskbar, wallpaper, and self-test
 completion.
+
+`ui_element_state` waits for exact visibility and optional enabled, focused,
+or selected state by semantic id. `popup_state` waits for popup visibility and
+can require an exact popup title. These conditions cover appearance and
+disappearance without synthetic pointer coordinates.
+
+`magicdesk.begin_trace` records an event-sequence baseline. A matching
+`magicdesk.end_trace` returns the intervening bounded journal events, a
+separate failure/crash/ANR list, and final runtime and task snapshots. Traces
+are process-local, keep no additional event history, and at most 16 may remain
+open. `truncated` explicitly reports whether the shared 256-event journal
+evicted the beginning. Traces are intended to wrap one reproducible operation
+rather than provide persistent telemetry.
 
 Asynchronous commands return when MagicDesk accepts the request. Use
 `wait_for_state` to establish the required postcondition instead of assuming a

@@ -56,8 +56,9 @@ that can run on the device itself or on a secondary display:
   control panel.
 - Built-in Files, Console, Task Manager, and Settings provide a coherent
   desktop workflow without requiring a separate shell or file manager.
-- Optional local automation exposes typed desktop actions, state, events, and
-  visual observation to MCP clients and, on Android 16+, a smaller action set
+- Optional local automation exposes typed desktop actions, semantic UI
+  controls, bounded operation traces, state, events, and visual observation to
+  MCP clients and, on Android 16+, a smaller action set
   to authorized system agents through App Functions. Direct Files and Console
   automation has its own disabled-by-default access gate.
 
