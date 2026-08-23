@@ -1917,7 +1917,10 @@ public abstract class DesktopShellActivity extends Activity
         CompatibilityDiagnostics.record(
                 "APP-LAUNCH-001",
                 userMessage,
-                "display=" + getCurrentDisplayId(),
+                "activityDisplay=" + getCurrentDisplayId()
+                        + ", "
+                        + CompatibilityDiagnostics
+                                .desktopTaskRuntimeDetail(),
                 e);
         Toast.makeText(this, userMessage, Toast.LENGTH_LONG).show();
     }

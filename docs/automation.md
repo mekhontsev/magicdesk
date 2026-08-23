@@ -179,7 +179,9 @@ journal. Events come from the existing production observers and include:
 - MagicDesk process and MCP server lifecycle plus action outcomes.
 
 The journal keeps at most 256 entries and contains no keyboard text or user
-file contents. It is observability, not persistent telemetry.
+file contents. Compatibility reports include a 24 KiB bounded tail of at most
+64 events so reports from remote devices retain task, focus, display, and input
+ordering. It is observability, not persistent telemetry.
 
 `magicdesk.wait_for_state` is event-driven. It observes the condition, waits
 on the shared event journal, and uses a bounded 200 ms recheck only for Android

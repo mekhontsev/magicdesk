@@ -415,7 +415,8 @@ runtime integration and are not distributed through the same release path.
   waits. `DesktopAutomationTaskEventTracker` derives task lifecycle, display,
   focus, top-activity, mode, bounds, and visibility events from snapshots
   already delivered by `DesktopTaskWatcher`; it does not register another task
-  observer.
+  observer. Compatibility reports include at most the newest 64 events within
+  a 24 KiB section, without adding persistent telemetry.
 - `DesktopAutomationUiRegistry` is populated by the controllers that own live
   desktop `View` objects. `DesktopUiGateway` is still the only bridge to the
   Activity and marshals snapshots and semantic actions onto the UI thread.

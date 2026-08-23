@@ -16,7 +16,9 @@ import android.os.SystemClock;
 import android.view.Display;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -39,6 +41,7 @@ public final class TaskDisplayAreaLaunchCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long TASK_TIMEOUT_MILLIS = 5_000L;
+    private static final int FAILURE_MESSAGE_LIMIT = 500;
 
     private TaskDisplayAreaLaunchCommand() {
     }
@@ -257,6 +260,10 @@ public final class TaskDisplayAreaLaunchCommand {
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("freeform task transition failed: "
                     + usefulMessage(error));
+            System.err.println("transition-context: "
+                    + transitionContext(args));
+            System.err.println("transition-causes: "
+                    + causeChain(error));
             System.exit(1);
         }
     }
@@ -984,5 +991,65 @@ public final class TaskDisplayAreaLaunchCommand {
         final String message = cause.getMessage();
         return message == null || message.isEmpty()
                 ? cause.getClass().getSimpleName() : message;
+    }
+
+    static String transitionContext(final String[] args) {
+        if (args.length == 7 && "app".equals(args[0])) {
+            return "operation=app, targetDisplay=" + args[1]
+                    + ", bounds=" + argumentBounds(args, 3);
+        }
+        if ((args.length == 8 && "move".equals(args[0]))
+                || (args.length == 12
+                        && "move-observed".equals(args[0]))) {
+            return "operation=" + args[0]
+                    + ", task=" + args[1]
+                    + ", sourceDisplay=" + args[2]
+                    + ", targetDisplay=" + args[3]
+                    + ", bounds=" + argumentBounds(args, 4);
+        }
+        if ((args.length == 9 && "move-root".equals(args[0]))
+                || (args.length == 13
+                        && "move-root-observed".equals(args[0]))) {
+            return "operation=" + args[0]
+                    + ", task=" + args[1]
+                    + ", rootTask=" + args[2]
+                    + ", sourceDisplay=" + args[3]
+                    + ", targetDisplay=" + args[4]
+                    + ", bounds=" + argumentBounds(args, 5);
+        }
+        return "operation=unknown, argumentCount=" + args.length;
+    }
+
+    private static String argumentBounds(
+            final String[] args,
+            final int offset) {
+        return "[" + args[offset]
+                + "," + args[offset + 1]
+                + "][" + args[offset + 2]
+                + "," + args[offset + 3] + "]";
+    }
+
+    static String causeChain(final Throwable error) {
+        final StringBuilder result = new StringBuilder();
+        final Set<Throwable> visited = Collections.newSetFromMap(
+                new IdentityHashMap<>());
+        Throwable cause = error;
+        while (cause != null && visited.add(cause)) {
+            if (result.length() > 0) {
+                result.append(" -> ");
+            }
+            result.append(cause.getClass().getName());
+            final String message = cause.getMessage();
+            if (message != null && !message.isEmpty()) {
+                final String singleLine = message.replace('\n', ' ');
+                result.append(": ").append(
+                        singleLine.length() <= FAILURE_MESSAGE_LIMIT
+                                ? singleLine
+                                : singleLine.substring(
+                                        0, FAILURE_MESSAGE_LIMIT) + "...");
+            }
+            cause = cause.getCause();
+        }
+        return result.toString();
     }
 }

@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 
 public final class CompatibilityDiagnosticsTest {
@@ -91,5 +93,26 @@ public final class CompatibilityDiagnosticsTest {
         assertEquals(
                 "2026-08-09T06:14:04Z | NEW-001 | New failure\n",
                 CompatibilityDiagnostics.filterRecordedEvents(events));
+    }
+
+    @Test
+    public void selectsNewestRuntimeEventsWithinReportLimit()
+            throws Exception {
+        final String oldEvent = new JSONObject()
+                .put("id", 1)
+                .put("operation", "old")
+                .toString() + '\n';
+        final String newEvent = new JSONObject()
+                .put("id", 2)
+                .put("operation", "new")
+                .toString() + '\n';
+        final JSONArray events = new JSONArray()
+                .put(new JSONObject(oldEvent))
+                .put(new JSONObject(newEvent));
+
+        assertEquals(
+                newEvent,
+                CompatibilityDiagnostics.formatAutomationEvents(
+                        events, newEvent.length()));
     }
 }

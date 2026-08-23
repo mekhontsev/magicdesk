@@ -13,6 +13,9 @@ import android.util.Log;
 import android.view.Display;
 import android.view.InputDevice;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -46,6 +49,8 @@ public final class CompatibilityDiagnostics {
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
     private static final int MAX_REPORTED_EVENT_CHARS = 64_000;
     private static final int MAX_LOGCAT_CHARS = 48_000;
+    private static final int MAX_AUTOMATION_EVENT_COUNT = 64;
+    private static final int MAX_AUTOMATION_EVENT_CHARS = 24_000;
     private static final int MAX_RECORDED_EVENT_SIGNATURES = 256;
     private static volatile Context sApplicationContext;
     private static final Set<String> RECORDED_EVENT_SIGNATURES =
@@ -156,12 +161,13 @@ public final class CompatibilityDiagnostics {
         DesktopSelfTestResult.appendLastResult(report, appContext);
         appendDisplays(report, appContext);
         appendInputDevices(report);
+        appendAutomationEvents(report);
         appendEvents(report, appContext);
         appendMagicDeskLogcat(report);
         report.append("\n## Privacy note\n")
                 .append("This report omits notification contents, user files, account data, ")
                 .append("and the installed-app list. It may contain Android package names ")
-                .append("and task/display identifiers from MagicDesk error logs.\n");
+                .append("and task/display identifiers from MagicDesk diagnostics.\n");
         return report.toString();
     }
 
@@ -233,6 +239,9 @@ public final class CompatibilityDiagnostics {
                                 + ", activation="
                                 + desktopTarget.activationSource
                                         .diagnosticLabel)
+                .append('\n')
+                .append("Desktop task observer: ")
+                .append(desktopTaskRuntimeDetail(desktopSession))
                 .append('\n')
                 .append("System provisioning: ")
                 .append(audit.configurationReady ? "ready" : "incomplete").append('\n')
@@ -433,6 +442,18 @@ public final class CompatibilityDiagnostics {
         report.append('\n');
     }
 
+    static String desktopTaskRuntimeDetail() {
+        return desktopTaskRuntimeDetail(
+                DesktopRuntimeBridge.getSessionSnapshot());
+    }
+
+    private static String desktopTaskRuntimeDetail(
+            final DesktopSessionSnapshot session) {
+        return "ready=" + MagicDeskRuntime.isTaskObserverReady()
+                + ", hostDisplay=" + session.activeDisplayId()
+                + ", hostTask=" + session.hostTaskId();
+    }
+
     private static void appendPlatformDetails(
             final StringBuilder report,
             final Context context,
@@ -575,6 +596,46 @@ public final class CompatibilityDiagnostics {
             report.append(events);
         }
         report.append('\n');
+    }
+
+    private static void appendAutomationEvents(final StringBuilder report) {
+        report.append("## Recent desktop runtime events\n");
+        String events = "";
+        try {
+            events = formatAutomationEvents(
+                    DesktopAutomationEventJournal.snapshot(
+                            0L, MAX_AUTOMATION_EVENT_COUNT),
+                    MAX_AUTOMATION_EVENT_CHARS);
+        } catch (JSONException error) {
+            Log.w(TAG, "could not encode desktop runtime events", error);
+        }
+        report.append(events.isEmpty()
+                ? "No runtime events available\n" : events)
+                .append('\n');
+    }
+
+    static String formatAutomationEvents(
+            final JSONArray events,
+            final int maxChars) {
+        if (events == null || events.length() == 0 || maxChars <= 0) {
+            return "";
+        }
+        final List<String> selected = new ArrayList<>();
+        int selectedChars = 0;
+        for (int index = events.length() - 1; index >= 0; index--) {
+            final String line = String.valueOf(events.opt(index)) + '\n';
+            if (selectedChars + line.length() > maxChars) {
+                break;
+            }
+            selected.add(line);
+            selectedChars += line.length();
+        }
+        Collections.reverse(selected);
+        final StringBuilder result = new StringBuilder(selectedChars);
+        for (final String line : selected) {
+            result.append(line);
+        }
+        return result.toString();
     }
 
     static String filterRecordedEvents(final String events) {

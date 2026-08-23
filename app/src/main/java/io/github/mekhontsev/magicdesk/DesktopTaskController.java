@@ -741,14 +741,44 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private TaskRepository.ActionCallback beginFocusTracking(
             final int taskId,
             final TaskRepository.ActionCallback callback) {
+        final int displayId = mDisplayId;
         mFocusingTaskId = taskId;
         mActiveTaskId = taskId;
+        recordFocusEvent(
+                "focus_requested", displayId, taskId, true, "requested");
         return result -> {
             if (!result.success) {
                 clearTrackedFocus(taskId);
+                recordFocusEvent(
+                        "focus_request_failed",
+                        displayId,
+                        taskId,
+                        false,
+                        result.message);
             }
             completeActionCallback(callback, result.success, result.message);
         };
+    }
+
+    private static void recordFocusEvent(
+            final String operation,
+            final int displayId,
+            final int taskId,
+            final boolean success,
+            final String detail) {
+        try {
+            DesktopAutomationEventJournal.record(
+                    "task",
+                    operation,
+                    success,
+                    detail,
+                    new org.json.JSONObject()
+                            .put("displayId", displayId)
+                            .put("taskId", taskId));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "task", operation, success, detail);
+        }
     }
 
     private void clearTrackedFocus(final int taskId) {

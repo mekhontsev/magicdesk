@@ -52,4 +52,37 @@ public final class TaskDisplayAreaLaunchCommandTest {
                 0, 0, 0, 0,
                 30, 735, 638, 2420));
     }
+
+    @Test
+    public void launchFailureContextIdentifiesRequestedTransition() {
+        assertEquals(
+                "operation=app, targetDisplay=6, bounds=[20,30][800,900]",
+                TaskDisplayAreaLaunchCommand.transitionContext(new String[]{
+                    "app", "6", "intent:#Intent;end",
+                    "20", "30", "800", "900"
+                }));
+        assertEquals(
+                "operation=move-root-observed, task=42, rootTask=17, "
+                        + "sourceDisplay=0, targetDisplay=6, "
+                        + "bounds=[20,30][800,900]",
+                TaskDisplayAreaLaunchCommand.transitionContext(new String[]{
+                    "move-root-observed", "42", "17", "0", "6",
+                    "20", "30", "800", "900",
+                    "6", "100", "200", "ff112233"
+                }));
+    }
+
+    @Test
+    public void launchFailureIncludesEveryCauseTypeAndMessage() {
+        final IllegalArgumentException root =
+                new IllegalArgumentException("invalid transaction");
+        final ReflectiveOperationException outer =
+                new ReflectiveOperationException("WCT invocation failed", root);
+
+        assertEquals(
+                "java.lang.ReflectiveOperationException: WCT invocation failed"
+                        + " -> java.lang.IllegalArgumentException: "
+                        + "invalid transaction",
+                TaskDisplayAreaLaunchCommand.causeChain(outer));
+    }
 }

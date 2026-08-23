@@ -412,9 +412,12 @@ final class DesktopMouseBridge {
                 }
                 mPointerReactivationArmed = false;
             }
-            if (writePointerControl(stream, "activate-pointer")) {
+            final boolean reactivated =
+                    writePointerControl(stream, "activate-pointer");
+            if (reactivated) {
                 InputBridgeDiagnostics.notePointerReactivation();
             }
+            recordPointerReactivation(reactivated);
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
@@ -440,6 +443,30 @@ final class DesktopMouseBridge {
             if (mStream == stream) {
                 mPhysicalPointerHandoffArmed = false;
             }
+        }
+    }
+
+    private static void recordPointerReactivation(final boolean success) {
+        final int displayId = DesktopRuntimeBridge
+                .getActiveDesktopDisplayId();
+        try {
+            DesktopAutomationEventJournal.record(
+                    "input",
+                    success
+                            ? "pointer_reactivated"
+                            : "pointer_reactivation_failed",
+                    success,
+                    "display=" + displayId,
+                    new org.json.JSONObject()
+                            .put("displayId", displayId));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "input",
+                    success
+                            ? "pointer_reactivated"
+                            : "pointer_reactivation_failed",
+                    success,
+                    "display=" + displayId);
         }
     }
 
