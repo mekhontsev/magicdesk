@@ -116,8 +116,9 @@ See [Workstation tools](docs/workstation-tools.md) and
   targets to check window transitions, focus, captions, background visibility,
   task-stack invariants, and cleanup.
 - Generate a privacy-bounded compatibility report containing firmware,
-  displays, input devices, capability probes, runtime counters, and structured
-  MagicDesk errors.
+  displays, input devices, component-provider evidence, capability probes,
+  runtime counters, structured MagicDesk errors, and a machine-readable
+  summary suitable for onboarding unverified firmware.
 
 See [Automation](docs/automation.md), [Architecture](docs/architecture.md), and
 the [validation matrix](docs/testing-backlog.md).

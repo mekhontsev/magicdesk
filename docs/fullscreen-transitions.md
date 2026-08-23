@@ -1,5 +1,12 @@
 # Fullscreen transitions
 
+At the application-process boundary, window policy emits a typed
+`DesktopWindowTransitionRequest` through `DesktopWindowTransitionGateway`.
+The gateway maps semantic enter, restore, and close operations to the existing
+shell task observer. If that backend declines a request, the caller retains its
+established `TaskRepository` fallback. This layer adds observability and a
+stable extension boundary; it does not add another transition implementation.
+
 RedMagic Console Mode can retain a native desktop caption inset after a task
 changes from freeform to fullscreen. The task and application window already
 have full-display bounds, but application content can still begin below a stale

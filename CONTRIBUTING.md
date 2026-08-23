@@ -61,6 +61,24 @@ This debug-only override changes platform-driver selection without introducing
 a product flavor or a separate device build. Compatibility Diagnostics records
 the active override. Release builds always use automatic platform selection.
 
+## Adding Platform Support
+
+Start from a complete compatibility report and the manual checklist in
+[Compatibility](docs/compatibility.md). Add or update a deterministic fixture
+under `app/src/test/resources/compatibility` before changing selection logic.
+Exact tested fingerprints and confirmed scope belong in
+`app/src/main/assets/compatibility/firmware-profiles.json`; they must not select
+a driver or contain executable configuration.
+
+When firmware behavior is genuinely required, implement a focused
+`PlatformExtension` under its own `platform.<vendor>` package and declare only
+the `PlatformComponent` values it replaces. Keep display lifecycle in the four
+shared display drivers, SoC services behind `SocDisplayModeBackend`, semantic
+window policy behind `DesktopWindowTransitionGateway`, and shell/WMShell
+transactions in their existing executors. Extend `PlatformSourceIsolationTest`
+when adding a new vendor package so vendor identifiers cannot leak into shared
+runtime code.
+
 ## Repository Hygiene
 
 Do not commit IDE metadata, `local.properties`, generated build output,

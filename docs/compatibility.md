@@ -114,7 +114,10 @@ The report includes:
 - overlay, notification-listener, and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
 - bounded structured MagicDesk error events;
-- recent logcat entries from MagicDesk tags only.
+- recent logcat entries from MagicDesk tags only;
+- a schema-versioned JSON summary with platform composition, per-component
+  providers, typed capability observations, window-transition routing, and the
+  manual compatibility checklist.
 
 The report excludes notification title/body text, user files, account data,
 clipboard contents, and the installed-app list. MagicDesk-only logs can still
@@ -125,6 +128,37 @@ The shell capability probe does not read input events, inject a real event,
 change a keyboard layout, alter display state, or write a hardware node.
 Permissioned write paths are tested with rejected null arguments after Android
 performs its permission check.
+
+For an unknown firmware, **Extended vendor probe** is a separate, confirmed
+action. It records only a bounded list of selected read-only system properties,
+Binder/cmd service names, and framework filenames. It does not list installed
+applications or inspect user storage. The saved section contains the build
+fingerprint and selected platform composition so stale evidence remains
+identifiable.
+
+## Onboarding a new firmware
+
+New vendor support is evidence-driven and keeps one APK:
+
+1. Install the current development APK and complete normal Device Setup.
+2. Open **Tools > Diagnostics**, refresh the normal report, then explicitly run
+   **Extended vendor probe** if the standard driver lacks a firmware feature.
+3. Run the self-test for each available phone, simulated, wired, and wireless
+   target while the device is awake and unlocked.
+4. Open **Compatibility checklist** and record manual results for startup,
+   window geometry, fullscreen restore, physical input, capture, task restore,
+   phone launcher health, and output configuration on each target.
+5. Attach the complete refreshed report and concise reproduction steps to one
+   issue. The JSON section lets a maintainer turn the report into a regression
+   fixture without copying vendor behavior into shared code.
+
+An exact tested fingerprint can be added to the declarative profile catalog
+after the relevant workflows are confirmed. A new platform extension is added
+only when the report identifies a useful firmware interface that cannot be
+expressed by the Standard Android baseline or an existing SoC backend. The
+extension declares only the components it owns; all other behavior continues
+through the baseline. Display drivers remain independent, so vendor support is
+not multiplied into phone/wired/wireless/simulated driver combinations.
 
 `raw_input.write` reports whether an event node can be opened with `O_RDWR`.
 It does not test exclusive capture: the input bridge opens physical devices

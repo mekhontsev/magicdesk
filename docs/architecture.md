@@ -561,7 +561,15 @@ runtime integration and are not distributed through the same release path.
   an external session is active. This invariant applies to
   MagicDesk and third-party tasks alike, so Nubia Quickstep never receives
   phone-side freeform state from those transitions.
-- `DesktopWindowTransitionController` owns shortcut and immersive transitions.
+- `DesktopWindowTransitionController` owns shortcut and immersive policy. It
+  emits immutable `DesktopWindowTransitionRequest` values through
+  `DesktopWindowTransitionGateway`; `DesktopTaskController` is the sole adapter
+  from those semantic operations to the existing task watcher. A declined
+  request uses the same `TaskRepository` fallback that existed before the
+  abstraction. `ShellPreparedTaskTransition` remains the lower-level owner of
+  hide, hierarchy change, reveal, and rollback, so platform extensions cannot
+  fork the proven transition mechanics. Bounded routing counters in
+  diagnostics distinguish gateway acceptance from repository fallback.
 - `DesktopTaskRuntimeRegistry` owns one transient state object per Android task
   ID. Bounds, maximize/restore, fullscreen, immersive, and startup-windowed
   transitions share that object instead of maintaining parallel controller
@@ -628,9 +636,16 @@ shared desktop, task, window, and input behavior remains platform-independent.
 Do not introduce per-model build variants or forks for differences that can be
 isolated behind these boundaries.
 
-- `PlatformDrivers` selects one firmware platform for the process from an
-  immutable `PlatformDevice` identity and a platform-owned firmware capability
-  probe. Hardware family names alone do not select a vendor driver: for
+- `PlatformDrivers` is the single process-start composition root. It always
+  creates the Standard Android baseline, then may layer one detected
+  `PlatformExtension` over it. `PlatformComponent` makes each override
+  explicit: an extension can own projection without replacing windowing,
+  pointer, input, phone UI, wallpaper, audio, diagnostics, controls, launch
+  targets, or runtime behavior. `ComposedPlatformDriver` uses that declaration
+  as the source of truth and rejects a declared component with no
+  implementation. `PlatformSelection` records the provider and detection
+  evidence for every component. Hardware family names alone do not select a
+  vendor extension: for
   example, Nubia hardware running an AOSP-derived custom ROM uses the standard
   Android driver when both the vendor platform service and an official Nubia or
   REDMAGIC firmware fingerprint are absent. The service probe runs under the
@@ -651,6 +666,17 @@ isolated behind these boundaries.
   single composition point. ZTE-branded devices are not assumed to expose
   Nubia services and use the standard Android driver unless a dedicated,
   verified platform implementation is added.
+- Exact tested fingerprints and their confirmed scope live in the declarative
+  `assets/compatibility/firmware-profiles.json` catalog, not in driver code.
+  Updating confidence therefore cannot change runtime selection or behavior.
+  `PlatformCapabilitySnapshot` records stable capability IDs, observed state,
+  component provider, provider evidence, and bounded detail. A failed optional
+  probe becomes `broken` for that capability instead of aborting the report.
+- The human-readable compatibility report and its schema-versioned JSON block
+  are generated from the same snapshot. The optional extended vendor probe is
+  explicit, read-only, bounded, and never scans user files or installed apps.
+  Manual checklist observations are keyed by exact fingerprint and display
+  kind, so an OTA cannot inherit a previous firmware's result.
 - `NubiaPlatformDriver` composes the Nubia/REDMAGIC implementations of those
   contracts and supplies the firmware's additional exported launch targets
   and hardware runtime. Common projection, input, phone-UI, setup, and
@@ -1470,6 +1496,14 @@ moves. It also atomically detaches a task from MagicDesk's organizer-owned
 fullscreen parent while restoring final freeform bounds. Higher-level
 controllers retain lifecycle policy; interactive drag, resize, and focus never
 pass through this prepared-state mechanism.
+
+Above that executor, `DesktopWindowTransitionRequest` defines the semantic
+operation (`enter-fullscreen`, application fullscreen, freeform restore, or
+close), exact task, display, and required geometry. The
+`DesktopWindowTransitionGateway` maps it to the active observer without
+exposing observer methods to policy code. This boundary is platform-neutral:
+firmware extensions may influence capabilities and preparation policy, but do
+not implement a second fullscreen/restore state machine.
 
 RedMagic can retain a stale caption inset after changing windowing mode. The
 working same-display refresh captures the task-local caption source before the
