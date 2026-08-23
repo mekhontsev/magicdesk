@@ -31,8 +31,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
     private static final String PTY_HELPER_NAME =
             "libmagicdesk_pty_bridge.so";
-    private static final int PTY_FRAME_DATA = 1;
-    private static final int PTY_FRAME_RESIZE = 2;
     private final Context mContext;
     private final Map<Long, OwnedStreamSession> mStreams =
             new ConcurrentHashMap<>();
@@ -1604,9 +1602,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             if (data == null || data.length == 0) {
                 return;
             }
-            commandWriter.writeByte(PTY_FRAME_DATA);
-            commandWriter.writeInt(data.length);
-            commandWriter.write(data);
+            PtyControlProtocol.writeData(commandWriter, data);
             commandWriter.flush();
         }
 
@@ -1615,14 +1611,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             if (stopped) {
                 throw new IOException("PTY is stopped");
             }
-            if (rows < 2 || rows > 65535
-                    || columns < 2 || columns > 65535) {
-                throw new IOException("invalid PTY dimensions");
-            }
-            commandWriter.writeByte(PTY_FRAME_RESIZE);
-            commandWriter.writeInt(8);
-            commandWriter.writeInt(rows);
-            commandWriter.writeInt(columns);
+            PtyControlProtocol.writeResize(commandWriter, rows, columns);
             commandWriter.flush();
         }
 

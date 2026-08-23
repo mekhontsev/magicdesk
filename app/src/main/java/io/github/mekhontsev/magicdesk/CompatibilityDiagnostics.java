@@ -437,6 +437,7 @@ public final class CompatibilityDiagnostics {
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
+        report.append("Console terminal backend: interactive PTY, TERM=xterm-256color\n");
         appendPlatformDetails(
                 report, context, audit.platform);
         report.append('\n');

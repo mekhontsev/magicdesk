@@ -5,9 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
-/** Maintains one non-interactive Android shell for the lifetime of a Console window. */
-final class PersistentConsoleCommandExecutor
-        implements ConsoleShellSession.CommandExecutor {
+/** Executes marker-delimited commands in one MCP automation shell. */
+final class PersistentAutomationCommandExecutor
+        implements PersistentAutomationShellSession.CommandExecutor {
     private static final int MAX_COMPLETION_BYTES = 16 * 1024;
 
     private final Object mCommandLock = new Object();
@@ -19,7 +19,7 @@ final class PersistentConsoleCommandExecutor
     private boolean mCommandActive;
     private boolean mCancelNextCommand;
 
-    PersistentConsoleCommandExecutor(final String marker) {
+    PersistentAutomationCommandExecutor(final String marker) {
         mMarker = marker;
         mDelimiter = ("\n" + marker).getBytes(StandardCharsets.UTF_8);
     }
@@ -33,7 +33,7 @@ final class PersistentConsoleCommandExecutor
     @Override
     public ShellAccess.CommandResult execute(
             final String command,
-            final ConsoleShellSession.OutputListener outputListener)
+            final PersistentAutomationShellSession.OutputListener outputListener)
             throws IOException {
         synchronized (mCommandLock) {
             final ShellStreamHandle stream = beginCommand();
@@ -132,7 +132,7 @@ final class PersistentConsoleCommandExecutor
                 new ByteArrayOutputStream();
         private final ByteArrayOutputStream mPendingOutput =
                 new ByteArrayOutputStream();
-        private final ConsoleShellSession.OutputListener mOutputListener;
+        private final PersistentAutomationShellSession.OutputListener mOutputListener;
         private int mMatched;
         private boolean mTruncated;
         private boolean mStreamingFinished;
@@ -143,7 +143,7 @@ final class PersistentConsoleCommandExecutor
 
         ReadState(
                 final byte[] delimiter,
-                final ConsoleShellSession.OutputListener outputListener) {
+                final PersistentAutomationShellSession.OutputListener outputListener) {
             mDelimiter = delimiter;
             mOutputListener = outputListener;
         }

@@ -9,13 +9,13 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.List;
 
-public final class ConsoleShellSessionTest {
+public final class PersistentAutomationShellSessionTest {
     private static final String MARKER = "__MAGICDESK_CWD_test__0\t";
 
     @Test
     public void runsInCurrentDirectoryAndTracksChangedDirectory()
             throws Exception {
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/storage/emulated/0/Dmitry's files",
                 command -> {
                     assertTrue(command.startsWith(
@@ -28,7 +28,7 @@ public final class ConsoleShellSessionTest {
                 },
                 "test");
 
-        final ConsoleShellSession.ExecutionResult result =
+        final PersistentAutomationShellSession.ExecutionResult result =
                 session.execute("cd ../Desktop && pwd");
 
         assertEquals(0, result.exitCode);
@@ -39,12 +39,12 @@ public final class ConsoleShellSessionTest {
 
     @Test
     public void keepsTrailingNewlineFromUserOutput() throws Exception {
-        final ConsoleShellSession session = sessionReturning(
+        final PersistentAutomationShellSession session = sessionReturning(
                 new ShellAccess.CommandResult(
                         0,
                         "one\ntwo\n\n" + MARKER + "/tmp\n"));
 
-        final ConsoleShellSession.ExecutionResult result =
+        final PersistentAutomationShellSession.ExecutionResult result =
                 session.execute("printf 'one\\ntwo\\n'");
 
         assertEquals("one\ntwo\n", result.output);
@@ -55,7 +55,7 @@ public final class ConsoleShellSessionTest {
     public void appliesDirectoryOnlyWhenPersistentShellNeedsIt()
             throws Exception {
         final int[] execution = { 0 };
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/tmp",
                 command -> {
                     if (execution[0]++ == 0) {
@@ -76,7 +76,7 @@ public final class ConsoleShellSessionTest {
     @Test
     public void explicitDirectoryChangeIsAppliedOnce() throws Exception {
         final int[] execution = { 0 };
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/tmp",
                 command -> {
                     execution[0]++;
@@ -100,10 +100,10 @@ public final class ConsoleShellSessionTest {
     @Test
     public void keepsDirectoryAndOutputWhenCommandExitsBeforeMarker()
             throws Exception {
-        final ConsoleShellSession session = sessionReturning(
+        final PersistentAutomationShellSession session = sessionReturning(
                 new ShellAccess.CommandResult(4, "stopped\n"));
 
-        final ConsoleShellSession.ExecutionResult result =
+        final PersistentAutomationShellSession.ExecutionResult result =
                 session.execute("echo stopped; exit 4");
 
         assertEquals(4, result.exitCode);
@@ -113,16 +113,16 @@ public final class ConsoleShellSessionTest {
 
     @Test
     public void recognizesCommandsThatCloseConsole() {
-        assertTrue(ConsoleShellSession.isExitCommand("exit"));
-        assertTrue(ConsoleShellSession.isExitCommand("  exit 4  "));
-        assertFalse(ConsoleShellSession.isExitCommand("echo exit"));
-        assertFalse(ConsoleShellSession.isExitCommand("exit invalid"));
+        assertTrue(PersistentAutomationShellSession.isExitCommand("exit"));
+        assertTrue(PersistentAutomationShellSession.isExitCommand("  exit 4  "));
+        assertFalse(PersistentAutomationShellSession.isExitCommand("echo exit"));
+        assertFalse(PersistentAutomationShellSession.isExitCommand("exit invalid"));
     }
 
     @Test
     public void failedShellReappliesLastConfirmedDirectory() throws Exception {
         final int[] execution = { 0 };
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/tmp",
                 command -> {
                     execution[0]++;
@@ -147,7 +147,7 @@ public final class ConsoleShellSessionTest {
     @Test
     public void rejectsRelativeWorkingDirectory() {
         try {
-            new ConsoleShellSession("relative", command -> null, "test");
+            new PersistentAutomationShellSession("relative", command -> null, "test");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("absolute"));
             return;
@@ -157,7 +157,7 @@ public final class ConsoleShellSessionTest {
 
     @Test
     public void serviceMarkerIsNotPartOfVisibleOutput() throws Exception {
-        final ConsoleShellSession session = sessionReturning(result(0, "/tmp"));
+        final PersistentAutomationShellSession session = sessionReturning(result(0, "/tmp"));
 
         final String output = session.execute("pwd").output;
 
@@ -167,7 +167,7 @@ public final class ConsoleShellSessionTest {
     @Test
     public void fallsBackToCompletedOutputWhenExecutorCannotStream()
             throws Exception {
-        final ConsoleShellSession session = sessionReturning(
+        final PersistentAutomationShellSession session = sessionReturning(
                 result(0, "/tmp"));
         final StringBuilder streamed = new StringBuilder();
 
@@ -178,7 +178,7 @@ public final class ConsoleShellSessionTest {
 
     @Test
     public void readsAndNormalizesThePersistentShellPath() throws Exception {
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/tmp",
                 command -> {
                     assertTrue(command.contains("\"$PATH\""));
@@ -200,8 +200,8 @@ public final class ConsoleShellSessionTest {
             throws Exception {
         final boolean[] cancelled = { false };
         final int[] execution = { 0 };
-        final ConsoleShellSession.CommandExecutor executor =
-                new ConsoleShellSession.CommandExecutor() {
+        final PersistentAutomationShellSession.CommandExecutor executor =
+                new PersistentAutomationShellSession.CommandExecutor() {
                     @Override
                     public ShellAccess.CommandResult execute(
                             final String command) {
@@ -217,7 +217,7 @@ public final class ConsoleShellSessionTest {
                         cancelled[0] = true;
                     }
                 };
-        final ConsoleShellSession session = new ConsoleShellSession(
+        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
                 "/tmp", executor, "test");
         session.execute("pwd");
 
@@ -227,9 +227,9 @@ public final class ConsoleShellSessionTest {
         assertTrue(cancelled[0]);
     }
 
-    private static ConsoleShellSession sessionReturning(
+    private static PersistentAutomationShellSession sessionReturning(
             final ShellAccess.CommandResult result) {
-        return new ConsoleShellSession("/tmp", command -> result, "test");
+        return new PersistentAutomationShellSession("/tmp", command -> result, "test");
     }
 
     private static ShellAccess.CommandResult result(

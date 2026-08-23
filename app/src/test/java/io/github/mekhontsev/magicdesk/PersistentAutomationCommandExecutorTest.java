@@ -10,15 +10,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class PersistentConsoleCommandExecutorTest {
+public final class PersistentAutomationCommandExecutorTest {
     private static final String MARKER = "__MAGICDESK_TEST__";
 
     @Test
     public void readsOutputAndCompletionRecordWithoutLosingNewlines()
             throws Exception {
-        final PersistentConsoleCommandExecutor.ReadState state = read(
+        final PersistentAutomationCommandExecutor.ReadState state = read(
                 "one\ntwo\n\n" + MARKER + "7\t/tmp\n");
-        final PersistentConsoleCommandExecutor.Completion completion =
+        final PersistentAutomationCommandExecutor.Completion completion =
                 completion(
                         "one\ntwo\n\n" + MARKER + "7\t/tmp\n");
 
@@ -30,7 +30,7 @@ public final class PersistentConsoleCommandExecutorTest {
     @Test
     public void keepsOutputThatOnlyPartiallyMatchesMarker() throws Exception {
         final String output = "before\n" + MARKER + "not-a-record\nafter";
-        final PersistentConsoleCommandExecutor.ReadState state = read(
+        final PersistentAutomationCommandExecutor.ReadState state = read(
                 output + "\n" + MARKER + "0\t/sdcard\n");
 
         assertEquals(output, state.output());
@@ -39,8 +39,8 @@ public final class PersistentConsoleCommandExecutorTest {
     @Test
     public void streamsOnlyVisibleCommandOutput() throws Exception {
         final List<String> streamed = new ArrayList<>();
-        final PersistentConsoleCommandExecutor.ReadState state =
-                new PersistentConsoleCommandExecutor.ReadState(
+        final PersistentAutomationCommandExecutor.ReadState state =
+                new PersistentAutomationCommandExecutor.ReadState(
                         ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
                         streamed::add);
 
@@ -71,8 +71,8 @@ public final class PersistentConsoleCommandExecutorTest {
                         ? encoded[mOffset++] & 0xff : -1;
             }
         };
-        final PersistentConsoleCommandExecutor.ReadState state =
-                new PersistentConsoleCommandExecutor.ReadState(
+        final PersistentAutomationCommandExecutor.ReadState state =
+                new PersistentAutomationCommandExecutor.ReadState(
                         ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
                         streamed::append);
 
@@ -81,20 +81,20 @@ public final class PersistentConsoleCommandExecutorTest {
         assertEquals("ready\n", streamed.toString());
     }
 
-    private static PersistentConsoleCommandExecutor.ReadState read(
+    private static PersistentAutomationCommandExecutor.ReadState read(
             final String encoded) throws Exception {
-        final PersistentConsoleCommandExecutor.ReadState state =
-                new PersistentConsoleCommandExecutor.ReadState(
+        final PersistentAutomationCommandExecutor.ReadState state =
+                new PersistentAutomationCommandExecutor.ReadState(
                         ("\n" + MARKER).getBytes(StandardCharsets.UTF_8));
         state.read(new ByteArrayInputStream(
                 encoded.getBytes(StandardCharsets.UTF_8)));
         return state;
     }
 
-    private static PersistentConsoleCommandExecutor.Completion completion(
+    private static PersistentAutomationCommandExecutor.Completion completion(
             final String encoded) throws Exception {
-        final PersistentConsoleCommandExecutor.ReadState state =
-                new PersistentConsoleCommandExecutor.ReadState(
+        final PersistentAutomationCommandExecutor.ReadState state =
+                new PersistentAutomationCommandExecutor.ReadState(
                         ("\n" + MARKER).getBytes(StandardCharsets.UTF_8));
         return state.read(new ByteArrayInputStream(
                 encoded.getBytes(StandardCharsets.UTF_8)));

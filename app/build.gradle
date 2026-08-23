@@ -54,6 +54,7 @@ android {
         jniLibs {
             // Shell launches the extracted helpers from nativeLibraryDir.
             useLegacyPackaging = true
+            excludes += ['**/libtermux.so']
             keepDebugSymbols += [
                     '**/libmagicdesk_uinput_bridge.so',
                     '**/libmagicdesk_keyboard_bridge.so',
@@ -62,6 +63,9 @@ android {
         }
     }
 
+    sourceSets {
+        main.assets.srcDir rootProject.file('third_party')
+    }
 }
 
 apply from: rootProject.file('gradle/native-helpers.gradle')
@@ -72,6 +76,9 @@ dependencies {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
     implementation('dev.rikka.shizuku:provider:13.1.5') {
+        exclude group: 'androidx.annotation', module: 'annotation'
+    }
+    implementation('com.github.termux.termux-app:terminal-emulator:v0.118.3') {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
     compileOnly project(':hidden-api-stubs')

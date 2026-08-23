@@ -12,6 +12,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+/* Keep these frame values synchronized with PtyControlProtocol. */
 #define FRAME_DATA 1
 #define FRAME_RESIZE 2
 #define FRAME_HEADER_SIZE 5

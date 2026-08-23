@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
-final class ConsoleShellSession {
+final class PersistentAutomationShellSession {
     private static final AtomicLong NEXT_SESSION_ID = new AtomicLong();
     private static final String MARKER_PREFIX = "__MAGICDESK_CWD_";
     private static final Pattern EXIT_COMMAND = Pattern.compile(
@@ -19,16 +19,16 @@ final class ConsoleShellSession {
     private volatile String mWorkingDirectory;
     private volatile boolean mDirectoryChangePending = true;
 
-    ConsoleShellSession(final String initialDirectory) {
+    PersistentAutomationShellSession(final String initialDirectory) {
         mWorkingDirectory = requireAbsoluteDirectory(initialDirectory);
         final String sessionToken =
                 Long.toHexString(NEXT_SESSION_ID.incrementAndGet())
                         + Long.toHexString(System.nanoTime());
         mMarker = MARKER_PREFIX + sessionToken + "__";
-        mExecutor = new PersistentConsoleCommandExecutor(mMarker);
+        mExecutor = new PersistentAutomationCommandExecutor(mMarker);
     }
 
-    ConsoleShellSession(
+    PersistentAutomationShellSession(
             final String initialDirectory,
             final CommandExecutor executor,
             final String sessionToken) {

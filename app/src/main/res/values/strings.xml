@@ -610,6 +610,9 @@
     <string name="console_stop">Stop command</string>
     <string name="console_clear">Clear</string>
     <string name="console_copy_output">Copy transcript</string>
+    <string name="console_paste">Paste</string>
+    <string name="console_terminal_starting">Starting terminal&#8230;</string>
+    <string name="console_terminal_ready">Interactive PTY</string>
     <string name="console_idle">Not run</string>
     <string name="console_running">Running&#8230;</string>
     <string name="console_stopping">Stopping&#8230;</string>

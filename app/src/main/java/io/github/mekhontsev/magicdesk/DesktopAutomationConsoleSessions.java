@@ -13,7 +13,7 @@ final class DesktopAutomationConsoleSessions {
     private static final int MAX_SESSIONS = 8;
     private static final AtomicLong NEXT_ID = new AtomicLong();
 
-    private final Map<String, ConsoleShellSession> mSessions =
+    private final Map<String, PersistentAutomationShellSession> mSessions =
             new LinkedHashMap<>();
 
     synchronized DesktopAutomationResult open(final JSONObject arguments) {
@@ -29,8 +29,8 @@ final class DesktopAutomationConsoleSessions {
             final String directory = args.optString(
                     "directory", ShellDesktopDirectory.ABSOLUTE_PATH);
             final String id = Long.toString(NEXT_ID.incrementAndGet(), 36);
-            final ConsoleShellSession session =
-                    new ConsoleShellSession(directory);
+            final PersistentAutomationShellSession session =
+                    new PersistentAutomationShellSession(directory);
             mSessions.put(id, session);
             return DesktopAutomationResult.success(
                     "console session opened",
@@ -45,7 +45,7 @@ final class DesktopAutomationConsoleSessions {
     DesktopAutomationResult execute(final JSONObject arguments) {
         final String id;
         final String command;
-        final ConsoleShellSession session;
+        final PersistentAutomationShellSession session;
         try {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
@@ -60,7 +60,7 @@ final class DesktopAutomationConsoleSessions {
                         "console session not found", false);
             }
             requireShell();
-            final ConsoleShellSession.ExecutionResult result =
+            final PersistentAutomationShellSession.ExecutionResult result =
                     session.execute(command);
             return DesktopAutomationResult.success(
                     "console command completed",
@@ -82,7 +82,8 @@ final class DesktopAutomationConsoleSessions {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final String id = required(args, "sessionId");
-            final ConsoleShellSession session = mSessions.remove(id);
+            final PersistentAutomationShellSession session =
+                    mSessions.remove(id);
             if (session == null) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.INVALID_ARGUMENT,
@@ -103,7 +104,7 @@ final class DesktopAutomationConsoleSessions {
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
             final String id = required(args, "sessionId");
-            final ConsoleShellSession session = mSessions.get(id);
+            final PersistentAutomationShellSession session = mSessions.get(id);
             if (session == null) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.INVALID_ARGUMENT,
@@ -118,7 +119,8 @@ final class DesktopAutomationConsoleSessions {
     }
 
     synchronized void closeAll() {
-        for (final ConsoleShellSession session : mSessions.values()) {
+        for (final PersistentAutomationShellSession session
+                : mSessions.values()) {
             session.close();
         }
         mSessions.clear();
@@ -126,7 +128,8 @@ final class DesktopAutomationConsoleSessions {
 
     private static JSONObject sessionJson(
             final String id,
-            final ConsoleShellSession session) throws JSONException {
+            final PersistentAutomationShellSession session)
+            throws JSONException {
         return new JSONObject()
                 .put("sessionId", id)
                 .put("workingDirectory", session.workingDirectory());

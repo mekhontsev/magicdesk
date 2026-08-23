@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** A lifecycle-owned interactive pseudo-terminal hosted by the UserService. */
 final class ShellPtyHandle implements Closeable {
+    private static final int BINDER_WRITE_CHUNK_BYTES = 32 * 1024;
+
     private final long mRequestId;
     private final InputStream mInput;
     @SuppressWarnings("unused")
@@ -38,7 +40,19 @@ final class ShellPtyHandle implements Closeable {
             throw new IOException("Shizuku PTY is closed");
         }
         try {
-            mService.writeStreamBytes(mRequestId, data);
+            for (int offset = 0; offset < data.length;
+                    offset += BINDER_WRITE_CHUNK_BYTES) {
+                final int count = Math.min(
+                        BINDER_WRITE_CHUNK_BYTES, data.length - offset);
+                final byte[] chunk;
+                if (offset == 0 && count == data.length) {
+                    chunk = data;
+                } else {
+                    chunk = new byte[count];
+                    System.arraycopy(data, offset, chunk, 0, count);
+                }
+                mService.writeStreamBytes(mRequestId, chunk);
+            }
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
                     "Shizuku PTY write failed: "
