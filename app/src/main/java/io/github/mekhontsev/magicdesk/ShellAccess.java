@@ -1114,6 +1114,39 @@ public final class ShellAccess {
         return openStream(command, false);
     }
 
+    static ShellPtyHandle openPty(
+            final String workingDirectory,
+            final int rows,
+            final int columns) throws IOException {
+        if (workingDirectory == null || !workingDirectory.startsWith("/")) {
+            throw new IOException("PTY working directory must be absolute");
+        }
+        if (rows < 2 || columns < 2) {
+            throw new IOException("invalid PTY dimensions");
+        }
+        final long requestId = NEXT_STREAM_ID.incrementAndGet();
+        final IBinder ownerToken = new Binder();
+        try {
+            final IShizukuCommandService service = requireService();
+            final ParcelFileDescriptor descriptor = service.openPtyStream(
+                    workingDirectory,
+                    rows,
+                    columns,
+                    requestId,
+                    ownerToken);
+            if (descriptor == null) {
+                throw new IOException(
+                        "Shizuku command service returned no PTY");
+            }
+            return new ShellPtyHandle(
+                    requestId, descriptor, ownerToken, service);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Shizuku PTY failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     public static ShellStreamHandle openHeartbeatStream(final String command)
             throws IOException {
         return openStream(command, true);

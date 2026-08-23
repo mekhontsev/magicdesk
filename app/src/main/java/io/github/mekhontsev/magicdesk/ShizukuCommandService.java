@@ -10,8 +10,10 @@ import android.os.RemoteException;
 import android.system.Os;
 import android.util.Log;
 
-import java.io.Closeable;
 import java.io.BufferedWriter;
+import java.io.Closeable;
+import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -20,14 +22,19 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private static final String TAG = "MagicDeskShizuku";
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
+    private static final String PTY_HELPER_NAME =
+            "libmagicdesk_pty_bridge.so";
+    private static final int PTY_FRAME_DATA = 1;
+    private static final int PTY_FRAME_RESIZE = 2;
     private final Context mContext;
-    private final Map<Long, StreamSession> mStreams =
+    private final Map<Long, OwnedStreamSession> mStreams =
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final PlatformInputRoutingDriver mInputRoutingDriver;
@@ -314,6 +321,71 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             throw new IllegalArgumentException("missing stream owner token");
         }
         return openStream(command, requestId, ownerToken, false);
+    }
+
+    @Override
+    public ParcelFileDescriptor openPtyStream(
+            final String workingDirectory,
+            final int rows,
+            final int columns,
+            final long requestId,
+            final IBinder ownerToken) {
+        if (ownerToken == null) {
+            throw new IllegalArgumentException("missing stream owner token");
+        }
+        if (mContext == null) {
+            throw new IllegalStateException("UserService context is unavailable");
+        }
+        if (workingDirectory == null || !workingDirectory.startsWith("/")
+                || workingDirectory.indexOf('\n') >= 0
+                || workingDirectory.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("invalid PTY working directory");
+        }
+        if (rows < 2 || rows > 65535 || columns < 2 || columns > 65535) {
+            throw new IllegalArgumentException("invalid PTY dimensions");
+        }
+        closeStream(requestId);
+
+        ParcelFileDescriptor readSide = null;
+        ParcelFileDescriptor writeSide = null;
+        Process process = null;
+        try {
+            final ParcelFileDescriptor[] pipe =
+                    ParcelFileDescriptor.createPipe();
+            readSide = pipe[0];
+            writeSide = pipe[1];
+            final File helper = new File(
+                    mContext.getApplicationInfo().nativeLibraryDir,
+                    PTY_HELPER_NAME);
+            process = new ProcessBuilder(
+                    helper.getAbsolutePath(),
+                    Integer.toString(rows),
+                    Integer.toString(columns),
+                    workingDirectory)
+                    .redirectErrorStream(true)
+                    .start();
+            final PtyStreamSession session = new PtyStreamSession(
+                    requestId, process, writeSide, ownerToken);
+            mStreams.put(Long.valueOf(requestId), session);
+            try {
+                session.start();
+            } catch (RemoteException error) {
+                mStreams.remove(Long.valueOf(requestId), session);
+                session.stop();
+                throw error;
+            }
+            Log.i(TAG, "PTY opened id=" + requestId
+                    + " rows=" + rows + " columns=" + columns);
+            return readSide;
+        } catch (IOException | RemoteException error) {
+            if (process != null) {
+                process.destroyForcibly();
+            }
+            closeQuietly(writeSide);
+            closeQuietly(readSide);
+            throw new IllegalStateException(
+                    "cannot open PTY: " + usefulMessage(error), error);
+        }
     }
 
     @Override
@@ -1139,7 +1211,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void closeStream(final long requestId) {
-        final StreamSession session =
+        final OwnedStreamSession session =
                 mStreams.remove(Long.valueOf(requestId));
         if (session != null) {
             session.stop();
@@ -1149,7 +1221,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void writeStream(final long requestId, final String line) {
-        final StreamSession session =
+        final OwnedStreamSession session =
                 mStreams.get(Long.valueOf(requestId));
         if (session == null) {
             throw new IllegalStateException(
@@ -1160,6 +1232,59 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         } catch (IOException error) {
             throw new IllegalStateException(
                     "cannot write Shizuku stream: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
+    public void writeStreamBytes(final long requestId, final byte[] data) {
+        final OwnedStreamSession session =
+                mStreams.get(Long.valueOf(requestId));
+        if (!(session instanceof PtyStreamSession)) {
+            throw new IllegalStateException(
+                    "Shizuku PTY is not active: " + requestId);
+        }
+        try {
+            ((PtyStreamSession) session).writeBytes(data);
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot write Shizuku PTY: " + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
+    public void resizePtyStream(
+            final long requestId, final int rows, final int columns) {
+        final OwnedStreamSession session =
+                mStreams.get(Long.valueOf(requestId));
+        if (!(session instanceof PtyStreamSession)) {
+            throw new IllegalStateException(
+                    "Shizuku PTY is not active: " + requestId);
+        }
+        try {
+            ((PtyStreamSession) session).resize(rows, columns);
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot resize Shizuku PTY: " + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
+    public String getPtyWorkingDirectory(final long requestId) {
+        final OwnedStreamSession session =
+                mStreams.get(Long.valueOf(requestId));
+        if (!(session instanceof PtyStreamSession)) {
+            throw new IllegalStateException(
+                    "Shizuku PTY is not active: " + requestId);
+        }
+        try {
+            return ((PtyStreamSession) session).workingDirectory();
+        } catch (IOException error) {
+            throw new IllegalStateException(
+                    "cannot read Shizuku PTY directory: "
                             + usefulMessage(error),
                     error);
         }
@@ -1181,7 +1306,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         mPointerDriver.close();
         mTaskObserverManager.close();
-        for (final StreamSession session
+        for (final OwnedStreamSession session
                 : new ArrayList<>(mStreams.values())) {
             closeStream(session.requestId);
         }
@@ -1273,53 +1398,39 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 ? error.getClass().getSimpleName() : message;
     }
 
-    private final class StreamSession implements Runnable {
+    private abstract class OwnedStreamSession implements Runnable {
         final long requestId;
         final Process process;
         final ParcelFileDescriptor writeSide;
         final Thread thread;
-        final BufferedWriter commandWriter;
         final IBinder ownerToken;
         final IBinder.DeathRecipient ownerDeathRecipient;
-        final Thread heartbeatThread;
         volatile boolean stopped;
         boolean ownerLinked;
 
-        StreamSession(
+        OwnedStreamSession(
                 final long requestId,
                 final Process process,
                 final ParcelFileDescriptor writeSide,
                 final IBinder ownerToken,
-                final boolean heartbeatEnabled) {
+                final String threadName) {
             this.requestId = requestId;
             this.process = process;
             this.writeSide = writeSide;
             this.ownerToken = ownerToken;
-            commandWriter = new BufferedWriter(new OutputStreamWriter(
-                    process.getOutputStream(), StandardCharsets.UTF_8));
-            thread = new Thread(this, "MagicDeskShizukuStream-" + requestId);
+            thread = new Thread(this, threadName + requestId);
             thread.setDaemon(true);
             ownerDeathRecipient = () -> {
                 Log.i(TAG, "stream owner died id=" + requestId);
                 closeStream(requestId);
             };
-            if (heartbeatEnabled) {
-                heartbeatThread = new Thread(
-                        this::runHeartbeat,
-                        "MagicDeskShizukuHeartbeat-" + requestId);
-                heartbeatThread.setDaemon(true);
-            } else {
-                heartbeatThread = null;
-            }
         }
 
         synchronized void start() throws RemoteException {
             ownerToken.linkToDeath(ownerDeathRecipient, 0);
             ownerLinked = true;
             thread.start();
-            if (heartbeatThread != null) {
-                heartbeatThread.start();
-            }
+            onStarted();
         }
 
         synchronized void stop() {
@@ -1331,10 +1442,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 ownerToken.unlinkToDeath(ownerDeathRecipient, 0);
                 ownerLinked = false;
             }
-            if (heartbeatThread != null) {
-                heartbeatThread.interrupt();
-            }
-            closeQuietly(commandWriter);
+            interruptAuxiliaryThreads();
+            closeCommandInput();
             awaitProcessExit();
             closeQuietly(writeSide);
             if (process.isAlive()) {
@@ -1342,6 +1451,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             }
             thread.interrupt();
         }
+
+        void writeLine(final String line) throws IOException {
+            throw new IOException("stream does not accept line input");
+        }
+
+        void onStarted() {
+        }
+
+        void interruptAuxiliaryThreads() {
+        }
+
+        abstract void closeCommandInput();
 
         private void awaitProcessExit() {
             try {
@@ -1353,6 +1474,79 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             }
         }
 
+        @Override
+        public void run() {
+            try (InputStream input = process.getInputStream();
+                    OutputStream output =
+                            new ParcelFileDescriptor.AutoCloseOutputStream(
+                                    writeSide)) {
+                copyOutput(input, output);
+            } catch (IOException error) {
+                if (!stopped) {
+                    Log.w(TAG,
+                            "stream failed id=" + requestId,
+                            error);
+                }
+            } finally {
+                mStreams.remove(Long.valueOf(requestId), this);
+                stop();
+            }
+        }
+
+        void copyOutput(final InputStream input, final OutputStream output)
+                throws IOException {
+            final byte[] buffer = new byte[8192];
+            int count;
+            while (!stopped && (count = input.read(buffer)) >= 0) {
+                output.write(buffer, 0, count);
+            }
+        }
+    }
+
+    private final class StreamSession extends OwnedStreamSession {
+        final BufferedWriter commandWriter;
+        final Thread heartbeatThread;
+
+        StreamSession(
+                final long requestId,
+                final Process process,
+                final ParcelFileDescriptor writeSide,
+                final IBinder ownerToken,
+                final boolean heartbeatEnabled) {
+            super(requestId, process, writeSide, ownerToken,
+                    "MagicDeskShizukuStream-");
+            commandWriter = new BufferedWriter(new OutputStreamWriter(
+                    process.getOutputStream(), StandardCharsets.UTF_8));
+            if (heartbeatEnabled) {
+                heartbeatThread = new Thread(
+                        this::runHeartbeat,
+                        "MagicDeskShizukuHeartbeat-" + requestId);
+                heartbeatThread.setDaemon(true);
+            } else {
+                heartbeatThread = null;
+            }
+        }
+
+        @Override
+        void onStarted() {
+            if (heartbeatThread != null) {
+                heartbeatThread.start();
+            }
+        }
+
+        @Override
+        void interruptAuxiliaryThreads() {
+            if (heartbeatThread != null) {
+                heartbeatThread.interrupt();
+            }
+        }
+
+        @Override
+        void closeCommandInput() {
+            closeQuietly(commandWriter);
+        }
+
+        @Override
         synchronized void writeLine(final String line) throws IOException {
             if (stopped) {
                 throw new IOException("stream is stopped");
@@ -1381,28 +1575,101 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 }
             }
         }
+    }
+
+    private final class PtyStreamSession extends OwnedStreamSession {
+        final DataOutputStream commandWriter;
+        final CountDownLatch shellPidReady = new CountDownLatch(1);
+        volatile long shellPid = -1L;
+
+        PtyStreamSession(
+                final long requestId,
+                final Process process,
+                final ParcelFileDescriptor writeSide,
+                final IBinder ownerToken) {
+            super(requestId, process, writeSide, ownerToken,
+                    "MagicDeskShizukuPty-");
+            commandWriter = new DataOutputStream(process.getOutputStream());
+        }
 
         @Override
-        public void run() {
-            try (InputStream input = process.getInputStream();
-                    OutputStream output =
-                            new ParcelFileDescriptor.AutoCloseOutputStream(
-                                    writeSide)) {
-                final byte[] buffer = new byte[8192];
-                int count;
-                while (!stopped && (count = input.read(buffer)) >= 0) {
-                    output.write(buffer, 0, count);
-                }
-            } catch (IOException error) {
-                if (!stopped) {
-                    Log.w(TAG,
-                            "stream failed id=" + requestId,
-                            error);
-                }
-            } finally {
-                mStreams.remove(Long.valueOf(requestId), this);
-                stop();
+        void closeCommandInput() {
+            closeQuietly(commandWriter);
+        }
+
+        synchronized void writeBytes(final byte[] data) throws IOException {
+            if (stopped) {
+                throw new IOException("PTY is stopped");
             }
+            if (data == null || data.length == 0) {
+                return;
+            }
+            commandWriter.writeByte(PTY_FRAME_DATA);
+            commandWriter.writeInt(data.length);
+            commandWriter.write(data);
+            commandWriter.flush();
+        }
+
+        synchronized void resize(final int rows, final int columns)
+                throws IOException {
+            if (stopped) {
+                throw new IOException("PTY is stopped");
+            }
+            if (rows < 2 || rows > 65535
+                    || columns < 2 || columns > 65535) {
+                throw new IOException("invalid PTY dimensions");
+            }
+            commandWriter.writeByte(PTY_FRAME_RESIZE);
+            commandWriter.writeInt(8);
+            commandWriter.writeInt(rows);
+            commandWriter.writeInt(columns);
+            commandWriter.flush();
+        }
+
+        @Override
+        void copyOutput(final InputStream input, final OutputStream output)
+                throws IOException {
+            final StringBuilder header = new StringBuilder();
+            int value = -1;
+            while (header.length() < 64
+                    && (value = input.read()) >= 0
+                    && value != '\n') {
+                header.append((char) value);
+            }
+            if (value != '\n'
+                    || !header.toString().startsWith("MAGICDESK_PTY ")) {
+                shellPidReady.countDown();
+                throw new IOException("invalid PTY helper handshake");
+            }
+            try {
+                shellPid = Long.parseLong(
+                        header.substring("MAGICDESK_PTY ".length()));
+            } catch (NumberFormatException error) {
+                shellPidReady.countDown();
+                throw new IOException("invalid PTY shell process", error);
+            }
+            shellPidReady.countDown();
+            super.copyOutput(input, output);
+        }
+
+        String workingDirectory() throws IOException {
+            try {
+                if (!shellPidReady.await(1, TimeUnit.SECONDS)) {
+                    throw new IOException("PTY shell process is not ready");
+                }
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException("PTY directory lookup interrupted", error);
+            }
+            if (shellPid <= 0L) {
+                throw new IOException("PTY shell process is unavailable");
+            }
+            final String directory = new File(
+                    "/proc/" + shellPid + "/cwd").getCanonicalPath();
+            if (!directory.startsWith("/")) {
+                throw new IOException("PTY shell directory is invalid");
+            }
+            return directory;
         }
     }
 }

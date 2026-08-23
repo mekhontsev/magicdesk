@@ -347,4 +347,17 @@ interface IShizukuCommandService {
         int displayId,
         int taskId) = 89;
 
+    ParcelFileDescriptor openPtyStream(
+        String workingDirectory,
+        int rows,
+        int columns,
+        long requestId,
+        IBinder ownerToken) = 90;
+
+    void writeStreamBytes(long requestId, in byte[] data) = 91;
+
+    void resizePtyStream(long requestId, int rows, int columns) = 92;
+
+    String getPtyWorkingDirectory(long requestId) = 93;
+
 }

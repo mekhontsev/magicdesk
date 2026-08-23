@@ -77,21 +77,24 @@ def resolveNativeCompilerCommand = {
 }
 
 def registerNativeHelper = { String taskName, String sourceName,
-        String outputName ->
+        String outputName, boolean includeInputSources = true ->
     def source = rootProject.file("native/${sourceName}")
     def output = new File(nativeOutputRoot, "arm64-v8a/${outputName}")
     tasks.register(taskName, Exec) {
-        inputs.files(source, inputSourcesSource, inputSourcesHeader)
+        inputs.files(includeInputSources
+                ? [source, inputSourcesSource, inputSourcesHeader]
+                : [source])
         outputs.file(output)
         doFirst {
             output.parentFile.mkdirs()
+            def sources = [source.absolutePath]
+            if (includeInputSources) {
+                sources.add(inputSourcesSource.absolutePath)
+            }
             commandLine resolveNativeCompilerCommand() + [
                     '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-fPIE', '-pie', '-Wl,-z,noexecstack',
-                    '-o', output.absolutePath,
-                    source.absolutePath,
-                    inputSourcesSource.absolutePath
-            ]
+                    '-o', output.absolutePath] + sources
         }
     }
 }
@@ -104,7 +107,12 @@ def keyboardTask = registerNativeHelper(
         'buildMagicDeskKeyboardBridge',
         'magicdesk_keyboard_bridge.c',
         'libmagicdesk_keyboard_bridge.so')
+def ptyTask = registerNativeHelper(
+        'buildMagicDeskPtyBridge',
+        'magicdesk_pty_bridge.c',
+        'libmagicdesk_pty_bridge.so',
+        false)
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, keyboardTask
+    dependsOn uinputTask, keyboardTask, ptyTask
 }
