@@ -60,6 +60,17 @@ final class MagicDeskMcpToolCatalog {
                                 .put("cursor", stringProperty(
                                         "Opaque cursor from the previous page.")))))
                 .put(readTool(
+                        "list_ui_elements",
+                        "List desktop UI elements",
+                        "List semantic controls from the live MagicDesk desktop UI with stable ids, state, actions, and display bounds.",
+                        objectSchema(new JSONObject()
+                                .put("displayId", integerProperty(
+                                        "Optional active desktop display id."))
+                                .put("query", stringProperty(
+                                        "Optional id, role, label, or package substring."))
+                                .put("includeHidden", booleanProperty(
+                                        "Include registered controls that are currently hidden.")))))
+                .put(readTool(
                         "get_events",
                         "Get automation events",
                         "Read the bounded structured automation event history.",
@@ -152,6 +163,37 @@ final class MagicDeskMcpToolCatalog {
                         "Toggle desktop",
                         "Toggle between the desktop and the current application workspace.",
                         emptySchema()))
+                .put(actionTool(
+                        "invoke_ui_action",
+                        "Invoke desktop UI action",
+                        "Invoke an action through the live control's existing click or context-menu listener.",
+                        objectSchema(new JSONObject()
+                                        .put("displayId", integerProperty(
+                                                "Optional active desktop display id."))
+                                        .put("elementId", stringProperty(
+                                                "Stable id returned by list_ui_elements."))
+                                        .put("action", enumProperty(
+                                                "Semantic action supported by the element.",
+                                                "click",
+                                                "secondary_click")),
+                                "elementId", "action")))
+                .put(actionTool(
+                        "begin_trace",
+                        "Begin operation trace",
+                        "Mark the start of a bounded trace in MagicDesk's shared structured event journal.",
+                        objectSchema(new JSONObject()
+                                .put("displayId", integerProperty(
+                                        "Optional display used to filter the final task snapshot."))
+                                .put("label", stringProperty(
+                                        "Optional caller label.")))))
+                .put(actionTool(
+                        "end_trace",
+                        "End operation trace",
+                        "Return events since begin_trace plus failures and final runtime and task snapshots.",
+                        objectSchema(new JSONObject().put(
+                                "traceId", stringProperty(
+                                        "Trace id returned by begin_trace.")),
+                                "traceId")))
                 .put(actionTool(
                         "open_settings",
                         "Open settings",
@@ -294,6 +336,7 @@ final class MagicDeskMcpToolCatalog {
                                 "app_not_responding",
                                 "system_dialog_visible",
                                 "pointer_ready", "ui_visible",
+                                "ui_element_state", "popup_state",
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished"))
                         .put("taskId", integerProperty(
@@ -313,6 +356,18 @@ final class MagicDeskMcpToolCatalog {
                                 "UI element for ui_visible.",
                                 "taskbar", "start", "popup", "wallpaper",
                                 "touchpad", "control_panel"))
+                        .put("elementId", stringProperty(
+                                "Stable id for ui_element_state."))
+                        .put("visible", booleanProperty(
+                                "Expected visibility; defaults to true."))
+                        .put("enabled", booleanProperty(
+                                "Optional expected enabled state."))
+                        .put("focused", booleanProperty(
+                                "Optional expected focused state."))
+                        .put("selected", booleanProperty(
+                                "Optional expected selected state."))
+                        .put("popupTitle", stringProperty(
+                                "Exact title required for a visible popup."))
                         .put("timeoutMillis", integerProperty(
                                 "Timeout from 1 to 60000 milliseconds."))
                         .put("startedAfterMillis", integerProperty(
@@ -561,6 +616,15 @@ final class MagicDeskMcpToolCatalog {
                         .put("nextCursor", nullableStringProperty(
                                 "Next page cursor."));
                 break;
+            case "list_ui_elements":
+                properties.put("available", booleanProperty(
+                                "Live desktop UI is available."))
+                        .put("displayId", integerProperty("Display id."))
+                        .put("elements", arrayProperty(
+                                "Semantic UI elements.",
+                                openObjectProperty("UI element.")))
+                        .put("count", integerProperty("Returned count."));
+                break;
             case "get_events":
                 properties.put("latestId", integerProperty("Latest event id."))
                         .put("events", arrayProperty(
@@ -597,6 +661,32 @@ final class MagicDeskMcpToolCatalog {
                         .put("actions", arrayProperty(
                                 "Available actions.",
                                 openObjectProperty("Application action.")));
+                break;
+            case "begin_trace":
+                properties.put("traceId", stringProperty("Trace id."))
+                        .put("startedAtMillis", integerProperty(
+                                "Trace start timestamp."))
+                        .put("afterEventId", integerProperty(
+                                "Event sequence baseline."));
+                break;
+            case "end_trace":
+                properties.put("traceId", stringProperty("Trace id."))
+                        .put("truncated", booleanProperty(
+                                "Older trace events were evicted."))
+                        .put("eventCount", integerProperty(
+                                "Returned event count."))
+                        .put("failureCount", integerProperty(
+                                "Returned failure count."))
+                        .put("events", arrayProperty(
+                                "Events recorded during the trace.",
+                                openObjectProperty("Event.")))
+                        .put("failures", arrayProperty(
+                                "Failed operations, crashes, and ANRs.",
+                                openObjectProperty("Failure event.")))
+                        .put("state", openObjectProperty(
+                                "Final desktop state."))
+                        .put("tasks", openObjectProperty(
+                                "Final task snapshot."));
                 break;
             case "files.list":
                 properties.put("path", stringProperty("Directory path."))

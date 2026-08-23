@@ -81,6 +81,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopWallpaperController mDesktopWallpaperController;
     private OverlayPanelController mOverlayPanelController;
     private DesktopUiFactory mUi;
+    private DesktopAutomationUiRegistry mAutomationUi;
     private CalendarPanelController mCalendarController;
     private ShortcutHelpController mShortcutHelpController;
     private NotificationCenterController mNotifications;
@@ -192,6 +193,7 @@ public abstract class DesktopShellActivity extends Activity
                             mActivationSource));
         }
         mUi = new DesktopUiFactory(this);
+        mAutomationUi = new DesktopAutomationUiRegistry();
         mDesktopLayout = new DesktopLayoutController(
                 this,
                 new DesktopLayoutController.RuntimeState() {
@@ -774,6 +776,8 @@ public abstract class DesktopShellActivity extends Activity
             return handled;
         });
         desktop.setOnClickListener(view -> { });
+        registerAutomationUiElement(
+                desktop, "desktop", "desktop", "Desktop");
 
         final DesktopGridLayout desktopIcons =
                 mDesktopWorkspaceController.createGrid();
@@ -1586,6 +1590,49 @@ public abstract class DesktopShellActivity extends Activity
                 isDesktopWallpaperRendered(),
                 isUsingFallbackDesktopWallpaper(),
                 isDesktopPlaneForeground());
+    }
+
+    DesktopAutomationUiRegistry.Snapshot getAutomationUiElements(
+            final String query,
+            final boolean includeHidden) throws org.json.JSONException {
+        if (mAutomationUi == null || isActivityUnavailable()) {
+            return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
+        }
+        return mAutomationUi.snapshot(
+                getCurrentDisplayId(), query, includeHidden);
+    }
+
+    DesktopAutomationUiRegistry.ActionResult invokeAutomationUiAction(
+            final String elementId,
+            final String action) throws org.json.JSONException {
+        if (mAutomationUi == null || isActivityUnavailable()) {
+            return new DesktopAutomationUiRegistry.ActionResult(
+                    false, "desktop UI is unavailable", null);
+        }
+        return mAutomationUi.invoke(elementId, action);
+    }
+
+    void registerAutomationUiElement(
+            final View view,
+            final String id,
+            final String role,
+            final CharSequence label) {
+        if (mAutomationUi != null) {
+            mAutomationUi.register(view, id, role, label);
+        }
+    }
+
+    void registerAutomationUiElement(
+            final View view,
+            final String id,
+            final String role,
+            final CharSequence label,
+            final String packageName,
+            final int taskId) {
+        if (mAutomationUi != null) {
+            mAutomationUi.register(
+                    view, id, role, label, packageName, taskId);
+        }
     }
 
     void updateDesktopControls() {

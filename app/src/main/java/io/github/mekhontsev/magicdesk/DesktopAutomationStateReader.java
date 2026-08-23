@@ -255,6 +255,25 @@ final class DesktopAutomationStateReader {
                         Math.max(0L, afterId), limit));
     }
 
+    JSONObject uiElements(final JSONObject arguments) throws JSONException {
+        final JSONObject args = arguments == null
+                ? new JSONObject() : arguments;
+        final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final Integer requested = optionalInteger(args, "displayId");
+        final int displayId = requested == null
+                ? active : requested.intValue();
+        if (displayId < Display.DEFAULT_DISPLAY) {
+            throw new IllegalArgumentException("no active desktop display");
+        }
+        final DesktopAutomationUiRegistry.Snapshot snapshot =
+                DesktopRuntimeBridge.getAutomationUiElements(
+                        displayId,
+                        normalized(args, "query"),
+                        args.optBoolean("includeHidden", false));
+        return snapshot.toJson()
+                .put("generatedAtMillis", System.currentTimeMillis());
+    }
+
     JSONObject diagnostics() throws JSONException {
         return new JSONObject().put(
                 "report",

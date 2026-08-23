@@ -69,6 +69,9 @@ final class MagicDeskMcpBackend implements McpBackend {
             case "list_apps":
                 data = mAutomation.stateReader().apps(args);
                 return successResult(data);
+            case "list_ui_elements":
+                data = mAutomation.stateReader().uiElements(args);
+                return successResult(data);
             case "get_events":
                 data = mAutomation.stateReader().events(
                         Math.max(0L, args.optLong("afterId", 0L)),

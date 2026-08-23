@@ -229,6 +229,21 @@ public final class DesktopRuntimeBridge {
         return UI.getAutomationUiSnapshot(displayId);
     }
 
+    static DesktopAutomationUiRegistry.Snapshot getAutomationUiElements(
+            final int displayId,
+            final String query,
+            final boolean includeHidden) {
+        return UI.getAutomationUiElements(displayId, query, includeHidden);
+    }
+
+    static DesktopAutomationUiRegistry.ActionResult invokeAutomationUiAction(
+            final int displayId,
+            final String elementId,
+            final String action) {
+        return UI.invokeAutomationUiAction(
+                displayId, elementId, action);
+    }
+
     static boolean focusDesktopOnDisplay(final int displayId) {
         return UI.focusDesktopOnDisplay(displayId);
     }

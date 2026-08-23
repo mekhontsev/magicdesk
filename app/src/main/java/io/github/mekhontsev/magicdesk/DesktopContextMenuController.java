@@ -54,6 +54,11 @@ final class DesktopContextMenuController {
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
         mMenuRoot.setVisibility(View.GONE);
+        mActivity.registerAutomationUiElement(
+                mMenuRoot,
+                "panel.context_menu",
+                "menu",
+                "Context menu");
         return mMenuRoot;
     }
 
@@ -778,6 +783,11 @@ final class DesktopContextMenuController {
                 R.string.action_back,
                 true);
         back.setOnClickListener(backListener);
+        mActivity.registerAutomationUiElement(
+                back,
+                "context.action.back",
+                "menu_item",
+                mActivity.getString(R.string.action_back));
         header.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         final TextView title = new TextView(mActivity);
@@ -804,12 +814,20 @@ final class DesktopContextMenuController {
             final int color,
             final boolean enabled,
             final View.OnClickListener listener) {
-        return addAction(
+        final Button button = addAction(
                 mActivity.getString(textResId),
                 null,
                 color,
                 enabled,
                 listener);
+        mActivity.registerAutomationUiElement(
+                button,
+                "context.action."
+                        + mActivity.getResources()
+                                .getResourceEntryName(textResId),
+                "menu_item",
+                button.getText());
+        return button;
     }
 
     private Button addAction(
@@ -846,6 +864,12 @@ final class DesktopContextMenuController {
             }
             listener.onClick(view);
         });
+        mActivity.registerAutomationUiElement(
+                button,
+                "context.action."
+                        + DesktopAutomationUiRegistry.segment(text),
+                "menu_item",
+                text);
         mMenuNavigator.prefer(button);
         if (submenu) {
             mMenuNavigator.markSubmenu(button);
@@ -870,6 +894,13 @@ final class DesktopContextMenuController {
                 false,
                 true,
                 listener);
+        mActivity.registerAutomationUiElement(
+                button,
+                "context.action."
+                        + mActivity.getResources()
+                                .getResourceEntryName(textResId),
+                "menu_item",
+                button.getText());
         final Drawable arrow = mActivity.getDrawable(
                 R.drawable.ic_file_forward).mutate();
         final int size = dp(20);

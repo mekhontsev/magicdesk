@@ -26,10 +26,12 @@ final class DesktopAutomationController {
     private static final long ACTION_TIMEOUT_MILLIS = 20_000L;
     private static final long LAUNCH_OBSERVE_TIMEOUT_MILLIS = 10_000L;
     private static final long MAX_WAIT_MILLIS = 60_000L;
+    private static final long WAIT_RECHECK_MILLIS = 200L;
 
     private final Context mContext;
     private final DesktopAutomationStateReader mState;
     private final DesktopAutomationCapture mCapture;
+    private final DesktopAutomationTraceManager mTraces;
     private final Object mPointerLock = new Object();
 
     private int mPointerDisplayId = Display.INVALID_DISPLAY;
@@ -42,6 +44,7 @@ final class DesktopAutomationController {
         mContext = context.getApplicationContext();
         mState = new DesktopAutomationStateReader(mContext);
         mCapture = new DesktopAutomationCapture(mContext);
+        mTraces = new DesktopAutomationTraceManager(mState);
     }
 
     DesktopAutomationStateReader stateReader() {
@@ -148,6 +151,15 @@ final class DesktopAutomationController {
                 case CLICK_POINTER:
                     result = clickPointer(args);
                     break;
+                case INVOKE_UI_ACTION:
+                    result = invokeUiAction(args);
+                    break;
+                case BEGIN_TRACE:
+                    result = mTraces.begin(args);
+                    break;
+                case END_TRACE:
+                    result = mTraces.end(args);
+                    break;
                 default:
                     result = DesktopAutomationResult.failure(
                             DesktopAutomationErrorCode.UNKNOWN_ACTION,
@@ -207,7 +219,8 @@ final class DesktopAutomationController {
             }
             try {
                 observedEventId = DesktopAutomationEventJournal.awaitChange(
-                        observedEventId, remaining);
+                        observedEventId,
+                        Math.min(remaining, WAIT_RECHECK_MILLIS));
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 return record("wait_for_state",
@@ -816,6 +829,31 @@ final class DesktopAutomationController {
                 "pointer clicked");
     }
 
+    private DesktopAutomationResult invokeUiAction(final JSONObject args)
+            throws JSONException {
+        final int displayId = optionalDisplayId(args);
+        final String elementId = requiredString(args, "elementId");
+        final String action = requiredString(args, "action")
+                .toLowerCase(Locale.ROOT);
+        final DesktopAutomationUiRegistry.ActionResult result =
+                DesktopRuntimeBridge.invokeAutomationUiAction(
+                        displayId, elementId, action);
+        final JSONObject data = new JSONObject()
+                .put("displayId", displayId)
+                .put("elementId", elementId)
+                .put("action", action)
+                .put("accepted", result.accepted)
+                .put("element", result.element);
+        DesktopAutomationEventJournal.record(
+                "ui", "element_invoked", result.accepted,
+                result.message, data);
+        return result.accepted
+                ? DesktopAutomationResult.success(result.message, data)
+                : DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.ACTION_FAILED,
+                        result.message, true, data);
+    }
+
     private JSONObject observeCondition(
             final String condition,
             final JSONObject args) throws JSONException {
@@ -968,6 +1006,68 @@ final class DesktopAutomationController {
                         .put("element", element)
                         .put("uiAvailable", ui.available);
             }
+            case "ui_element_state": {
+                final int displayId = optionalDisplayId(args);
+                final String elementId = requiredString(args, "elementId");
+                final DesktopAutomationUiRegistry.Snapshot ui =
+                        DesktopRuntimeBridge.getAutomationUiElements(
+                                displayId, elementId, true);
+                final JSONObject element = findUiElement(
+                        ui.elements, elementId);
+                final boolean expectedVisible =
+                        args.optBoolean("visible", true);
+                final boolean actualVisible = element != null
+                        && element.optBoolean("visible", false);
+                boolean matched = ui.available
+                        && actualVisible == expectedVisible;
+                if (args.has("enabled")) {
+                    matched = matched && element != null
+                            && element.optBoolean("enabled")
+                                    == args.optBoolean("enabled");
+                }
+                if (args.has("focused")) {
+                    matched = matched && element != null
+                            && element.optBoolean("focused")
+                                    == args.optBoolean("focused");
+                }
+                if (args.has("selected")) {
+                    matched = matched && element != null
+                            && element.optBoolean("selected")
+                                    == args.optBoolean("selected");
+                }
+                return observation
+                        .put("matched", matched)
+                        .put("displayId", displayId)
+                        .put("elementId", elementId)
+                        .put("uiAvailable", ui.available)
+                        .put("found", element != null)
+                        .put("expectedVisible", expectedVisible)
+                        .put("element", element == null
+                                ? JSONObject.NULL : element);
+            }
+            case "popup_state": {
+                final int displayId = optionalDisplayId(args);
+                final DesktopUiSnapshot ui = DesktopRuntimeBridge
+                        .getAutomationUiSnapshot(displayId);
+                final boolean expectedVisible =
+                        args.optBoolean("visible", true);
+                final String expectedTitle = optionalString(
+                        args, "popupTitle", "");
+                boolean matched = ui.available
+                        && ui.popupVisible == expectedVisible;
+                if (expectedVisible && !expectedTitle.isEmpty()) {
+                    matched = matched && expectedTitle.equals(ui.popupTitle);
+                }
+                return observation
+                        .put("matched", matched)
+                        .put("displayId", displayId)
+                        .put("uiAvailable", ui.available)
+                        .put("expectedVisible", expectedVisible)
+                        .put("expectedTitle", expectedTitle)
+                        .put("visible", ui.popupVisible)
+                        .put("title", ui.popupTitle)
+                        .put("bounds", rectJson(ui.popupBounds));
+            }
             case "taskbar_visible": {
                 final int displayId = optionalDisplayId(args);
                 return observation
@@ -1047,6 +1147,22 @@ final class DesktopAutomationController {
                 .put("top", bounds.top)
                 .put("right", bounds.right)
                 .put("bottom", bounds.bottom);
+    }
+
+    private static JSONObject findUiElement(
+            final org.json.JSONArray elements,
+            final String elementId) {
+        if (elements == null) {
+            return null;
+        }
+        for (int index = 0; index < elements.length(); index++) {
+            final JSONObject element = elements.optJSONObject(index);
+            if (element != null
+                    && elementId.equals(element.optString("id"))) {
+                return element;
+            }
+        }
+        return null;
     }
 
     private TaskRepository.TaskEntry waitForLaunchedTask(

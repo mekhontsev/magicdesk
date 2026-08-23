@@ -619,6 +619,85 @@ final class DesktopUiGateway {
                 ? DesktopUiSnapshot.UNAVAILABLE : result[0];
     }
 
+    DesktopAutomationUiRegistry.Snapshot getAutomationUiElements(
+            final int displayId,
+            final String query,
+            final boolean includeHidden) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                return activity.getAutomationUiElements(query, includeHidden);
+            } catch (org.json.JSONException error) {
+                return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
+            }
+        }
+        final DesktopAutomationUiRegistry.Snapshot[] result =
+                new DesktopAutomationUiRegistry.Snapshot[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            try {
+                if (isUsable(activity)
+                        && activity.getCurrentDisplayId() == displayId) {
+                    result[0] = activity.getAutomationUiElements(
+                            query, includeHidden);
+                }
+            } catch (org.json.JSONException ignored) {
+            } finally {
+                ready.countDown();
+            }
+        });
+        if (!await(ready) || result[0] == null) {
+            return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
+        }
+        return result[0];
+    }
+
+    DesktopAutomationUiRegistry.ActionResult invokeAutomationUiAction(
+            final int displayId,
+            final String elementId,
+            final String action) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return new DesktopAutomationUiRegistry.ActionResult(
+                    false, "desktop UI is unavailable", null);
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                return activity.invokeAutomationUiAction(elementId, action);
+            } catch (org.json.JSONException error) {
+                return new DesktopAutomationUiRegistry.ActionResult(
+                        false, ShellAccess.usefulMessage(error), null);
+            }
+        }
+        final DesktopAutomationUiRegistry.ActionResult[] result =
+                new DesktopAutomationUiRegistry.ActionResult[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            try {
+                if (isUsable(activity)
+                        && activity.getCurrentDisplayId() == displayId) {
+                    result[0] = activity.invokeAutomationUiAction(
+                            elementId, action);
+                }
+            } catch (org.json.JSONException error) {
+                result[0] = new DesktopAutomationUiRegistry.ActionResult(
+                        false, ShellAccess.usefulMessage(error), null);
+            } finally {
+                ready.countDown();
+            }
+        });
+        if (!await(ready) || result[0] == null) {
+            return new DesktopAutomationUiRegistry.ActionResult(
+                    false, "desktop UI action timed out", null);
+        }
+        return result[0];
+    }
+
     boolean focusDesktopOnDisplay(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null

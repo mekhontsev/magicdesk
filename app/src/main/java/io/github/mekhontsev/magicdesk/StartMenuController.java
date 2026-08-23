@@ -136,6 +136,11 @@ final class StartMenuController {
         });
         mSearch.setOnKeyListener((view, keyCode, event) ->
                 handleSearchKey(keyCode, event));
+        mActivity.registerAutomationUiElement(
+                mSearch,
+                "start.search",
+                "text_field",
+                mActivity.getString(R.string.search_apps_hint));
 
         mContent = new LinearLayout(mActivity);
         mContent.setOrientation(LinearLayout.VERTICAL);
@@ -144,6 +149,8 @@ final class StartMenuController {
         contentParams.setMargins(0, dp(10), 0, 0);
         menu.addView(mContent, contentParams);
         mPanel = menu;
+        mActivity.registerAutomationUiElement(
+                menu, "panel.start", "panel", "Start");
         return menu;
     }
 
@@ -394,6 +401,11 @@ final class StartMenuController {
             }
             render();
         });
+        mActivity.registerAutomationUiElement(
+                button,
+                "start.tab." + modeName(mode),
+                "tab",
+                button.getText());
         return button;
     }
 
@@ -457,6 +469,14 @@ final class StartMenuController {
             mActivity.launchDefault(app);
         });
         mActivity.registerContextTarget(tile, app, null);
+        mActivity.registerAutomationUiElement(
+                tile,
+                "start.app."
+                        + DesktopAutomationUiRegistry.segment(app.packageName),
+                "application",
+                app.label,
+                app.packageName,
+                -1);
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(app.icon);
@@ -502,6 +522,9 @@ final class StartMenuController {
                 renderBody();
             }
         });
+        mActivity.registerAutomationUiElement(
+                previous, "start.page.previous", "button",
+                previous.getText());
         pager.addView(previous, new LinearLayout.LayoutParams(
                 dp(108), LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -526,6 +549,8 @@ final class StartMenuController {
                 renderBody();
             }
         });
+        mActivity.registerAutomationUiElement(
+                next, "start.page.next", "button", next.getText());
         pager.addView(next, new LinearLayout.LayoutParams(
                 dp(108), LinearLayout.LayoutParams.WRAP_CONTENT));
         mBody.addView(pager, new LinearLayout.LayoutParams(
@@ -643,6 +668,23 @@ final class StartMenuController {
         row.setOnClickListener(view -> openSearchResult(result));
         if (result.app != null) {
             mActivity.registerContextTarget(row, result.app, null);
+            mActivity.registerAutomationUiElement(
+                    row,
+                    "start.search.app."
+                            + DesktopAutomationUiRegistry.segment(
+                                    result.app.packageName),
+                    "application",
+                    result.label,
+                    result.app.packageName,
+                    -1);
+        } else {
+            mActivity.registerAutomationUiElement(
+                    row,
+                    "start.search.result."
+                            + DesktopAutomationUiRegistry.segment(
+                                    result.detail),
+                    "search_result",
+                    result.label);
         }
 
         final ImageView icon = new ImageView(mActivity);
@@ -701,6 +743,21 @@ final class StartMenuController {
             return android.R.drawable.presence_video_online;
         }
         return R.drawable.ic_show_desktop;
+    }
+
+    private static String modeName(final int mode) {
+        switch (mode) {
+            case MENU_RECENT:
+                return "recent";
+            case MENU_APPS:
+                return "apps";
+            case MENU_TOOLS:
+                return "tools";
+            case MENU_CAPTURE:
+                return "capture";
+            default:
+                return Integer.toString(mode);
+        }
     }
 
     private void openSearchResult(final StartSearchController.Result result) {

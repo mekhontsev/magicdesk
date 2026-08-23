@@ -187,6 +187,9 @@ final class TaskbarController {
                     location[1] + view.getHeight() / 2f);
             return true;
         });
+        mActivity.registerAutomationUiElement(
+                start, "taskbar.start", "button",
+                mActivity.getString(R.string.action_start));
         mStartButton = start;
         taskbar.addView(start, new LinearLayout.LayoutParams(
                 desktopDp(108, 72),
@@ -222,6 +225,9 @@ final class TaskbarController {
                 R.string.action_show_desktop);
         showDesktop.setOnClickListener(view ->
                 mActivity.toggleDesktopWorkspace());
+        mActivity.registerAutomationUiElement(
+                showDesktop, "taskbar.show_desktop", "button",
+                mActivity.getString(R.string.action_show_desktop));
         addButton(taskbar, showDesktop);
 
         final ImageButton taskOverview = taskbarButton(
@@ -229,11 +235,19 @@ final class TaskbarController {
                 R.string.action_open_tasks);
         taskOverview.setOnClickListener(view ->
                 mActivity.toggleTaskOverview());
+        mActivity.registerAutomationUiElement(
+                taskOverview, "taskbar.open_tasks", "button",
+                mActivity.getString(R.string.action_open_tasks));
         addButton(taskbar, taskOverview);
 
-        taskbar.addView(
+        final View notifications =
                 mActivity.notifications().createTaskbarButton(
-                        mActivity.isCompactDesktopPreview()),
+                        mActivity.isCompactDesktopPreview());
+        mActivity.registerAutomationUiElement(
+                notifications, "taskbar.notifications", "button",
+                mActivity.getString(R.string.action_notifications));
+        taskbar.addView(
+                notifications,
                 new LinearLayout.LayoutParams(
                         desktopDp(46, 38),
                         LinearLayout.LayoutParams.MATCH_PARENT));
@@ -265,6 +279,10 @@ final class TaskbarController {
         if (mActivity.isCompactDesktopPreview()) {
             mKeyboardLayout.setVisibility(View.GONE);
         }
+        mActivity.registerAutomationUiElement(
+                mKeyboardLayout, "taskbar.keyboard_layout", "button",
+                mActivity.getString(R.string.keyboard_layout_description,
+                        ""));
 
         mPhoneScreenButton = taskbarButton(
                 R.drawable.ic_phone_screen_off,
@@ -277,12 +295,18 @@ final class TaskbarController {
                 || mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
             mPhoneScreenButton.setVisibility(View.GONE);
         }
+        mActivity.registerAutomationUiElement(
+                mPhoneScreenButton, "taskbar.phone_screen", "button",
+                mActivity.getString(R.string.tooltip_phone_screen));
 
         mSystemButton = taskbarButton(
                 android.R.drawable.ic_menu_manage,
                 R.string.section_system);
         mSystemButton.setOnClickListener(view ->
                 mActivity.toggleSystemPanel());
+        mActivity.registerAutomationUiElement(
+                mSystemButton, "taskbar.system", "button",
+                mActivity.getString(R.string.section_system));
         addButton(taskbar, mSystemButton);
 
         mBatteryStatus = new TextView(mActivity);
@@ -295,6 +319,9 @@ final class TaskbarController {
         mBatteryStatus.setFocusable(true);
         mBatteryStatus.setOnClickListener(view ->
                 mActivity.toggleSystemPanel());
+        mActivity.registerAutomationUiElement(
+                mBatteryStatus, "taskbar.battery", "button",
+                mActivity.getString(R.string.battery_status_unknown));
         taskbar.addView(mBatteryStatus, new LinearLayout.LayoutParams(
                 desktopDp(58, 44),
                 LinearLayout.LayoutParams.MATCH_PARENT));
@@ -315,10 +342,15 @@ final class TaskbarController {
                 mActivity.getString(R.string.action_calendar));
         clock.setTooltipText(mActivity.getString(R.string.action_calendar));
         clock.setOnClickListener(view -> mActivity.toggleCalendarPanel());
+        mActivity.registerAutomationUiElement(
+                clock, "taskbar.clock", "button",
+                mActivity.getString(R.string.action_calendar));
         taskbar.addView(clock, new LinearLayout.LayoutParams(
                 desktopDp(72, 50),
                 LinearLayout.LayoutParams.MATCH_PARENT));
         mTaskbar = taskbar;
+        mActivity.registerAutomationUiElement(
+                taskbar, "taskbar", "taskbar", "Taskbar");
         return taskbar;
     }
 
@@ -694,6 +726,17 @@ final class TaskbarController {
         item.setTooltipText(description);
         item.setOnClickListener(view -> activate(taskbarItem));
         mActivity.registerContextTarget(item, app, task);
+        mActivity.registerAutomationUiElement(
+                item,
+                task == null
+                        ? "taskbar.app."
+                                + DesktopAutomationUiRegistry.segment(
+                                        app.packageName)
+                        : "taskbar.task." + task.taskId,
+                "application",
+                app.label,
+                app.packageName,
+                task == null ? -1 : task.taskId);
         return item;
     }
 

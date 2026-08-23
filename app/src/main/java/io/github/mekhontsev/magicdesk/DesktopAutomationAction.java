@@ -26,7 +26,10 @@ enum DesktopAutomationAction {
     RUN_SELF_TEST("run_self_test", true),
     SEND_KEY("send_key", true),
     MOVE_POINTER("move_pointer", true),
-    CLICK_POINTER("click_pointer", true);
+    CLICK_POINTER("click_pointer", true),
+    INVOKE_UI_ACTION("invoke_ui_action", false),
+    BEGIN_TRACE("begin_trace", false),
+    END_TRACE("end_trace", false);
 
     final String wireName;
     final boolean developerOnly;

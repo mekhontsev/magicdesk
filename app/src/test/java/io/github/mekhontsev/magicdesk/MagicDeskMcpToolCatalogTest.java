@@ -21,6 +21,10 @@ public final class MagicDeskMcpToolCatalogTest {
 
         assertTrue(publicNames.contains("get_state"));
         assertTrue(publicNames.contains("launch_app"));
+        assertTrue(publicNames.contains("list_ui_elements"));
+        assertTrue(publicNames.contains("invoke_ui_action"));
+        assertTrue(publicNames.contains("begin_trace"));
+        assertTrue(publicNames.contains("end_trace"));
         assertFalse(publicNames.contains("run_self_test"));
         assertTrue(developerNames.contains("run_self_test"));
         assertTrue(developerNames.containsAll(publicNames));
@@ -80,6 +84,26 @@ public final class MagicDeskMcpToolCatalogTest {
         assertEquals("package", required.getString(0));
     }
 
+    @Test
+    public void semanticUiAndWaitSchemasExposeStableStateFields()
+            throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONObject invoke = tool(tools, "invoke_ui_action")
+                .getJSONObject("inputSchema");
+        final JSONObject wait = tool(tools, "wait_for_state")
+                .getJSONObject("inputSchema");
+
+        assertEquals(2, invoke.getJSONArray("required").length());
+        assertTrue(invoke.getJSONObject("properties").has("elementId"));
+        assertTrue(invoke.getJSONObject("properties").has("action"));
+        assertTrue(wait.getJSONObject("properties").has("elementId"));
+        assertTrue(wait.getJSONObject("properties").has("popupTitle"));
+        final JSONArray conditions = wait.getJSONObject("properties")
+                .getJSONObject("condition").getJSONArray("enum");
+        assertTrue(contains(conditions, "ui_element_state"));
+        assertTrue(contains(conditions, "popup_state"));
+    }
+
     private static Set<String> names(final JSONArray tools)
             throws Exception {
         final Set<String> result = new HashSet<>();
@@ -99,5 +123,15 @@ public final class MagicDeskMcpToolCatalogTest {
             }
         }
         throw new AssertionError("tool not found: " + name);
+    }
+
+    private static boolean contains(
+            final JSONArray values, final String expected) {
+        for (int index = 0; index < values.length(); index++) {
+            if (expected.equals(values.optString(index))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

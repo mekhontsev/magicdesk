@@ -42,6 +42,8 @@ final class TaskOverviewController {
         panel.setClickable(true);
         panel.setFocusable(true);
         mPanel = panel;
+        mActivity.registerAutomationUiElement(
+                panel, "panel.open_tasks", "panel", "Open tasks");
         return panel;
     }
 
@@ -112,6 +114,9 @@ final class TaskOverviewController {
                 DesktopUiFactory.COLOR_PANEL_ALT);
         showDesktop.setOnClickListener(view ->
                 mActivity.toggleDesktopWorkspace());
+        mActivity.registerAutomationUiElement(
+                showDesktop, "open_tasks.show_desktop", "button",
+                showDesktop.getText());
         header.addView(showDesktop, new LinearLayout.LayoutParams(
                 dp(120), LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -119,6 +124,8 @@ final class TaskOverviewController {
                 R.string.action_close,
                 DesktopUiFactory.COLOR_PANEL_ALT);
         close.setOnClickListener(view -> mActivity.hideAllPanels());
+        mActivity.registerAutomationUiElement(
+                close, "open_tasks.close", "button", close.getText());
         final LinearLayout.LayoutParams closeParams =
                 new LinearLayout.LayoutParams(
                         dp(82), LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -231,6 +238,13 @@ final class TaskOverviewController {
             mActivity.focusTask(app, task);
         });
         mActivity.registerContextTarget(tile, app, task);
+        mActivity.registerAutomationUiElement(
+                tile,
+                "open_tasks.task." + task.taskId,
+                "application",
+                app.label,
+                app.packageName,
+                task.taskId);
 
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
@@ -280,6 +294,13 @@ final class TaskOverviewController {
         close.setContentDescription(
                 mActivity.getString(R.string.action_close_window));
         close.setOnClickListener(view -> mActivity.closeTask(app, task));
+        mActivity.registerAutomationUiElement(
+                close,
+                "open_tasks.task." + task.taskId + ".close",
+                "button",
+                mActivity.getString(R.string.action_close_window),
+                app.packageName,
+                task.taskId);
         final FrameLayout.LayoutParams closeParams =
                 new FrameLayout.LayoutParams(
                         dp(32), dp(32), Gravity.TOP | Gravity.END);

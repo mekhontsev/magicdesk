@@ -98,6 +98,11 @@ final class TaskbarOverflowController {
         button.setContentDescription(description);
         button.setTooltipText(description);
         button.setOnClickListener(this::toggle);
+        mActivity.registerAutomationUiElement(
+                button,
+                "taskbar.overflow",
+                "button",
+                description);
         return button;
     }
 
@@ -185,6 +190,11 @@ final class TaskbarOverflowController {
         mPanel.addView(mList, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
+        mActivity.registerAutomationUiElement(
+                mPanel,
+                "panel.taskbar_overflow",
+                "panel",
+                "Taskbar overflow");
     }
 
     private void populate() {
@@ -247,6 +257,17 @@ final class TaskbarOverflowController {
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         row.setOnClickListener(view -> mListener.onItemSelected(item));
         mActivity.registerContextTarget(row, item.app, item.task);
+        mActivity.registerAutomationUiElement(
+                row,
+                item.task == null
+                        ? "taskbar_overflow.app."
+                                + DesktopAutomationUiRegistry.segment(
+                                        item.app.packageName)
+                        : "taskbar_overflow.task." + item.task.taskId,
+                "application",
+                item.app.label,
+                item.app.packageName,
+                item.task == null ? -1 : item.task.taskId);
         return row;
     }
 
