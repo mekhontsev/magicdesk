@@ -473,6 +473,21 @@ final class DesktopTaskWatcher {
         }
     }
 
+    TaskWindowSnapshot inspectTaskWindow(
+            final int displayId,
+            final int taskId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return null;
+        }
+        try {
+            return handle.inspectTaskWindow(displayId, taskId);
+        } catch (IOException error) {
+            Log.w(TAG, "failed to inspect task window=" + taskId, error);
+            return null;
+        }
+    }
+
     boolean setPhoneTouchpadPreservation(
             final boolean enabled) {
         final ShellTaskObserverHandle handle = currentHandle();

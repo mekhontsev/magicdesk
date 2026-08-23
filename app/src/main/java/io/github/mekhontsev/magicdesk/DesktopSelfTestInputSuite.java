@@ -16,6 +16,8 @@ import android.util.DisplayMetrics;
 import android.view.ViewConfiguration;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -441,6 +443,13 @@ final class DesktopSelfTestInputSuite {
                         secondTaskId,
                         secondToken,
                         "9"));
+        runFullscreenTaskbarTest(
+                context,
+                result,
+                displayId,
+                firstTaskId,
+                secondTaskId,
+                secondToken);
         runMaximizedAltTabTests(
                 context,
                 result,
@@ -1112,6 +1121,168 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
+    private static String concealFullscreenBehindWorkspace(
+            final Context context,
+            final int displayId,
+            final int fullscreenTaskId,
+            final int windowedTaskId,
+            final String windowedToken) throws IOException {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        final TaskRepository.TaskEntry activeFullscreen =
+                DesktopShellActivity.findTask(snapshot, fullscreenTaskId);
+        if (activeFullscreen == null
+                || !activeFullscreen.active
+                || !activeFullscreen.isFullscreen()) {
+            throw new IOException(
+                    "taskbar fullscreen task is not active: task="
+                            + fullscreenTaskId);
+        }
+        final List<Integer> focusOrder =
+                TaskbarTaskOrder.concealFullscreenTask(
+                        snapshot,
+                        fullscreenTaskId,
+                        MagicDeskRuntime.getLastVisibleFreeformTasks(
+                                displayId));
+        if (focusOrder.size() < 3
+                || !focusOrder.contains(Integer.valueOf(windowedTaskId))) {
+            throw new IOException(
+                    "saved freeform workspace is incomplete: " + focusOrder);
+        }
+        focusTasksThroughDesktop(displayId, focusOrder);
+
+        waitForFrontTask(displayId, windowedTaskId);
+        waitForTaskInputFocus(displayId, windowedTaskId);
+        DesktopSelfTestFixtureState.clearText(context);
+        typeAndVerifyText(
+                context,
+                displayId,
+                windowedTaskId,
+                windowedToken,
+                "4");
+        final TaskWindowSnapshot concealed =
+                DesktopSelfTestTasks.waitForBackgroundFullscreenTask(
+                        displayId, fullscreenTaskId);
+        final TaskStackParser.Entry workspace = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == windowedTaskId
+                        && task.visible
+                        && "freeform".equals(task.windowingMode)
+                        && task.bounds != null
+                        && !task.bounds.isEmpty());
+        return "concealed=" + concealed.taskId + "/fullscreen/"
+                + (concealed.visible ? "visible" : "hidden")
+                + ", workspace=" + workspace.taskId + "/freeform"
+                + ", order=" + focusOrder;
+    }
+
+    private static void runFullscreenTaskbarTest(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int fullscreenTaskId,
+            final int windowedTaskId,
+            final String windowedToken) {
+        check(result,
+                "FULLSCREEN-TASKBAR-001",
+                "Conceal fullscreen behind the saved window workspace",
+                () -> {
+                    try {
+                        enterFullscreenThroughShortcut(
+                                displayId, fullscreenTaskId);
+                        DesktopSelfTestHostObserver.stage(
+                                "FULLSCREEN-TASKBAR-001-CONCEAL");
+                        return concealFullscreenBehindWorkspace(
+                                context,
+                                displayId,
+                                fullscreenTaskId,
+                                windowedTaskId,
+                                windowedToken);
+                    } finally {
+                        // Leave the pair in the ordinary freeform baseline
+                        // consumed by the following maximize/fullscreen tests.
+                        DesktopSelfTestHostObserver.stage(
+                                "FULLSCREEN-TASKBAR-001-RESTORE");
+                        restoreFullscreenThroughShortcut(
+                                displayId, fullscreenTaskId);
+                    }
+                });
+    }
+
+    private static void restoreFullscreenThroughShortcut(
+            final int displayId,
+            final int taskId) throws IOException {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        final TaskRepository.TaskEntry task =
+                DesktopShellActivity.findTask(snapshot, taskId);
+        if (task == null) {
+            throw new IOException("fullscreen task is unavailable: " + taskId);
+        }
+        if (task.isFreeform()) {
+            return;
+        }
+        if (!task.isFullscreen()) {
+            throw new IOException("unexpected task mode during restore: "
+                    + task.windowingMode);
+        }
+        focusTaskThroughDesktop(displayId, taskId);
+        final TaskStackParser.Entry focused = waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && entry.visible
+                        && ("fullscreen".equals(entry.windowingMode)
+                                || "freeform".equals(entry.windowingMode)));
+        waitForFrontTask(displayId, taskId);
+        waitForTaskInputFocus(displayId, taskId);
+        if ("freeform".equals(focused.windowingMode)) {
+            return;
+        }
+        if (!MagicDeskRuntime.handleActiveTaskShortcut(
+                DesktopTaskController.SHORTCUT_RESTORE)) {
+            throw new IOException(
+                    "MagicDesk fullscreen restore is unavailable");
+        }
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && "freeform".equals(entry.windowingMode)
+                        && entry.bounds != null
+                        && !entry.bounds.isEmpty());
+    }
+
+    private static void focusTasksThroughDesktop(
+            final int displayId,
+            final List<Integer> taskIds) throws IOException {
+        final CountDownLatch complete = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        final StringBuilder message = new StringBuilder();
+        MagicDeskRuntime.focusDesktopTasks(
+                displayId,
+                taskIds,
+                action -> {
+                    success.set(action.success);
+                    message.append(action.message);
+                    complete.countDown();
+                });
+        try {
+            if (!complete.await(
+                    STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("desktop task focus timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("desktop task focus interrupted", error);
+        }
+        if (!success.get()) {
+            throw new IOException(
+                    "desktop task focus failed: " + message);
+        }
+    }
+
     private static String focusFullscreenPairThroughAltTab(
             final Context context,
             final int displayId,
@@ -1614,31 +1785,13 @@ final class DesktopSelfTestInputSuite {
         if (targetTask == null) {
             throw new IOException("desktop task " + taskId + " is unavailable");
         }
-        final CountDownLatch complete = new CountDownLatch(1);
-        final AtomicBoolean success = new AtomicBoolean();
-        final StringBuilder message = new StringBuilder();
         // The fixture shares MagicDesk's package, which focusStack excludes
         // along with the desktop host. Exercise the same display-targeted
         // focus transaction without the user-app filter.
-        MagicDeskRuntime.focusDesktopTask(
+        focusTasksThroughDesktop(
                 displayId,
-                targetTask.taskId,
-                action -> {
-                    success.set(action.success);
-                    message.append(action.message);
-                    complete.countDown();
-                });
-        try {
-            if (!complete.await(STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                throw new IOException("taskbar focus timed out for task " + taskId);
-            }
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new IOException("taskbar focus interrupted", error);
-        }
-        if (!success.get()) {
-            throw new IOException("taskbar focus failed: " + message);
-        }
+                Collections.singletonList(
+                        Integer.valueOf(targetTask.taskId)));
     }
 
     private static void sendTestKey(

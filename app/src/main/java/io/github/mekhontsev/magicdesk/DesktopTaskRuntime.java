@@ -98,4 +98,6 @@ interface DesktopTaskRuntime {
     void setSelfTestTaskStackGuardStage(String stage);
 
     SelfTestTaskStackReport stopSelfTestTaskStackGuard();
+
+    TaskWindowSnapshot inspectTaskWindow(int displayId, int taskId);
 }

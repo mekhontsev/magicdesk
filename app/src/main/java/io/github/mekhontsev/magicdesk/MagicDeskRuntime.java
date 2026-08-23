@@ -613,6 +613,14 @@ public final class MagicDeskRuntime {
                 : tasks.stopSelfTestTaskStackGuard();
     }
 
+    static TaskWindowSnapshot inspectTaskWindow(
+            final int displayId,
+            final int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks == null
+                ? null : tasks.inspectTaskWindow(displayId, taskId);
+    }
+
     static synchronized void attach(
             final MagicDeskRuntimeBackend backend) {
         if (backend != null) {

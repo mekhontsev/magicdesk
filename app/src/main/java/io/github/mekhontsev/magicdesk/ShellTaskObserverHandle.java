@@ -242,6 +242,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 mService.stopSelfTestTaskStackGuard(mCallback));
     }
 
+    TaskWindowSnapshot inspectTaskWindow(
+            final int displayId,
+            final int taskId) throws IOException {
+        return callServiceForResult(() -> mService.inspectTaskWindow(
+                mCallback, displayId, taskId));
+    }
+
     void setPhoneTouchpadPreservation(final boolean enabled)
             throws IOException {
         callService(() -> mService.setPhoneTouchpadPreservation(

@@ -37,6 +37,29 @@ final class DesktopSelfTestTasks {
                 + "; last=" + describe(lastObserved));
     }
 
+    static TaskWindowSnapshot waitForBackgroundFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskWindowSnapshot lastObserved = null;
+        do {
+            lastObserved = MagicDeskRuntime.inspectTaskWindow(
+                    displayId, taskId);
+            // A translucent phone desktop can leave the covered task visible
+            // to WMS. Losing task focus is the cross-driver z-order contract.
+            if (lastObserved != null
+                    && lastObserved.focusKnown
+                    && !lastObserved.focused
+                    && lastObserved.isFullscreen()) {
+                return lastObserved;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + taskId
+                + " did not remain unfocused and fullscreen on display "
+                + displayId + "; last=" + describe(lastObserved));
+    }
+
     private static String describe(final TaskStackParser.Entry task) {
         if (task == null) {
             return "absent";
@@ -46,6 +69,21 @@ final class DesktopSelfTestTasks {
                 + "/mode=" + task.windowingMode
                 + "/" + (task.visible ? "visible" : "hidden")
                 + "/bounds=" + DesktopSelfTestGeometry.format(task.bounds);
+    }
+
+    private static String describe(final TaskWindowSnapshot task) {
+        if (task == null) {
+            return "absent";
+        }
+        return "task=" + task.taskId
+                + "/display=" + task.displayId
+                + "/mode=" + task.windowingMode
+                + "/" + (task.visibilityKnown
+                        ? (task.visible ? "visible" : "hidden")
+                        : "visibility-unknown")
+                + "/" + (task.focusKnown
+                        ? (task.focused ? "focused" : "unfocused")
+                        : "focus-unknown");
     }
 
     static TaskStackParser.Entry waitForFrontTask(

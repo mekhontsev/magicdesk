@@ -88,6 +88,14 @@ final class ShellTaskObserverManager implements Closeable {
                 sequence, displayId, taskIds);
     }
 
+    TaskWindowSnapshot inspectTaskWindow(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return requireSession(callback).observer.inspectTaskWindow(
+                displayId, taskId);
+    }
+
     int launchDesktopHost(
             final int displayId,
             final String intentUri) {

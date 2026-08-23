@@ -543,6 +543,15 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public TaskWindowSnapshot inspectTaskWindow(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int taskId) {
+        return mTaskObserverManager.inspectTaskWindow(
+                callback, displayId, taskId);
+    }
+
+    @Override
     public void stopTaskObserver(final ITaskObserverCallback callback) {
         mTaskObserverManager.stop(callback);
     }

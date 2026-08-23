@@ -730,34 +730,108 @@ final class AppTaskController {
     void toggleTaskbarTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
-        if (!task.active || !task.isFreeform()) {
-            focusTask(app, task);
+        if (task == null) {
             return;
         }
-        final TaskRepository.Snapshot snapshot = mActivity.getTaskSnapshot();
+        final int displayId = mActivity.getCurrentDisplayId();
+        final List<TaskRepository.TaskEntry> savedWorkspace =
+                MagicDeskRuntime.getLastVisibleFreeformTasks(displayId);
+        TaskRepository.load(displayId, snapshot ->
+                mActivity.runOnUiThread(() -> toggleTaskbarTask(
+                        app, task.taskId, displayId, savedWorkspace, snapshot)));
+    }
+
+    private void toggleTaskbarTask(
+            final AppItem app,
+            final int taskId,
+            final int displayId,
+            final List<TaskRepository.TaskEntry> savedWorkspace,
+            final TaskRepository.Snapshot snapshot) {
+        if (mActivity.isActivityUnavailable()
+                || displayId != mActivity.getCurrentDisplayId()) {
+            return;
+        }
+        if (!snapshot.available) {
+            showTaskbarActionFailure(app, snapshot.error);
+            return;
+        }
+        mActivity.setTaskSnapshot(snapshot);
+        final TaskRepository.TaskEntry currentTask =
+                DesktopShellActivity.findTask(snapshot, taskId);
+        if (currentTask == null) {
+            showTaskbarActionFailure(app, "task unavailable");
+            return;
+        }
+        if (!currentTask.active) {
+            focusTask(app, currentTask);
+            return;
+        }
+        if (currentTask.isFullscreen()) {
+            concealFullscreenTask(
+                    app, currentTask, displayId, savedWorkspace, snapshot);
+            return;
+        }
+        if (!currentTask.isFreeform()) {
+            focusTask(app, currentTask);
+            return;
+        }
         final TaskRepository.TaskEntry nextTask =
-                findNextVisibleTask(task.taskId, snapshot);
+                findNextVisibleTask(currentTask.taskId, snapshot);
         final TaskRepository.TaskEntry desktopTask =
                 findDesktopHostTask(snapshot);
         final TaskRepository.TaskEntry focusTask =
                 nextTask != null ? nextTask : desktopTask;
         TaskRepository.minimizeTask(
-                task, focusTask,
+                currentTask, focusTask,
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;
                     }
                     if (!result.success) {
-                        mActivity.setStatus(mActivity.getString(
-                                R.string.status_switch_failed,
-                                result.message.length() == 0
-                                        ? app.label
-                                        : result.message));
+                        showTaskbarActionFailure(app, result.message);
                         mActivity.refreshTaskSnapshot();
                         return;
                     }
                     mActivity.refreshTaskSnapshot();
                 }));
+    }
+
+    private void concealFullscreenTask(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final int displayId,
+            final List<TaskRepository.TaskEntry> savedWorkspace,
+            final TaskRepository.Snapshot snapshot) {
+        final List<Integer> focusOrder =
+                TaskbarTaskOrder.concealFullscreenTask(
+                        snapshot, task.taskId, savedWorkspace);
+        if (focusOrder.size() < 2) {
+            showTaskbarActionFailure(app, "desktop host unavailable");
+            return;
+        }
+        MagicDeskRuntime.focusDesktopTasks(
+                displayId,
+                focusOrder,
+                result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    if (!result.success) {
+                        showTaskbarActionFailure(app, result.message);
+                    } else {
+                        mActivity.setTaskbarVisible(true);
+                    }
+                    mActivity.refreshTaskSnapshot();
+                }));
+    }
+
+    private void showTaskbarActionFailure(
+            final AppItem app,
+            final String detail) {
+        mActivity.setStatus(mActivity.getString(
+                R.string.status_switch_failed,
+                detail == null || detail.length() == 0
+                        ? app.label : detail));
     }
 
     private TaskRepository.TaskEntry findNextVisibleTask(

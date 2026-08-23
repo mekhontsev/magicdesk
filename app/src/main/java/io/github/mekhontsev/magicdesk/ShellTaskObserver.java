@@ -438,6 +438,46 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    TaskWindowSnapshot inspectTaskWindow(
+            final int displayId,
+            final int taskId) {
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.INVALID_DISPLAY, taskId);
+            if (task == null
+                    || HiddenTaskApi.getTaskDisplayId(task) != displayId) {
+                return null;
+            }
+            boolean visibilityKnown = true;
+            boolean visible = false;
+            try {
+                visible = HiddenTaskApi.getBooleanField(task, "isVisible");
+            } catch (ReflectiveOperationException error) {
+                visibilityKnown = false;
+            }
+            boolean focusKnown = true;
+            boolean focused = false;
+            try {
+                focused = HiddenTaskApi.getBooleanField(task, "isFocused");
+            } catch (ReflectiveOperationException error) {
+                focusKnown = false;
+            }
+            return new TaskWindowSnapshot(
+                    taskId,
+                    displayId,
+                    HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode"),
+                    visible,
+                    visibilityKnown,
+                    focused,
+                    focusKnown);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot inspect task window: " + usefulMessage(error),
+                    error);
+        }
+    }
+
     int launchDesktopHost(
             final int displayId,
             final String intentUri) {

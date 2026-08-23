@@ -12,6 +12,7 @@ import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
 import io.github.mekhontsev.magicdesk.ShellFilePage;
 import io.github.mekhontsev.magicdesk.SystemMonitorSnapshot;
+import io.github.mekhontsev.magicdesk.TaskWindowSnapshot;
 
 interface IShizukuCommandService {
     void destroy() = 16777114;
@@ -340,5 +341,10 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         String intentUri) = 88;
+
+    TaskWindowSnapshot inspectTaskWindow(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId) = 89;
 
 }

@@ -939,6 +939,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         "task observer unavailable");
     }
 
+    @Override
+    public TaskWindowSnapshot inspectTaskWindow(
+            final int displayId,
+            final int taskId) {
+        return mRunning && mTaskWatcherReady && mDisplayId == displayId
+                ? mTaskWatcher.inspectTaskWindow(displayId, taskId)
+                : null;
+    }
+
     private void sendSystemBackInternal() {
         final int displayId = mDisplayId;
         if (!mRunning || displayId < 0) {
