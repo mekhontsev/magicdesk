@@ -1,7 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+
+import android.graphics.Rect;
 
 import org.junit.Test;
 
@@ -24,5 +29,34 @@ public final class DesktopWindowTransitionControllerTest {
         assertFalse(DesktopWindowTransitionController
                 .shouldForgetManagedFullscreenState(
                         FREEFORM, FULLSCREEN, false, false));
+    }
+
+    @Test
+    public void semanticRequestDoesNotExposeItsBoundsInstance() {
+        final Rect source = new Rect(10, 20, 800, 600);
+        final DesktopWindowTransitionRequest request =
+                DesktopWindowTransitionRequest.restoreFreeform(
+                        3, 42, source);
+
+        final Rect first = request.bounds();
+        final Rect second = request.bounds();
+
+        assertNotSame(source, first);
+        assertNotSame(first, second);
+        assertEquals(
+                DesktopWindowTransitionRequest.Operation.RESTORE_FREEFORM,
+                request.operation);
+    }
+
+    @Test
+    public void semanticRequestValidatesRequiredGeometry() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DesktopWindowTransitionRequest.restoreFreeform(
+                        3, 42, null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DesktopWindowTransitionRequest.closeFreeform(
+                        -1, 42));
     }
 }

@@ -13,11 +13,6 @@ final class DesktopWindowTransitionController {
     interface RuntimeState {
         int displayId();
         boolean isRunning();
-        boolean beginFullscreenTask(int taskId);
-        boolean beginAppFullscreenTask(int taskId, Rect restoreBounds);
-        boolean restoreFullscreenTask(int taskId, Rect bounds);
-        boolean closeFullscreenTask(int taskId);
-        boolean closeDesktopTask(int taskId);
         void focusTask(int taskId);
         void scheduleRefresh();
     }
@@ -36,18 +31,21 @@ final class DesktopWindowTransitionController {
     private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskStates;
     private final RuntimeState mRuntimeState;
+    private final DesktopWindowTransitionGateway mGateway;
 
     DesktopWindowTransitionController(
             final Handler handler,
             final NativeWindowBoundsController nativeWindowBounds,
             final DesktopDisplayTaskState displayTaskState,
             final DesktopTaskRuntimeRegistry taskStates,
-            final RuntimeState runtimeState) {
+            final RuntimeState runtimeState,
+            final DesktopWindowTransitionGateway gateway) {
         mHandler = handler;
         mNativeWindowBounds = nativeWindowBounds;
         mDisplayTaskState = displayTaskState;
         mTaskStates = taskStates;
         mRuntimeState = runtimeState;
+        mGateway = gateway;
     }
 
     boolean hasManagedFullscreenState(final int taskId) {
@@ -265,15 +263,27 @@ final class DesktopWindowTransitionController {
     }
 
     private void close(final TaskRepository.TaskEntry task) {
-        if (task.isFullscreen()
-                && mRuntimeState.closeFullscreenTask(task.taskId)) {
-            return;
+        final DesktopWindowTransitionRequest request;
+        if (task.isFullscreen()) {
+            request = DesktopWindowTransitionRequest.closeFullscreen(
+                    mRuntimeState.displayId(), task.taskId);
+            if (submit(request)) {
+                return;
+            }
+        } else {
+            request = null;
         }
         if (task.isFreeform()) {
-            if (!mRuntimeState.closeDesktopTask(task.taskId)) {
+            final DesktopWindowTransitionRequest closeFreeform =
+                    DesktopWindowTransitionRequest.closeFreeform(
+                            mRuntimeState.displayId(), task.taskId);
+            if (!submit(closeFreeform)) {
                 Log.w(TAG, "desktop close failed task=" + task.taskId);
             }
             return;
+        }
+        if (request != null) {
+            recordFallback(request);
         }
         TaskRepository.closeTask(task, result -> {
             if (!result.success) {
@@ -351,9 +361,13 @@ final class DesktopWindowTransitionController {
                     mRuntimeState.focusTask(taskId);
                     mRuntimeState.scheduleRefresh();
                 });
-        if (mRuntimeState.restoreFullscreenTask(taskId, targetBounds)) {
+        final DesktopWindowTransitionRequest request =
+                DesktopWindowTransitionRequest.restoreFreeform(
+                        mRuntimeState.displayId(), taskId, targetBounds);
+        if (submit(request)) {
             callback.onComplete(new TaskRepository.ActionResult(true, ""));
         } else {
+            recordFallback(request);
             TaskRepository.setFreeform(task, targetBounds, callback);
         }
     }
@@ -453,12 +467,16 @@ final class DesktopWindowTransitionController {
                                 AppWindowState.Mode.FULLSCREEN);
                     }
                 });
-        if (appRequested && mRuntimeState.beginAppFullscreenTask(
-                taskId, task.bounds)) {
-            mRuntimeState.scheduleRefresh();
-            return;
-        }
-        if (!appRequested && mRuntimeState.beginFullscreenTask(taskId)) {
+        final DesktopWindowTransitionRequest request = appRequested
+                ? DesktopWindowTransitionRequest.enterAppFullscreen(
+                        displayId, taskId, task.bounds)
+                : DesktopWindowTransitionRequest.enterFullscreen(
+                        displayId, taskId);
+        if (submit(request)) {
+            if (appRequested) {
+                mRuntimeState.scheduleRefresh();
+                return;
+            }
             state.finishFullscreenTransition();
             finishWorkspaceTransition(displayId, true);
             if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
@@ -468,6 +486,7 @@ final class DesktopWindowTransitionController {
             }
             return;
         }
+        recordFallback(request);
         if (appRequested) {
             TaskRepository.setAppRequestedFullscreen(task, callback);
         } else {
@@ -511,13 +530,30 @@ final class DesktopWindowTransitionController {
                         userRequested,
                         result.success,
                         result.message));
-        if (mRuntimeState.restoreFullscreenTask(taskId, targetBounds)) {
+        final DesktopWindowTransitionRequest request =
+                DesktopWindowTransitionRequest.restoreFreeform(
+                        mRuntimeState.displayId(), taskId, targetBounds);
+        if (submit(request)) {
             callback.onComplete(new TaskRepository.ActionResult(true, ""));
         } else if (task.isFreeform()) {
+            recordFallback(request);
             TaskRepository.rebuildFreeform(task, targetBounds, callback);
         } else {
+            recordFallback(request);
             TaskRepository.setFreeform(task, targetBounds, callback);
         }
+    }
+
+    private boolean submit(final DesktopWindowTransitionRequest request) {
+        final boolean accepted = mGateway.submit(request);
+        DesktopWindowTransitionDiagnostics.recordSubmission(
+                request, accepted);
+        return accepted;
+    }
+
+    private static void recordFallback(
+            final DesktopWindowTransitionRequest request) {
+        DesktopWindowTransitionDiagnostics.recordFallback(request);
     }
 
     private void finishFullscreenRestore(

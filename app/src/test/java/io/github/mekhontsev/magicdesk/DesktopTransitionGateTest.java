@@ -10,27 +10,41 @@ public final class DesktopTransitionGateTest {
     public void oneStartOrModeTransitionRunsAtATime() {
         final DesktopTransitionGate gate = new DesktopTransitionGate();
 
-        assertTrue(gate.beginDesktopStart());
-        assertFalse(gate.beginDesktopStart());
-        assertFalse(gate.beginModeTransition());
+        assertTrue(gate.begin(DesktopTransitionGate.Operation.START));
+        assertFalse(gate.begin(DesktopTransitionGate.Operation.START));
+        assertFalse(gate.begin(
+                DesktopTransitionGate.Operation.MODE_TRANSITION));
 
-        gate.finishStart();
+        gate.finish(DesktopTransitionGate.Operation.START);
 
-        assertTrue(gate.beginModeTransition());
+        assertTrue(gate.begin(
+                DesktopTransitionGate.Operation.MODE_TRANSITION));
     }
 
     @Test
     public void closeBlocksNewDesktopActivationUntilFinished() {
         final DesktopTransitionGate gate = new DesktopTransitionGate();
 
-        assertTrue(gate.beginClose());
-        assertTrue(gate.isCloseInProgress());
-        assertFalse(gate.beginDesktopStart());
-        assertFalse(gate.beginClose());
+        assertTrue(gate.begin(DesktopTransitionGate.Operation.CLOSE));
+        assertTrue(gate.isActive(DesktopTransitionGate.Operation.CLOSE));
+        assertFalse(gate.begin(DesktopTransitionGate.Operation.START));
+        assertFalse(gate.begin(DesktopTransitionGate.Operation.CLOSE));
 
-        gate.finishClose();
+        gate.finish(DesktopTransitionGate.Operation.CLOSE);
 
-        assertFalse(gate.isCloseInProgress());
-        assertTrue(gate.beginDesktopStart());
+        assertFalse(gate.isActive(DesktopTransitionGate.Operation.CLOSE));
+        assertTrue(gate.begin(DesktopTransitionGate.Operation.START));
+    }
+
+    @Test
+    public void startAndCloseCannotOverlapInEitherOrder() {
+        final DesktopTransitionGate gate = new DesktopTransitionGate();
+
+        assertTrue(gate.begin(DesktopTransitionGate.Operation.START));
+        assertFalse(gate.begin(DesktopTransitionGate.Operation.CLOSE));
+        assertFalse(gate.finish(DesktopTransitionGate.Operation.CLOSE));
+        assertTrue(gate.isActive(DesktopTransitionGate.Operation.START));
+        gate.finish(DesktopTransitionGate.Operation.START);
+        assertTrue(gate.begin(DesktopTransitionGate.Operation.CLOSE));
     }
 }

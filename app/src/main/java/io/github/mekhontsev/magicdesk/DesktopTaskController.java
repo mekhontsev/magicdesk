@@ -139,45 +139,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
-                    public boolean restoreFullscreenTask(
-                            final int taskId,
-                            final Rect bounds) {
-                        return mTaskWatcherReady
-                                && mTaskWatcher.restoreFullscreenTask(
-                                        mDisplayId, taskId, bounds);
-                    }
-
-                    @Override
-                    public boolean beginAppFullscreenTask(
-                            final int taskId,
-                            final Rect restoreBounds) {
-                        return mTaskWatcherReady
-                                && mTaskWatcher.beginAppFullscreenTask(
-                                        mDisplayId,
-                                        taskId,
-                                        restoreBounds);
-                    }
-
-                    @Override
-                    public boolean beginFullscreenTask(final int taskId) {
-                        return mTaskWatcherReady
-                                && mTaskWatcher.beginFullscreenTask(
-                                        mDisplayId, taskId);
-                    }
-
-                    @Override
-                    public boolean closeFullscreenTask(final int taskId) {
-                        return mTaskWatcherReady
-                                && mTaskWatcher.closeFullscreenTask(
-                                        mDisplayId, taskId);
-                    }
-
-                    @Override
-                    public boolean closeDesktopTask(final int taskId) {
-                        return closeDesktopTaskInternal(taskId);
-                    }
-
-                    @Override
                     public void focusTask(final int taskId) {
                         if (!mRunning || taskId < 0) {
                             return;
@@ -198,7 +159,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     public void scheduleRefresh() {
                         DesktopTaskController.this.scheduleRefresh(0);
                     }
-                });
+                },
+                this::submitWindowTransition);
         mTaskWatcher = new DesktopTaskWatcher(
                 mHandler,
                 new DesktopTaskWatcher.Listener() {
@@ -577,6 +539,39 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         DesktopRuntimeBridge.prepareTaskFocus(mDisplayId, focusTaskId);
         return mTaskWatcher.closeDesktopTask(
                 mDisplayId, taskId, focusTaskId);
+    }
+
+    private boolean submitWindowTransition(
+            final DesktopWindowTransitionRequest request) {
+        if (request == null || request.displayId != mDisplayId) {
+            return false;
+        }
+        switch (request.operation) {
+            case ENTER_FULLSCREEN:
+                return mTaskWatcherReady
+                        && mTaskWatcher.beginFullscreenTask(
+                                request.displayId, request.taskId);
+            case ENTER_APP_FULLSCREEN:
+                return mTaskWatcherReady
+                        && mTaskWatcher.beginAppFullscreenTask(
+                                request.displayId,
+                                request.taskId,
+                                request.bounds());
+            case RESTORE_FREEFORM:
+                return mTaskWatcherReady
+                        && mTaskWatcher.restoreFullscreenTask(
+                                request.displayId,
+                                request.taskId,
+                                request.bounds());
+            case CLOSE_FULLSCREEN:
+                return mTaskWatcherReady
+                        && mTaskWatcher.closeFullscreenTask(
+                                request.displayId, request.taskId);
+            case CLOSE_FREEFORM:
+                return closeDesktopTaskInternal(request.taskId);
+            default:
+                return false;
+        }
     }
 
     static int selectCloseSurvivorTaskId(

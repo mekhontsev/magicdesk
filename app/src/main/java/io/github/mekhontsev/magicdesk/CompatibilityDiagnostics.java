@@ -164,6 +164,7 @@ public final class CompatibilityDiagnostics {
         CaptureDiagnostics.appendReport(report, appContext);
         DesktopSelfTestResult.appendLastResult(report, appContext);
         CompatibilityOnboardingStore.appendReport(report, appContext);
+        DesktopWindowTransitionDiagnostics.appendReport(report);
         appendDisplays(report, appContext);
         appendInputDevices(report);
         VendorDiscoveryReport.appendSaved(report, appContext);

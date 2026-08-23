@@ -70,8 +70,8 @@ final class DesktopSessionTransitionCoordinator {
             complete(callback, false);
             return;
         }
-        if (!mGate.beginClose()) {
-            Log.i(TAG, "Desktop close is already in progress");
+        if (!mGate.begin(DesktopTransitionGate.Operation.CLOSE)) {
+            Log.i(TAG, "Another desktop transition is already in progress");
             complete(callback, false);
             return;
         }
@@ -103,8 +103,9 @@ final class DesktopSessionTransitionCoordinator {
     void switchToMirror(
             final boolean restorePhonePanel,
             final CompletionCallback callback) {
-        if (!mGate.beginModeTransition()) {
-            Log.i(TAG, "Console mode transition is already in progress");
+        if (!mGate.begin(
+                DesktopTransitionGate.Operation.MODE_TRANSITION)) {
+            Log.i(TAG, "Another desktop transition is already in progress");
             complete(callback, false);
             return;
         }
@@ -121,7 +122,8 @@ final class DesktopSessionTransitionCoordinator {
                 if (restorePhonePanel) {
                     PhoneControlPanelLauncher.openOnPhoneWithShell();
                 }
-                mGate.finishStart();
+                mGate.finish(
+                        DesktopTransitionGate.Operation.MODE_TRANSITION);
             }
             complete(callback, success);
         });
@@ -130,7 +132,7 @@ final class DesktopSessionTransitionCoordinator {
     private void finishDesktopClose(
             final CompletionCallback callback,
             final boolean success) {
-        mGate.finishClose();
+        mGate.finish(DesktopTransitionGate.Operation.CLOSE);
         if (!success) {
             MagicDeskRuntime.restoreExternalTaskMigrationProtection();
         }
@@ -274,19 +276,19 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     private void enqueueDesktopStart(final Runnable action) {
-        if (mGate.isCloseInProgress()) {
+        if (mGate.isActive(DesktopTransitionGate.Operation.CLOSE)) {
             Log.i(TAG, "Desktop close is already in progress");
             return;
         }
-        if (!mGate.beginDesktopStart()) {
-            Log.i(TAG, "MagicDesk activation is already in progress");
+        if (!mGate.begin(DesktopTransitionGate.Operation.START)) {
+            Log.i(TAG, "Another desktop transition is already in progress");
             return;
         }
         mOperations.execute(() -> {
             try {
                 action.run();
             } finally {
-                mGate.finishStart();
+                mGate.finish(DesktopTransitionGate.Operation.START);
             }
         });
     }

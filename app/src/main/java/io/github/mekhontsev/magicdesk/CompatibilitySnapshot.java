@@ -90,6 +90,8 @@ final class CompatibilitySnapshot {
                     .put("platform", platformJson())
                     .put("capabilities",
                             capabilities.toJson().getJSONArray("capabilities"))
+                    .put("windowTransitions",
+                            DesktopWindowTransitionDiagnostics.toJson())
                     .put("onboarding", onboarding)
                     .put("selfTestLastModifiedMillis",
                             selfTestLastModifiedMillis);

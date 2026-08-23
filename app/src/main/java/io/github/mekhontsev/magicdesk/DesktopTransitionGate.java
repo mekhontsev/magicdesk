@@ -1,34 +1,31 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Guards overlapping desktop activation, close, and mirror transitions. */
 final class DesktopTransitionGate {
-    private final AtomicBoolean mStartInProgress = new AtomicBoolean();
-    private final AtomicBoolean mCloseInProgress = new AtomicBoolean();
-
-    boolean beginDesktopStart() {
-        return !mCloseInProgress.get()
-                && mStartInProgress.compareAndSet(false, true);
+    enum Operation {
+        START,
+        MODE_TRANSITION,
+        CLOSE
     }
 
-    boolean beginModeTransition() {
-        return mStartInProgress.compareAndSet(false, true);
+    private final AtomicReference<Operation> mActive =
+            new AtomicReference<>();
+
+    boolean begin(final Operation operation) {
+        if (operation == null) {
+            throw new IllegalArgumentException(
+                    "desktop transition operation is required");
+        }
+        return mActive.compareAndSet(null, operation);
     }
 
-    void finishStart() {
-        mStartInProgress.set(false);
+    boolean finish(final Operation operation) {
+        return mActive.compareAndSet(operation, null);
     }
 
-    boolean beginClose() {
-        return mCloseInProgress.compareAndSet(false, true);
-    }
-
-    void finishClose() {
-        mCloseInProgress.set(false);
-    }
-
-    boolean isCloseInProgress() {
-        return mCloseInProgress.get();
+    boolean isActive(final Operation operation) {
+        return mActive.get() == operation;
     }
 }
