@@ -433,13 +433,22 @@ runtime integration and are not distributed through the same release path.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
   and state boundary. Developer input, self-test, and force-stop tools require
   a separate setting and disappear when that setting is disabled.
-- Direct Files and Console automation has a second independent setting.
+- Direct Files, shell, and Terminal automation has a second independent
+  setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
   set of lifecycle-scoped `PersistentAutomationShellSession` instances and
   closes them with the MCP backend. These marker-delimited non-terminal shells
   exist only to return structured command output, exit status, and current
   directory to MCP; they are not a second user-facing Console implementation.
+- `ConsoleTerminalRegistry` holds weak, process-local references to live
+  user-facing Console windows. It exposes immutable task, display, PTY,
+  dimensions, title, directory, viewport, and transcript state without owning
+  an Activity or shell. `DesktopAutomationTerminalWindows` maps the gated MCP
+  `terminal.*` tools onto that registry and the normal built-in-window launch
+  path. Terminal input therefore reaches the real PTY directly instead of
+  synthesizing pointer coordinates. Closing the MCP server closes only its
+  marker-delimited headless sessions, never a user-owned Terminal window.
 - `DesktopAutomationCapture` resolves the active display and asks the shell
   service for either one PNG pipe or one bounded pixel batch. Image bytes are
   returned as MCP image content and are never staged in a filesystem cache.
@@ -448,8 +457,8 @@ runtime integration and are not distributed through the same release path.
   component on Android 15. It exposes only a small non-developer subset and
   executes it through `DesktopAutomationController`.
 - App Functions never accept arbitrary shell commands. MCP exposes shell and
-  broad filesystem operations only behind its explicit Files and Console
-  setting. Transport authentication, optional tool gates, platform
+  broad filesystem operations only behind its explicit Files, shell, and
+  Terminal setting. Transport authentication, optional tool gates, platform
   permissions, and action validation remain independent checks.
 
 ### Desktop UI
@@ -761,6 +770,19 @@ does not use Termux process, JNI, session, or rendering code. Its own
 mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
 The native relay has a small framed control protocol for input bytes and
 resize requests, while terminal output remains an unframed byte stream.
+
+`ShellExecutionEnvironment` defines the common execution profile used by the
+PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
+one-shot shell commands. It removes inherited Termux process variables and
+provides stable `HOME`, `TMPDIR`, XDG directories, Android-system `PATH`,
+locale, and shell identity values under UID-specific
+`/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
+transports add `xterm-256color` and
+true-color metadata; non-interactive commands use `TERM=dumb`. This shared
+profile is the only insertion point for future Android-native command bundles.
+Shell and root identities use independent top-level runtime directories so a
+root-backed Shizuku session cannot leave ownership that breaks a later
+shell-backed session.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
 visibility or native freeform bounds on the verified firmware. While a desktop

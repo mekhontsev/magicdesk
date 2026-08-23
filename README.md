@@ -59,8 +59,9 @@ that can run on the device itself or on a secondary display:
 - Optional local automation exposes typed desktop actions, semantic UI
   controls, bounded operation traces, state, events, and visual observation to
   MCP clients and, on Android 16+, a smaller action set
-  to authorized system agents through App Functions. Direct Files and Console
-  automation has its own disabled-by-default access gate.
+  to authorized system agents through App Functions. Direct filesystem, shell,
+  and interactive Terminal automation has its own disabled-by-default access
+  gate.
 
 ## Highlights
 
@@ -142,7 +143,11 @@ that can run on the device itself or on a secondary display:
 - Run a selected `.sh` file in Console from its context menu. Each Console
   window owns an independent interactive Android shell with PTY semantics,
   ANSI colors, scrollback, alternate-screen applications, direct hardware and
-  software keyboard input, mouse reporting, selection, copy, and paste.
+  software keyboard input, mouse reporting, selection, copy, and paste. PTY,
+  background Desktop Entry, and MCP shell commands share a sanitized Android
+  shell environment with stable `HOME`, `PATH`, temporary, and XDG locations;
+  future native tool bundles extend that one environment instead of adding a
+  separate command runtime.
 - Drop Files or Desktop items onto Console to insert safely quoted paths at the
   command cursor. Console can open its current directory in Files or reveal a
   selected output path after shell-side validation. Normal terminal keys,

@@ -56,13 +56,15 @@ The tool catalog has three explicit levels:
   workflows.
 - **Developer automation tools** adds self-tests, synthetic pointer and key
   input, and package force-stop.
-- **Files and Console automation tools** separately adds direct access to the
-  shell-visible filesystem and persistent `/system/bin/sh` sessions. This
-  level can read, modify, and execute data with the connected shell identity.
+- **Files, shell, and Terminal automation tools** separately adds direct
+  access to the shell-visible filesystem, persistent headless
+  `/system/bin/sh` sessions, and visible interactive PTY windows. This level
+  can read, modify, and execute data with the connected shell identity.
 
 The two optional levels are independent and disappear from `tools/list` while
 disabled. Turning off the MCP server also turns off both optional levels and
-closes all MCP-owned console sessions.
+closes all MCP-owned headless shell sessions. User-opened Terminal windows keep
+their normal desktop lifecycle.
 
 ## Result Contract
 
@@ -160,9 +162,23 @@ Shell-gated commands are:
   `magicdesk.files.create`, and `magicdesk.files.rename`;
 - `magicdesk.console.open`, `magicdesk.console.execute`,
   `magicdesk.console.status`, and `magicdesk.console.close`.
+- `magicdesk.terminal.open`, `magicdesk.terminal.list`,
+  `magicdesk.terminal.status`, `magicdesk.terminal.read`,
+  `magicdesk.terminal.write`, `magicdesk.terminal.send_key`, and
+  `magicdesk.terminal.close`.
 
-Each MCP console session is persistent, has its own current directory, and is
-bounded by the server lifetime. At most eight sessions may exist at once.
+The historical `console.*` tool name denotes a headless command session: each
+session is persistent, has its own current directory, returns bounded output
+and exit status, and is bounded by the server lifetime. At most eight such
+sessions may exist at once.
+
+`terminal.*` addresses actual user-facing Console windows by opaque
+`terminalId`. It can inspect task/display identity, shell PID, dimensions,
+working directory and OSC title; read the textual viewport or bounded
+scrollback; and write text or semantic key events directly to the PTY. These
+operations do not use screenshots or synthetic pointer coordinates.
+`terminal.list` is a fast registry snapshot; `terminal.status` refreshes the
+reported working directory from the live PTY process.
 
 ## Events and Waits
 
@@ -220,7 +236,7 @@ Read-only resources are available at `magicdesk://state`,
 - A 256-bit token authenticates every request with constant-time comparison.
 - Supplied browser origins must identify a literal loopback host.
 - Request lines, headers, bodies, workers, queues, screenshots, list pages,
-  event history, and console sessions are bounded.
+  event history, shell sessions, and Terminal reads are bounded.
 - ADB forwarding grants access to the host process that owns that forwarding
   connection. Treat the token as a password.
 - MCP permissions do not elevate the shell identity. With root-backed Shizuku,
