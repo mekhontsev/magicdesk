@@ -243,9 +243,6 @@ final class TaskbarController {
         final View notifications =
                 mActivity.notifications().createTaskbarButton(
                         mActivity.isCompactDesktopPreview());
-        mActivity.registerAutomationUiElement(
-                notifications, "taskbar.notifications", "button",
-                mActivity.getString(R.string.action_notifications));
         taskbar.addView(
                 notifications,
                 new LinearLayout.LayoutParams(

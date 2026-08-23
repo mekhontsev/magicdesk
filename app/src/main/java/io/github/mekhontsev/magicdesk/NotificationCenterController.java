@@ -95,6 +95,11 @@ final class NotificationCenterController {
                 R.string.action_notifications,
                 compact);
         mButton.setOnClickListener(view -> toggle());
+        mActivity.registerAutomationUiElement(
+                mButton,
+                "taskbar.notifications",
+                "button",
+                mActivity.getString(R.string.action_notifications));
         container.addView(mButton, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
