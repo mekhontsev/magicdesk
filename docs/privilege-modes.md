@@ -25,6 +25,22 @@ The runtime contract is deliberately strict:
 The user normally starts Shizuku through wireless debugging or ADB. MagicDesk
 does not install, start, or configure the Shizuku manager.
 
+## Artifact Trust
+
+Tagged releases and rolling development builds are signed with the same
+certificate. Its SHA-256 fingerprint is:
+
+```text
+3A:F3:FE:F8:95:AC:BC:9C:B7:7B:FD:BB:7E:91:79:42:
+95:70:72:14:97:E3:6E:C1:E4:19:68:C9:4B:52:99:50
+```
+
+The main APK contains no independent privilege-escalation path, kernel module,
+or kernel-module loader. Optional local MCP automation is disabled by default,
+binds only to loopback, and requires a generated bearer token. The separate
+Kernel Fixes APK remains outside the main application's runtime and release
+boundary.
+
 ## Capability Boundary
 
 On the verified firmware, shell UID 2000 can:
