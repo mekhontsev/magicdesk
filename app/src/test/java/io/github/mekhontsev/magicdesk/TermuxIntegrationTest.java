@@ -8,6 +8,17 @@ import org.junit.Test;
 
 public final class TermuxIntegrationTest {
     @Test
+    public void recognizesNestedFirmwareAutoLaunchFailure() {
+        final RuntimeException cause = new RuntimeException(
+                "Blocked by AutoLaunch");
+
+        assertTrue(TermuxIntegration.isAutoLaunchBlocked(
+                new IllegalStateException("service start failed", cause)));
+        assertTrue(!TermuxIntegration.isAutoLaunchBlocked(
+                new IllegalStateException("background start denied")));
+    }
+
+    @Test
     public void x11CommandDefaultsWhenUnset() {
         assertEquals(
                 "termux-x11 :1",

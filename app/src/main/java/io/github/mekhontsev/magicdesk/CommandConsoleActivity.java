@@ -335,6 +335,9 @@ public final class CommandConsoleActivity extends Activity
         mTerminalStatus = getString(
                 R.string.console_failed,
                 ShellAccess.usefulMessage(error));
+        if (mSession != null) {
+            mSession.appendLocalMessage(mTerminalStatus);
+        }
         updateShellStatus();
         updateActions();
     }

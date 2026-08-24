@@ -651,7 +651,7 @@
     <string name="onboarding_check_capture">Screenshot and screen recording work</string>
     <string name="onboarding_check_close_restore">Tasks survive desktop close and restore correctly</string>
     <string name="onboarding_check_phone_launcher">Phone launcher remains healthy</string>
-    <string name="phone_launcher_protected_after_crash">Phone launcher was isolated after a crash. Close Desktop to restore it.</string>
+    <string name="phone_launcher_protected_after_crash">Phone launcher was isolated after a failure. Close Desktop to restore it.</string>
     <string name="onboarding_check_output_configuration">Resolution and refresh-rate controls work</string>
     <string name="self_test_window_target">MagicDesk self-test window</string>
     <string name="console_title">Console</string>
@@ -668,6 +668,7 @@
     <string name="console_termux_title">Termux Console</string>
     <string name="console_termux_unavailable">Termux is not installed</string>
     <string name="console_termux_permission_required">Run command permission required</string>
+    <string name="console_termux_autolaunch_blocked">Termux was blocked by the firmware. Allow Auto-launch or background activity for Termux, then reopen this window.</string>
     <string name="console_idle">Not run</string>
     <string name="console_running">Running&#8230;</string>
     <string name="console_stopping">Stopping&#8230;</string>

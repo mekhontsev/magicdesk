@@ -69,6 +69,16 @@ final class TermuxPtyTransport implements TerminalTransport {
         } catch (IOException | RuntimeException error) {
             FAILURES.incrementAndGet();
             sLastError = ShellAccess.usefulMessage(error);
+            if (TermuxIntegration.isAutoLaunchBlocked(error)) {
+                final String message = context.getString(
+                        R.string.console_termux_autolaunch_blocked);
+                CompatibilityDiagnostics.record(
+                        "TERMUX-PTY-001",
+                        "Termux PTY launch was blocked by firmware",
+                        sLastError,
+                        error);
+                throw new IOException(message, error);
+            }
             if (error instanceof IOException) {
                 throw (IOException) error;
             }

@@ -73,6 +73,21 @@ final class TermuxIntegration {
                         == PackageManager.PERMISSION_GRANTED;
     }
 
+    static boolean isAutoLaunchBlocked(final Throwable error) {
+        Throwable cause = error;
+        while (cause != null) {
+            final String message = cause.getMessage();
+            if (message != null
+                    && message.toLowerCase(java.util.Locale.ROOT)
+                            .contains("blocked by autolaunch")) {
+                return true;
+            }
+            final Throwable next = cause.getCause();
+            cause = next == cause ? null : next;
+        }
+        return false;
+    }
+
     static boolean ensureRunCommandPermission(final Activity activity) {
         if (activity.checkSelfPermission(RUN_COMMAND_PERMISSION)
                 == PackageManager.PERMISSION_GRANTED) {

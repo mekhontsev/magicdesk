@@ -228,6 +228,16 @@ final class ConsoleTerminalSession {
         return mEmulator.getScreen().getTranscriptTextWithoutJoinedLines();
     }
 
+    void appendLocalMessage(final String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return;
+        }
+        final byte[] bytes = ("\r\nMagicDesk: " + message.trim() + "\r\n")
+                .getBytes(StandardCharsets.UTF_8);
+        mEmulator.append(bytes, bytes.length);
+        mListener.onScreenChanged();
+    }
+
     void paste(final String text) {
         if (text != null && !text.isEmpty()) {
             mEmulator.paste(text);
