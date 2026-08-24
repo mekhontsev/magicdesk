@@ -187,6 +187,10 @@ MagicDesk instead keeps native WMShell captions visible by controlling Nubia's
 external-layer privacy filter. MagicDesk overlays are reserved for shell-owned
 UI such as the taskbar, Start menu, and notification center.
 
+The [Chrome custom-caption input investigation](chrome-custom-caption-investigation.md)
+documents why a shell-side gesture-transfer or synthetic-click layer cannot
+reliably repair a firmware caption that consumes application exclusion regions.
+
 ### Keep WMShell desktop decorations enabled as a unit
 
 Android's fullscreen **App Handle** and a freeform task's native caption are
