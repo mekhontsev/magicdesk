@@ -890,9 +890,9 @@ check.
 - Phone control and external desktop are separate tasks and may coexist.
 
 Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
-The script invokes the debug lifecycle instrumentation, so it uses the same
-display driver, owned overlay lease, desktop session, window suite, and cleanup
-as the built-in simulated self-test.
+The script starts the debug self-test Activity, so it uses the same display
+driver, owned overlay lease, desktop session, window suite, and cleanup as the
+built-in simulated self-test without replacing the running app process.
 
 The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
 on a selected simulated, external, or phone display. A desktop session must be
@@ -1772,9 +1772,10 @@ mouse, and Touch Panel input remain NOT TESTED because the automation injects
 input. The last bounded result is included in the normal compatibility report;
 no periodic self-test or diagnostic polling runs in the background.
 
-Debug builds also expose this production path through
-`DesktopLifecycleInstrumentation`. It reports the complete self-test result to
-`am instrument`; it is intentionally not run by host-only CI.
+Debug builds also expose this production path through `DebugSelfTestActivity`.
+The smoke script starts that Activity and reads the normal bounded result file;
+it does not replace the app process with instrumentation, so the runtime and an
+enabled MCP server remain alive. It is intentionally not run by host-only CI.
 
 Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk
 reads the current static system wallpaper. MagicDesk Files offers **Set as

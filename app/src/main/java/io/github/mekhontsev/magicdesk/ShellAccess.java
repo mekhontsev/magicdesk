@@ -401,7 +401,7 @@ public final class ShellAccess {
             final int displayId,
             final int x,
             final int y) {
-        if (!isReady() || displayId <= 0) {
+        if (!isReady() || displayId < 0) {
             return false;
         }
         final IShizukuCommandService service = connectedServiceOrConnect();
@@ -421,7 +421,7 @@ public final class ShellAccess {
             final int x,
             final int y,
             final int button) {
-        if (!isReady() || displayId <= 0) {
+        if (!isReady() || displayId < 0) {
             return false;
         }
         final IShizukuCommandService service = connectedServiceOrConnect();

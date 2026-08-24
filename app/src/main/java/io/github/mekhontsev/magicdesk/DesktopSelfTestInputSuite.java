@@ -13,6 +13,7 @@ import android.content.Intent;
 import android.graphics.Rect;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
+import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 
 import java.io.IOException;
@@ -594,8 +595,7 @@ final class DesktopSelfTestInputSuite {
                 MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
         final int y = bounds.top + geometry.scaleFrom160Dpi(
                 CAPTION_BUTTON_CENTER_Y_PX);
-        ShellAccess.run(pointerCommand(
-                "click " + displayId + " " + x + " " + y));
+        requireProductionPointerClick(displayId, x, y);
         waitForTask(
                 displayId,
                 FIXTURE_CLASS,
@@ -1487,8 +1487,7 @@ final class DesktopSelfTestInputSuite {
             final int y = menuFrame.top
                     + Math.round(menuDensity
                             * SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP);
-            ShellAccess.run(pointerCommand(
-                    "click " + displayId + " " + x + " " + y));
+            requireProductionPointerClick(displayId, x, y);
             final TaskStackParser.Entry placed;
             try {
                 placed = waitForTask(
@@ -1630,8 +1629,7 @@ final class DesktopSelfTestInputSuite {
         DesktopSelfTestFixtureState.clearText(context);
         final int x = bounds.centerX();
         final int y = bounds.top + bounds.height() / 3;
-        ShellAccess.run(pointerCommand(
-                "click " + displayId + " " + x + " " + y));
+        requireProductionPointerClick(displayId, x, y);
         typeAndVerifyText(context, displayId, taskId, token, digit);
         return "token=" + token + ", click=" + x + "," + y;
     }
@@ -1915,8 +1913,19 @@ final class DesktopSelfTestInputSuite {
             final int displayId,
             final int x,
             final int y) throws IOException {
-        ShellAccess.run(pointerCommand(
-                "hover " + displayId + " " + x + " " + y));
+        if (!ShellAccess.injectPointerHoverAt(displayId, x, y)) {
+            throw new IOException("production pointer route rejected hover");
+        }
+    }
+
+    private static void requireProductionPointerClick(
+            final int displayId,
+            final int x,
+            final int y) throws IOException {
+        if (!ShellAccess.injectPointerClickAt(
+                displayId, x, y, MotionEvent.BUTTON_PRIMARY)) {
+            throw new IOException("production pointer route rejected click");
+        }
     }
 
     private static void requireTouchLongPress(
@@ -1924,12 +1933,15 @@ final class DesktopSelfTestInputSuite {
             final int x,
             final int y) throws IOException {
         final long duration = ViewConfiguration.getLongPressTimeout() + 200L;
-        ShellAccess.run(pointerCommand(
+        // A long press is deliberately injected as an external gesture: the
+        // production API has no command whose semantics are "open WMShell's
+        // native maximize menu".
+        ShellAccess.run(testPointerGestureCommand(
                 "long-press " + displayId + " " + x + " " + y
                         + " " + duration));
     }
 
-    private static String pointerCommand(final String arguments) {
+    private static String testPointerGestureCommand(final String arguments) {
         return AppProcessCommand.run(
                 "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
                 arguments);

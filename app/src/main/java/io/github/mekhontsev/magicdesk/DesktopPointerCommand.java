@@ -1,32 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Point;
-import android.view.Display;
-import android.view.MotionEvent;
 
-/** Injects one display-targeted mouse operation from the Shizuku shell. */
+/** Injects test-only pointer gestures not represented by a production action. */
 public final class DesktopPointerCommand {
     private DesktopPointerCommand() {
     }
 
     public static void main(final String[] args) {
         try {
-            if (args.length == 4 && "hover".equals(args[0])) {
-                movePointer(
-                        nonNegativeInt(args[1], "display id"),
-                        point(args[2], args[3]));
-                System.out.println("pointer-hovered");
-                return;
-            }
-            if (args.length == 4 && "click".equals(args[0])) {
-                final int displayId = nonNegativeInt(args[1], "display id");
-                final Point position = point(args[2], args[3]);
-                movePointer(displayId, position);
-                DesktopPointerInjector.injectClickAt(
-                        displayId, position, MotionEvent.BUTTON_PRIMARY);
-                System.out.println("pointer-clicked");
-                return;
-            }
             if (args.length == 5 && "long-press".equals(args[0])) {
                 DesktopPointerInjector.injectTouchLongPress(
                         nonNegativeInt(args[1], "display id"),
@@ -45,8 +27,7 @@ public final class DesktopPointerCommand {
                 return;
             }
             System.err.println("usage: DesktopPointerCommand "
-                    + "<hover display x y|click display x y|"
-                    + "long-press display x y duration-ms|"
+                    + "<long-press display x y duration-ms|"
                     + "drag display start-x start-y "
                     + "end-x end-y duration-ms>");
             System.exit(64);
@@ -54,27 +35,6 @@ public final class DesktopPointerCommand {
             System.err.println("pointer command failed: " + error);
             System.exit(1);
         }
-    }
-
-    private static void movePointer(
-            final int displayId,
-            final Point position) throws ReflectiveOperationException {
-        final PlatformPointerDriver pointer =
-                PlatformDrivers.current().pointer();
-        if (displayId != Display.DEFAULT_DISPLAY
-                && pointer.isAvailable()) {
-            if (!pointer.updatePosition(
-                    displayId,
-                    position.x,
-                    position.y,
-                    DesktopPointerInjector.TOUCHPAD_HOVER,
-                    0L)) {
-                throw new IllegalStateException(
-                        "could not update platform pointer position");
-            }
-            return;
-        }
-        DesktopPointerInjector.injectMouseHover(displayId, position);
     }
 
     private static Point point(final String x, final String y) {
