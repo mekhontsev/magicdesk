@@ -92,6 +92,10 @@ final class DesktopSystemActionsController {
         openConsole(CommandConsoleActivity.createIntent(mActivity));
     }
 
+    void openTermuxConsole() {
+        openConsole(CommandConsoleActivity.createTermuxIntent(mActivity));
+    }
+
     void openConsole(final android.content.Intent intent) {
         mActivity.hideAllPanels();
         try {

@@ -31,4 +31,15 @@ public final class PtyControlProtocolTest {
                         0, 0, 0, 80},
                 bytes.toByteArray());
     }
+
+    @Test
+    public void workingDirectoryRequestHasNoPayload() throws Exception {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PtyControlProtocol.writeWorkingDirectoryRequest(
+                new DataOutputStream(bytes));
+
+        assertArrayEquals(
+                new byte[]{3, 0, 0, 0, 0},
+                bytes.toByteArray());
+    }
 }

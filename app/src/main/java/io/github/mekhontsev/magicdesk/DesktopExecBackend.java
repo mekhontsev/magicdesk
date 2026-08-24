@@ -3,9 +3,9 @@ package io.github.mekhontsev.magicdesk;
 /** Execution environment selected by a Desktop Entry. */
 enum DesktopExecBackend {
     SHELL("shell", new DesktopExecCapabilities(
-            true, true, true, true, "")),
+            true, true, true, true)),
     TERMUX("termux", new DesktopExecCapabilities(
-            true, true, true, false, TermuxIntegration.PACKAGE_NAME));
+            true, true, true, false));
 
     final String wireName;
     private final DesktopExecCapabilities capabilities;

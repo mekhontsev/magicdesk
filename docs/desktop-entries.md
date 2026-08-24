@@ -63,7 +63,8 @@ Entry must still be written as `%%` according to the Desktop Entry format.
 `Terminal` selects how the command is presented:
 
 - `Terminal=true` opens a command window for the selected backend. The shell
-  backend uses MagicDesk Console; the Termux backend uses a Termux session.
+  and Termux backends both use MagicDesk Console with their respective PTY
+  transports.
 - Missing or false `Terminal` runs the command in the background and reports
   startup or failure through the desktop status UI.
 
@@ -99,7 +100,8 @@ It runs `Exec` through Termux's documented `RUN_COMMAND` service and
 `bash -lc`, using the Termux home directory and installed Termux packages.
 Termux must be installed, external app commands must be enabled in Termux, and
 the `RUN_COMMAND` permission must be granted to MagicDesk. With
-`Terminal=true`, MagicDesk opens or reuses a named Termux session.
+`Terminal=true`, MagicDesk opens a new Termux-backed Console and owns that PTY
+for the lifetime of the window.
 
 Unknown backend names invalidate the entry instead of executing the command in
 an unintended environment.
@@ -108,8 +110,9 @@ Backend availability and capabilities are reported in Diagnostics. MagicDesk
 assigns a stable bounded session ID to each command and records its latest
 `preparing`, `running`, `delegated`, `finished`, or `failed` state. `delegated`
 means that Console or an external backend accepted the command but does not
-provide a completion event. This state is diagnostic: MagicDesk does not claim
-ownership of independently running Termux or X11 processes.
+provide a completion event to the launch tracker. This state is diagnostic:
+Console still owns its PTY, while MagicDesk does not claim ownership of
+independently running background Termux or X11 processes.
 
 ## Android applications
 

@@ -184,6 +184,15 @@ final class DesktopControlsController {
                 mActivity.openConsole());
         addActionButton(actionGrid, console);
 
+        if (TermuxIntegration.isInstalled(mActivity)) {
+            final Button termuxConsole = mUi.actionButton(
+                    R.string.console_termux_title,
+                    DesktopUiFactory.COLOR_CYAN);
+            termuxConsole.setOnClickListener(view ->
+                    mActivity.openTermuxConsole());
+            addActionButton(actionGrid, termuxConsole);
+        }
+
         final Button taskManager = mUi.actionButton(
                 R.string.task_manager_title,
                 DesktopUiFactory.COLOR_CYAN);

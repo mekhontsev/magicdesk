@@ -7,10 +7,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 
-import java.io.IOException;
-
 final class TermuxIntegration {
     static final String PACKAGE_NAME = "com.termux";
+    static final String HOME_DIRECTORY =
+            "/data/data/com.termux/files/home";
     static final String RUN_COMMAND_PERMISSION =
             "com.termux.permission.RUN_COMMAND";
     static final int PERMISSION_REQUEST_CODE = 7312;
@@ -26,17 +26,31 @@ final class TermuxIntegration {
             "com.termux.RUN_COMMAND_WORKDIR";
     private static final String EXTRA_BACKGROUND =
             "com.termux.RUN_COMMAND_BACKGROUND";
-    private static final String EXTRA_SESSION_ACTION =
-            "com.termux.RUN_COMMAND_SESSION_ACTION";
-    private static final String EXTRA_SHELL_NAME =
-            "com.termux.RUN_COMMAND_SHELL_NAME";
-    private static final String EXTRA_SHELL_CREATE_MODE =
-            "com.termux.RUN_COMMAND_SHELL_CREATE_MODE";
+    private static final String EXTRA_RUNNER =
+            "com.termux.RUN_COMMAND_RUNNER";
+    private static final String EXTRA_STDIN =
+            "com.termux.RUN_COMMAND_STDIN";
     private static final String EXTRA_COMMAND_LABEL =
             "com.termux.RUN_COMMAND_COMMAND_LABEL";
-    private static final String SHELL_CREATE_MODE_REUSE_NAMED =
-            "no-shell-with-name";
-    private static final String SHELL_NAME_PREFIX = "MagicDesk: ";
+    private static final String RUNNER_APP_SHELL = "app-shell";
+    private static final String PTY_BOOTSTRAP =
+            "set -eu\n"
+            + "target=\"$7\"\n"
+            + "mkdir -p \"${target%/*}\"\n"
+            + "tmp=\"$target.tmp.$$\"\n"
+            + "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM\n"
+            + "base64 -d > \"$tmp\"\n"
+            + "chmod 700 \"$tmp\"\n"
+            + "mv -f \"$tmp\" \"$target\"\n"
+            + "for old in \"${target%/*}\"/magicdesk-pty-*; do\n"
+            + "  [ \"$old\" = \"$target\" ] || rm -f -- \"$old\"\n"
+            + "done\n"
+            + "trap - EXIT HUP INT TERM\n"
+            + "exec \"$target\" --socket \"$1\" \"$2\" \"$3\" "
+            + "\"$4\" \"$5\" "
+            + "\"${SHELL:-/data/data/com.termux/files/usr/bin/bash}\" "
+            + "\"/data/data/com.termux/files/usr/bin/bash\" "
+            + "\"$6\"";
 
     private TermuxIntegration() {
     }
@@ -48,6 +62,12 @@ final class TermuxIntegration {
         } catch (PackageManager.NameNotFoundException error) {
             return false;
         }
+    }
+
+    static boolean isAvailable(final Context context) {
+        return isInstalled(context)
+                && context.checkSelfPermission(RUN_COMMAND_PERMISSION)
+                        == PackageManager.PERMISSION_GRANTED;
     }
 
     static boolean ensureRunCommandPermission(final Activity activity) {
@@ -72,26 +92,42 @@ final class TermuxIntegration {
                 .putExtra(EXTRA_BACKGROUND, true));
     }
 
-    static void runForegroundShellCommand(
-            final Activity activity,
-            final String command,
-            final String label,
+    static void runPtyBridge(
+            final Context context,
+            final int port,
+            final String token,
+            final int rows,
+            final int columns,
             final String workingDirectory,
-            final String sessionId) {
-        final String shellName = SHELL_NAME_PREFIX + label + " ["
-                + (sessionId == null || sessionId.isEmpty()
-                        ? Integer.toHexString(command.hashCode())
-                        : sessionId)
-                + "]";
-        activity.startForegroundService(commandIntent(
-                command, label, workingDirectory)
-                .putExtra(EXTRA_BACKGROUND, false)
-                // Select the session but let MagicDesk place the Termux task.
-                .putExtra(EXTRA_SESSION_ACTION, "2")
-                .putExtra(EXTRA_SHELL_NAME, shellName)
+            final String startupCommand,
+            final String target,
+            final String encodedHelper) {
+        final Intent intent = new Intent(ACTION_RUN_COMMAND)
+                .setComponent(new ComponentName(
+                        PACKAGE_NAME, RUN_COMMAND_SERVICE))
                 .putExtra(
-                        EXTRA_SHELL_CREATE_MODE,
-                        SHELL_CREATE_MODE_REUSE_NAMED));
+                        EXTRA_COMMAND_PATH,
+                        "/data/data/com.termux/files/usr/bin/bash")
+                .putExtra(EXTRA_ARGUMENTS, new String[]{
+                        "-lc",
+                        PTY_BOOTSTRAP,
+                        "magicdesk-termux-pty",
+                        Integer.toString(port),
+                        token,
+                        Integer.toString(rows),
+                        Integer.toString(columns),
+                        DesktopExecWorkingDirectory.normalize(workingDirectory),
+                        DesktopExecCommand.normalize(startupCommand),
+                        target
+                })
+                .putExtra(EXTRA_STDIN, encodedHelper)
+                // The bridge handles the requested cwd after it starts, so
+                // an inaccessible shared path cannot prevent the PTY itself.
+                .putExtra(EXTRA_WORKDIR, HOME_DIRECTORY)
+                .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
+                .putExtra(EXTRA_BACKGROUND, true)
+                .putExtra(EXTRA_COMMAND_LABEL, "MagicDesk embedded terminal");
+        context.startForegroundService(intent);
     }
 
     @SuppressLint("SdCardPath")
@@ -101,7 +137,7 @@ final class TermuxIntegration {
             final String workingDirectory) {
         final String directory = workingDirectory == null
                 || workingDirectory.isEmpty()
-                ? "/data/data/com.termux/files/home"
+                ? HOME_DIRECTORY
                 : DesktopExecWorkingDirectory.normalize(workingDirectory);
         return new Intent(ACTION_RUN_COMMAND)
                 .setComponent(new ComponentName(
@@ -113,66 +149,8 @@ final class TermuxIntegration {
                 .putExtra(
                         EXTRA_WORKDIR,
                         directory)
+                .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
                 .putExtra(EXTRA_COMMAND_LABEL, label);
     }
 
-    @SuppressLint("SdCardPath")
-    static boolean openDirectory(
-            final Activity activity, final String absolutePath) {
-        if (!ensureRunCommandPermission(activity)) {
-            return false;
-        }
-        final String directory =
-                ShellFilePathPolicy.normalizeShellAbsolute(absolutePath);
-        final String shellName = shellNameForDirectory(directory);
-        final Intent intent = new Intent(ACTION_RUN_COMMAND)
-                .setComponent(new ComponentName(
-                        PACKAGE_NAME, RUN_COMMAND_SERVICE))
-                // RUN_COMMAND executes inside Termux; this is Termux's
-                // documented prefix, not MagicDesk private storage.
-                .putExtra(EXTRA_COMMAND_PATH,
-                        "/data/data/com.termux/files/usr/bin/bash")
-                .putExtra(EXTRA_WORKDIR, directory)
-                .putExtra(EXTRA_BACKGROUND, false)
-                // Reopen the terminal previously created for this directory;
-                // Termux creates it atomically when it no longer exists.
-                .putExtra(EXTRA_SHELL_NAME, shellName)
-                .putExtra(
-                        EXTRA_SHELL_CREATE_MODE,
-                        SHELL_CREATE_MODE_REUSE_NAMED)
-                // Select the requested session without letting Termux open its
-                // activity on Android's default display. MagicDesk opens the
-                // activity on the Files window's display immediately after.
-                .putExtra(EXTRA_SESSION_ACTION, "2")
-                .putExtra(EXTRA_COMMAND_LABEL, "MagicDesk Files");
-        // RunCommandService promotes itself immediately. Starting it as a
-        // background service is rejected by current Android releases.
-        activity.startForegroundService(intent);
-        return true;
-    }
-
-    static String shellNameForDirectory(final String absolutePath) {
-        return SHELL_NAME_PREFIX
-                + ShellFilePathPolicy.normalizeShellAbsolute(absolutePath);
-    }
-
-    static void showOnDisplay(
-            final Activity activity, final int displayId) throws IOException {
-        final AppLaunchTarget target = AppLaunchTarget.packageDefault(
-                PACKAGE_NAME);
-        final Intent launchIntent = target.resolve(
-                activity.getPackageManager());
-        if (launchIntent == null) {
-            throw new IOException("Termux launcher activity is unavailable");
-        }
-        WindowedAppLauncher.launch(
-                launchIntent,
-                target,
-                displayId,
-                null,
-                true,
-                null,
-                WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING,
-                null);
-    }
 }

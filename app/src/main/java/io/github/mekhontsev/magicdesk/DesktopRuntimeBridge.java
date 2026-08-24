@@ -200,8 +200,9 @@ public final class DesktopRuntimeBridge {
     static boolean openConsole(
             final String directory,
             final String command,
-            final String terminalId) {
-        return UI.openConsole(directory, command, terminalId);
+            final String terminalId,
+            final DesktopExecBackend backend) {
+        return UI.openConsole(directory, command, terminalId, backend);
     }
 
     static void refreshSettings() {

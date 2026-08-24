@@ -36,6 +36,8 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_AUTO_RUN";
     private static final String EXTRA_TERMINAL_ID =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_TERMINAL_ID";
+    private static final String EXTRA_BACKEND =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_BACKEND";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -51,10 +53,11 @@ public final class CommandConsoleActivity extends Activity
     private ImageButton mPaste;
     private LinearLayout.LayoutParams mTerminalParams;
     private ShellAccess.Snapshot mSnapshot;
-    private String mPendingAutoRunCommand;
+    private DesktopExecBackend mBackend;
     private String mTerminalStatus = "";
     private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
+    private boolean mPermissionRequested;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, CommandConsoleActivity.class).putExtra(
@@ -68,9 +71,30 @@ public final class CommandConsoleActivity extends Activity
 
     static Intent createIntentAtDirectory(
             final Context context, final String initialDirectory) {
-        return new Intent(context, CommandConsoleActivity.class).putExtra(
-                EXTRA_INITIAL_DIRECTORY,
-                initialDirectory);
+        return createIntentAtDirectory(
+                context, initialDirectory, DesktopExecBackend.SHELL);
+    }
+
+    static Intent createTermuxIntent(final Context context) {
+        return createIntentAtDirectory(
+                context,
+                TermuxIntegration.HOME_DIRECTORY,
+                DesktopExecBackend.TERMUX);
+    }
+
+    static Intent createTermuxIntentAtDirectory(
+            final Context context, final String initialDirectory) {
+        return createIntentAtDirectory(
+                context, initialDirectory, DesktopExecBackend.TERMUX);
+    }
+
+    static Intent createIntentAtDirectory(
+            final Context context,
+            final String initialDirectory,
+            final DesktopExecBackend backend) {
+        return new Intent(context, CommandConsoleActivity.class)
+                .putExtra(EXTRA_INITIAL_DIRECTORY, initialDirectory)
+                .putExtra(EXTRA_BACKEND, backend.wireName);
     }
 
     static Intent createCommandIntent(
@@ -85,10 +109,28 @@ public final class CommandConsoleActivity extends Activity
             final Context context,
             final String command,
             final String workingDirectory) {
+        return createPreparedCommandIntent(
+                context,
+                command,
+                workingDirectory,
+                DesktopExecBackend.SHELL);
+    }
+
+    static Intent createPreparedCommandIntent(
+            final Context context,
+            final String command,
+            final String workingDirectory,
+            final DesktopExecBackend backend) {
         final Intent intent = workingDirectory == null
                 || workingDirectory.isEmpty()
-                ? createIntent(context)
-                : createIntentAtDirectory(context, workingDirectory);
+                ? createIntentAtDirectory(
+                        context,
+                        backend == DesktopExecBackend.TERMUX
+                                ? TermuxIntegration.HOME_DIRECTORY
+                                : ShellDesktopDirectory.ABSOLUTE_PATH,
+                        backend)
+                : createIntentAtDirectory(
+                        context, workingDirectory, backend);
         return intent.putExtra(
                 EXTRA_AUTO_RUN_COMMAND,
                 DesktopExecCommand.normalize(command));
@@ -112,28 +154,48 @@ public final class CommandConsoleActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mBackend = backend(getIntent());
         DesktopTaskDescription.apply(
                 this,
-                R.string.console_title,
+                mBackend == DesktopExecBackend.TERMUX
+                        ? R.string.console_termux_title
+                        : R.string.console_title,
                 R.drawable.ic_file_console);
         BuiltInWindowRegistry.register(this);
         getWindow().setSoftInputMode(
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        mSnapshot = ShellAccess.currentSnapshot();
+        mSnapshot = mBackend == DesktopExecBackend.SHELL
+                ? ShellAccess.currentSnapshot() : null;
         setContentView(createContentView());
 
         final String restoredDirectory = savedInstanceState == null
                 ? null : savedInstanceState.getString(STATE_WORKING_DIRECTORY);
         final String initialDirectory = restoredDirectory == null
                 ? initialDirectory(getIntent()) : restoredDirectory;
+        final String startupCommand = takeAutoRunCommand(getIntent());
+        final TerminalTransport.Factory transportFactory =
+                terminalTransportFactory();
         mSession = new ConsoleTerminalSession(
                 initialDirectory,
                 mTerminalView.columns(),
                 mTerminalView.rows(),
                 mTerminalView.cellWidth(),
                 mTerminalView.cellHeight(),
+                mBackend,
+                startupCommand,
+                transportFactory,
                 this);
         mTerminalView.attach(mSession, this);
+        mTerminalView.addOnLayoutChangeListener((
+                view,
+                left,
+                top,
+                right,
+                bottom,
+                oldLeft,
+                oldTop,
+                oldRight,
+                oldBottom) -> maybeStartSession());
         mTerminalRegistryId = ConsoleTerminalRegistry.register(
                 this,
                 mSession,
@@ -155,7 +217,6 @@ public final class CommandConsoleActivity extends Activity
         super.onNewIntent(intent);
         setIntent(intent);
         applyLaunchRequest(intent, true);
-        maybeRunPendingCommand();
     }
 
     @Override
@@ -171,7 +232,23 @@ public final class CommandConsoleActivity extends Activity
     @Override
     protected void onStart() {
         super.onStart();
-        ShellAccess.addStateListener(this);
+        if (mBackend == DesktopExecBackend.SHELL) {
+            ShellAccess.addStateListener(this);
+        }
+        maybeStartSession();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            final int requestCode,
+            final String[] permissions,
+            final int[] grantResults) {
+        super.onRequestPermissionsResult(
+                requestCode, permissions, grantResults);
+        if (requestCode == TermuxIntegration.PERMISSION_REQUEST_CODE) {
+            maybeStartSession();
+            updateShellStatus();
+        }
     }
 
     @Override
@@ -207,6 +284,9 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public void onShellStateChanged(final ShellAccess.Snapshot snapshot) {
+        if (mBackend != DesktopExecBackend.SHELL) {
+            return;
+        }
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) {
                 return;
@@ -234,7 +314,6 @@ public final class CommandConsoleActivity extends Activity
         mTerminalStatus = getString(R.string.console_terminal_ready);
         updateShellStatus();
         updateActions();
-        maybeRunPendingCommand();
     }
 
     @Override
@@ -379,16 +458,59 @@ public final class CommandConsoleActivity extends Activity
                         + ShellCommandLine.quote(directory) + "\r");
             }
         }
-        final String autoRun = intent.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
-        intent.removeExtra(EXTRA_AUTO_RUN_COMMAND);
+        final String autoRun = takeAutoRunCommand(intent);
         if (autoRun != null && !autoRun.trim().isEmpty()) {
-            mPendingAutoRunCommand = autoRun;
+            mSession.write(autoRun + "\r");
+            mTerminalView.scrollToBottom();
         }
     }
 
+    private TerminalTransport.Factory terminalTransportFactory() {
+        if (mBackend != DesktopExecBackend.TERMUX) {
+            return (directory, rows, columns, startupCommand) ->
+                    ShellAccess.openPty(directory, rows, columns);
+        }
+        return (directory, rows, columns, startupCommand) ->
+                TermuxPtyTransport.open(
+                        getApplicationContext(),
+                        directory,
+                        rows,
+                        columns,
+                        startupCommand);
+    }
+
+    private static String takeAutoRunCommand(final Intent intent) {
+        if (intent == null) {
+            return "";
+        }
+        final String command = intent.getStringExtra(EXTRA_AUTO_RUN_COMMAND);
+        intent.removeExtra(EXTRA_AUTO_RUN_COMMAND);
+        return command == null ? "" : command;
+    }
+
     private void maybeStartSession() {
-        if (mSession == null || mSnapshot == null
-                || !mSnapshot.isReady() || mTerminalFailed) {
+        if (mSession == null
+                || mTerminalView == null
+                || !mTerminalView.isLaidOut()
+                || mTerminalFailed) {
+            return;
+        }
+        if (mBackend == DesktopExecBackend.TERMUX) {
+            if (!TermuxIntegration.isInstalled(this)) {
+                failTerminal(getString(R.string.console_termux_unavailable));
+                return;
+            }
+            if (!TermuxIntegration.isAvailable(this)) {
+                mTerminalStatus = getString(
+                        R.string.console_termux_permission_required);
+                updateShellStatus();
+                if (!mPermissionRequested) {
+                    mPermissionRequested = true;
+                    TermuxIntegration.ensureRunCommandPermission(this);
+                }
+                return;
+            }
+        } else if (mSnapshot == null || !mSnapshot.isReady()) {
             return;
         }
         if (!mSession.isReady()) {
@@ -398,20 +520,19 @@ public final class CommandConsoleActivity extends Activity
         }
     }
 
-    private void maybeRunPendingCommand() {
-        if (mPendingAutoRunCommand == null
-                || mSession == null
-                || !mSession.isReady()) {
+    private void updateShellStatus() {
+        if (mShellStatus == null) {
             return;
         }
-        final String command = mPendingAutoRunCommand;
-        mPendingAutoRunCommand = null;
-        mSession.write(command + "\r");
-        mTerminalView.scrollToBottom();
-    }
-
-    private void updateShellStatus() {
-        if (mShellStatus == null || mSnapshot == null) {
+        if (mBackend == DesktopExecBackend.TERMUX) {
+            final String termux = getString(R.string.console_shell_termux);
+            mShellStatus.setText(mTerminalStatus.isEmpty()
+                    ? termux : termux + "  |  " + mTerminalStatus);
+            mShellStatus.setTextColor(
+                    mTerminalFailed ? COLOR_AMBER : COLOR_CYAN);
+            return;
+        }
+        if (mSnapshot == null) {
             return;
         }
         if (mSnapshot.isReady()) {
@@ -432,6 +553,16 @@ public final class CommandConsoleActivity extends Activity
                         ? getString(R.string.state_unavailable)
                         : mSnapshot.error));
         mShellStatus.setTextColor(COLOR_AMBER);
+    }
+
+    private void failTerminal(final String message) {
+        if (mTerminalFailed) {
+            return;
+        }
+        mTerminalFailed = true;
+        mTerminalStatus = message;
+        updateShellStatus();
+        updateActions();
     }
 
     private void updateActions() {
@@ -606,6 +737,15 @@ public final class CommandConsoleActivity extends Activity
         final String directory = intent.getStringExtra(EXTRA_INITIAL_DIRECTORY);
         return directory == null || !directory.startsWith("/")
                 ? ShellDesktopDirectory.ABSOLUTE_PATH : directory;
+    }
+
+    private static DesktopExecBackend backend(final Intent intent) {
+        try {
+            return DesktopExecBackend.parse(intent == null
+                    ? "" : intent.getStringExtra(EXTRA_BACKEND));
+        } catch (IllegalArgumentException error) {
+            return DesktopExecBackend.SHELL;
+        }
     }
 
     private static ShellFileInfo createFilesDirectoryInfo(

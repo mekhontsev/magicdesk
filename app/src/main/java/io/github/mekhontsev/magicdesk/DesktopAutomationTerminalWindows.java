@@ -18,25 +18,46 @@ final class DesktopAutomationTerminalWindows {
 
     DesktopAutomationResult open(final JSONObject arguments) {
         try {
-            requireShell();
             final JSONObject args = arguments == null
                     ? new JSONObject() : arguments;
+            final DesktopExecBackend backend = DesktopExecBackend.parse(
+                    args.optString("backend", "shell"));
+            if (backend == DesktopExecBackend.SHELL) {
+                requireShell();
+            } else if (!TermuxIntegration.isAvailable(
+                    MagicDeskApplication.applicationContext())) {
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.PERMISSION_REQUIRED,
+                        "Termux Run command permission is unavailable",
+                        false);
+            }
             final String directory = DesktopExecWorkingDirectory.normalize(
                     args.optString(
-                            "directory", ShellDesktopDirectory.ABSOLUTE_PATH));
+                            "directory",
+                            backend == DesktopExecBackend.TERMUX
+                                    ? TermuxIntegration.HOME_DIRECTORY
+                                    : ShellDesktopDirectory.ABSOLUTE_PATH));
             final String resolvedDirectory = directory.isEmpty()
-                    ? ShellDesktopDirectory.ABSOLUTE_PATH : directory;
+                    ? (backend == DesktopExecBackend.TERMUX
+                            ? TermuxIntegration.HOME_DIRECTORY
+                            : ShellDesktopDirectory.ABSOLUTE_PATH)
+                    : directory;
             final String command = DesktopExecCommand.normalize(
                     args.optString("command", ""));
-            final ShellFileInfo directoryInfo =
-                    ShellAccess.getShellFileInfo(resolvedDirectory);
-            if (!directoryInfo.directory || !directoryInfo.readable) {
-                throw new IllegalArgumentException(
-                        "terminal directory is not readable");
+            if (backend == DesktopExecBackend.SHELL) {
+                final ShellFileInfo directoryInfo =
+                        ShellAccess.getShellFileInfo(resolvedDirectory);
+                if (!directoryInfo.directory || !directoryInfo.readable) {
+                    throw new IllegalArgumentException(
+                            "terminal directory is not readable");
+                }
             }
             final String terminalId = ConsoleTerminalRegistry.nextId();
             if (!DesktopRuntimeBridge.openConsole(
-                    resolvedDirectory, command, terminalId)) {
+                    resolvedDirectory,
+                    command,
+                    terminalId,
+                    backend)) {
                 return DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                         "desktop host is unavailable", true);
@@ -48,6 +69,7 @@ final class DesktopAutomationTerminalWindows {
                     new JSONObject()
                             .put("accepted", true)
                             .put("terminalId", terminalId)
+                            .put("backend", backend.wireName)
                             .put("observed", observed)
                             .put("workingDirectory", resolvedDirectory)
                             .put("commandProvided", !command.isEmpty()));
@@ -211,7 +233,8 @@ final class DesktopAutomationTerminalWindows {
                 .put("columns", snapshot.columns)
                 .put("rows", snapshot.rows)
                 .put("workingDirectory", snapshot.workingDirectory)
-                .put("title", snapshot.title);
+                .put("title", snapshot.title)
+                .put("backend", snapshot.backend);
     }
 
     private static String sessionId(final JSONObject arguments) {

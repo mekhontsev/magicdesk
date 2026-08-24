@@ -387,6 +387,9 @@ public final class CompatibilityDiagnostics {
         report.append("Termux:X11 integration: ")
                 .append(TermuxX11Integration.diagnostics(context))
                 .append('\n');
+        report.append("Embedded Termux PTY: ")
+                .append(TermuxPtyTransport.diagnostics(context))
+                .append('\n');
         report.append("Desktop Entry Exec backends: ")
                 .append(DesktopExecRunner.diagnostics(context))
                 .append('\n');

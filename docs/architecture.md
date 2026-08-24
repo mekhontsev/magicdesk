@@ -779,23 +779,28 @@ periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
 one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
 
-Every built-in Console window owns another lifecycle-bound stream to a native
-PTY relay and a single interactive `/system/bin/sh`. The relay creates the
-session leader and controlling terminal, forwards raw terminal bytes, applies
-`TIOCSWINSZ`, and reports the shell PID used for a checked `/proc/<pid>/cwd`
-lookup. The UserService links that process to the APK owner's Binder token.
-Closing the window, running `exit`, Binder death, or stream failure ends only
-that PTY and shell. A failed stream is discarded rather than silently changing
-to a different privilege backend.
+Every built-in Console window owns a lifecycle-bound `TerminalTransport`, one
+native PTY relay, and one interactive shell. `ShellPtyHandle` hosts
+`/system/bin/sh` through the UserService and binds its stream to the APK
+owner's Binder token. `TermuxPtyTransport` asks Termux's documented
+`RUN_COMMAND` service to host the same relay under the Termux UID and connects
+it to the window through an authenticated loopback stream. Both transports
+create a session leader and controlling terminal, forward terminal bytes,
+apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
+the process's own security domain. Closing the window, running `exit`, service
+death, or stream failure ends only that PTY and shell. A failed transport is
+discarded rather than silently changing privilege or execution backend.
 
 `ConsoleTerminalSession` owns transport and terminal state for one window.
 The pinned Termux `terminal-emulator` module parses escape sequences and models
-the main screen, alternate screen, cursor, colors, and scrollback; MagicDesk
-does not use Termux process, JNI, session, or rendering code. Its own
+the main screen, alternate screen, cursor, colors, and scrollback. MagicDesk
+does not use Termux app session, JNI, or rendering code. Its own
 `ConsoleTerminalView` and `MagicDeskTerminalRenderer` provide Android input,
 mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
-The native relay has a small framed control protocol for input bytes and
-resize requests, while terminal output remains an unframed byte stream.
+The native relay has a small framed control protocol for input, resize, and
+working-directory requests. The Binder transport exposes raw output from its
+owned descriptor; the loopback transport frames output and metadata so one
+authenticated socket remains the complete ownership boundary.
 
 `ShellExecutionEnvironment` defines the common execution profile used by the
 PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
@@ -1114,10 +1119,10 @@ the established WMShell transition controllers unchanged.
 default backend;
 `X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend
 names invalidate the entry instead of silently running a command in the wrong
-environment. `Terminal=true` opens shell commands in the built-in PTY Console
-and foreground Termux commands in a named Termux session. The PTY is an
-implementation detail of the existing shell backend and therefore requires no
-additional Desktop Entry format or migration.
+environment. `Terminal=true` opens the built-in Console with either a
+UserService-backed Android shell PTY or a Termux-hosted PTY. PTY transport is an
+implementation detail of the backend and therefore requires no additional
+Desktop Entry format or migration.
 
 `DesktopLaunchIntegrationRegistry` is intentionally a small in-process list,
 not a plugin framework. An integration recognizes an Android companion target,
@@ -1134,8 +1139,8 @@ shell syntax, while expanded values are tokenized and shell-quoted. `Path` is
 validated once and transported through `DesktopExecSpec` to either Console,
 the shell process, or Termux.
 
-Backend capabilities describe background, terminal, working-directory, result,
-and terminal-host support. `DesktopExecSessionTracker` keeps only a bounded
+Backend capabilities describe background, terminal, working-directory, and
+completion-result support. `DesktopExecSessionTracker` keeps only a bounded
 observational state for delegated commands. It provides stable IDs and
 diagnostics but does not own, kill, or recreate external Termux or X11
 processes.
@@ -1264,12 +1269,13 @@ on its input insert normalized, shell-quoted paths but never run a command.
 Console can open its current directory in Files, and selected output is treated
 as a path only after `ShellFileSystem` verifies the resolved absolute target.
 File completion lists the exact parent directory through the typed filesystem
-API instead of parsing shell completion output. Optional Termux integration uses
-Termux's documented `RUN_COMMAND` intent and permission; it is not required by
-Files. The normalized directory path becomes a stable Termux shell name, and
-the `no-shell-with-name` creation mode atomically selects that session or
-creates it when absent. MagicDesk does not mirror Termux's session registry or
-force an existing shell back to its original working directory.
+API instead of parsing shell completion output. Optional Termux integration
+uses Termux's documented `RUN_COMMAND` intent and permission; it is not
+required by Files. Files can launch a new Termux-backed Console at its current
+shared directory. MagicDesk atomically installs a versioned native relay from
+the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
+the relay's loopback connection before any terminal bytes are accepted.
+MagicDesk does not mirror or mutate Termux's own session registry.
 Optional Termux:X11 integration uses the same permission boundary. MagicDesk
 intercepts the ordinary default launch of the exported Termux:X11 viewer, then
 prepares it through the same `AppTaskController` path as any other application.
@@ -1759,9 +1765,10 @@ records one compatibility event per distinct failure instead of changing
 desktop session state.
 
 `CommandConsoleActivity` is a permission-protected, multi-instance desktop task
-over the existing `ShellAccess` connection. Each Activity owns one independent
+over a selected `TerminalTransport`. Each Activity owns one independent
 interactive PTY, terminal emulator, current-directory state, and selectable
-scrollback. Input is a byte stream rather than discrete command jobs, so shell
+scrollback. Android-shell and Termux transports share this complete UI and
+session layer. Input is a byte stream rather than discrete command jobs, so shell
 editing, signals, ANSI output, alternate-screen applications, and terminal
 mouse protocols retain their normal semantics. Running `exit` or closing the
 Activity closes that shell. Commands supplied by explicit Files and Desktop

@@ -54,7 +54,8 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                 CommandConsoleActivity.createPreparedCommandIntent(
                         mActivity,
                         request.exec.command,
-                        request.exec.workingDirectory),
+                        request.exec.workingDirectory,
+                        request.exec.backend),
                 options().toBundle());
     }
 

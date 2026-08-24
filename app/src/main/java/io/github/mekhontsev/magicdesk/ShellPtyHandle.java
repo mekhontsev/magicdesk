@@ -4,13 +4,12 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** A lifecycle-owned interactive pseudo-terminal hosted by the UserService. */
-final class ShellPtyHandle implements Closeable {
+final class ShellPtyHandle implements TerminalTransport {
     private static final int BINDER_WRITE_CHUNK_BYTES = 32 * 1024;
 
     private final long mRequestId;
@@ -31,11 +30,13 @@ final class ShellPtyHandle implements Closeable {
         mService = service;
     }
 
-    InputStream inputStream() {
+    @Override
+    public InputStream inputStream() {
         return mInput;
     }
 
-    void write(final byte[] data) throws IOException {
+    @Override
+    public void write(final byte[] data) throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shizuku PTY is closed");
         }
@@ -61,7 +62,8 @@ final class ShellPtyHandle implements Closeable {
         }
     }
 
-    void resize(final int rows, final int columns) throws IOException {
+    @Override
+    public void resize(final int rows, final int columns) throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shizuku PTY is closed");
         }
@@ -75,7 +77,8 @@ final class ShellPtyHandle implements Closeable {
         }
     }
 
-    String workingDirectory() throws IOException {
+    @Override
+    public String workingDirectory() throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shizuku PTY is closed");
         }
@@ -89,7 +92,8 @@ final class ShellPtyHandle implements Closeable {
         }
     }
 
-    long processId() throws IOException {
+    @Override
+    public long processId() throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shizuku PTY is closed");
         }

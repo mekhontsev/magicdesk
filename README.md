@@ -48,7 +48,8 @@ Files, Console, Task Manager, Settings, notifications, media controls, and
 capture workflows are integrated with the desktop instead of being unrelated
 utility applications. Files and Console use the authorized Android shell
 identity, making the workspace useful without requiring a separate file
-manager or terminal package.
+manager or terminal package. When Termux is installed, the same Console UI can
+also host independent Termux PTYs and run its installed command-line tools.
 
 ### Semantic Automation
 
@@ -83,6 +84,8 @@ and desktop items rather than depending only on synthetic screen coordinates.
 - Run independent interactive `/system/bin/sh` sessions in Console through a
   real PTY with ANSI color, alternate-screen applications, mouse reporting,
   selection, clipboard, and live resizing.
+- Open independent Termux-backed Console windows through the same terminal UI,
+  window lifecycle, Desktop Entry pipeline, and semantic MCP controls.
 - Inspect and control running tasks in Task Manager, including CPU and memory
   indicators, exact-task focus and close, explicit force-stop, and a bounded
   per-application log viewer.

@@ -9,6 +9,7 @@ final class PtyControlProtocol {
 
     private static final int FRAME_DATA = 1;
     private static final int FRAME_RESIZE = 2;
+    private static final int FRAME_QUERY_CWD = 3;
 
     private PtyControlProtocol() {
     }
@@ -37,5 +38,11 @@ final class PtyControlProtocol {
         output.writeInt(8);
         output.writeInt(rows);
         output.writeInt(columns);
+    }
+
+    static void writeWorkingDirectoryRequest(final DataOutput output)
+            throws IOException {
+        output.writeByte(FRAME_QUERY_CWD);
+        output.writeInt(0);
     }
 }

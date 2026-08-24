@@ -58,16 +58,21 @@ final class ConsoleTerminalSession {
             new ByteArrayOutputStream();
     private final Listener mListener;
     private final TerminalEmulator mEmulator;
+    private final TerminalTransport.Factory mTransportFactory;
+    private final DesktopExecBackend mBackend;
+    private final String mStartupCommand;
 
     private String mWorkingDirectory;
     private String mTitle = "";
-    private ShellPtyHandle mPty;
+    private TerminalTransport mTransport;
     private long mProcessId = -1L;
     private int mColumns;
     private int mRows;
     private boolean mStarted;
     private boolean mClosed;
     private boolean mReady;
+    private boolean mReceivedOutput;
+    private boolean mStartupCommandSent;
     private boolean mOutputPosted;
 
     ConsoleTerminalSession(
@@ -76,6 +81,9 @@ final class ConsoleTerminalSession {
             final int rows,
             final int cellWidth,
             final int cellHeight,
+            final DesktopExecBackend backend,
+            final String startupCommand,
+            final TerminalTransport.Factory transportFactory,
             final Listener listener) {
         if (initialDirectory == null || !initialDirectory.startsWith("/")) {
             throw new IllegalArgumentException(
@@ -84,6 +92,13 @@ final class ConsoleTerminalSession {
         mWorkingDirectory = initialDirectory;
         mColumns = columns;
         mRows = rows;
+        mBackend = backend == null
+                ? DesktopExecBackend.SHELL : backend;
+        mStartupCommand = startupCommand == null ? "" : startupCommand;
+        if (transportFactory == null) {
+            throw new IllegalArgumentException("missing terminal transport");
+        }
+        mTransportFactory = transportFactory;
         mListener = listener;
         mEmulator = new TerminalEmulator(
                 new SessionOutput(),
@@ -97,6 +112,10 @@ final class ConsoleTerminalSession {
 
     TerminalEmulator emulator() {
         return mEmulator;
+    }
+
+    DesktopExecBackend backend() {
+        return mBackend;
     }
 
     String workingDirectory() {
@@ -237,16 +256,16 @@ final class ConsoleTerminalSession {
     }
 
     String resolveWorkingDirectory() throws IOException {
-        final ShellPtyHandle pty;
+        final TerminalTransport transport;
         synchronized (mLock) {
-            pty = mPty;
-            if (pty == null) {
+            transport = mTransport;
+            if (transport == null) {
                 return mWorkingDirectory;
             }
         }
-        final String resolved = pty.workingDirectory();
+        final String resolved = transport.workingDirectory();
         synchronized (mLock) {
-            if (!mClosed && mPty == pty) {
+            if (!mClosed && mTransport == transport) {
                 mWorkingDirectory = resolved;
             }
             return mWorkingDirectory;
@@ -267,7 +286,7 @@ final class ConsoleTerminalSession {
     }
 
     void close() {
-        final ShellPtyHandle pty;
+        final TerminalTransport transport;
         synchronized (mLock) {
             if (mClosed) {
                 return;
@@ -275,21 +294,22 @@ final class ConsoleTerminalSession {
             mClosed = true;
             mReady = false;
             mProcessId = -1L;
-            pty = mPty;
-            mPty = null;
+            transport = mTransport;
+            mTransport = null;
             mPendingInput.reset();
         }
-        if (pty != null) {
-            pty.close();
+        if (transport != null) {
+            transport.close();
         }
         mWriter.shutdownNow();
     }
 
     private void openPty(
             final String directory, final int rows, final int columns) {
-        final ShellPtyHandle pty;
+        final TerminalTransport transport;
         try {
-            pty = ShellAccess.openPty(directory, rows, columns);
+            transport = mTransportFactory.open(
+                    directory, rows, columns, mStartupCommand);
         } catch (IOException error) {
             postError(error);
             return;
@@ -297,19 +317,21 @@ final class ConsoleTerminalSession {
         final byte[] pending;
         long processId = -1L;
         try {
-            processId = pty.processId();
+            processId = transport.processId();
         } catch (IOException ignored) {
             // Process metadata is useful to automation but not required for
             // an otherwise healthy interactive terminal.
         }
         synchronized (mLock) {
             if (mClosed) {
-                pty.close();
+                transport.close();
                 return;
             }
-            mPty = pty;
+            mTransport = transport;
             mProcessId = processId;
             mReady = true;
+            mStartupCommandSent = mStartupCommand.isEmpty()
+                    || transport.consumesStartupCommand();
             pending = mPendingInput.toByteArray();
             mPendingInput.reset();
         }
@@ -318,15 +340,16 @@ final class ConsoleTerminalSession {
         }
         mMainHandler.post(mListener::onReady);
         final Thread reader = new Thread(
-                () -> readPty(pty), "MagicDeskConsolePtyReader");
+                () -> readTransport(transport),
+                "MagicDeskConsolePtyReader");
         reader.setDaemon(true);
         reader.start();
     }
 
-    private void readPty(final ShellPtyHandle pty) {
+    private void readTransport(final TerminalTransport transport) {
         IOException failure = null;
         try {
-            final InputStream input = pty.inputStream();
+            final InputStream input = transport.inputStream();
             final byte[] buffer = new byte[8192];
             int count;
             while ((count = input.read(buffer)) >= 0) {
@@ -342,13 +365,13 @@ final class ConsoleTerminalSession {
             }
         } finally {
             synchronized (mLock) {
-                if (mPty == pty) {
-                    mPty = null;
+                if (mTransport == transport) {
+                    mTransport = null;
                     mReady = false;
                     mProcessId = -1L;
                 }
             }
-            pty.close();
+            transport.close();
         }
         if (failure != null) {
             postError(failure);
@@ -379,38 +402,54 @@ final class ConsoleTerminalSession {
             if (mClosed) {
                 return;
             }
+            mReceivedOutput = true;
         }
         if (output.length > 0) {
             mEmulator.append(output, output.length);
             mListener.onScreenChanged();
+            sendStartupCommandIfReady();
         }
     }
 
-    private void writeNow(final byte[] data) {
-        final ShellPtyHandle pty;
+    private void sendStartupCommandIfReady() {
+        final byte[] command;
         synchronized (mLock) {
-            pty = mClosed ? null : mPty;
+            if (mClosed || !mReady || !mReceivedOutput
+                    || mStartupCommandSent) {
+                return;
+            }
+            mStartupCommandSent = true;
+            command = (mStartupCommand + "\r").getBytes(
+                    StandardCharsets.UTF_8);
         }
-        if (pty == null) {
+        executeWriter(() -> writeNow(command));
+    }
+
+    private void writeNow(final byte[] data) {
+        final TerminalTransport transport;
+        synchronized (mLock) {
+            transport = mClosed ? null : mTransport;
+        }
+        if (transport == null) {
             return;
         }
         try {
-            pty.write(data);
+            transport.write(data);
         } catch (IOException error) {
             postError(error);
         }
     }
 
     private void resizeNow(final int rows, final int columns) {
-        final ShellPtyHandle pty;
+        final TerminalTransport transport;
         synchronized (mLock) {
-            pty = mClosed ? null : mPty;
+            transport = mClosed ? null : mTransport;
         }
-        if (pty == null) {
+        if (transport == null) {
             return;
         }
         try {
-            pty.resize(rows, columns);
+            transport.resize(rows, columns);
         } catch (IOException error) {
             postError(error);
         }

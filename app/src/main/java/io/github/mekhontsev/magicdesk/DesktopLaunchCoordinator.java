@@ -76,7 +76,7 @@ final class DesktopLaunchCoordinator {
                 return true;
             }
         }
-        final DesktopLaunchRequest prepared = addTerminalHost(request);
+        final DesktopLaunchRequest prepared = request;
         final String sessionId = prepared.exec == null
                 ? "" : DesktopExecSessionTracker.begin(prepared);
         final Runnable execute = prepared.exec == null
@@ -101,23 +101,6 @@ final class DesktopLaunchCoordinator {
         return false;
     }
 
-    private DesktopLaunchRequest addTerminalHost(
-            final DesktopLaunchRequest request) {
-        if (request.exec == null
-                || !request.exec.terminal
-                || request.androidLaunch != null) {
-            return request;
-        }
-        final String packageName = request.exec.backend.capabilities()
-                .terminalPackageName;
-        if (packageName.isEmpty()) {
-            return request;
-        }
-        return request.withAndroidLaunch(
-                AndroidLaunchSpec.defaultLaunch(
-                        AppLaunchTarget.packageDefault(packageName)));
-    }
-
     private void execute(
             final DesktopLaunchRequest request,
             final String sessionId) {
@@ -127,20 +110,9 @@ final class DesktopLaunchCoordinator {
         }
         try {
             if (request.exec.terminal) {
-                if (request.exec.backend == DesktopExecBackend.SHELL) {
-                    mContext.launchConsole(request);
-                    DesktopExecSessionTracker.delegated(sessionId);
-                    mContext.onStarted(request);
-                    return;
-                }
-                final DesktopExecRunner.StartResult result =
-                        DesktopExecRunner.runTermuxForeground(
-                                mContext.activity(),
-                                request.exec.command,
-                                request.exec.workingDirectory,
-                                request.name,
-                                sessionId);
-                handleStartResult(request, sessionId, result);
+                mContext.launchConsole(request);
+                DesktopExecSessionTracker.delegated(sessionId);
+                mContext.onStarted(request);
                 return;
             }
             final WeakReference<DesktopLaunchContext> context =

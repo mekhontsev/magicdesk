@@ -80,7 +80,8 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                 CommandConsoleActivity.createPreparedCommandIntent(
                         mActivity,
                         request.exec.command,
-                        request.exec.workingDirectory),
+                        request.exec.workingDirectory,
+                        request.exec.backend),
                 CommandConsoleActivity.launchTarget(),
                 request.name);
     }

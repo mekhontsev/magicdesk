@@ -543,13 +543,14 @@ final class DesktopUiGateway {
     boolean openConsole(
             final String directory,
             final String command,
-            final String terminalId) {
+            final String terminalId,
+            final DesktopExecBackend backend) {
         final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
         activity.runOnUiThread(() -> activity.openConsole(
-                directory, command, terminalId));
+                directory, command, terminalId, backend));
         return true;
     }
 

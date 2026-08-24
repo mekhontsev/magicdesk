@@ -459,7 +459,10 @@ final class MagicDeskMcpToolCatalog {
                                 .put("directory", stringProperty(
                                         "Initial absolute working directory."))
                                 .put("command", stringProperty(
-                                        "Optional command to run after the terminal is ready.")))))
+                                        "Optional command to run after the terminal is ready."))
+                                .put("backend", enumProperty(
+                                        "PTY execution environment.",
+                                        "shell", "termux")))))
                 .put(readTool(
                         "terminal.list",
                         "List terminal windows",

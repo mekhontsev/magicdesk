@@ -6,28 +6,22 @@ final class DesktopExecCapabilities {
     final boolean terminal;
     final boolean workingDirectory;
     final boolean completionResult;
-    final String terminalPackageName;
 
     DesktopExecCapabilities(
             final boolean background,
             final boolean terminal,
             final boolean workingDirectory,
-            final boolean completionResult,
-            final String terminalPackageName) {
+            final boolean completionResult) {
         this.background = background;
         this.terminal = terminal;
         this.workingDirectory = workingDirectory;
         this.completionResult = completionResult;
-        this.terminalPackageName = terminalPackageName == null
-                ? "" : terminalPackageName;
     }
 
     String report() {
         return "background=" + background
                 + ",terminal=" + terminal
                 + ",cwd=" + workingDirectory
-                + ",completion=" + completionResult
-                + (terminalPackageName.isEmpty()
-                        ? "" : ",terminalPackage=" + terminalPackageName);
+                + ",completion=" + completionResult;
     }
 }

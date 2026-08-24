@@ -256,6 +256,7 @@ final class ConsoleTerminalRegistry {
         final int rows;
         final String workingDirectory;
         final String title;
+        final String backend;
 
         Snapshot(
                 final String id,
@@ -267,7 +268,8 @@ final class ConsoleTerminalRegistry {
                 final int columns,
                 final int rows,
                 final String workingDirectory,
-                final String title) {
+                final String title,
+                final String backend) {
             this.id = id;
             this.taskId = taskId;
             this.displayId = displayId;
@@ -278,6 +280,7 @@ final class ConsoleTerminalRegistry {
             this.rows = rows;
             this.workingDirectory = workingDirectory;
             this.title = title;
+            this.backend = backend;
         }
     }
 
@@ -321,7 +324,8 @@ final class ConsoleTerminalRegistry {
                     terminal.columns(),
                     terminal.rows(),
                     terminal.workingDirectory(),
-                    terminal.title());
+                    terminal.title(),
+                    terminal.backend().wireName);
         }
     }
 }

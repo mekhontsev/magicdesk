@@ -87,8 +87,10 @@ launch precedence, validation, and examples.
 
 ## Console
 
-Every Console window owns an independent `/system/bin/sh` process attached to
-a real pseudo-terminal. It provides:
+Every Console window owns an independent process attached to a real
+pseudo-terminal. The built-in backend runs `/system/bin/sh` with the authorized
+shell identity; the optional Termux backend runs the user's configured Termux
+shell and installed tools. Both provide:
 
 - ANSI and true-color output;
 - scrollback and alternate-screen applications;
@@ -104,7 +106,7 @@ Files and Desktop items can be dropped onto Console to insert safely quoted
 paths at the command cursor. A selected absolute output path can be revealed
 in Files after shell-side validation.
 
-PTY commands, background shell Desktop Entries, and MCP shell commands share
+Android-shell PTY commands, background shell Desktop Entries, and MCP shell commands share
 one sanitized Android shell environment with stable `HOME`, `PATH`, temporary,
 and XDG directories. The shell UID and permissions are shown in Console and
 Diagnostics.
@@ -115,9 +117,18 @@ file prepares the command; execution remains an explicit terminal action.
 ## Termux And Termux:X11
 
 When Termux is installed and external application commands are enabled,
-MagicDesk can open the current Files directory in a named Termux session.
-Reopening the same directory returns to the existing session without resetting
-its process state.
+MagicDesk can open an independent Termux-backed Console at the current Files
+directory. It uses the same renderer, input, resize, selection, drag-and-drop,
+current-directory tracking, task lifecycle, and MCP `terminal.*` operations as
+the Android-shell Console. Multiple windows own independent shells; closing a
+window closes only its PTY.
+
+MagicDesk installs its small versioned PTY relay atomically inside Termux's
+private home through the documented `RUN_COMMAND` stdin channel. The relay
+connects back only over an authenticated loopback socket. MagicDesk neither
+copies Termux executables into the APK nor reads Termux's session registry.
+Directories under Termux's private home cannot be opened in Files when the
+authorized Android shell identity cannot read them.
 
 When Termux:X11 is available, its Start item launches or reconnects the X
 server through Termux's documented command service and opens the viewer as an

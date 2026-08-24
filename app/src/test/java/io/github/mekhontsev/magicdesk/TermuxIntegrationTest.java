@@ -8,21 +8,6 @@ import org.junit.Test;
 
 public final class TermuxIntegrationTest {
     @Test
-    public void sessionNameIdentifiesNormalizedDirectory() {
-        assertEquals(
-                "MagicDesk: /storage/emulated/0/Documents",
-                TermuxIntegration.shellNameForDirectory(
-                        "/storage/emulated/0/Desktop/../Documents"));
-    }
-
-    @Test
-    public void sessionNameRejectsRelativeDirectory() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> TermuxIntegration.shellNameForDirectory("Desktop"));
-    }
-
-    @Test
     public void x11CommandDefaultsWhenUnset() {
         assertEquals(
                 "termux-x11 :1",

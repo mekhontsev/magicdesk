@@ -92,30 +92,6 @@ final class DesktopExecRunner {
         return StartResult.STARTED;
     }
 
-    static StartResult runTermuxForeground(
-            final Activity activity,
-            final String command,
-            final String workingDirectory,
-            final String label,
-            final String sessionId) {
-        final String prepared = DesktopExecCommand.normalize(command);
-        if (prepared.isEmpty()) {
-            return StartResult.UNAVAILABLE;
-        }
-        final StartResult availability = prepareBackend(
-                activity, DesktopExecBackend.TERMUX);
-        if (availability != StartResult.STARTED) {
-            return availability;
-        }
-        TermuxIntegration.runForegroundShellCommand(
-                activity,
-                prepared,
-                label,
-                DesktopExecWorkingDirectory.normalize(workingDirectory),
-                sessionId);
-        return StartResult.STARTED;
-    }
-
     static String diagnostics(final Context context) {
         return "shell=" + ShellAccess.isReady()
                 + ", termux=" + TermuxIntegration.isInstalled(context)

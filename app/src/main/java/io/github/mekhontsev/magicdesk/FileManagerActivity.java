@@ -956,38 +956,22 @@ public final class FileManagerActivity extends Activity
     @Override
     public void onOpenTerminal() {
         try {
-            if (!TermuxIntegration.openDirectory(this, mCurrentPath)) {
+            if (!TermuxIntegration.ensureRunCommandPermission(this)) {
                 Toast.makeText(
                         this,
                         R.string.file_manager_termux_permission,
                         Toast.LENGTH_LONG).show();
                 return;
             }
+            startConsoleWindow(
+                    CommandConsoleActivity.createTermuxIntentAtDirectory(
+                            this, mCurrentPath));
         } catch (RuntimeException error) {
             Toast.makeText(
                     this,
                     R.string.file_manager_termux_failed,
                     Toast.LENGTH_LONG).show();
-            return;
         }
-        final int displayId = getDisplay() == null
-                ? 0 : getDisplay().getDisplayId();
-        mWorker.execute(() -> {
-            try {
-                TermuxIntegration.showOnDisplay(this, displayId);
-            } catch (IOException | RuntimeException error) {
-                runOnUiThread(() -> {
-                    if (!mDestroyed) {
-                        Toast.makeText(
-                                this,
-                                getString(
-                                        R.string.file_manager_termux_window_failed,
-                                        ShellAccess.usefulMessage(error)),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
-        });
     }
 
     @Override
