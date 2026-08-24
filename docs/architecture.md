@@ -806,6 +806,14 @@ working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one
 authenticated socket remains the complete ownership boundary.
 
+Some vendor task managers can grant `RUN_COMMAND` while separately blocking
+Termux's foreground service through an Auto-launch policy. That refusal is a
+transport failure, not an empty terminal: Console keeps the selected Termux
+backend, renders actionable guidance in the terminal, and records the original
+firmware exception in compatibility diagnostics. It never substitutes the
+shell UserService because that would silently change the command environment
+and privilege boundary.
+
 `ShellExecutionEnvironment` defines the common execution profile used by the
 PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
 one-shot shell commands. It removes inherited Termux process variables and
@@ -1085,6 +1093,14 @@ commands.
 The firmware launcher is unusually destructive here: three crashes within
 roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
 databases, preferences, and files. MagicDesk never edits launcher data.
+`IActivityController` reports Java crashes and ANRs, while an event-driven
+`IProcessObserver` covers a vendor or native foreground-process death that has
+no crash callback. The latter is tracked only while the primary launcher owns
+the last phone foreground owner and is deduplicated by PID against an ordinary
+crash. A subsequent foreground owner clears that death candidate without a
+timing heuristic.
+Either signal trips the same session-scoped circuit breaker after the first
+failure; a normal background process death does not.
 
 Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI, wired output
