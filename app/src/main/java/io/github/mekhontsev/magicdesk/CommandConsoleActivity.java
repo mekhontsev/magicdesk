@@ -427,6 +427,11 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_paste,
                 view -> pasteClipboard());
         header.addView(mPaste, buttonParams());
+        final ImageButton createApplication = createIconButton(
+                android.R.drawable.ic_menu_add,
+                R.string.action_new_terminal_application,
+                view -> createTerminalApplication());
+        header.addView(createApplication, buttonParams());
         final ImageButton openFiles = createIconButton(
                 R.drawable.ic_desktop_folder,
                 R.string.console_open_working_directory,
@@ -443,6 +448,16 @@ public final class CommandConsoleActivity extends Activity
         mTerminalParams.setMargins(0, dp(4), 0, taskbarInset());
         page.addView(mTerminalView, mTerminalParams);
         return page;
+    }
+
+    private void createTerminalApplication() {
+        final String directory = mSession == null
+                ? initialDirectory(getIntent()) : mSession.workingDirectory();
+        DesktopCommandApplicationDialog.show(
+                this,
+                DesktopCommandApplicationDialog.InitialValues.empty(
+                        directory, mBackend),
+                null);
     }
 
     private void applyLaunchRequest(

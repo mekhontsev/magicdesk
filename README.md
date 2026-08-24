@@ -91,7 +91,9 @@ and desktop items rather than depending only on synthetic screen coordinates.
   per-application log viewer.
 - Create bounded freedesktop-compatible `.desktop` entries for folders, web
   links, Android applications and shortcuts, Android shell commands, Termux
-  commands, and Termux:X11 launch presets.
+  commands, and Termux:X11 launch presets. Terminal applications created from
+  Desktop, Files, or Console also appear in Start and can accept dropped or
+  opened files through standard Desktop Entry arguments.
 
 See [Workstation tools](docs/workstation-tools.md) and
 [Desktop Entry files](docs/desktop-entries.md) for the complete behavior.

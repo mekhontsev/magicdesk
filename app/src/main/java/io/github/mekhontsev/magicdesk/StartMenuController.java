@@ -18,6 +18,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 final class StartMenuController {
@@ -126,7 +127,8 @@ final class StartMenuController {
                 mSearchSelection = 0;
                 mSearchController.update(
                         mSearchQuery,
-                        mActivity.getLauncherApps());
+                        mActivity.getLauncherApps(),
+                        mActivity.getDesktopApplications());
                 renderBody();
             }
 
@@ -216,7 +218,10 @@ final class StartMenuController {
         if (mSearch != null && mSearch.length() > 0) {
             mSearch.setText("");
         } else {
-            mSearchController.update("", mActivity.getLauncherApps());
+            mSearchController.update(
+                    "",
+                    mActivity.getLauncherApps(),
+                    mActivity.getDesktopApplications());
         }
         setVisible(true, focusable);
     }
@@ -260,7 +265,10 @@ final class StartMenuController {
         if (mSearch != null && mSearch.length() > 0) {
             mSearch.setText("");
         } else {
-            mSearchController.update("", mActivity.getLauncherApps());
+            mSearchController.update(
+                    "",
+                    mActivity.getLauncherApps(),
+                    mActivity.getDesktopApplications());
         }
         render();
     }
@@ -290,7 +298,8 @@ final class StartMenuController {
         mFocusable = focusable;
         mSearchController.update(
                 mSearchQuery,
-                mActivity.getLauncherApps());
+                mActivity.getLauncherApps(),
+                mActivity.getDesktopApplications());
         render();
         final int width = getWidth();
         final int height = getHeight();
@@ -333,7 +342,7 @@ final class StartMenuController {
             return;
         }
 
-        final List<AppItem> menuApps = getMenuApps();
+        final List<MenuApplication> menuApps = getMenuApps();
         if (menuApps.isEmpty()) {
             final TextView empty = new TextView(mActivity);
             empty.setText(mMode == MENU_RECENT
@@ -449,7 +458,12 @@ final class StartMenuController {
                 || mode == MENU_CAPTURE;
     }
 
-    private View createAppTile(final AppItem app, final boolean selected) {
+    private View createAppTile(
+            final MenuApplication application,
+            final boolean selected) {
+        final AppItem app = application.app;
+        final DesktopApplicationRepository.Entry desktopApplication =
+                application.desktopApplication;
         final LinearLayout tile = new LinearLayout(mActivity);
         tile.setOrientation(LinearLayout.VERTICAL);
         tile.setGravity(Gravity.CENTER);
@@ -459,31 +473,47 @@ final class StartMenuController {
                 dp(12),
                 selected
                         ? DesktopUiFactory.COLOR_AMBER
-                        : (app.canFloat
+                        : (app == null || app.canFloat
                                 ? DesktopUiFactory.COLOR_CYAN
                                 : DesktopUiFactory.COLOR_PANEL_ALT)));
         tile.setClickable(true);
         tile.setFocusable(true);
         tile.setOnClickListener(view -> {
             mActivity.hideAllPanels();
-            mActivity.launchDefault(app);
+            if (app != null) {
+                mActivity.launchDefault(app);
+            } else {
+                mActivity.launchDesktopShortcut(
+                        desktopApplication.shortcut,
+                        DesktopLaunchArguments.empty(),
+                        desktopApplication.desktopFilePath);
+            }
         });
-        mActivity.registerContextTarget(tile, app, null);
+        if (app != null) {
+            mActivity.registerContextTarget(tile, app, null);
+        } else if (desktopApplication.desktopFile != null) {
+            mActivity.registerFileContextTarget(
+                    tile, desktopApplication.desktopFile);
+        }
         mActivity.registerAutomationUiElement(
                 tile,
                 "start.app."
-                        + DesktopAutomationUiRegistry.segment(app.packageName),
+                        + DesktopAutomationUiRegistry.segment(
+                                application.identity()),
                 "application",
-                app.label,
-                app.packageName,
+                application.label(),
+                application.identity(),
                 -1);
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(app.icon);
+        icon.setImageDrawable(app != null
+                ? app.icon
+                : DesktopApplicationIconResolver.resolve(
+                        mActivity, desktopApplication.shortcut));
         tile.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         final TextView label = new TextView(mActivity);
-        label.setText(app.label);
+        label.setText(application.label());
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
         label.setTextSize(11);
         label.setGravity(Gravity.CENTER);
@@ -558,11 +588,24 @@ final class StartMenuController {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private List<AppItem> getMenuApps() {
-        final List<AppItem> result = new ArrayList<>();
+    private List<MenuApplication> getMenuApps() {
+        final List<MenuApplication> result = new ArrayList<>();
         final List<AppItem> launcherApps = mActivity.getLauncherApps();
         if (mMode == MENU_APPS) {
-            result.addAll(launcherApps);
+            for (final AppItem app : launcherApps) {
+                result.add(MenuApplication.android(app));
+            }
+            for (final DesktopApplicationRepository.Entry application
+                    : mActivity.getDesktopApplications()) {
+                if (application.shortcut.hasExecLaunch()) {
+                    result.add(MenuApplication.desktop(application));
+                }
+            }
+            result.sort(Comparator
+                    .comparing(
+                            MenuApplication::label,
+                            String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(MenuApplication::identity));
             return result;
         }
         if (mMode == MENU_RECENT) {
@@ -571,7 +614,7 @@ final class StartMenuController {
                 final AppItem app = LauncherAppRepository.findByIdentityKey(
                         launcherApps, appKey);
                 if (app != null) {
-                    result.add(app);
+                    result.add(MenuApplication.android(app));
                 }
             }
         }
@@ -677,6 +720,17 @@ final class StartMenuController {
                     result.label,
                     result.app.packageName,
                     -1);
+        } else if (result.desktopApplication != null
+                && result.desktopApplication.desktopFile != null) {
+            mActivity.registerFileContextTarget(
+                    row, result.desktopApplication.desktopFile);
+            mActivity.registerAutomationUiElement(
+                    row,
+                    "start.search.command."
+                            + DesktopAutomationUiRegistry.segment(
+                                    result.desktopApplication.desktopFilePath),
+                    "application",
+                    result.label);
         } else {
             mActivity.registerAutomationUiElement(
                     row,
@@ -690,6 +744,9 @@ final class StartMenuController {
         final ImageView icon = new ImageView(mActivity);
         if (result.app != null) {
             icon.setImageDrawable(result.app.icon);
+        } else if (result.desktopApplication != null) {
+            icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
+                    mActivity, result.desktopApplication.shortcut));
         } else {
             icon.setImageResource(searchIcon(result));
         }
@@ -766,6 +823,13 @@ final class StartMenuController {
             mActivity.launchDefault(result.app);
             return;
         }
+        if (result.desktopApplication != null) {
+            mActivity.launchDesktopShortcut(
+                    result.desktopApplication.shortcut,
+                    DesktopLaunchArguments.empty(),
+                    result.desktopApplication.desktopFilePath);
+            return;
+        }
         if (result.file != null) {
             final android.content.Intent intent = result.file.directory
                     ? FileManagerActivity.createIntent(
@@ -803,6 +867,36 @@ final class StartMenuController {
 
     private int getSearchResultLimit() {
         return Math.max(4, getRowCount() * 3);
+    }
+
+    private static final class MenuApplication {
+        final AppItem app;
+        final DesktopApplicationRepository.Entry desktopApplication;
+
+        private MenuApplication(
+                final AppItem app,
+                final DesktopApplicationRepository.Entry desktopApplication) {
+            this.app = app;
+            this.desktopApplication = desktopApplication;
+        }
+
+        static MenuApplication android(final AppItem app) {
+            return new MenuApplication(app, null);
+        }
+
+        static MenuApplication desktop(
+                final DesktopApplicationRepository.Entry application) {
+            return new MenuApplication(null, application);
+        }
+
+        String label() {
+            return app != null ? app.label : desktopApplication.shortcut.name;
+        }
+
+        String identity() {
+            return app != null
+                    ? app.packageName : desktopApplication.desktopFilePath;
+        }
     }
 
     private void onSearchResultsChanged() {

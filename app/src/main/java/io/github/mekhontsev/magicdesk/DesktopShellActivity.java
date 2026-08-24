@@ -881,6 +881,12 @@ public abstract class DesktopShellActivity extends Activity
         mContextMenuController.registerDraggableFileTarget(view, file);
     }
 
+    void registerFileContextTarget(
+            final View view,
+            final DesktopFile file) {
+        mContextMenuController.registerFileTarget(view, file);
+    }
+
     void registerWidgetContextTarget(
             final View view,
             final int appWidgetId,
@@ -1117,6 +1123,33 @@ public abstract class DesktopShellActivity extends Activity
                         name, directory));
     }
 
+    void createCommandApplication() {
+        hideAllPanels();
+        DesktopCommandApplicationDialog.show(
+                this,
+                DesktopCommandApplicationDialog.InitialValues.empty(
+                        ShellDesktopDirectory.ABSOLUTE_PATH,
+                        DesktopExecBackend.SHELL),
+                created -> refreshDesktopFolder(true));
+    }
+
+    void createCommandApplication(final DesktopFile file) {
+        if (file == null || file.directory) {
+            return;
+        }
+        hideAllPanels();
+        final String absolutePath = ShellDesktopDirectory.ABSOLUTE_PATH
+                + "/" + file.relativePath;
+        DesktopCommandApplicationDialog.show(
+                this,
+                DesktopCommandApplicationDialog.InitialValues.fromFile(
+                        file.name,
+                        file.mimeType,
+                        absolutePath,
+                        false),
+                created -> refreshDesktopFolder(true));
+    }
+
     void renameDesktopFile(final DesktopFile file) {
         showDesktopNameDialog(
                 R.string.rename_desktop_entry_title,
@@ -1229,6 +1262,12 @@ public abstract class DesktopShellActivity extends Activity
 
     void refreshDesktopFolder(final boolean force) {
         mDesktopWorkspaceController.refreshFolder(force);
+    }
+
+    List<DesktopApplicationRepository.Entry> getDesktopApplications() {
+        return mDesktopWorkspaceController == null
+                ? java.util.Collections.emptyList()
+                : mDesktopWorkspaceController.desktopApplications();
     }
 
     private void showDesktopNameDialog(

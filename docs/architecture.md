@@ -1115,6 +1115,16 @@ the same request onto a regular Files Activity. Neither context reimplements
 request resolution or backend selection. The coordinator deliberately leaves
 the established WMShell transition controllers unchanged.
 
+`DesktopApplicationRepository` is the single catalog adapter for executable
+entries. Start consumes the already loaded Desktop files, while Open With can
+load the same bounded catalog through the shell service. Both receive the same
+immutable shortcut and source path and delegate it to
+`DesktopLaunchCoordinator`. The terminal-application editor only validates a
+form and writes a normal entry through `DesktopEntryFile`; it does not create a
+second application registry or execution path. Its `%f`/`%F` and `MimeType`
+fields consequently drive Start launches, Open With, and drag-and-drop without
+surface-specific command logic.
+
 `DesktopExecRunner` owns the execution-backend boundary. Android shell is the
 default backend;
 `X-MagicDesk-ExecBackend=termux` selects Termux explicitly. Unknown backend

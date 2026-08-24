@@ -79,6 +79,13 @@ final class DesktopContextMenuController {
         registerTarget(view, ContextTarget.file(file), false);
     }
 
+    void registerFileTarget(final View view, final DesktopFile file) {
+        if (view == null || file == null) {
+            return;
+        }
+        registerTarget(view, ContextTarget.file(file));
+    }
+
     void registerDraggableDesktopAppTarget(
             final View view,
             final AppItem app,
@@ -273,6 +280,11 @@ final class DesktopContextMenuController {
                 true,
                 view -> mActivity.createDesktopFile(true));
         addAction(
+                R.string.action_new_terminal_application,
+                DesktopUiFactory.COLOR_CYAN,
+                true,
+                view -> mActivity.createCommandApplication());
+        addAction(
                 R.string.file_manager_paste,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 !FileManagerClipboard.snapshot().isEmpty(),
@@ -424,6 +436,11 @@ final class DesktopContextMenuController {
                     @Override
                     public void runScript() {
                         mActivity.runDesktopScript(file);
+                    }
+
+                    @Override
+                    public void createTerminalApplication() {
+                        mActivity.createCommandApplication(file);
                     }
 
                     @Override

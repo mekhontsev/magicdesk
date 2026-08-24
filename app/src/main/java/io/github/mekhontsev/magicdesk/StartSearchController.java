@@ -17,6 +17,7 @@ import java.util.concurrent.Executors;
 final class StartSearchController implements AutoCloseable {
     enum Kind {
         APP,
+        DESKTOP_APPLICATION,
         BUILT_IN,
         ACTION,
         FILE
@@ -33,6 +34,7 @@ final class StartSearchController implements AutoCloseable {
         final String label;
         final String detail;
         final AppItem app;
+        final DesktopApplicationRepository.Entry desktopApplication;
         final BuiltInDesktopAppCatalog.Entry builtIn;
         final Action action;
         final ShellFileInfo file;
@@ -42,6 +44,7 @@ final class StartSearchController implements AutoCloseable {
                 final String label,
                 final String detail,
                 final AppItem app,
+                final DesktopApplicationRepository.Entry desktopApplication,
                 final BuiltInDesktopAppCatalog.Entry builtIn,
                 final Action action,
                 final ShellFileInfo file) {
@@ -49,6 +52,7 @@ final class StartSearchController implements AutoCloseable {
             this.label = label;
             this.detail = detail;
             this.app = app;
+            this.desktopApplication = desktopApplication;
             this.builtIn = builtIn;
             this.action = action;
             this.file = file;
@@ -62,6 +66,21 @@ final class StartSearchController implements AutoCloseable {
                     app,
                     null,
                     null,
+                    null,
+                    null);
+        }
+
+        static Result desktopApplication(
+                final DesktopApplicationRepository.Entry application) {
+            final DesktopApplicationShortcut shortcut = application.shortcut;
+            return new Result(
+                    Kind.DESKTOP_APPLICATION,
+                    shortcut.name,
+                    shortcut.execBackend.wireName + ": " + shortcut.exec,
+                    null,
+                    application,
+                    null,
+                    null,
                     null);
         }
 
@@ -72,6 +91,7 @@ final class StartSearchController implements AutoCloseable {
                     Kind.BUILT_IN,
                     label,
                     "MagicDesk",
+                    null,
                     null,
                     entry,
                     null,
@@ -87,6 +107,7 @@ final class StartSearchController implements AutoCloseable {
                     "Action",
                     null,
                     null,
+                    null,
                     action,
                     null);
         }
@@ -96,6 +117,7 @@ final class StartSearchController implements AutoCloseable {
                     Kind.FILE,
                     file.name,
                     file.absolutePath,
+                    null,
                     null,
                     null,
                     null,
@@ -123,6 +145,8 @@ final class StartSearchController implements AutoCloseable {
     private final FileManagerSearchController mFileSearch;
     private final List<Result> mLocalResults = new ArrayList<>();
     private final List<Result> mFileResults = new ArrayList<>();
+    private final Set<String> mDesktopApplicationPaths =
+            new LinkedHashSet<>();
     private final Runnable mStartFileSearch = this::startFileSearch;
 
     private String mQuery = "";
@@ -144,7 +168,10 @@ final class StartSearchController implements AutoCloseable {
                             return;
                         }
                         for (final ShellFileInfo match : matches) {
-                            mFileResults.add(Result.file(match));
+                            if (!mDesktopApplicationPaths.contains(
+                                    match.absolutePath)) {
+                                mFileResults.add(Result.file(match));
+                            }
                         }
                         sortFileResults();
                         mListener.onResultsChanged();
@@ -172,13 +199,15 @@ final class StartSearchController implements AutoCloseable {
 
     void update(
             final String query,
-            final List<AppItem> apps) {
+            final List<AppItem> apps,
+            final List<DesktopApplicationRepository.Entry> applications) {
         if (mClosed) {
             return;
         }
         mQuery = normalize(query);
         mLocalResults.clear();
         mFileResults.clear();
+        mDesktopApplicationPaths.clear();
         mHandler.removeCallbacks(mStartFileSearch);
         mFileSearch.cancel();
         if (mQuery.isEmpty()) {
@@ -186,6 +215,7 @@ final class StartSearchController implements AutoCloseable {
             return;
         }
         collectApps(apps);
+        collectDesktopApplications(applications);
         collectActions();
         sortLocalResults();
         mListener.onResultsChanged();
@@ -251,6 +281,22 @@ final class StartSearchController implements AutoCloseable {
             final String label = mActivity.getString(entry.fallbackLabelResId);
             if (matches(label, "magicdesk")) {
                 mLocalResults.add(Result.builtIn(label, entry));
+            }
+        }
+    }
+
+    private void collectDesktopApplications(
+            final List<DesktopApplicationRepository.Entry> applications) {
+        if (applications == null) {
+            return;
+        }
+        for (final DesktopApplicationRepository.Entry application
+                : applications) {
+            mDesktopApplicationPaths.add(application.desktopFilePath);
+            final DesktopApplicationShortcut shortcut = application.shortcut;
+            if (shortcut.hasExecLaunch()
+                    && matches(shortcut.name, shortcut.exec)) {
+                mLocalResults.add(Result.desktopApplication(application));
             }
         }
     }

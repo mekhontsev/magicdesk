@@ -54,9 +54,8 @@ final class DesktopItemViewFactory {
                 item.setAlpha(0.72f);
             }
         } else if (applicationShortcut != null) {
-            icon.setImageResource(R.drawable.ic_magicdesk);
-            icon.setAlpha(0.55f);
-            item.setAlpha(0.72f);
+            icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
+                    mActivity, applicationShortcut));
         } else if (webShortcut != null) {
             icon.setImageResource(R.drawable.ic_desktop_web_link);
         } else if (file.thumbnail != null) {

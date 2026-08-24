@@ -18,6 +18,14 @@ Exec=ps -A
 Terminal=true
 ```
 
+The built-in **New terminal app** editor creates this same format from the
+Desktop or Files background menu and from the Console toolbar. Creating an app
+from Console preselects that Console's Android-shell or Termux backend and its
+current directory. An executable file or shell script can prefill the editor
+through **Add as terminal app**. Created entries are stored under
+`/storage/emulated/0/Desktop`, appear in Start, and remain ordinary editable
+Desktop Entry files.
+
 `Exec` is limited to 4096 characters and cannot contain a NUL character. `%%`
 represents a literal percent sign. MagicDesk expands these standard field
 codes:

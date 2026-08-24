@@ -17,6 +17,8 @@ final class FileManagerBackgroundContextMenu {
 
         void newFolder();
 
+        void newTerminalApplication();
+
         void paste();
 
         void refresh();
@@ -62,6 +64,10 @@ final class FileManagerBackgroundContextMenu {
                 panel, ui, R.string.action_new_folder,
                 DesktopUiFactory.COLOR_CYAN, true,
                 dismiss, actions::newFolder);
+        FileItemContextMenu.addAction(
+                panel, ui, R.string.action_new_terminal_application,
+                DesktopUiFactory.COLOR_CYAN, true,
+                dismiss, actions::newTerminalApplication);
         FileItemContextMenu.addAction(
                 panel, ui, R.string.file_manager_paste,
                 DesktopUiFactory.COLOR_PANEL_ALT, canPaste,

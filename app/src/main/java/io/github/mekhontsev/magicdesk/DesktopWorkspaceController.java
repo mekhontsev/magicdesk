@@ -409,6 +409,10 @@ final class DesktopWorkspaceController {
         render(mApps);
     }
 
+    List<DesktopApplicationRepository.Entry> desktopApplications() {
+        return DesktopApplicationRepository.fromDesktopFiles(mFiles);
+    }
+
     void openFile(final DesktopFile file) {
         final DesktopFolderShortcut folderShortcut = file.folderShortcut();
         if (folderShortcut != null) {

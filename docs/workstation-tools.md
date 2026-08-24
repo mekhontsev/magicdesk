@@ -82,6 +82,19 @@ Entries can select a working directory, launch mode, execution backend, MIME
 types, and standard file arguments such as `%f`, `%F`, `%u`, and `%U`.
 Dropping files onto a compatible executable entry supplies those arguments.
 
+**New terminal app** is available from the Desktop and Files background menus
+and from the Console toolbar. The Console variant preserves that terminal's
+backend and current working directory. Executable files and shell scripts also
+offer **Add as terminal app** in the shared file context menu. MagicDesk writes
+the result as a normal `Type=Application` file under the Desktop directory;
+there is no parallel application database.
+
+Command applications from the Desktop directory appear in Start and Start
+search. A file-argument field enables drag-and-drop. Combining it with a
+matching `MimeType` list also exposes the same entry in Files' **Open with**
+chooser, so all three launch surfaces share one descriptor and one launch
+pipeline.
+
 See [Desktop Entry files](desktop-entries.md) for the complete field contract,
 launch precedence, validation, and examples.
 

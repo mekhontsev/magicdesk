@@ -43,6 +43,29 @@
     <string name="action_new_file">New file&#8230;</string>
     <string name="action_new_folder">New folder&#8230;</string>
     <string name="action_create">Create</string>
+    <string name="action_new_terminal_application">New terminal app&#8230;</string>
+    <string name="action_add_as_terminal_application">Add as terminal app&#8230;</string>
+    <string name="command_app_title">Terminal application</string>
+    <string name="command_app_name">Name</string>
+    <string name="command_app_command">Command and parameters</string>
+    <string name="command_app_working_directory">Working directory</string>
+    <string name="command_app_backend">Execution environment</string>
+    <string name="command_app_file_arguments">Accepted file arguments</string>
+    <string name="command_app_mime_types">MIME types (semicolon separated)</string>
+    <string name="command_app_created">%1$s added to Desktop and Start</string>
+    <string name="command_app_create_failed">Cannot create application: %1$s</string>
+    <string name="command_app_command_required">Enter a command</string>
+    <string name="command_app_directory_invalid">Enter an absolute directory</string>
+    <string name="command_app_mime_invalid">Enter valid MIME types separated by semicolons</string>
+    <string-array name="command_app_backends">
+        <item>Android shell</item>
+        <item>Termux</item>
+    </string-array>
+    <string-array name="command_app_file_arguments_values">
+        <item>None</item>
+        <item>One file</item>
+        <item>Multiple files</item>
+    </string-array>
     <string name="action_rename">Rename</string>
     <string name="action_delete">Delete</string>
     <string name="file_manager_title">Files</string>

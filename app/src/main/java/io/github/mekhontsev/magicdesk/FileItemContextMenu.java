@@ -19,6 +19,7 @@ final class FileItemContextMenu {
         void openWith();
         void install();
         void runScript();
+        void createTerminalApplication();
         void setWallpaper();
         void createDesktopShortcut();
         void copy();
@@ -34,16 +35,19 @@ final class FileItemContextMenu {
         final String mimeType;
         final boolean directory;
         final boolean canCreateDesktopShortcut;
+        final boolean canCreateTerminalApplication;
 
         Target(
                 final String name,
                 final String mimeType,
                 final boolean directory,
-                final boolean canCreateDesktopShortcut) {
+                final boolean canCreateDesktopShortcut,
+                final boolean canCreateTerminalApplication) {
             this.name = name;
             this.mimeType = mimeType;
             this.directory = directory;
             this.canCreateDesktopShortcut = canCreateDesktopShortcut;
+            this.canCreateTerminalApplication = canCreateTerminalApplication;
         }
 
         static Target from(final ShellFileInfo file) {
@@ -52,7 +56,9 @@ final class FileItemContextMenu {
                     file.mimeType,
                     file.directory,
                     file.directory && !ShellDesktopDirectory.ABSOLUTE_PATH
-                            .equals(file.absolutePath));
+                            .equals(file.absolutePath),
+                    !file.directory && (file.executable
+                            || ShellScriptLauncher.supports(file)));
         }
 
         static Target from(final DesktopFile file) {
@@ -60,7 +66,9 @@ final class FileItemContextMenu {
                     file.displayName(),
                     file.mimeType,
                     file.opensDirectory(),
-                    false);
+                    false,
+                    !file.directory && ShellScriptLauncher.supports(
+                            file.name, file.mimeType, false));
         }
     }
 
@@ -165,6 +173,11 @@ final class FileItemContextMenu {
                 ShellScriptLauncher.supports(
                         target.name, target.mimeType, target.directory),
                 dismiss, actions::runScript);
+        if (target.canCreateTerminalApplication) {
+            addAction(panel, ui, R.string.action_add_as_terminal_application,
+                    DesktopUiFactory.COLOR_PANEL_ALT, true,
+                    dismiss, actions::createTerminalApplication);
+        }
         addAction(panel, ui, R.string.file_manager_set_wallpaper,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 DesktopWallpaperFileAction.supports(

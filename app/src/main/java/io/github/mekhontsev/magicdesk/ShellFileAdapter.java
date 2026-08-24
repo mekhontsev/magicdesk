@@ -189,9 +189,8 @@ final class ShellFileAdapter extends BaseAdapter {
         if (folderShortcut != null) {
             item.icon.setImageResource(R.drawable.ic_desktop_folder_link);
         } else if (applicationShortcut != null) {
-            if (!setApplicationIcon(item.icon, applicationShortcut)) {
-                item.icon.setImageResource(R.drawable.ic_magicdesk);
-            }
+            item.icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
+                    mContext, applicationShortcut));
         } else if (webShortcut != null) {
             item.icon.setImageResource(R.drawable.ic_desktop_web_link);
         } else {
@@ -462,22 +461,6 @@ final class ShellFileAdapter extends BaseAdapter {
             final DesktopApplicationShortcut shortcut) {
         return shortcut.launchTarget == null
                 ? shortcut.exec : shortcut.launchTarget.packageName;
-    }
-
-    private boolean setApplicationIcon(
-            final ImageView icon,
-            final DesktopApplicationShortcut shortcut) {
-        if (shortcut.launchTarget == null) {
-            return false;
-        }
-        try {
-            icon.setImageDrawable(mContext.getPackageManager()
-                    .getApplicationIcon(shortcut.launchTarget.packageName));
-            return true;
-        } catch (android.content.pm.PackageManager.NameNotFoundException
-                | RuntimeException error) {
-            return false;
-        }
     }
 
     private int dp(final int value) {

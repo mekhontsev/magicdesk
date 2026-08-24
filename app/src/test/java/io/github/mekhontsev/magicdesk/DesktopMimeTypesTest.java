@@ -45,16 +45,16 @@ public final class DesktopMimeTypesTest {
 
     @Test
     public void openWithRequiresMimeAndFileArgumentContracts() {
-        assertTrue(DesktopOpenWithRepository.accepts(
+        assertTrue(DesktopApplicationRepository.accepts(
                 shortcut("viewer %f", "text/plain;"),
                 "text/plain"));
-        assertFalse(DesktopOpenWithRepository.accepts(
+        assertFalse(DesktopApplicationRepository.accepts(
                 shortcut("viewer", "text/plain;"),
                 "text/plain"));
-        assertFalse(DesktopOpenWithRepository.accepts(
+        assertFalse(DesktopApplicationRepository.accepts(
                 shortcut("viewer %f", ""),
                 "text/plain"));
-        assertFalse(DesktopOpenWithRepository.accepts(
+        assertFalse(DesktopApplicationRepository.accepts(
                 shortcut("viewer %f", "image/*;"),
                 "text/plain"));
     }

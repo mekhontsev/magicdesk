@@ -114,8 +114,8 @@ final class FileOpenWithController {
             final String mimeType,
             final List<Target> targets) {
         try {
-            for (final DesktopOpenWithRepository.Handler handler
-                    : DesktopOpenWithRepository.query(mimeType)) {
+            for (final DesktopApplicationRepository.Entry handler
+                    : DesktopApplicationRepository.queryHandlers(mimeType)) {
                 final DesktopApplicationShortcut shortcut = handler.shortcut;
                 final int detailsResource = shortcut.execBackend
                         == DesktopExecBackend.TERMUX
@@ -299,18 +299,7 @@ final class FileOpenWithController {
 
     private Drawable loadDesktopIcon(
             final DesktopApplicationShortcut shortcut) {
-        final String packageName = shortcut.launchTarget != null
-                ? shortcut.launchTarget.packageName : shortcut.icon;
-        if (packageName != null && !packageName.isEmpty()) {
-            try {
-                return mActivity.getPackageManager()
-                        .getApplicationIcon(packageName);
-            } catch (PackageManager.NameNotFoundException
-                    | RuntimeException ignored) {
-                // Freedesktop icon names use the generic command icon.
-            }
-        }
-        return mActivity.getDrawable(R.drawable.ic_file_console);
+        return DesktopApplicationIconResolver.resolve(mActivity, shortcut);
     }
 
     private int dp(final int value) {
@@ -422,7 +411,7 @@ final class FileOpenWithController {
 
     private static final class Target {
         final ComponentName component;
-        final DesktopOpenWithRepository.Handler desktopHandler;
+        final DesktopApplicationRepository.Entry desktopHandler;
         final String label;
         final String details;
         final Drawable icon;
@@ -430,7 +419,7 @@ final class FileOpenWithController {
 
         Target(
                 final ComponentName component,
-                final DesktopOpenWithRepository.Handler desktopHandler,
+                final DesktopApplicationRepository.Entry desktopHandler,
                 final String label,
                 final String details,
                 final Drawable icon,

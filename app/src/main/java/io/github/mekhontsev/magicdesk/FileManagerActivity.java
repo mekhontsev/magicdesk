@@ -645,6 +645,17 @@ public final class FileManagerActivity extends Activity
                     }
 
                     @Override
+                    public void newTerminalApplication() {
+                        DesktopCommandApplicationDialog.show(
+                                FileManagerActivity.this,
+                                DesktopCommandApplicationDialog.InitialValues
+                                        .empty(
+                                                mCurrentPath,
+                                                DesktopExecBackend.SHELL),
+                                created -> onRefresh());
+                    }
+
+                    @Override
                     public void paste() {
                         onPaste();
                     }
@@ -689,6 +700,11 @@ public final class FileManagerActivity extends Activity
             @Override
             public void runScript() {
                 onItemRunScript(file);
+            }
+
+            @Override
+            public void createTerminalApplication() {
+                onItemCreateTerminalApplication(file);
             }
 
             @Override
@@ -1250,6 +1266,17 @@ public final class FileManagerActivity extends Activity
                 () -> mView.setStatus(getString(
                         R.string.file_manager_desktop_shortcut_created,
                         file.name)));
+    }
+
+    private void onItemCreateTerminalApplication(final ShellFileInfo file) {
+        if (file == null || file.directory
+                || (!file.executable && !ShellScriptLauncher.supports(file))) {
+            return;
+        }
+        DesktopCommandApplicationDialog.show(
+                this,
+                DesktopCommandApplicationDialog.InitialValues.fromFile(file),
+                created -> onRefresh());
     }
 
     private void loadDirectory(
