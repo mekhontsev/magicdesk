@@ -2,8 +2,8 @@
 
 `MagicDesk Display Fixes` is an independent, optional APK for firmware that
 exposes a monitor's complete DisplayPort timing list only to root. It is not a
-MagicDesk runtime dependency and is not published automatically with every
-MagicDesk build.
+MagicDesk runtime dependency. Signed development builds are available from the
+rolling [development prerelease](https://github.com/mekhontsev/magicdesk/releases/tag/development).
 
 The helper currently supports the Nubia display interface verified on the Z80
 Ultra. It has no model allowlist. On each launch it checks for all required
@@ -60,6 +60,8 @@ again before a later MagicDesk session.
 ```
 
 The APK is generated under `display-fixes/build/outputs/apk/debug/`. Normal CI
-builds and checks this module to prevent it from drifting, but rolling and
-tagged MagicDesk releases publish only the main application unless a helper
-build is intentionally distributed for a hardware test.
+builds and checks this module to prevent it from drifting. Pushes to `main`
+also publish the signed helper as
+[`DisplayFixes-development.apk`](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk).
+Tagged MagicDesk releases continue to publish only the main application unless
+a helper build is intentionally included.

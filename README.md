@@ -19,6 +19,7 @@ hardware helpers remain separate and are never desktop requirements.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
+[Optional Display Fixes APK](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk) |
 [Compatibility](docs/compatibility.md) |
 [Getting started](docs/getting-started.md)
 
@@ -171,6 +172,11 @@ for tested profiles, support levels, known limitations, and report contents.
 Use **Close desktop** to retain still-running tasks for a later session. Use
 **Exit MagicDesk** to discard the workspace, close MagicDesk windows, restore
 owned runtime state, and stop its services.
+
+`DisplayFixes-development.apk` is an optional standalone root helper for the
+small set of firmware that hides native external-display timings from shell
+UID 2000. It is not required by MagicDesk and should be installed only for
+that specific problem. See [Native Display Mode Helper](docs/native-display-mode-helper.md).
 
 The full installation, session, update, and removal workflow is in
 [Getting started](docs/getting-started.md).

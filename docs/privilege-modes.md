@@ -192,4 +192,6 @@ requests direct `su` access, applies one capability-checked native display
 timing operation, and completes without binding Shizuku or leaving a root
 process.
 It exists for firmware where shell UID 2000 cannot read the monitor's complete
-mode list. See [Native Display Mode Helper](native-display-mode-helper.md).
+mode list. Signed development builds are published as
+[`DisplayFixes-development.apk`](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk).
+See [Native Display Mode Helper](native-display-mode-helper.md).

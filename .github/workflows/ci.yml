@@ -174,11 +174,17 @@ jobs:
         run: |
           build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
           core_apk=app/build/outputs/apk/release/app-release.apk
+          display_fixes_apk=display-fixes/build/outputs/apk/release/display-fixes-release.apk
           version=$("$build_tools/aapt2" dump badging "$core_apk" \
             | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
+          display_fixes_version=$("$build_tools/aapt2" dump badging "$display_fixes_apk" \
+            | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
           test -n "$version"
+          test -n "$display_fixes_version"
           mkdir -p dist
           cp "$core_apk" "dist/MagicDesk-$version.apk"
+          cp "$display_fixes_apk" \
+            "dist/DisplayFixes-$display_fixes_version.apk"
           printf 'commit=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             > dist/BUILD.txt
           (
@@ -186,7 +192,7 @@ jobs:
             sha256sum ./*.apk > SHA256SUMS
           )
 
-      - name: Upload signed main APK
+      - name: Upload signed development APKs
         if: github.event_name == 'push'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
@@ -255,7 +261,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Download verified signed APK
+      - name: Download verified signed APKs
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -281,14 +287,23 @@ jobs:
           version=${version%.apk}
           test -n "$version"
 
+          mapfile -t display_fixes_apks < <(find download -type f \
+            -name 'DisplayFixes-*.apk' -print)
+          if (( ${#display_fixes_apks[@]} != 1 )); then
+            echo "::error::Expected one signed Display Fixes APK, found ${#display_fixes_apks[@]}"
+            exit 1
+          fi
+          display_fixes_apk=${display_fixes_apks[0]}
+
           mkdir -p dist
           cp "$source_apk" dist/MagicDesk-development.apk
+          cp "$display_fixes_apk" dist/DisplayFixes-development.apk
           printf 'version=%s\ncommit=%s\nrun=%s\n' \
             "$version" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             > dist/BUILD.txt
           (
             cd dist
-            sha256sum MagicDesk-development.apk > SHA256SUMS
+            sha256sum ./*.apk > SHA256SUMS
           )
           cat > development-notes.md <<EOF
           This is the latest release-signed development build from \`main\`.
@@ -298,7 +313,11 @@ jobs:
           - Commit: [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
           - CI run: [\`$GITHUB_RUN_NUMBER\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 
-          The APK uses the same signing certificate as official MagicDesk releases.
+          Both APKs use the same signing certificate as official MagicDesk releases.
+
+          \`DisplayFixes-development.apk\` is the optional standalone root helper
+          for firmware that hides native external-display timings from the Android
+          shell user. MagicDesk itself does not require this helper.
           EOF
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
