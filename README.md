@@ -279,7 +279,3 @@ variants, verification commands, and pull-request expectations.
 - Target SDK: 37
 - License: [MIT](LICENSE)
 - Third-party components: [notices and licenses](THIRD_PARTY_NOTICES.md)
-
-Samsung DeX is a trademark of Samsung Electronics. Its name describes a
-related Android desktop-product category only; MagicDesk is an independent
-project.
