@@ -31,6 +31,17 @@ public final class ShellPhoneLauncherCircuitBreakerTest {
     }
 
     @Test
+    public void isolatesPrimaryHomeAfterForegroundProcessDeath() {
+        final ShellPhoneLauncherCircuitBreaker breaker =
+                new ShellPhoneLauncherCircuitBreaker(true);
+        breaker.configure(true);
+
+        assertTrue(breaker.noteLauncherFailure(
+                PhoneLauncherEvent.PROCESS_DIED));
+        assertFalse(breaker.allowActivityStart(true));
+    }
+
+    @Test
     public void sessionEndRestoresHomeAndResetsProtection() {
         final ShellPhoneLauncherCircuitBreaker breaker =
                 new ShellPhoneLauncherCircuitBreaker(true);

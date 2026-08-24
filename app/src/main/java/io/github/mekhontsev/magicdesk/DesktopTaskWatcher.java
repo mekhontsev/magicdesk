@@ -822,14 +822,23 @@ final class DesktopTaskWatcher {
                     + " | protectionActivated=" + protectionActivated
                     + (compactReason.isEmpty()
                             ? "" : " | reason=" + compactReason);
+            final String diagnosticCode;
+            final String diagnosticSummary;
+            if (type == PhoneLauncherEvent.CRASH) {
+                diagnosticCode = "PHONE-LAUNCHER-CRASH-001";
+                diagnosticSummary =
+                        "Phone launcher crashed during a desktop session";
+            } else if (type == PhoneLauncherEvent.PROCESS_DIED) {
+                diagnosticCode = "PHONE-LAUNCHER-DIED-001";
+                diagnosticSummary =
+                        "Phone launcher process died during a desktop session";
+            } else {
+                diagnosticCode = "PHONE-LAUNCHER-ANR-001";
+                diagnosticSummary =
+                        "Phone launcher stopped responding during a desktop session";
+            }
             CompatibilityDiagnostics.record(
-                    type == PhoneLauncherEvent.CRASH
-                            ? "PHONE-LAUNCHER-CRASH-001"
-                            : "PHONE-LAUNCHER-ANR-001",
-                    type == PhoneLauncherEvent.CRASH
-                            ? "Phone launcher crashed during a desktop session"
-                            : "Phone launcher stopped responding during a desktop session",
-                    technicalDetail);
+                    diagnosticCode, diagnosticSummary, technicalDetail);
             if (protectionActivated) {
                 PhoneControlPanelLauncher.openOnPhoneWithShellAsync();
                 Toast.makeText(

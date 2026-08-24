@@ -23,7 +23,8 @@ final class ShellPhoneLauncherCircuitBreaker {
         if (!mEnabled
                 || !mSessionActive
                 || mTripped
-                || type != PhoneLauncherEvent.CRASH) {
+                || (type != PhoneLauncherEvent.CRASH
+                        && type != PhoneLauncherEvent.PROCESS_DIED)) {
             return false;
         }
         mTripped = true;

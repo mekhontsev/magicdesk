@@ -84,6 +84,14 @@ final class PhoneHomeComponents {
         return mPrimary;
     }
 
+    String primaryPackage() {
+        return packageName(mPrimary);
+    }
+
+    String primaryProcess() {
+        return mPrimaryProcess;
+    }
+
     ComponentName primaryComponentName() {
         return mPrimary.isEmpty()
                 ? null : ComponentName.unflattenFromString(mPrimary);

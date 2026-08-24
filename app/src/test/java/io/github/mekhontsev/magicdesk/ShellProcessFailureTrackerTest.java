@@ -20,6 +20,7 @@ public final class ShellProcessFailureTrackerTest {
             LAUNCHER_PACKAGE + "/.PrimaryHome";
     private static final String PERMISSION_PACKAGE =
             "com.android.permissioncontroller";
+    private static final int LAUNCHER_UID = 10123;
 
     @Test
     public void reportsCrashForDesktopProcessAndItsSubprocess() {
@@ -125,6 +126,44 @@ public final class ShellProcessFailureTrackerTest {
         assertEquals("Input dispatch timed out", listener.launcherReason);
     }
 
+    @Test
+    public void reportsForegroundLauncherDeathWithoutCrashCallback() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = new ShellProcessFailureTracker(
+                listener,
+                PhoneHomeComponents.forTests(PRIMARY_HOME),
+                LAUNCHER_UID);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, true);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+
+        assertEquals(PhoneLauncherEvent.PROCESS_DIED, listener.launcherType);
+        assertEquals(1, listener.launcherEvents);
+        assertEquals(456, listener.launcherPid);
+    }
+
+    @Test
+    public void ignoresBackgroundLauncherDeathAndCrashDuplicate() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = new ShellProcessFailureTracker(
+                listener,
+                PhoneHomeComponents.forTests(PRIMARY_HOME),
+                LAUNCHER_UID);
+        tracker.configure(DISPLAY_ID);
+        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, true);
+        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, false);
+        tracker.onForegroundActivitiesChanged(654, 10999, true);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+        assertEquals(0, listener.launcherEvents);
+
+        tracker.onForegroundActivitiesChanged(789, LAUNCHER_UID, true);
+        tracker.onProcessCrashed(LAUNCHER_PACKAGE, 789, "crashed");
+        tracker.onProcessDied(789, LAUNCHER_UID);
+        assertEquals(1, listener.launcherEvents);
+        assertEquals(PhoneLauncherEvent.CRASH, listener.launcherType);
+    }
+
     private static ShellProcessFailureTracker tracker(
             final RecordingListener listener) {
         final ShellProcessFailureTracker tracker = emptyTracker(listener);
@@ -175,6 +214,7 @@ public final class ShellProcessFailureTrackerTest {
         String launcherProcessName;
         int launcherPid;
         String launcherReason;
+        int launcherEvents;
 
         @Override
         public void onDesktopProcessFailure(
@@ -206,6 +246,7 @@ public final class ShellProcessFailureTrackerTest {
             launcherProcessName = eventProcessName;
             launcherPid = eventPid;
             launcherReason = eventReason;
+            launcherEvents++;
         }
     }
 }

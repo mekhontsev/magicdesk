@@ -6,8 +6,10 @@ import android.view.Display;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Correlates process failures with desktop tasks and the phone HOME process. */
 final class ShellProcessFailureTracker implements
@@ -32,20 +34,32 @@ final class ShellProcessFailureTracker implements
 
     private final Listener mListener;
     private final PhoneHomeComponents mPhoneHome;
+    private final int mPhoneHomeUid;
     private final List<TaskContext> mTasks = new ArrayList<>();
     private final Map<ProcessIdentity, PendingAnr> mPendingAnrs =
             new HashMap<>();
+    private final Map<Integer, String> mPhoneLauncherPids = new HashMap<>();
+    private final Set<Integer> mForegroundPhoneLauncherPids = new HashSet<>();
+    private final Set<Integer> mCrashReportedPids = new HashSet<>();
 
     private int mDisplayId = Display.INVALID_DISPLAY;
 
     ShellProcessFailureTracker(
             final Listener listener,
             final PhoneHomeComponents phoneHome) {
+        this(listener, phoneHome, -1);
+    }
+
+    ShellProcessFailureTracker(
+            final Listener listener,
+            final PhoneHomeComponents phoneHome,
+            final int phoneHomeUid) {
         if (phoneHome == null) {
             throw new IllegalArgumentException("missing phone HOME components");
         }
         mListener = listener;
         mPhoneHome = phoneHome;
+        mPhoneHomeUid = phoneHomeUid;
     }
 
     synchronized void configure(final int displayId) {
@@ -55,6 +69,70 @@ final class ShellProcessFailureTracker implements
         mDisplayId = displayId;
         mTasks.clear();
         mPendingAnrs.clear();
+        mPhoneLauncherPids.clear();
+        mForegroundPhoneLauncherPids.clear();
+        mCrashReportedPids.clear();
+    }
+
+    synchronized void onProcessStarted(
+            final int pid,
+            final int processUid,
+            final int packageUid,
+            final String packageName,
+            final String processName) {
+        if (mDisplayId == Display.INVALID_DISPLAY
+                || (!mPhoneHome.isPrimaryPackage(packageName)
+                        && !mPhoneHome.isPrimaryProcess(processName))) {
+            return;
+        }
+        mPhoneLauncherPids.put(pid, processName == null
+                ? mPhoneHome.primaryProcess() : processName);
+    }
+
+    synchronized void onForegroundActivitiesChanged(
+            final int pid,
+            final int uid,
+            final boolean foregroundActivities) {
+        if (mDisplayId == Display.INVALID_DISPLAY) {
+            return;
+        }
+        if (!isPhoneLauncherProcess(pid, uid)) {
+            if (foregroundActivities) {
+                // A new foreground owner proves that a later launcher death
+                // is an ordinary background process lifecycle event.
+                mForegroundPhoneLauncherPids.clear();
+            }
+            return;
+        }
+        if (!mPhoneLauncherPids.containsKey(pid)) {
+            mPhoneLauncherPids.put(pid, mPhoneHome.primaryProcess());
+        }
+        if (foregroundActivities) {
+            mForegroundPhoneLauncherPids.clear();
+            mForegroundPhoneLauncherPids.add(pid);
+        }
+    }
+
+    void onProcessDied(final int pid, final int uid) {
+        final boolean reportDeath;
+        final String processName;
+        synchronized (this) {
+            final boolean launcher = isPhoneLauncherProcess(pid, uid);
+            processName = mPhoneLauncherPids.remove(pid);
+            final boolean foreground =
+                    mForegroundPhoneLauncherPids.remove(pid);
+            final boolean crashReported = mCrashReportedPids.remove(pid);
+            reportDeath = mDisplayId != Display.INVALID_DISPLAY
+                    && launcher && foreground && !crashReported;
+        }
+        if (reportDeath) {
+            reportPhoneLauncherEvent(
+                    PhoneLauncherEvent.PROCESS_DIED,
+                    processName == null || processName.isEmpty()
+                            ? mPhoneHome.primaryProcess() : processName,
+                    pid,
+                    "foreground launcher process died without a crash callback");
+        }
     }
 
     @Override
@@ -114,6 +192,10 @@ final class ShellProcessFailureTracker implements
             mPendingAnrs.remove(identity);
             phoneLauncher = mDisplayId != Display.INVALID_DISPLAY
                     && mPhoneHome.isPrimaryProcess(processName);
+            if (phoneLauncher) {
+                mCrashReportedPids.add(pid);
+                mPhoneLauncherPids.put(pid, processName);
+            }
             failure = createFailure(
                     DesktopProcessFailure.CRASH,
                     processName,
@@ -270,6 +352,11 @@ final class ShellProcessFailureTracker implements
                 processName == null ? "" : processName,
                 pid,
                 DesktopProcessFailure.compactReason(reason));
+    }
+
+    private boolean isPhoneLauncherProcess(final int pid, final int uid) {
+        return mPhoneLauncherPids.containsKey(pid)
+                || (mPhoneHomeUid >= 0 && uid == mPhoneHomeUid);
     }
 
     private static String packageFromProcessName(final String processName) {

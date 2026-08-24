@@ -7,6 +7,7 @@ final class PhoneTaskGuardDiagnostics {
     private static int sLauncherStartsBlocked;
     private static int sLauncherCrashes;
     private static int sLauncherAnrs;
+    private static int sLauncherDeaths;
     private static int sLauncherRecoveries;
     private static int sLauncherProtections;
     private static boolean sAwaitingLauncherRecovery;
@@ -35,6 +36,9 @@ final class PhoneTaskGuardDiagnostics {
             sAwaitingLauncherRecovery = true;
         } else if (type == PhoneLauncherEvent.ANR) {
             sLauncherAnrs++;
+        } else if (type == PhoneLauncherEvent.PROCESS_DIED) {
+            sLauncherDeaths++;
+            sAwaitingLauncherRecovery = true;
         }
         if (protectionActivated) {
             sLauncherProtections++;
@@ -49,6 +53,7 @@ final class PhoneTaskGuardDiagnostics {
                 sLauncherStartsBlocked,
                 sLauncherCrashes,
                 sLauncherAnrs,
+                sLauncherDeaths,
                 sLauncherRecoveries,
                 sLauncherProtections);
     }
@@ -60,6 +65,7 @@ final class PhoneTaskGuardDiagnostics {
         sLauncherStartsBlocked = 0;
         sLauncherCrashes = 0;
         sLauncherAnrs = 0;
+        sLauncherDeaths = 0;
         sLauncherRecoveries = 0;
         sLauncherProtections = 0;
         sAwaitingLauncherRecovery = false;
@@ -72,6 +78,7 @@ final class PhoneTaskGuardDiagnostics {
         final int launcherStartsBlocked;
         final int launcherCrashes;
         final int launcherAnrs;
+        final int launcherDeaths;
         final int launcherRecoveries;
         final int launcherProtections;
 
@@ -82,6 +89,7 @@ final class PhoneTaskGuardDiagnostics {
                 final int launcherStartsBlocked,
                 final int launcherCrashes,
                 final int launcherAnrs,
+                final int launcherDeaths,
                 final int launcherRecoveries,
                 final int launcherProtections) {
             this.normalizations = normalizations;
@@ -90,6 +98,7 @@ final class PhoneTaskGuardDiagnostics {
             this.launcherStartsBlocked = launcherStartsBlocked;
             this.launcherCrashes = launcherCrashes;
             this.launcherAnrs = launcherAnrs;
+            this.launcherDeaths = launcherDeaths;
             this.launcherRecoveries = launcherRecoveries;
             this.launcherProtections = launcherProtections;
         }
@@ -101,6 +110,7 @@ final class PhoneTaskGuardDiagnostics {
                     + ", launcherStartsBlocked=" + launcherStartsBlocked
                     + ", launcherCrashes=" + launcherCrashes
                     + ", launcherAnrs=" + launcherAnrs
+                    + ", launcherDeaths=" + launcherDeaths
                     + ", launcherRecoveries=" + launcherRecoveries
                     + ", launcherProtections=" + launcherProtections;
         }

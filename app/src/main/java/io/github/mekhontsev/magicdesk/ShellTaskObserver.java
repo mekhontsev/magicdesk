@@ -36,6 +36,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellDesktopFocusController mFocusController;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
+    private final ShellProcessObserverController mProcessObserverController;
     private final PhoneHomeComponents mPhoneHome;
     private final ShellPhoneLauncherCircuitBreaker mPhoneLauncherCircuitBreaker;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
@@ -183,7 +184,43 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         protectionActivated));
                     }
                 },
-                mPhoneHome);
+                mPhoneHome,
+                resolvePhoneHomeUid(context, mPhoneHome));
+        mProcessObserverController = new ShellProcessObserverController(
+                phoneUi.protectsPhoneLauncherAfterCrash(),
+                new ShellProcessObserverController.Listener() {
+                    @Override
+                    public void onProcessStarted(
+                            final int pid,
+                            final int processUid,
+                            final int packageUid,
+                            final String packageName,
+                            final String processName) {
+                        mProcessFailureTracker.onProcessStarted(
+                                pid,
+                                processUid,
+                                packageUid,
+                                packageName,
+                                processName);
+                    }
+
+                    @Override
+                    public void onForegroundActivitiesChanged(
+                            final int pid,
+                            final int uid,
+                            final boolean foregroundActivities) {
+                        mProcessFailureTracker.onForegroundActivitiesChanged(
+                                pid, uid, foregroundActivities);
+                    }
+
+                    @Override
+                    public void onProcessDied(
+                            final int pid, final int uid) {
+                        mProcessFailureTracker.onProcessDied(pid, uid);
+                    }
+                },
+                error -> callCallback(() ->
+                        mCallback.onObserverError(error)));
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
@@ -298,9 +335,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             HiddenTaskApi.registerTaskStackListener(mService, this);
             mRegistered = true;
+            mProcessObserverController.start();
             mStateMonitor.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mActivityStartController.close();
+            mProcessObserverController.close();
             if (mRegistered) {
                 mRegistered = false;
                 try {
@@ -926,6 +965,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("input panel guard", mInputPanelGuard::close);
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
+        closeSafely("process observer", mProcessObserverController::close);
         closeSafely("activity start controller",
                 mActivityStartController::close);
         closeSafely("migration guard", mMigrationGuard::close);
@@ -951,6 +991,21 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             cleanup.run();
         } catch (RuntimeException error) {
             Log.w(TAG, "failed to close " + component, error);
+        }
+    }
+
+    private static int resolvePhoneHomeUid(
+            final Context context,
+            final PhoneHomeComponents phoneHome) {
+        if (context == null || phoneHome == null
+                || phoneHome.primaryPackage().isEmpty()) {
+            return -1;
+        }
+        try {
+            return context.getPackageManager().getPackageUid(
+                    phoneHome.primaryPackage(), 0);
+        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
+            return -1;
         }
     }
 
