@@ -17,6 +17,11 @@ Standard Android behavior forms the baseline; platform, display, and SoC
 drivers add capabilities only when runtime probes verify them. Optional root
 hardware helpers remain separate and are never desktop requirements.
 
+> **Development note:** MagicDesk is a vibe-coded project, built primarily
+> through iterative AI-assisted development and hands-on testing on real
+> Android hardware. Its privileged shell integration and optional undocumented
+> vendor interfaces make independent source review especially important.
+
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
 [Optional Display Fixes APK](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk) |
