@@ -146,6 +146,19 @@ authorized Android shell identity cannot read them.
 When Termux:X11 is available, its Start item launches or reconnects the X
 server through Termux's documented command service and opens the viewer as an
 ordinary MagicDesk task. Its startup command is configurable in Settings.
+MagicDesk extracts an explicit `:N` display from that command and reconnects
+only the matching Termux:X11 process. If the process exists but its reconnect
+listener is unavailable, the normal Start action continues with the configured
+startup command instead of reporting a false success.
+
+The ordinary Termux:X11 Start/task context menu also provides **Reconnect
+Termux:X11**. This action only sends the viewer handshake for the Settings
+command; it does not start, restart, or stop an X server. A `.desktop` profile
+keeps its own command authoritative and therefore does not inherit this global
+action. Diagnostics and MCP report the configured display, matching server
+process, reconnect-listener readiness, and Android viewer task separately. A
+custom wrapper script still launches normally, but these display-specific
+operations require a direct `termux-x11 :N` argument in the configured command.
 
 A `.desktop` entry can combine a Termux command with the Termux:X11 Android
 package to create a named launch preset. These presets coordinate the Android

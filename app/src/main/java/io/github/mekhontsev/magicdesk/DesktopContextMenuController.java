@@ -599,6 +599,21 @@ final class DesktopContextMenuController {
                         mActivity.focusTask(state.app, state.task);
                     }
                 });
+        // A .desktop profile may carry a different companion command. Its
+        // explicit launch remains authoritative; integration actions here
+        // belong only to the ordinary application/task entry.
+        if (state.desktopFile == null) {
+            for (final DesktopLaunchIntegrationAction action
+                    : DesktopLaunchIntegrationRegistry.actions(
+                            mActivity, state.app.launchTarget)) {
+                addAction(
+                        action.labelResource,
+                        DesktopUiFactory.COLOR_PANEL_ALT,
+                        action.enabled,
+                        view -> mActivity.invokeLaunchIntegrationAction(
+                                state.app, action));
+            }
+        }
         if (!state.shortcuts.isEmpty()) {
             addSubmenuAction(
                     R.string.action_app_actions,

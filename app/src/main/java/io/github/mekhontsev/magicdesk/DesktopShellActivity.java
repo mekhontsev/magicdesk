@@ -1768,6 +1768,23 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.launchDefault(app);
     }
 
+    void invokeLaunchIntegrationAction(
+            final AppItem app,
+            final DesktopLaunchIntegrationAction action) {
+        if (app == null || action == null) {
+            return;
+        }
+        DesktopLaunchIntegrationRegistry.invokeAction(
+                this,
+                app.launchTarget,
+                action.id,
+                (success, message) -> runOnUiThread(() -> Toast.makeText(
+                        this,
+                        message,
+                        success ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG)
+                        .show()));
+    }
+
     void launchDefault(final AppItem app, final Runnable onPrepared) {
         mAppTasks.launchDefault(app, onPrepared);
     }

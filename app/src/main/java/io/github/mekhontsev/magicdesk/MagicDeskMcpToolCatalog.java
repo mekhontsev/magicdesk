@@ -89,6 +89,11 @@ final class MagicDeskMcpToolCatalog {
                         "Get self-test result",
                         "Read the current status and latest desktop self-test report.",
                         emptySchema()))
+                .put(readTool(
+                        "get_termux_x11_status",
+                        "Get Termux:X11 status",
+                        "Probe the configured Termux:X11 display, reconnect listener, and Android viewer task.",
+                        emptySchema()))
                 .put(actionTool(
                         "start_desktop",
                         "Start desktop",
@@ -198,6 +203,11 @@ final class MagicDeskMcpToolCatalog {
                         "open_settings",
                         "Open settings",
                         "Open MagicDesk settings on the active desktop or phone.",
+                        emptySchema()))
+                .put(actionTool(
+                        "reconnect_termux_x11",
+                        "Reconnect Termux:X11",
+                        "Reconnect the Android viewer to the running configured Termux:X11 display.",
                         emptySchema()))
                 .put(readTool(
                         "capture_screenshot",
@@ -709,6 +719,11 @@ final class MagicDeskMcpToolCatalog {
             case "get_self_test":
                 properties.put("running", booleanProperty("Test is running."))
                         .put("report", stringProperty("Latest test report."));
+                break;
+            case "get_termux_x11_status":
+            case "reconnect_termux_x11":
+                properties.put("termuxX11", openObjectProperty(
+                        "Typed Termux:X11 runtime status."));
                 break;
             case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))

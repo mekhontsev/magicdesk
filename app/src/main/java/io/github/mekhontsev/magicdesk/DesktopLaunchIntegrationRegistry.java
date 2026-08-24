@@ -85,6 +85,29 @@ final class DesktopLaunchIntegrationRegistry {
                         == integration.defaultExec(context).backend;
     }
 
+    static List<DesktopLaunchIntegrationAction> actions(
+            final Context context,
+            final AppLaunchTarget target) {
+        final DesktopLaunchIntegration integration = find(target);
+        return integration == null
+                ? List.of() : integration.actions(context);
+    }
+
+    static void invokeAction(
+            final Context context,
+            final AppLaunchTarget target,
+            final String actionId,
+            final DesktopLaunchIntegration.ActionCallback callback) {
+        final DesktopLaunchIntegration integration = find(target);
+        if (integration == null) {
+            if (callback != null) {
+                callback.onComplete(false, "integration is unavailable");
+            }
+            return;
+        }
+        integration.invokeAction(context, actionId, callback);
+    }
+
     private static DesktopLaunchIntegration find(
             final AppLaunchTarget target) {
         for (final DesktopLaunchIntegration integration : INTEGRATIONS) {

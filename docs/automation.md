@@ -185,6 +185,17 @@ default is `shell`. A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
 
+`magicdesk.get_termux_x11_status` performs a bounded, non-destructive probe of
+the configured display. It reports the matching Termux process, reconnect
+listener, and Android viewer task as separate fields. The same typed snapshot
+is included under `runtime.termuxX11` in `get_state`; that embedded copy is
+cached and does not launch an external command during a state read.
+
+`magicdesk.reconnect_termux_x11` sends the standard viewer handshake to the
+configured running display. It never starts or stops the X server. Both tools
+require Termux, Termux:X11, the Termux external-command setting, and the
+`RUN_COMMAND` permission.
+
 ## Events and Waits
 
 `magicdesk://events` and `magicdesk.get_events` expose a bounded, process-local

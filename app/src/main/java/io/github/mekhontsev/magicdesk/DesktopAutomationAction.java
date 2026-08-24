@@ -18,6 +18,7 @@ enum DesktopAutomationAction {
     SHOW_DESKTOP("show_desktop", false),
     OPEN_SETTINGS("open_settings", false),
     OPEN_BUILTIN("open_builtin", false),
+    RECONNECT_TERMUX_X11("reconnect_termux_x11", false),
     CAPTURE_SCREENSHOT("capture_screenshot", false),
     SAMPLE_PIXELS("sample_pixels", false),
     GET_RECORDING_STATUS("get_recording_status", false),

@@ -3,6 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.content.pm.PackageManager;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 final class TermuxX11Integration {
     static final String PACKAGE_NAME = "com.termux.x11";
 
@@ -23,18 +26,20 @@ final class TermuxX11Integration {
     }
 
     static String diagnostics(final Context context) {
-        final boolean termuxInstalled = TermuxIntegration.isInstalled(context);
-        final boolean x11Installed = isInstalled(context);
-        final boolean permission = context.checkSelfPermission(
-                TermuxIntegration.RUN_COMMAND_PERMISSION)
-                == PackageManager.PERMISSION_GRANTED;
-        final String command = MagicDeskSettings.load()
-                .termuxX11StartupCommand;
-        return "termux=" + termuxInstalled
-                + ", x11=" + x11Installed
-                + ", runCommand=" + permission
-                + ", startupCommand="
-                + (TermuxX11StartupCommand.DEFAULT.equals(command)
-                        ? "default" : "custom");
+        return TermuxX11RuntimeStatus.refreshBlocking(
+                context, TaskRepository.loadAllNow()).reportLine();
+    }
+
+    static JSONObject cachedStatusJson(
+            final Context context,
+            final TaskRepository.Snapshot tasks) throws JSONException {
+        return TermuxX11RuntimeStatus.cached(context, tasks).toJson();
+    }
+
+    static JSONObject refreshedStatusJson(
+            final Context context,
+            final TaskRepository.Snapshot tasks) throws JSONException {
+        return TermuxX11RuntimeStatus.refreshBlocking(
+                context, tasks).toJson();
     }
 }

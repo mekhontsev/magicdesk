@@ -202,6 +202,14 @@ path, then starts or reconnects the X server using `Exec`. Creating a desktop
 shortcut for Termux:X11 captures the current startup command from Settings;
 the ordinary Start-menu icon continues to use the live Settings value.
 
+For direct `termux-x11 :N` commands, an existing process is matched by the
+same display number. A failed reconnect falls through to `Exec`, while the
+global Termux:X11 context-menu reconnect action fails without starting another
+server. That action follows the Settings command and is intentionally not
+shown on a profile with its own `Exec`.
+Commands that hide the display inside a wrapper script remain valid launch
+commands, but MagicDesk does not guess which process belongs to them.
+
 The current integration reconnects to an already running X11 server. These
 entries are launch presets, not ownership records for X11 processes and not a
 multi-server session manager.

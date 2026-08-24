@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Bundle;
 
 final class TermuxIntegration {
     static final String PACKAGE_NAME = "com.termux";
@@ -32,6 +33,8 @@ final class TermuxIntegration {
             "com.termux.RUN_COMMAND_STDIN";
     private static final String EXTRA_COMMAND_LABEL =
             "com.termux.RUN_COMMAND_COMMAND_LABEL";
+    private static final String EXTRA_RESULT_PENDING_INTENT =
+            "com.termux.RUN_COMMAND_PENDING_INTENT";
     private static final String RUNNER_APP_SHELL = "app-shell";
     private static final String PTY_BOOTSTRAP =
             "set -eu\n"
@@ -90,6 +93,29 @@ final class TermuxIntegration {
         activity.startForegroundService(commandIntent(
                 command, label, workingDirectory)
                 .putExtra(EXTRA_BACKGROUND, true));
+    }
+
+    static void runBackgroundShellCommandForResult(
+            final Context context,
+            final String command,
+            final String label,
+            final String workingDirectory,
+            final long timeoutMillis,
+            final ResultCallback callback) {
+        final TermuxCommandResultReceiver.Registration registration =
+                TermuxCommandResultReceiver.register(
+                        context, timeoutMillis, callback);
+        try {
+            context.startForegroundService(commandIntent(
+                    command, label, workingDirectory)
+                    .putExtra(EXTRA_BACKGROUND, true)
+                    .putExtra(
+                            EXTRA_RESULT_PENDING_INTENT,
+                            registration.pendingIntent));
+        } catch (RuntimeException error) {
+            TermuxCommandResultReceiver.cancel(registration);
+            throw error;
+        }
     }
 
     static void runPtyBridge(
@@ -151,6 +177,62 @@ final class TermuxIntegration {
                         directory)
                 .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
                 .putExtra(EXTRA_COMMAND_LABEL, label);
+    }
+
+    interface ResultCallback {
+        void onResult(CommandResult result, Throwable error);
+    }
+
+    static final class CommandResult {
+        final int exitCode;
+        final int errorCode;
+        final String stdout;
+        final String stderr;
+        final String errorMessage;
+
+        CommandResult(
+                final int exitCode,
+                final int errorCode,
+                final String stdout,
+                final String stderr,
+                final String errorMessage) {
+            this.exitCode = exitCode;
+            this.errorCode = errorCode;
+            this.stdout = stdout == null ? "" : stdout;
+            this.stderr = stderr == null ? "" : stderr;
+            this.errorMessage = errorMessage == null ? "" : errorMessage;
+        }
+
+        static CommandResult fromBundle(final Bundle result) {
+            if (result == null) {
+                return new CommandResult(
+                        -1, -1, "", "", "missing Termux result bundle");
+            }
+            return new CommandResult(
+                    result.getInt("exitCode", -1),
+                    result.getInt("err", 0),
+                    result.getString("stdout", ""),
+                    result.getString("stderr", ""),
+                    result.getString("errmsg", ""));
+        }
+
+        boolean success() {
+            // Termux uses Activity.RESULT_OK (-1) as its plugin errno success
+            // value; non-negative errno values describe integration failures.
+            return exitCode == 0 && errorCode == Activity.RESULT_OK;
+        }
+
+        String usefulMessage() {
+            if (!errorMessage.trim().isEmpty()) {
+                return errorMessage.trim();
+            }
+            if (!stderr.trim().isEmpty()) {
+                return stderr.trim();
+            }
+            return errorCode != Activity.RESULT_OK
+                    ? "Termux command error " + errorCode
+                    : "command exited " + exitCode;
+        }
     }
 
 }

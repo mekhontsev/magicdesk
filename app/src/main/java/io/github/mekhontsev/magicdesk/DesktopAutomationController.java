@@ -124,6 +124,9 @@ final class DesktopAutomationController {
                 case OPEN_BUILTIN:
                     result = openBuiltin(args);
                     break;
+                case RECONNECT_TERMUX_X11:
+                    result = reconnectTermuxX11();
+                    break;
                 case CAPTURE_SCREENSHOT:
                     result = captureScreenshot(args);
                     break;
@@ -184,6 +187,20 @@ final class DesktopAutomationController {
                             DesktopAutomationErrorCode.ACTION_FAILED,
                             ShellAccess.usefulMessage(error), false));
         }
+    }
+
+    private DesktopAutomationResult reconnectTermuxX11()
+            throws JSONException {
+        final TermuxX11RuntimeStatus.OperationResult operation =
+                TermuxX11RuntimeStatus.reconnectBlocking(mContext);
+        final TaskRepository.Snapshot tasks = TaskRepository.loadAllNow();
+        final JSONObject data = new JSONObject().put(
+                "termuxX11",
+                TermuxX11RuntimeStatus.refreshBlocking(
+                        mContext, tasks).toJson());
+        return operation.success
+                ? DesktopAutomationResult.success(operation.message, data)
+                : DesktopAutomationResult.failure(operation.message, data);
     }
 
     DesktopAutomationResult waitFor(

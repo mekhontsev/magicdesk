@@ -2,9 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
 
+import java.util.List;
+
 /** Declarative Termux command paired with the Termux:X11 Android viewer. */
 final class TermuxX11LaunchIntegration
         implements DesktopLaunchIntegration {
+    private static final String ACTION_RECONNECT = "reconnect";
     @Override
     public boolean matches(final AppLaunchTarget target) {
         return target != null
@@ -33,5 +36,39 @@ final class TermuxX11LaunchIntegration
         }
         return exec.withCommand(
                 TermuxX11StartupCommand.startOrReconnect(exec.command));
+    }
+
+    @Override
+    public List<DesktopLaunchIntegrationAction> actions(
+            final Context context) {
+        final boolean directDisplay = !TermuxX11StartupCommand
+                .requestedDisplay(
+                        MagicDeskSettings.load().termuxX11StartupCommand)
+                .isEmpty();
+        return List.of(new DesktopLaunchIntegrationAction(
+                ACTION_RECONNECT,
+                R.string.action_termux_x11_reconnect,
+                directDisplay && TermuxIntegration.isAvailable(context)));
+    }
+
+    @Override
+    public void invokeAction(
+            final Context context,
+            final String actionId,
+            final ActionCallback callback) {
+        if (!ACTION_RECONNECT.equals(actionId)) {
+            if (callback != null) {
+                callback.onComplete(false, "unknown Termux:X11 action");
+            }
+            return;
+        }
+        TermuxX11RuntimeStatus.reconnect(
+                context,
+                result -> {
+                    if (callback != null) {
+                        callback.onComplete(
+                                result.success, result.message);
+                    }
+                });
     }
 }

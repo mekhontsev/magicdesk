@@ -25,6 +25,8 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(publicNames.contains("invoke_ui_action"));
         assertTrue(publicNames.contains("begin_trace"));
         assertTrue(publicNames.contains("end_trace"));
+        assertTrue(publicNames.contains("get_termux_x11_status"));
+        assertTrue(publicNames.contains("reconnect_termux_x11"));
         assertFalse(publicNames.contains("run_self_test"));
         assertTrue(developerNames.contains("run_self_test"));
         assertTrue(developerNames.containsAll(publicNames));

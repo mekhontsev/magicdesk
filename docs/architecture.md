@@ -1301,12 +1301,27 @@ intercepts the ordinary default launch of the exported Termux:X11 viewer, then
 prepares it through the same `AppTaskController` path as any other application.
 It starts the configured X server command only after that task is ready, or
 uses Termux:X11's loopback handshake to reconnect the prepared viewer to an
-existing server. The viewer therefore remains a single Android task governed
+existing server with the same explicit `:N` display argument. A disappearing
+listener falls through to the configured startup command instead of turning a
+failed reconnect into a successful no-op. The viewer therefore remains a
+single Android task governed
 by normal window state, focus, taskbar, and session parking. There is no
 separate Tools action, fixed startup delay, or duplicate server process.
 MagicDesk neither embeds the GPL-licensed X server nor models individual X11
 client windows as Android tasks. Closing or parking the viewer does not claim
 ownership of the independently running X server.
+
+The reconnect command uses Termux's documented `RUN_COMMAND_PENDING_INTENT`
+result channel. The result receiver is explicit, non-exported, one-shot, and
+bounded by a timeout; long-running X11 startup and PTY commands remain
+fire-and-forget and do not wait for process exit. The non-destructive status
+probe runs through MagicDesk's shell service because Android hides socket
+tables from the ordinary Termux app UID. Runtime status keeps the server
+process, reconnect socket, requested display, and Android viewer task as
+separate typed fields. The application integration
+contributes its reconnect context action through
+`DesktopLaunchIntegrationRegistry`, so desktop UI code contains no
+Termux:X11 package branch.
 A `Type=Application` entry with a Termux:X11 Android package, no Android Intent,
 an `Exec` command, and `X-MagicDesk-ExecBackend=termux` uses the same lifecycle
 with the entry's command and requested window mode. The ordinary Start icon

@@ -516,6 +516,7 @@
     <string name="settings_termux_x11_command">Termux:X11 startup command</string>
     <string name="status_termux_x11_unavailable">Termux:X11 is unavailable</string>
     <string name="status_termux_x11_failed">Could not open Termux:X11</string>
+    <string name="action_termux_x11_reconnect">Reconnect Termux:X11</string>
     <string name="status_desktop_exec_started">Started %1$s</string>
     <string name="status_desktop_exec_complete">Finished %1$s</string>
     <string name="status_desktop_exec_failed">Could not run %1$s</string>

@@ -85,6 +85,9 @@ final class MagicDeskMcpBackend implements McpBackend {
             case "get_self_test":
                 data = mAutomation.stateReader().selfTest();
                 return successResult(data);
+            case "get_termux_x11_status":
+                data = mAutomation.stateReader().termuxX11Status();
+                return successResult(data);
             case "wait_for_state":
                 return actionResult(mAutomation.waitFor(args));
             default:

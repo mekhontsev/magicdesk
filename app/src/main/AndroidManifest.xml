@@ -294,5 +294,9 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".TermuxCommandResultReceiver"
+            android:exported="false" />
+
     </application>
 </manifest>
