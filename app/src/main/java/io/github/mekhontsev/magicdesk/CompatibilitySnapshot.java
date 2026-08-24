@@ -40,7 +40,7 @@ final class CompatibilitySnapshot {
                 PlatformDevice.current(),
                 audit.platform,
                 audit.firmwareProfile,
-                PlatformCapabilitySnapshot.capture(audit.platform),
+                PlatformCapabilitySnapshot.capture(context, audit.platform),
                 onboardingJson(context),
                 DesktopSelfTestResult.lastModifiedMillis(context));
     }

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -56,10 +58,17 @@ public final class PlatformCapabilitySnapshot {
 
     public static PlatformCapabilitySnapshot capture(
             final PlatformDriver platform) {
+        return capture(null, platform);
+    }
+
+    public static PlatformCapabilitySnapshot capture(
+            final Context context,
+            final PlatformDriver platform) {
         final List<Entry> entries = new ArrayList<>();
         final PlatformFeatures features = platform.features();
         add(entries, platform, PlatformCapabilityId.DESKTOP_PHONE,
-                features.supportsDisplay(DesktopDisplayTarget.Kind.PHONE), "");
+                features.supportsDisplay(DesktopDisplayTarget.Kind.PHONE),
+                InternalDisplayDesktopConfig.capture(context).detail);
         add(entries, platform, PlatformCapabilityId.DESKTOP_SIMULATED,
                 features.supportsDisplay(
                         DesktopDisplayTarget.Kind.SIMULATED), "");

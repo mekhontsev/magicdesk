@@ -16,6 +16,10 @@ public interface PlatformExtension {
 
     Set<PlatformComponent> components();
 
+    default String componentEvidence(final PlatformComponent component) {
+        return "";
+    }
+
     PlatformFeatures extendFeatures(PlatformFeatures baseline);
 
     default PlatformWindowingDriver windowing() {

@@ -649,14 +649,17 @@ isolated behind these boundaries.
   as the source of truth and rejects a declared component with no
   implementation. `PlatformSelection` records the provider and detection
   evidence for every component. Hardware family names alone do not select a
-  vendor extension: for
-  example, Nubia hardware running an AOSP-derived custom ROM uses the standard
-  Android driver when both the vendor platform service and an official Nubia or
-  REDMAGIC firmware fingerprint are absent. The service probe runs under the
-  ordinary application UID and does not depend on Shizuku being ready; the
-  fingerprint fallback keeps stock Nubia firmware independent of a
-  RedMagic-named service. `PlatformDriver` exposes only existing variation
-  points. `PlatformWindowingDriver` owns provisioning properties;
+  vendor implementation. A stock Nubia or REDMAGIC fingerprint or the
+  `redmagic.app.manager` service selects the complete Nubia extension. On an
+  AOSP-derived ROM for Nubia hardware, passive probes select only independently
+  present projection, pointer, mirrored-input, internal-audio, diagnostics,
+  and hardware-control components; all others remain on the Standard Android
+  baseline. The probes run under the ordinary application UID, do not require
+  Shizuku, and do not invoke the detected operations. In particular, absence
+  of `redmagic.app.manager` keeps the vendor property writer out of Device
+  Setup without suppressing unrelated APIs retained by a hybrid ROM.
+  `PlatformDriver` exposes only existing variation points.
+  `PlatformWindowingDriver` owns provisioning properties;
   `PlatformProjectionDriver` owns projection state, output modes, and caption
   transport; `PlatformPhoneUiDriver` owns phone-screen controls, input-panel
   guards, launcher reconciliation, and local-navigation policy;
@@ -665,6 +668,13 @@ isolated behind these boundaries.
   standard input-device display associations; `PlatformTextInputDriver` owns
   optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
+- `InternalDisplayDesktopConfig` reads Android's live
+  `config_canInternalDisplayHostDesktops` resource for compatibility reports.
+  It is deliberately diagnostic rather than a launch gate: this resource
+  describes the framework's standard internal-display desktop path, while a
+  vendor or shell path may still host MagicDesk on display 0 when it is false.
+  The actual phone-desktop behavior is verified by the same self-test used for
+  other display targets.
 - Implementations live in `platform.android` and `platform.nubia`. Shared
   runtime code does not import either implementation; `PlatformDrivers` is the
   single composition point. ZTE-branded devices are not assumed to expose

@@ -7,8 +7,11 @@ separates that baseline from optional Nubia/REDMAGIC integration. A device
 branded ZTE is not automatically treated as Nubia-compatible; until its
 firmware interfaces are verified, it uses the standard Android driver.
 Likewise, Nubia hardware running an AOSP-derived custom ROM uses the standard
-Android driver when the stock firmware markers are absent. Vendor branding is
-not a baseline requirement.
+Android provider for every component whose firmware API is absent. Passive
+runtime probes may retain an independently available Nubia projection,
+pointer, mirrored-input, internal-audio, diagnostics, or hardware-control
+component. Vendor branding alone is not a baseline requirement and never
+enables the complete Nubia integration.
 
 The selected driver owns firmware-specific windowing properties, projection
 state and output modes, phone UI recovery, absolute-pointer access, optional
@@ -22,6 +25,14 @@ external session, a secondary display that accepts application tasks. Managed
 projection, absolute touchpad positioning, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
+
+Phone desktop availability is independent from external-display support.
+MagicDesk reports Android's live
+`config_canInternalDisplayHostDesktops` framework resource in Diagnostics, but
+does not reject a local session from this value alone. A false value can disable
+the framework's standard display-0 desktop path on some ROMs, while vendor or
+shell windowing paths can remain usable. The phone self-test is the behavioral
+source of truth; simulated and secondary-display support is unaffected.
 
 ## Support levels
 

@@ -28,14 +28,6 @@ final class NubiaCapabilityProbe {
             "liquid_cooling_flow_speed_mode",
             "liquid_cooling_off_on"
     };
-    private static final String[] HARDWARE_NODES = {
-            "/sys/kernel/fan/fan_enable",
-            "/sys/kernel/fan/fan_speed_level",
-            "/sys/kernel/fan/fan_speed_count",
-            "/proc/driver/micropump/enable",
-            "/proc/driver/micropump/freq",
-            "/proc/driver/micropump/speed"
-    };
 
     private NubiaCapabilityProbe() {
     }
@@ -234,7 +226,7 @@ final class NubiaCapabilityProbe {
         int present = 0;
         boolean readable = false;
         boolean writable = false;
-        for (final String path : HARDWARE_NODES) {
+        for (final String path : NubiaHardwareNodes.PATHS) {
             final File file = new File(path);
             if (file.exists()) {
                 present++;
@@ -246,7 +238,7 @@ final class NubiaCapabilityProbe {
                 report,
                 "hardware.nodes.present",
                 Integer.toString(present),
-                "expected=" + HARDWARE_NODES.length);
+                "expected=" + NubiaHardwareNodes.PATHS.length);
         ShizukuCapabilityProbe.append(
                 report,
                 "hardware.nodes.read",

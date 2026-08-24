@@ -22,19 +22,12 @@ import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 import android.content.Context;
 import android.os.Build;
 
-import java.util.Collections;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
 /** Nubia/REDMAGIC firmware implementation of the MagicDesk platform contract. */
 public final class NubiaPlatformDriver implements PlatformExtension {
-    private static final Set<PlatformComponent> COMPONENTS =
-            Collections.unmodifiableSet(
-                    EnumSet.allOf(PlatformComponent.class));
-    private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            true, true, true, true);
     private static final PlatformWindowingDriver WINDOWING =
             new NubiaWindowingDriver();
     private static final PlatformPointerDriver POINTER =
@@ -52,6 +45,17 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     private static final PlatformInputRoutingDriver INPUT_ROUTING =
             new NubiaInputRoutingDriver();
 
+    private final NubiaFirmwareDetector.Result mCapabilities;
+
+    public NubiaPlatformDriver(
+            final NubiaFirmwareDetector.Result capabilities) {
+        if (capabilities == null) {
+            throw new IllegalArgumentException(
+                    "Nubia firmware capabilities are required");
+        }
+        mCapabilities = capabilities;
+    }
+
     @Override
     public String id() {
         return "nubia";
@@ -64,12 +68,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
 
     @Override
     public PlatformMatch match(final PlatformDevice device) {
-        return match(device, NubiaFirmwareDetector.isAvailable(device));
-    }
-
-    public PlatformMatch match(
-            final PlatformDevice device,
-            final boolean firmwareAvailable) {
         if (device == null
                 || device.sdkInt < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             return PlatformMatch.unavailable("Android 15 baseline unavailable");
@@ -77,21 +75,34 @@ public final class NubiaPlatformDriver implements PlatformExtension {
         if (!isNubiaFamily(device)) {
             return PlatformMatch.unavailable("device family is not Nubia/REDMAGIC");
         }
-        return firmwareAvailable
+        return mCapabilities.isAvailable()
                 ? PlatformMatch.matched(
-                        "Nubia/REDMAGIC firmware marker or service detected")
+                        mCapabilities.summary())
                 : PlatformMatch.unavailable(
                         "Nubia hardware uses standard Android firmware");
     }
 
     @Override
     public Set<PlatformComponent> components() {
-        return COMPONENTS;
+        return mCapabilities.components();
+    }
+
+    @Override
+    public String componentEvidence(final PlatformComponent component) {
+        return mCapabilities.evidence(component);
     }
 
     @Override
     public PlatformFeatures extendFeatures(final PlatformFeatures baseline) {
-        return FEATURES;
+        return new PlatformFeatures(
+                baseline.wiredDesktop,
+                baseline.wirelessDesktop,
+                baseline.externalInputBridge
+                        || components().contains(
+                                PlatformComponent.INPUT_ROUTING),
+                baseline.vendorHardware
+                        || components().contains(
+                                PlatformComponent.SYSTEM_CONTROLS));
     }
 
     @Override

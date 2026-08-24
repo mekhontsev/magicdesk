@@ -6,17 +6,15 @@ import io.github.mekhontsev.magicdesk.platform.nubia.NubiaPlatformDriver;
 
 /** Selects one platform driver for the lifetime of the process. */
 final class PlatformDrivers {
-    private static final NubiaPlatformDriver NUBIA =
-            new NubiaPlatformDriver();
     private static final PlatformDriver GENERIC =
             new GenericAndroidPlatformDriver();
     private static final PlatformDevice DEVICE = PlatformDevice.current();
-    private static final boolean NUBIA_FIRMWARE_AVAILABLE =
-            NubiaFirmwareDetector.isAvailable(DEVICE);
+    private static final NubiaFirmwareDetector.Result NUBIA_CAPABILITIES =
+            NubiaFirmwareDetector.detect(DEVICE);
     private static final PlatformDriver CURRENT = resolve(
             DEVICE,
             BuildConfig.PLATFORM_OVERRIDE,
-            NUBIA_FIRMWARE_AVAILABLE);
+            NUBIA_CAPABILITIES);
 
     private PlatformDrivers() {
     }
@@ -29,13 +27,28 @@ final class PlatformDrivers {
             final PlatformDevice device,
             final String platformOverride,
             final boolean nubiaFirmwareAvailable) {
+        return resolve(
+                device,
+                platformOverride,
+                nubiaFirmwareAvailable
+                        ? NubiaFirmwareDetector.complete(
+                                "Nubia/REDMAGIC firmware fixture")
+                        : NubiaFirmwareDetector.unavailable(
+                                "Nubia firmware fixture unavailable"));
+    }
+
+    static PlatformDriver resolve(
+            final PlatformDevice device,
+            final String platformOverride,
+            final NubiaFirmwareDetector.Result nubiaCapabilities) {
         if ("android".equals(platformOverride)) {
             return GENERIC;
         }
-        final PlatformMatch nubiaMatch = NUBIA.match(
-                device, nubiaFirmwareAvailable);
+        final NubiaPlatformDriver nubia =
+                new NubiaPlatformDriver(nubiaCapabilities);
+        final PlatformMatch nubiaMatch = nubia.match(device);
         return ComposedPlatformDriver.compose(
-                GENERIC, NUBIA, nubiaMatch);
+                GENERIC, nubia, nubiaMatch);
     }
 
     static String selectionDetail() {

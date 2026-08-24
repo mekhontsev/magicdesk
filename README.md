@@ -146,8 +146,11 @@ MagicDesk requires:
 - one Device Setup pass and reboot before the first desktop session.
 
 The Standard Android driver supports the phone desktop, the simulated desktop,
-and secondary displays that Android already exposes. External video output,
-Miracast, application-task hosting, and physical input routing remain firmware
+and secondary displays that Android already exposes. MagicDesk reports
+Android's internal-display desktop resource as diagnostic evidence, but does
+not use it as a launch restriction: vendor and shell windowing paths may still
+work when that framework resource is false. External video output, Miracast,
+application-task hosting, and physical input routing remain firmware
 capabilities.
 
 Nubia/REDMAGIC firmware has a separate platform extension for verified

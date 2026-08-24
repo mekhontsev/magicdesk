@@ -266,6 +266,9 @@ public final class CompatibilityDiagnostics {
                         context.getContentResolver(),
                         Settings.System.USER_ROTATION,
                         -1))
+                .append('\n')
+                .append("Internal display desktop: ")
+                .append(InternalDisplayDesktopConfig.capture(context).detail)
                 .append("\n\n")
                 .append("## Capability checks\n");
         appendCheck(report, "PLATFORM-001", audit.compatibleDevice,

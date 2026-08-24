@@ -41,8 +41,13 @@ final class ComposedPlatformDriver implements PlatformDriver {
                 PlatformSelection.baseline(baseline.id())
                         .extension(extension.id(), match.evidence);
         for (final PlatformComponent component : mExtensionComponents) {
+            final String componentEvidence =
+                    extension.componentEvidence(component);
             selection.provider(
-                    component, extension.id(), match.evidence);
+                    component,
+                    extension.id(),
+                    componentEvidence == null || componentEvidence.isEmpty()
+                            ? match.evidence : componentEvidence);
         }
         mSelection = selection.build();
     }

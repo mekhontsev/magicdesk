@@ -1,11 +1,15 @@
 package io.github.mekhontsev.magicdesk;
 
+import io.github.mekhontsev.magicdesk.platform.nubia.NubiaFirmwareDetector;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
+
+import java.util.EnumMap;
 
 public final class PlatformDriversTest {
     @Test
@@ -115,6 +119,37 @@ public final class PlatformDriversTest {
                 36);
 
         assertEquals("android", resolve(evolutionX, false).id());
+    }
+
+    @Test
+    public void customRomUsesOnlyDetectedNubiaComponents() {
+        final PlatformDevice evolutionX = new PlatformDevice(
+                "nubia",
+                "nubia",
+                "NX809J",
+                "NX809J",
+                "NX809J-UN",
+                "google/mustang_beta/mustang:16/build:user/release-keys",
+                36);
+        final EnumMap<PlatformComponent, String> detected =
+                new EnumMap<>(PlatformComponent.class);
+        detected.put(PlatformComponent.AUDIO_CAPTURE, "source 80 detected");
+        final PlatformDriver driver = PlatformDrivers.resolve(
+                evolutionX,
+                "",
+                NubiaFirmwareDetector.fromDetectedComponents(detected));
+
+        assertEquals("nubia", driver.id());
+        assertEquals("nubia", driver.selection()
+                .provider(PlatformComponent.AUDIO_CAPTURE).id);
+        assertEquals("source 80 detected", driver.selection()
+                .provider(PlatformComponent.AUDIO_CAPTURE).evidence);
+        assertEquals("android", driver.selection()
+                .provider(PlatformComponent.WINDOWING).id);
+        assertEquals("android", driver.selection()
+                .provider(PlatformComponent.PROJECTION).id);
+        assertFalse(driver.projection().supportsOutputConfiguration());
+        assertNull(driver.windowing().restrictionsPropertyKey());
     }
 
     @Test
