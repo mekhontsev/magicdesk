@@ -16,7 +16,6 @@ import android.widget.FrameLayout;
 /** Browser-shaped fixture for application-requested fullscreen transitions. */
 public final class DesktopSelfTestBrowserActivity
         extends DesktopSelfTestActivity {
-    private static final int CONTENT_COLOR = 0xFF123A4A;
     private static final int TOOLBAR_HEIGHT = 96;
     private FrameLayout mBrowserContainer;
     private SurfaceView mBrowserSurface;
@@ -127,13 +126,13 @@ public final class DesktopSelfTestBrowserActivity
         mBrowserSurface.requestLayout();
     }
 
-    private static void drawSurface(final SurfaceHolder holder) {
+    private void drawSurface(final SurfaceHolder holder) {
         final Canvas canvas = holder.lockCanvas();
         if (canvas == null) {
             return;
         }
         try {
-            canvas.drawColor(CONTENT_COLOR);
+            canvas.drawColor(fixtureSurfaceColor());
         } finally {
             holder.unlockCanvasAndPost(canvas);
         }

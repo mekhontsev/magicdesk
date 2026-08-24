@@ -112,7 +112,8 @@ final class DesktopSelfTestWindowSuite {
                 () -> preservePhoneTouchpad(() -> launchFixtureAndObserve(
                         targetDisplayId,
                         token,
-                        requestedWindowBounds)));
+                        requestedWindowBounds,
+                        DesktopSelfTestFixtureAppearance.PRIMARY)));
         sampleDesktopSurface(
                 initialSurfaceObservation, surfaceReference, "front");
         final int targetFixtureTaskId = initialLaunch.taskId;
@@ -855,13 +856,15 @@ final class DesktopSelfTestWindowSuite {
     private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
             final int displayId,
             final String token,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final DesktopSelfTestFixtureAppearance appearance)
+            throws IOException {
         return launchFixtureAndObserve(
                 displayId,
                 bounds,
                 FIXTURE_CLASS,
                 TaskDisplayAreaLaunchCommand.createSelfTestIntent(
-                        displayId, token, false));
+                        displayId, token, false, appearance));
     }
 
     private static DesktopTaskLaunchProbe.Observation
@@ -874,7 +877,10 @@ final class DesktopSelfTestWindowSuite {
                 bounds,
                 BROWSER_FIXTURE_CLASS,
                 TaskDisplayAreaLaunchCommand.createSelfTestIntent(
-                        displayId, token, true));
+                        displayId,
+                        token,
+                        true,
+                        DesktopSelfTestFixtureAppearance.TRANSITION));
     }
 
     private static DesktopTaskLaunchProbe.Observation launchFixtureAndObserve(
@@ -1276,7 +1282,9 @@ final class DesktopSelfTestWindowSuite {
                                     launchFixtureAndObserve(
                                             displayId,
                                             secondToken,
-                                            rightBounds));
+                                            rightBounds,
+                                            DesktopSelfTestFixtureAppearance
+                                                    .SECONDARY));
                     if (observation.taskId == firstTaskId) {
                         throw new IOException(
                                 "Android reused task " + firstTaskId);

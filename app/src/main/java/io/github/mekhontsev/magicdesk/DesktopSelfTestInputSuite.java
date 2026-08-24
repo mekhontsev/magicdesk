@@ -972,7 +972,11 @@ final class DesktopSelfTestInputSuite {
             final String token = "session-fullscreen-"
                     + Long.toHexString(System.nanoTime());
             final Intent intent = TaskDisplayAreaLaunchCommand
-                    .createSelfTestIntent(displayId, token, false);
+                    .createSelfTestIntent(
+                            displayId,
+                            token,
+                            false,
+                            DesktopSelfTestFixtureAppearance.TRANSITION);
             taskId = MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
                     displayId, intent);
             waitForTask(

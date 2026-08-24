@@ -111,7 +111,10 @@ final class DesktopSelfTestBackNavigationSuite {
             DesktopSelfTestHostObserver.stage(
                     "BACK-NAVIGATION-PREPARE-002");
             final Fixture fixture = launchFixture(
-                    context, displayId, bounds);
+                    context,
+                    displayId,
+                    bounds,
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
             DesktopSelfTestHostObserver.stage(code);
             final int taskbarGeneration =
                     DesktopSelfTestHostObserver.taskbarHiddenGeneration();
@@ -145,9 +148,15 @@ final class DesktopSelfTestBackNavigationSuite {
             DesktopSelfTestHostObserver.stage(
                     "BACK-NAVIGATION-PREPARE-003");
             final Fixture first = launchFixture(
-                    context, displayId, firstBounds);
+                    context,
+                    displayId,
+                    firstBounds,
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
             final Fixture second = launchFixture(
-                    context, displayId, secondBounds);
+                    context,
+                    displayId,
+                    secondBounds,
+                    DesktopSelfTestFixtureAppearance.SECONDARY);
             DesktopSelfTestHostObserver.stage(code);
             final int taskbarGeneration =
                     DesktopSelfTestHostObserver.taskbarHiddenGeneration();
@@ -220,12 +229,15 @@ final class DesktopSelfTestBackNavigationSuite {
     private static Fixture launchFixture(
             final Context context,
             final int displayId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final DesktopSelfTestFixtureAppearance appearance)
+            throws IOException {
         DesktopSelfTestFixtureState.clearLaunchMarkers(context);
         final String token = "back-"
                 + Long.toHexString(System.nanoTime());
         final Intent intent = TaskDisplayAreaLaunchCommand
-                .createSelfTestIntent(displayId, token, false);
+                .createSelfTestIntent(
+                        displayId, token, false, appearance);
         final DesktopTaskLaunchProbe.Observation observation =
                 DesktopSelfTestTasks.launchWindowedAndObserve(
                         displayId, bounds, FIXTURE_CLASS, intent);

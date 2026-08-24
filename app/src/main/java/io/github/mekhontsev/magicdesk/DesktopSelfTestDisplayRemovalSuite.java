@@ -121,7 +121,11 @@ final class DesktopSelfTestDisplayRemovalSuite {
         final String token = "display-removal-"
                 + Long.toHexString(System.nanoTime());
         final Intent intent = TaskDisplayAreaLaunchCommand
-                .createSelfTestIntent(displayId, token, false)
+                .createSelfTestIntent(
+                        displayId,
+                        token,
+                        false,
+                        DesktopSelfTestFixtureAppearance.PRIMARY)
                 .setAction(Intent.ACTION_VIEW);
         final ComponentName component = intent.getComponent();
         try (DesktopTaskLaunchProbe probe =

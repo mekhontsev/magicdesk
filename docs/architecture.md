@@ -1002,6 +1002,12 @@ freeform launch from a fullscreen task that is corrected after it becomes
 visible. The same probe verifies a direct fullscreen-phone to
 freeform-external move.
 
+Self-test fixture launches also carry an explicit visual role. Primary,
+secondary, and transition fixtures use stable red, green, and blue surfaces,
+respectively, so a person watching the test can identify which task flashed,
+moved, or disappeared. Color is diagnostic presentation only; window and input
+assertions do not depend on the palette.
+
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. On display 0 it stays below Android system bars. A dedicated external
 display normally reports zero system-bar insets and fills the panel. There is

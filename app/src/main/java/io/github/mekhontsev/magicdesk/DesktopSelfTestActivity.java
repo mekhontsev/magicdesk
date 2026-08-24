@@ -45,6 +45,8 @@ public class DesktopSelfTestActivity extends Activity {
     private String mToken = "";
     private boolean mAllowDisplayMove;
     private boolean mImmersiveReceiverRegistered;
+    private DesktopSelfTestFixtureAppearance mAppearance =
+            DesktopSelfTestFixtureAppearance.PRIMARY;
     private final BroadcastReceiver mImmersiveReceiver =
             new BroadcastReceiver() {
                 @Override
@@ -71,6 +73,7 @@ public class DesktopSelfTestActivity extends Activity {
                 EXTRA_DISPLAY_ID, Display.INVALID_DISPLAY);
         mAllowDisplayMove = getIntent().getBooleanExtra(
                 EXTRA_ALLOW_DISPLAY_MOVE, false);
+        mAppearance = DesktopSelfTestFixtureAppearance.from(getIntent());
         mToken = getIntent().getStringExtra(EXTRA_TOKEN);
         if (mToken == null) {
             mToken = "";
@@ -189,7 +192,7 @@ public class DesktopSelfTestActivity extends Activity {
 
     protected FrameLayout createContent() {
         final FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(0xFF123A4A);
+        root.setBackgroundColor(fixtureSurfaceColor());
         root.setFocusableInTouchMode(true);
 
         final EditText input = new EditText(this);
@@ -234,6 +237,10 @@ public class DesktopSelfTestActivity extends Activity {
         // child view an application wants to receive keyboard input.
         input.requestFocus();
         return root;
+    }
+
+    protected final int fixtureSurfaceColor() {
+        return mAppearance.color();
     }
 
     private void recordFirstFrame(final FrameLayout content) {

@@ -49,11 +49,12 @@ public final class TaskDisplayAreaLaunchCommand {
     static Intent createSelfTestIntent(
             final int displayId,
             final String token,
-            final boolean browser) {
-        if (displayId < 0 || token == null) {
+            final boolean browser,
+            final DesktopSelfTestFixtureAppearance appearance) {
+        if (displayId < 0 || token == null || appearance == null) {
             throw new IllegalArgumentException("invalid self-test launch");
         }
-        return new Intent()
+        final Intent intent = new Intent()
                 .setComponent(new ComponentName(
                         PACKAGE_NAME,
                         browser ? BROWSER_ACTIVITY_CLASS : ACTIVITY_CLASS))
@@ -66,6 +67,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 .putExtra(
                         DesktopSelfTestActivity.EXTRA_ALLOW_DISPLAY_MOVE,
                         true);
+        appearance.putInto(intent);
+        return intent;
     }
 
     static String createMoveCommand(
