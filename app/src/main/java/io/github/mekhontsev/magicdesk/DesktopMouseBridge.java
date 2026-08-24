@@ -417,7 +417,7 @@ final class DesktopMouseBridge {
             if (reactivated) {
                 InputBridgeDiagnostics.notePointerReactivation();
             }
-            recordPointerReactivation(reactivated);
+            recordPointerReactivationCommand(reactivated);
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
@@ -446,25 +446,37 @@ final class DesktopMouseBridge {
         }
     }
 
-    private static void recordPointerReactivation(final boolean success) {
+    private void recordPointerReactivationCommand(final boolean success) {
         final int displayId = DesktopRuntimeBridge
                 .getActiveDesktopDisplayId();
+        final boolean captureRequested;
+        final boolean bridgeReady;
+        final int generation;
+        synchronized (mLock) {
+            captureRequested = mCaptureRequested;
+            bridgeReady = mReady;
+            generation = mGeneration;
+        }
         try {
             DesktopAutomationEventJournal.record(
                     "input",
                     success
-                            ? "pointer_reactivated"
-                            : "pointer_reactivation_failed",
+                            ? "pointer_reactivation_command_sent"
+                            : "pointer_reactivation_command_failed",
                     success,
                     "display=" + displayId,
                     new org.json.JSONObject()
-                            .put("displayId", displayId));
+                            .put("displayId", displayId)
+                            .put("captureRequested", captureRequested)
+                            .put("bridgeReady", bridgeReady)
+                            .put("bridgeGeneration", generation)
+                            .put("visualStateVerified", false));
         } catch (org.json.JSONException ignored) {
             DesktopAutomationEventJournal.record(
                     "input",
                     success
-                            ? "pointer_reactivated"
-                            : "pointer_reactivation_failed",
+                            ? "pointer_reactivation_command_sent"
+                            : "pointer_reactivation_command_failed",
                     success,
                     "display=" + displayId);
         }

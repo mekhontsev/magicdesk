@@ -128,7 +128,7 @@ final class InputBridgeDiagnostics {
                     + ", failures=" + failures
                     + ", sourceRefreshFailures=" + sourceRefreshFailures
                     + ", anomalies=" + bridgeAnomalies
-                    + ", pointerReactivations=" + pointerReactivations
+                    + ", pointerReactivateCommands=" + pointerReactivations
                     + ", routingDisplay=" + routingDisplayId
                     + (lastFailure.isEmpty()
                             ? "" : ", lastFailure=" + lastFailure);
