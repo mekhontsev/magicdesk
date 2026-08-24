@@ -39,8 +39,17 @@ final class ConsoleTerminalSession {
         void onDirectory(String directory, IOException error);
     }
 
+    interface ProcessListener {
+        void onProcess(
+                TerminalProcessInfo process,
+                boolean changed,
+                IOException error);
+    }
+
     private static final int DEFAULT_TRANSCRIPT_ROWS = 4_000;
     private static final int MAX_PENDING_INPUT_BYTES = 64 * 1024;
+    private static final long PROCESS_REFRESH_DELAY_MILLIS = 250L;
+    private static final long MIN_PROCESS_REFRESH_INTERVAL_MILLIS = 1_000L;
 
     private final Object mLock = new Object();
     private final Object mOutputLock = new Object();
@@ -61,9 +70,10 @@ final class ConsoleTerminalSession {
     private final TerminalTransport.Factory mTransportFactory;
     private final DesktopExecBackend mBackend;
     private final String mStartupCommand;
-
     private String mWorkingDirectory;
     private String mTitle = "";
+    private TerminalProcessInfo mForegroundProcess =
+            TerminalProcessInfo.unknown();
     private TerminalTransport mTransport;
     private long mProcessId = -1L;
     private int mColumns;
@@ -74,6 +84,25 @@ final class ConsoleTerminalSession {
     private boolean mReceivedOutput;
     private boolean mStartupCommandSent;
     private boolean mOutputPosted;
+    private boolean mProcessRefreshPosted;
+    private boolean mProcessRefreshInProgress;
+    private long mLastProcessRefreshMillis;
+    private final Runnable mScheduledProcessRefresh = () -> {
+        synchronized (mLock) {
+            mProcessRefreshPosted = false;
+            if (mClosed || mProcessRefreshInProgress) {
+                return;
+            }
+            mProcessRefreshInProgress = true;
+        }
+        requestForegroundProcess((process, changed, error) -> {
+            synchronized (mLock) {
+                mProcessRefreshInProgress = false;
+                mLastProcessRefreshMillis =
+                        android.os.SystemClock.uptimeMillis();
+            }
+        });
+    };
 
     ConsoleTerminalSession(
             final String initialDirectory,
@@ -154,6 +183,12 @@ final class ConsoleTerminalSession {
         }
     }
 
+    TerminalProcessInfo foregroundProcess() {
+        synchronized (mLock) {
+            return mForegroundProcess;
+        }
+    }
+
     void start() {
         final int rows;
         final int columns;
@@ -194,6 +229,7 @@ final class ConsoleTerminalSession {
             }
         }
         executeWriter(() -> writeNow(copy));
+        scheduleForegroundProcessRefresh();
     }
 
     void resize(
@@ -265,6 +301,22 @@ final class ConsoleTerminalSession {
         });
     }
 
+    void requestForegroundProcess(final ProcessListener listener) {
+        final TerminalTransport transport;
+        synchronized (mLock) {
+            transport = mClosed ? null : mTransport;
+        }
+        if (transport == null || !transport.supportsForegroundProcess()) {
+            if (listener != null) {
+                final TerminalProcessInfo current = foregroundProcess();
+                mMainHandler.post(() ->
+                        listener.onProcess(current, false, null));
+            }
+            return;
+        }
+        executeWriter(() -> refreshForegroundProcess(transport, listener));
+    }
+
     String resolveWorkingDirectory() throws IOException {
         final TerminalTransport transport;
         synchronized (mLock) {
@@ -279,6 +331,24 @@ final class ConsoleTerminalSession {
                 mWorkingDirectory = resolved;
             }
             return mWorkingDirectory;
+        }
+    }
+
+    TerminalProcessInfo resolveForegroundProcess() throws IOException {
+        final TerminalTransport transport;
+        synchronized (mLock) {
+            transport = mTransport;
+            if (transport == null || !transport.supportsForegroundProcess()) {
+                return mForegroundProcess;
+            }
+        }
+        final TerminalProcessInfo process = transport.foregroundProcess();
+        synchronized (mLock) {
+            if (!mClosed && mTransport == transport
+                    && process != null && process.isKnown()) {
+                mForegroundProcess = process;
+            }
+            return mForegroundProcess;
         }
     }
 
@@ -304,10 +374,14 @@ final class ConsoleTerminalSession {
             mClosed = true;
             mReady = false;
             mProcessId = -1L;
+            mForegroundProcess = TerminalProcessInfo.unknown();
             transport = mTransport;
             mTransport = null;
             mPendingInput.reset();
+            mProcessRefreshPosted = false;
+            mProcessRefreshInProgress = false;
         }
+        mMainHandler.removeCallbacks(mScheduledProcessRefresh);
         if (transport != null) {
             transport.close();
         }
@@ -349,6 +423,7 @@ final class ConsoleTerminalSession {
             writeNow(pending);
         }
         mMainHandler.post(mListener::onReady);
+        scheduleForegroundProcessRefresh();
         final Thread reader = new Thread(
                 () -> readTransport(transport),
                 "MagicDeskConsolePtyReader");
@@ -379,6 +454,7 @@ final class ConsoleTerminalSession {
                     mTransport = null;
                     mReady = false;
                     mProcessId = -1L;
+                    mForegroundProcess = TerminalProcessInfo.unknown();
                 }
             }
             transport.close();
@@ -418,6 +494,53 @@ final class ConsoleTerminalSession {
             mEmulator.append(output, output.length);
             mListener.onScreenChanged();
             sendStartupCommandIfReady();
+            scheduleForegroundProcessRefresh();
+        }
+    }
+
+    private void scheduleForegroundProcessRefresh() {
+        synchronized (mLock) {
+            if (mClosed || mTransport == null
+                    || !mTransport.supportsForegroundProcess()
+                    || mProcessRefreshPosted) {
+                return;
+            }
+            mProcessRefreshPosted = true;
+            final long now = android.os.SystemClock.uptimeMillis();
+            final long delay = Math.max(
+                    PROCESS_REFRESH_DELAY_MILLIS,
+                    mLastProcessRefreshMillis
+                            + MIN_PROCESS_REFRESH_INTERVAL_MILLIS - now);
+            mMainHandler.postDelayed(mScheduledProcessRefresh, delay);
+        }
+    }
+
+    private void refreshForegroundProcess(
+            final TerminalTransport transport,
+            final ProcessListener listener) {
+        TerminalProcessInfo process = null;
+        IOException failure = null;
+        boolean changed = false;
+        try {
+            process = transport.foregroundProcess();
+            synchronized (mLock) {
+                if (!mClosed && mTransport == transport
+                        && process != null
+                        && process.isKnown()) {
+                    changed = !process.equals(mForegroundProcess);
+                    mForegroundProcess = process;
+                }
+            }
+        } catch (IOException error) {
+            failure = error;
+        }
+        if (listener != null) {
+            final TerminalProcessInfo result = process == null
+                    ? foregroundProcess() : process;
+            final boolean wasChanged = changed;
+            final IOException error = failure;
+            mMainHandler.post(() ->
+                    listener.onProcess(result, wasChanged, error));
         }
     }
 

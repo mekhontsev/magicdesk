@@ -313,6 +313,11 @@ jobs:
           - Commit: [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
           - CI run: [\`$GITHUB_RUN_NUMBER\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 
+          MagicDesk includes first-class multi-window Termux integration. Each
+          Termux-backed Console is an independent native Android desktop window
+          with its own PTY, shell, lifecycle, saved geometry, and live foreground
+          program label.
+
           Both APKs use the same signing certificate as official MagicDesk releases.
 
           \`DisplayFixes-development.apk\` is the optional standalone root helper

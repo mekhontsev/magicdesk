@@ -7,18 +7,26 @@ import android.os.Looper;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Process-local semantic registry for visible interactive Console windows. */
 final class ConsoleTerminalRegistry {
+    interface ProcessRefreshListener {
+        void onComplete(boolean changed);
+    }
+
     private static final long MAIN_TIMEOUT_MILLIS = 2_000L;
     private static final AtomicLong NEXT_ID = new AtomicLong();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -130,6 +138,66 @@ final class ConsoleTerminalRegistry {
         });
     }
 
+    static Snapshot snapshotForTask(final int taskId) {
+        return callOnMain(() -> {
+            synchronized (ENTRIES) {
+                pruneLocked();
+                for (final Map.Entry<String, Entry> item
+                        : ENTRIES.entrySet()) {
+                    final Snapshot snapshot = item.getValue().snapshot(
+                            item.getKey());
+                    if (snapshot != null && snapshot.taskId == taskId) {
+                        return snapshot;
+                    }
+                }
+            }
+            return null;
+        });
+    }
+
+    static void refreshForegroundProcesses(
+            final List<Integer> taskIds,
+            final ProcessRefreshListener listener) {
+        final List<ConsoleTerminalSession> sessions = callOnMain(() -> {
+            final Set<Integer> requested = taskIds == null
+                    ? java.util.Collections.emptySet()
+                    : new HashSet<>(taskIds);
+            final List<ConsoleTerminalSession> result = new ArrayList<>();
+            synchronized (ENTRIES) {
+                pruneLocked();
+                for (final Entry entry : ENTRIES.values()) {
+                    final Activity activity = entry.activity.get();
+                    final ConsoleTerminalSession session = entry.session.get();
+                    if (activity != null
+                            && session != null
+                            && requested.contains(
+                                    Integer.valueOf(activity.getTaskId()))) {
+                        result.add(session);
+                    }
+                }
+            }
+            return result;
+        });
+        if (sessions.isEmpty()) {
+            if (listener != null) {
+                MAIN.post(() -> listener.onComplete(false));
+            }
+            return;
+        }
+        final AtomicInteger remaining = new AtomicInteger(sessions.size());
+        final AtomicBoolean changed = new AtomicBoolean();
+        for (final ConsoleTerminalSession session : sessions) {
+            session.requestForegroundProcess((process, processChanged, error) -> {
+                if (processChanged) {
+                    changed.set(true);
+                }
+                if (remaining.decrementAndGet() == 0 && listener != null) {
+                    listener.onComplete(changed.get());
+                }
+            });
+        }
+    }
+
     static String refreshWorkingDirectory(final String id) throws IOException {
         final ConsoleTerminalSession session;
         synchronized (ENTRIES) {
@@ -143,6 +211,22 @@ final class ConsoleTerminalRegistry {
             throw new IllegalArgumentException("terminal session not found");
         }
         return session.resolveWorkingDirectory();
+    }
+
+    static TerminalProcessInfo refreshForegroundProcess(final String id)
+            throws IOException {
+        final ConsoleTerminalSession session;
+        synchronized (ENTRIES) {
+            final Entry entry = id == null ? null : ENTRIES.get(id);
+            session = entry == null ? null : entry.session.get();
+            if (entry != null && session == null) {
+                ENTRIES.remove(id);
+            }
+        }
+        if (session == null) {
+            throw new IllegalArgumentException("terminal session not found");
+        }
+        return session.resolveForegroundProcess();
     }
 
     static String read(final String id, final boolean transcript) {
@@ -257,6 +341,7 @@ final class ConsoleTerminalRegistry {
         final String workingDirectory;
         final String title;
         final String backend;
+        final TerminalProcessInfo foregroundProcess;
 
         Snapshot(
                 final String id,
@@ -269,7 +354,8 @@ final class ConsoleTerminalRegistry {
                 final int rows,
                 final String workingDirectory,
                 final String title,
-                final String backend) {
+                final String backend,
+                final TerminalProcessInfo foregroundProcess) {
             this.id = id;
             this.taskId = taskId;
             this.displayId = displayId;
@@ -281,6 +367,13 @@ final class ConsoleTerminalRegistry {
             this.workingDirectory = workingDirectory;
             this.title = title;
             this.backend = backend;
+            this.foregroundProcess = foregroundProcess == null
+                    ? TerminalProcessInfo.unknown() : foregroundProcess;
+        }
+
+        String taskLabel(final String fallback) {
+            return TerminalTaskLabel.resolve(
+                    fallback, foregroundProcess, title);
         }
     }
 
@@ -325,7 +418,8 @@ final class ConsoleTerminalRegistry {
                     terminal.rows(),
                     terminal.workingDirectory(),
                     terminal.title(),
-                    terminal.backend().wireName);
+                    terminal.backend().wireName,
+                    terminal.foregroundProcess());
         }
     }
 }

@@ -83,6 +83,38 @@ public final class TermuxPtyProtocolTest {
                 () -> TermuxPtyProtocol.parseHello(frame, TOKEN));
     }
 
+    @Test
+    public void parsesForegroundProcess() throws Exception {
+        final byte[] name = "nvim".getBytes(StandardCharsets.UTF_8);
+        final byte[] payload = new byte[8 + name.length];
+        payload[2] = 0x04;
+        payload[3] = (byte) 0xD2;
+        payload[6] = 0x04;
+        payload[7] = (byte) 0xD2;
+        System.arraycopy(name, 0, payload, 8, name.length);
+
+        final TerminalProcessInfo process =
+                TermuxPtyProtocol.parseForegroundProcess(
+                        new TermuxPtyProtocol.Frame(
+                                TermuxPtyProtocol.FRAME_FOREGROUND_PROCESS,
+                                payload));
+
+        assertEquals(1234L, process.processId);
+        assertEquals(1234L, process.processGroupId);
+        assertEquals("nvim", process.executable);
+    }
+
+    @Test
+    public void acceptsUnavailableForegroundProcess() throws Exception {
+        final TerminalProcessInfo process =
+                TermuxPtyProtocol.parseForegroundProcess(
+                        new TermuxPtyProtocol.Frame(
+                                TermuxPtyProtocol.FRAME_FOREGROUND_PROCESS,
+                                new byte[8]));
+
+        assertEquals(false, process.isKnown());
+    }
+
     private static byte[] frame(final int type, final byte[] payload)
             throws IOException {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();

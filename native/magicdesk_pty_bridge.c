@@ -20,13 +20,16 @@
 #define FRAME_DATA 1
 #define FRAME_RESIZE 2
 #define FRAME_QUERY_CWD 3
+#define FRAME_QUERY_FOREGROUND_PROCESS 4
 #define FRAME_HELLO 17
 #define FRAME_OUTPUT 18
 #define FRAME_CWD 19
+#define FRAME_FOREGROUND_PROCESS 20
 #define FRAME_HEADER_SIZE 5
 #define RESIZE_PAYLOAD_SIZE 8
 #define MAX_DATA_FRAME (1024U * 1024U)
 #define MAX_STARTUP_COMMAND (64U * 1024U)
+#define MAX_PROCESS_NAME 512U
 
 static volatile sig_atomic_t stop_requested;
 static volatile sig_atomic_t shell_pid = -1;
@@ -321,6 +324,178 @@ static int send_working_directory(
             output_fd, FRAME_CWD, directory, (uint32_t) length);
 }
 
+static int read_process_name(
+        pid_t process_id, char *name, size_t capacity) {
+    char process_path[64];
+    char executable[PATH_MAX];
+    (void) snprintf(
+            process_path, sizeof(process_path),
+            "/proc/%d/exe", process_id);
+    ssize_t length = readlink(
+            process_path, executable, sizeof(executable) - 1U);
+    if (length > 0) {
+        executable[length] = '\0';
+        const char *base = strrchr(executable, '/');
+        base = base == NULL ? executable : base + 1;
+        if (base[0] != '\0') {
+            (void) snprintf(name, capacity, "%s", base);
+            return name[0] == '\0' ? -1 : 0;
+        }
+    }
+
+    (void) snprintf(
+            process_path, sizeof(process_path),
+            "/proc/%d/comm", process_id);
+    const int descriptor = open(process_path, O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+        return -1;
+    }
+    length = read(descriptor, name, capacity - 1U);
+    const int read_error = errno;
+    close(descriptor);
+    if (length < 1) {
+        errno = read_error;
+        return -1;
+    }
+    while (length > 0
+            && (name[length - 1] == '\n' || name[length - 1] == '\r')) {
+        length--;
+    }
+    name[length] = '\0';
+    return length > 0 ? 0 : -1;
+}
+
+static int read_process_relationship(
+        pid_t process_id, pid_t *parent_process, pid_t *process_group) {
+    char process_path[64];
+    char status[1024];
+    (void) snprintf(
+            process_path, sizeof(process_path),
+            "/proc/%d/stat", process_id);
+    const int descriptor = open(process_path, O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+        return -1;
+    }
+    const ssize_t length = read(descriptor, status, sizeof(status) - 1U);
+    const int read_error = errno;
+    close(descriptor);
+    if (length < 1) {
+        errno = read_error;
+        return -1;
+    }
+    status[length] = '\0';
+    const char *command_end = strrchr(status, ')');
+    char state = '\0';
+    int parent = -1;
+    int group = -1;
+    if (command_end == NULL
+            || sscanf(command_end + 1, " %c %d %d", &state, &parent, &group)
+                    != 3
+            || group < 1) {
+        errno = EPROTO;
+        return -1;
+    }
+    if (parent_process != NULL) {
+        *parent_process = (pid_t) parent;
+    }
+    *process_group = (pid_t) group;
+    return 0;
+}
+
+static pid_t find_process_group_member(
+        pid_t process_group, pid_t preferred_parent) {
+    DIR *directory = opendir("/proc");
+    if (directory == NULL) {
+        return -1;
+    }
+    pid_t selected = -1;
+    pid_t preferred = -1;
+    struct dirent *entry;
+    while ((entry = readdir(directory)) != NULL) {
+        char *end = NULL;
+        const long value = strtol(entry->d_name, &end, 10);
+        if (entry->d_name[0] == '\0'
+                || end == NULL
+                || *end != '\0'
+                || value < 1
+                || value > INT_MAX) {
+            continue;
+        }
+        pid_t candidate_parent = -1;
+        pid_t candidate_group = -1;
+        if (read_process_relationship(
+                (pid_t) value,
+                &candidate_parent,
+                &candidate_group) == 0
+                && candidate_group == process_group) {
+            if (selected < 0 || value < selected) {
+                selected = (pid_t) value;
+            }
+            if (candidate_parent == preferred_parent
+                    && (preferred < 0 || value < preferred)) {
+                preferred = (pid_t) value;
+            }
+        }
+    }
+    closedir(directory);
+    return preferred > 0 ? preferred : selected;
+}
+
+static int send_foreground_process(
+        int output_fd,
+        int master,
+        pid_t shell_process,
+        int framed_output) {
+    if (!framed_output) {
+        errno = EPROTO;
+        return -1;
+    }
+    const pid_t process_group = tcgetpgrp(master);
+    if (process_group < 1) {
+        const uint8_t unavailable[8] = {0};
+        return write_frame(
+                output_fd,
+                FRAME_FOREGROUND_PROCESS,
+                unavailable,
+                sizeof(unavailable));
+    }
+    char name[MAX_PROCESS_NAME + 1U];
+    pid_t process_id = process_group;
+    if (process_group == shell_process) {
+        const pid_t shell_child = find_process_group_member(
+                process_group, shell_process);
+        if (shell_child > 0 && shell_child != shell_process) {
+            process_id = shell_child;
+        }
+    }
+    if (read_process_name(process_id, name, sizeof(name)) != 0) {
+        process_id = find_process_group_member(process_group, -1);
+        if (process_id < 1
+                || read_process_name(process_id, name, sizeof(name)) != 0) {
+            const uint8_t unavailable[8] = {0};
+            return write_frame(
+                    output_fd,
+                    FRAME_FOREGROUND_PROCESS,
+                    unavailable,
+                    sizeof(unavailable));
+        }
+    }
+    const size_t name_length = strnlen(name, MAX_PROCESS_NAME);
+    if (name_length < 1U || name_length > MAX_PROCESS_NAME) {
+        errno = EPROTO;
+        return -1;
+    }
+    uint8_t payload[8U + MAX_PROCESS_NAME];
+    encode_u32(payload, (uint32_t) process_id);
+    encode_u32(payload + 4U, (uint32_t) process_group);
+    memcpy(payload + 8U, name, name_length);
+    return write_frame(
+            output_fd,
+            FRAME_FOREGROUND_PROCESS,
+            payload,
+            (uint32_t) (8U + name_length));
+}
+
 static int relay_control_frame(
         int control_fd,
         int output_fd,
@@ -375,6 +550,13 @@ static int relay_control_frame(
     if (header[0] == FRAME_QUERY_CWD && length == 0) {
         return send_working_directory(
                 output_fd, child_pid, framed_output) == 0 ? 1 : -1;
+    }
+    if (header[0] == FRAME_QUERY_FOREGROUND_PROCESS && length == 0) {
+        return send_foreground_process(
+                output_fd,
+                master,
+                child_pid,
+                framed_output) == 0 ? 1 : -1;
     }
     errno = EPROTO;
     return -1;

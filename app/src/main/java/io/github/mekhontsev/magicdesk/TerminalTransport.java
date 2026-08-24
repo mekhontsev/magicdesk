@@ -16,6 +16,14 @@ interface TerminalTransport extends Closeable {
 
     long processId() throws IOException;
 
+    default boolean supportsForegroundProcess() {
+        return false;
+    }
+
+    default TerminalProcessInfo foregroundProcess() throws IOException {
+        return TerminalProcessInfo.unknown();
+    }
+
     default boolean consumesStartupCommand() {
         return false;
     }

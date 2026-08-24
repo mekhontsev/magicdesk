@@ -136,6 +136,11 @@ current-directory tracking, task lifecycle, and MCP `terminal.*` operations as
 the Android-shell Console. Multiple windows own independent shells; closing a
 window closes only its PTY.
 
+For Termux-backed windows, Open tasks identifies the current PTY foreground
+program, such as `mc` or `nvim`, and uses a sanitized OSC terminal title as
+additional context. The same shell PID, foreground PID/process group,
+executable, title, and derived task label are available to MCP terminal status.
+
 MagicDesk installs its small versioned PTY relay atomically inside Termux's
 private home through the documented `RUN_COMMAND` stdin channel. The relay
 connects back only over an authenticated loopback socket. MagicDesk neither

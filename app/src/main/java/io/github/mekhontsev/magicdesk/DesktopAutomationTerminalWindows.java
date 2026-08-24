@@ -107,6 +107,13 @@ final class DesktopAutomationTerminalWindows {
             } catch (IOException ignored) {
                 // The cached directory remains useful while a process exits.
             }
+            try {
+                ConsoleTerminalRegistry.refreshForegroundProcess(id);
+            } catch (IllegalArgumentException error) {
+                return notFound(id);
+            } catch (IOException ignored) {
+                // The cached process remains useful while a process exits.
+            }
             final ConsoleTerminalRegistry.Snapshot snapshot =
                     ConsoleTerminalRegistry.status(id);
             if (snapshot == null) {
@@ -223,6 +230,7 @@ final class DesktopAutomationTerminalWindows {
 
     static JSONObject toJson(final ConsoleTerminalRegistry.Snapshot snapshot)
             throws JSONException {
+        final TerminalProcessInfo foreground = snapshot.foregroundProcess;
         return new JSONObject()
                 .put("terminalId", snapshot.id)
                 .put("taskId", snapshot.taskId)
@@ -234,7 +242,15 @@ final class DesktopAutomationTerminalWindows {
                 .put("rows", snapshot.rows)
                 .put("workingDirectory", snapshot.workingDirectory)
                 .put("title", snapshot.title)
-                .put("backend", snapshot.backend);
+                .put("backend", snapshot.backend)
+                .put("taskLabel", snapshot.taskLabel(
+                        "termux".equals(snapshot.backend)
+                                ? "Termux Console" : "Console"))
+                .put("foregroundProcess", new JSONObject()
+                        .put("known", foreground.isKnown())
+                        .put("processId", foreground.processId)
+                        .put("processGroupId", foreground.processGroupId)
+                        .put("executable", foreground.executable));
     }
 
     private static String sessionId(final JSONObject arguments) {

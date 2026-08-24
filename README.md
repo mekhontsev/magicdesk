@@ -4,7 +4,9 @@ MagicDesk is an open-source workstation environment for Android 15 and newer.
 It turns a phone, tablet, or Android secondary display into a practical desktop
 with native application windows, a taskbar and Start menu, desktop files and
 widgets, Files, Console, Task Manager, display capture, and physical keyboard
-and mouse controls.
+and mouse controls. When Termux is installed, MagicDesk can also run multiple
+independent Termux shells and console applications as native Android desktop
+windows.
 
 Applications remain ordinary Android tasks managed by the system. MagicDesk
 organizes them into one workspace and connects them to Android displays,
@@ -50,6 +52,25 @@ items, pins, shortcuts, widgets, recent applications, and live task layout can
 follow the session while output mode, Fill display, and DPI remain specific to
 each monitor.
 
+### First-Class Multi-Window Termux
+
+MagicDesk can open multiple independent Termux-backed Console windows. Each
+window is a separate Android task with its own PTY, shell, working directory,
+process lifecycle, saved geometry, and entry in the desktop task switcher.
+Foreground programs such as `mc` and `nvim` appear by name in Open tasks and
+can be switched, resized, snapped, minimized, and closed like native Android
+applications.
+
+These are not tabs inside the ordinary Termux activity, a single floating
+overlay, or windows confined to an X11 desktop. They use the same terminal UI,
+Files integration, drag and drop, Desktop Entry pipeline, and semantic MCP
+controls as MagicDesk Console while executing the user's installed Termux
+tools. Ordinary Termux and the separate Termux:X11 integration remain
+available alongside them. See [Workstation tools](docs/workstation-tools.md)
+for the execution and security model.
+
+![Two independent Termux-backed Console windows running nvim and Midnight Commander as native MagicDesk tasks](docs/images/magicdesk-termux-windows.png)
+
 ### Built-In Workstation Tools
 
 Files, Console, Task Manager, Settings, notifications, media controls, and
@@ -92,8 +113,9 @@ and desktop items rather than depending only on synthetic screen coordinates.
 - Run independent interactive `/system/bin/sh` sessions in Console through a
   real PTY with ANSI color, alternate-screen applications, mouse reporting,
   selection, clipboard, and live resizing.
-- Open independent Termux-backed Console windows through the same terminal UI,
-  window lifecycle, Desktop Entry pipeline, and semantic MCP controls.
+- Open multiple independent Termux-backed Console windows as native Android
+  tasks, each with its own PTY, shell, working directory, process lifecycle,
+  remembered bounds, and foreground-program label in Open tasks.
 - Inspect and control running tasks in Task Manager, including CPU and memory
   indicators, exact-task focus and close, explicit force-stop, and a bounded
   per-application log viewer.

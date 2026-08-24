@@ -42,4 +42,15 @@ public final class PtyControlProtocolTest {
                 new byte[]{3, 0, 0, 0, 0},
                 bytes.toByteArray());
     }
+
+    @Test
+    public void foregroundProcessRequestHasNoPayload() throws Exception {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PtyControlProtocol.writeForegroundProcessRequest(
+                new DataOutputStream(bytes));
+
+        assertArrayEquals(
+                new byte[]{4, 0, 0, 0, 0},
+                bytes.toByteArray());
+    }
 }

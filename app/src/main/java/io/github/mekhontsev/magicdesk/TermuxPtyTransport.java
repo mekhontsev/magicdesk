@@ -21,6 +21,7 @@ final class TermuxPtyTransport implements TerminalTransport {
     private static final long CONNECT_TIMEOUT_MILLIS = 15_000L;
     private static final long CLIENT_HANDSHAKE_MILLIS = 1_000L;
     private static final long CWD_TIMEOUT_MILLIS = 1_500L;
+    private static final long PROCESS_TIMEOUT_MILLIS = 1_500L;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final AtomicInteger ACTIVE = new AtomicInteger();
     private static final AtomicInteger OPENED = new AtomicInteger();
@@ -29,6 +30,8 @@ final class TermuxPtyTransport implements TerminalTransport {
 
     private final Object mOutputLock = new Object();
     private final Object mDirectoryLock = new Object();
+    private final Object mProcessLock = new Object();
+    private final Object mProcessQueryLock = new Object();
     private final Socket mSocket;
     private final DataInputStream mInput;
     private final DataOutputStream mOutput;
@@ -38,6 +41,9 @@ final class TermuxPtyTransport implements TerminalTransport {
 
     private String mWorkingDirectory;
     private long mDirectoryGeneration;
+    private TerminalProcessInfo mForegroundProcess =
+            TerminalProcessInfo.unknown();
+    private long mProcessGeneration;
 
     private TermuxPtyTransport(
             final Socket socket,
@@ -239,6 +245,51 @@ final class TermuxPtyTransport implements TerminalTransport {
     }
 
     @Override
+    public boolean supportsForegroundProcess() {
+        return true;
+    }
+
+    @Override
+    public TerminalProcessInfo foregroundProcess() throws IOException {
+        synchronized (mProcessQueryLock) {
+            ensureOpen();
+            final long previousGeneration;
+            synchronized (mProcessLock) {
+                previousGeneration = mProcessGeneration;
+            }
+            synchronized (mOutputLock) {
+                PtyControlProtocol.writeForegroundProcessRequest(mOutput);
+                mOutput.flush();
+            }
+            final long deadline = android.os.SystemClock.uptimeMillis()
+                    + PROCESS_TIMEOUT_MILLIS;
+            synchronized (mProcessLock) {
+                while (!mClosed.get()
+                        && mProcessGeneration == previousGeneration) {
+                    final long remaining = deadline
+                            - android.os.SystemClock.uptimeMillis();
+                    if (remaining <= 0L) {
+                        throw new IOException(
+                                "Termux foreground process lookup timed out");
+                    }
+                    try {
+                        mProcessLock.wait(remaining);
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException(
+                                "Termux foreground process lookup interrupted",
+                                error);
+                    }
+                }
+                if (mClosed.get()) {
+                    throw new IOException("Termux PTY is closed");
+                }
+                return mForegroundProcess;
+            }
+        }
+    }
+
+    @Override
     public boolean consumesStartupCommand() {
         return true;
     }
@@ -255,6 +306,9 @@ final class TermuxPtyTransport implements TerminalTransport {
         }
         synchronized (mDirectoryLock) {
             mDirectoryLock.notifyAll();
+        }
+        synchronized (mProcessLock) {
+            mProcessLock.notifyAll();
         }
         ACTIVE.decrementAndGet();
     }
@@ -279,6 +333,17 @@ final class TermuxPtyTransport implements TerminalTransport {
             mWorkingDirectory = directory;
             mDirectoryGeneration++;
             mDirectoryLock.notifyAll();
+        }
+    }
+
+    private void updateForegroundProcess(final TermuxPtyProtocol.Frame frame)
+            throws IOException {
+        final TerminalProcessInfo process =
+                TermuxPtyProtocol.parseForegroundProcess(frame);
+        synchronized (mProcessLock) {
+            mForegroundProcess = process;
+            mProcessGeneration++;
+            mProcessLock.notifyAll();
         }
     }
 
@@ -327,6 +392,11 @@ final class TermuxPtyTransport implements TerminalTransport {
                 }
                 if (frame.type == TermuxPtyProtocol.FRAME_CWD) {
                     updateWorkingDirectory(frame.payload);
+                    continue;
+                }
+                if (frame.type
+                        == TermuxPtyProtocol.FRAME_FOREGROUND_PROCESS) {
+                    updateForegroundProcess(frame);
                     continue;
                 }
                 if (frame.type != TermuxPtyProtocol.FRAME_OUTPUT) {

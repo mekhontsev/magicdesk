@@ -174,11 +174,12 @@ sessions may exist at once.
 
 `terminal.*` addresses actual user-facing Console windows by opaque
 `terminalId`. It can inspect task/display identity, shell PID, dimensions,
-working directory, backend, and OSC title; read the textual viewport or bounded
+working directory, backend, OSC title, derived task label, and optional
+foreground PID/process group/executable; read the textual viewport or bounded
 scrollback; and write text or semantic key events directly to the PTY. These
 operations do not use screenshots or synthetic pointer coordinates.
 `terminal.list` is a fast registry snapshot; `terminal.status` refreshes the
-reported working directory from the live PTY process.
+reported working directory and foreground process from the live PTY.
 
 `terminal.open` accepts an optional `backend` of `shell` or `termux`. The
 default is `shell`. A Termux terminal requires the installed Termux app, its

@@ -447,8 +447,9 @@ runtime integration and are not distributed through the same release path.
   directory to MCP; they are not a second user-facing Console implementation.
 - `ConsoleTerminalRegistry` holds weak, process-local references to live
   user-facing Console windows. It exposes immutable task, display, PTY,
-  dimensions, title, directory, viewport, and transcript state without owning
-  an Activity or shell. `DesktopAutomationTerminalWindows` maps the gated MCP
+  dimensions, foreground-process, title, directory, viewport, and transcript
+  state without owning an Activity or shell.
+  `DesktopAutomationTerminalWindows` maps the gated MCP
   `terminal.*` tools onto that registry and the normal built-in-window launch
   path. Terminal input therefore reaches the real PTY directly instead of
   synthesizing pointer coordinates. Closing the MCP server closes only its
@@ -815,6 +816,15 @@ The native relay has a small framed control protocol for input, resize, and
 working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one
 authenticated socket remains the complete ownership boundary.
+
+`TerminalTransport` also has an optional foreground-process capability. The
+Termux relay resolves the PTY foreground process group with `tcgetpgrp()` and
+reports a bounded executable name from its own `/proc` security domain. Console
+refreshes this metadata after terminal interaction and when Open tasks is shown;
+continuous output is throttled to avoid turning metadata into a polling load.
+Open tasks combines the executable with the terminal's OSC title, while shell
+names retain the `Console` or `Termux Console` identity. Missing metadata falls
+back to the static application label and never affects the PTY byte stream.
 
 Some vendor task managers can grant `RUN_COMMAND` while separately blocking
 Termux's foreground service through an Auto-launch policy. That refusal is a

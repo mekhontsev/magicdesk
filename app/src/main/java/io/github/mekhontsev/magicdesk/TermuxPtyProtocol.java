@@ -10,7 +10,10 @@ final class TermuxPtyProtocol {
     static final int FRAME_HELLO = 17;
     static final int FRAME_OUTPUT = 18;
     static final int FRAME_CWD = 19;
+    static final int FRAME_FOREGROUND_PROCESS = 20;
     static final int MAX_FRAME_BYTES = 1024 * 1024;
+    private static final int PROCESS_HEADER_BYTES = 8;
+    private static final int MAX_PROCESS_NAME_BYTES = 512;
 
     private TermuxPtyProtocol() {
     }
@@ -54,6 +57,47 @@ final class TermuxPtyProtocol {
         } catch (NumberFormatException error) {
             throw new IOException("invalid Termux PTY process id", error);
         }
+    }
+
+    static TerminalProcessInfo parseForegroundProcess(final Frame frame)
+            throws IOException {
+        if (frame == null || frame.type != FRAME_FOREGROUND_PROCESS
+                || frame.payload.length < PROCESS_HEADER_BYTES
+                || frame.payload.length
+                        > PROCESS_HEADER_BYTES + MAX_PROCESS_NAME_BYTES) {
+            throw new IOException("invalid Termux foreground process frame");
+        }
+        final long processId = decodeUnsignedInt(frame.payload, 0);
+        final long processGroupId = decodeUnsignedInt(frame.payload, 4);
+        final String executable = new String(
+                frame.payload,
+                PROCESS_HEADER_BYTES,
+                frame.payload.length - PROCESS_HEADER_BYTES,
+                StandardCharsets.UTF_8);
+        if (processId == 0L && processGroupId == 0L
+                && executable.isEmpty()) {
+            return TerminalProcessInfo.unknown();
+        }
+        if (processId < 1L || processGroupId < 1L
+                || executable.indexOf('\0') >= 0
+                || executable.indexOf('\n') >= 0
+                || executable.indexOf('\r') >= 0) {
+            throw new IOException("invalid Termux foreground process metadata");
+        }
+        final TerminalProcessInfo result = new TerminalProcessInfo(
+                processId, processGroupId, executable);
+        if (!result.isKnown()) {
+            throw new IOException("missing Termux foreground process name");
+        }
+        return result;
+    }
+
+    private static long decodeUnsignedInt(
+            final byte[] bytes, final int offset) {
+        return ((long) bytes[offset] & 0xFFL) << 24
+                | ((long) bytes[offset + 1] & 0xFFL) << 16
+                | ((long) bytes[offset + 2] & 0xFFL) << 8
+                | ((long) bytes[offset + 3] & 0xFFL);
     }
 
     private static boolean constantTimeEquals(

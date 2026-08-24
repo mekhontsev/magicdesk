@@ -476,12 +476,12 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool(
                         "terminal.list",
                         "List terminal windows",
-                        "List live interactive MagicDesk terminal windows using cached metadata; terminal.status refreshes the working directory.",
+                        "List live interactive MagicDesk terminal windows using cached process and terminal metadata; terminal.status refreshes live metadata.",
                         emptySchema()))
                 .put(readTool(
                         "terminal.status",
                         "Get terminal status",
-                        "Read task, display, PTY process, dimensions, title, and working directory.",
+                        "Read task, display, shell and foreground process, dimensions, title, and working directory.",
                         terminalSchema()))
                 .put(readTool(
                         "terminal.read",
@@ -874,7 +874,11 @@ final class MagicDeskMcpToolCatalog {
                 .put("rows", integerProperty("Terminal rows."))
                 .put("workingDirectory", stringProperty(
                         "Current shell directory."))
-                .put("title", stringProperty("Terminal OSC title."));
+                .put("title", stringProperty("Terminal OSC title."))
+                .put("taskLabel", stringProperty(
+                        "Current label derived from process metadata and OSC title."))
+                .put("foregroundProcess", openObjectProperty(
+                        "Foreground PTY process metadata."));
     }
 
     private static JSONObject emptySchema() throws JSONException {

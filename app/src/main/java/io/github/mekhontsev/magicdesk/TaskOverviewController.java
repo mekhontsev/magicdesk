@@ -22,6 +22,7 @@ final class TaskOverviewController {
     private final DesktopUiFactory mUi;
     private LinearLayout mPanel;
     private int mLoadGeneration;
+    private int mContentGeneration;
 
     TaskOverviewController(
             final DesktopShellActivity activity,
@@ -85,9 +86,16 @@ final class TaskOverviewController {
     }
 
     void populate(final TaskRepository.Snapshot snapshot) {
+        populate(snapshot, true);
+    }
+
+    private void populate(
+            final TaskRepository.Snapshot snapshot,
+            final boolean refreshTerminalProcesses) {
         if (mPanel == null) {
             return;
         }
+        final int contentGeneration = ++mContentGeneration;
         mPanel.removeAllViews();
 
         final LinearLayout header = new LinearLayout(mActivity);
@@ -174,6 +182,22 @@ final class TaskOverviewController {
                         LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
         scrollParams.setMargins(0, dp(12), 0, 0);
         mPanel.addView(scroll, scrollParams);
+        if (refreshTerminalProcesses) {
+            final List<Integer> taskIds = new ArrayList<>();
+            for (final TaskRepository.TaskEntry task : tasks) {
+                taskIds.add(Integer.valueOf(task.taskId));
+            }
+            ConsoleTerminalRegistry.refreshForegroundProcesses(
+                    taskIds,
+                    changed -> {
+                        if (changed
+                                && contentGeneration == mContentGeneration
+                                && isVisible()
+                                && !mActivity.isActivityUnavailable()) {
+                            populate(snapshot, false);
+                        }
+                    });
+        }
     }
 
     boolean showPanel() {
@@ -237,12 +261,19 @@ final class TaskOverviewController {
             mActivity.hideAllPanels();
             mActivity.focusTask(app, task);
         });
+        final ConsoleTerminalRegistry.Snapshot terminal =
+                ConsoleTerminalRegistry.snapshotForTask(task.taskId);
+        final String taskLabel = terminal == null
+                ? app.label
+                : terminal.taskLabel("termux".equals(terminal.backend)
+                        ? mActivity.getString(R.string.console_termux_title)
+                        : app.label);
         mActivity.registerContextTarget(tile, app, task);
         mActivity.registerAutomationUiElement(
                 tile,
                 "open_tasks.task." + task.taskId,
                 "application",
-                app.label,
+                taskLabel,
                 app.packageName,
                 task.taskId);
 
@@ -255,7 +286,7 @@ final class TaskOverviewController {
         content.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         final TextView label = new TextView(mActivity);
-        label.setText(app.label);
+        label.setText(taskLabel);
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
         label.setTextSize(12);
         label.setSingleLine(true);
