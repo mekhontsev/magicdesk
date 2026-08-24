@@ -38,6 +38,8 @@ final class DesktopSelfTestInputSuite {
     private enum InputCoordinateSpace {
         DISPLAY,
         NATURAL,
+        OUTPUT,
+        NATURAL_OUTPUT,
         TASK_LOCAL
     }
 
@@ -1472,13 +1474,16 @@ final class DesktopSelfTestInputSuite {
                     displayId, before.bounds, geometry);
             final TaskInputWindowParser.Entry menu = waitForMaximizeMenu(
                     displayId, taskId);
-            final Rect menuFrame = geometry.inputFrame(menu.frame);
+            final Rect menuFrame = inputSpace == InputCoordinateSpace.DISPLAY
+                    ? directFrame(menu.frame)
+                    : geometry.inputFrame(menu.frame);
             // The detached SystemUI menu is laid out in phone-display density.
             final float menuDensity = defaultDisplayDensity();
             // A menu published in natural coordinates exposes its side
             // actions in natural screen-edge order. Once normalized into
             // display space, left and right are therefore reversed.
-            final boolean menuLeft = inputSpace == InputCoordinateSpace.NATURAL
+            final boolean menuLeft = (inputSpace == InputCoordinateSpace.NATURAL
+                    || inputSpace == InputCoordinateSpace.NATURAL_OUTPUT)
                     ? !left : left;
             final int x = menuFrame.right
                     - Math.round(menuDensity * (menuLeft
@@ -1733,7 +1738,7 @@ final class DesktopSelfTestInputSuite {
                     return InputCoordinateSpace.DISPLAY;
                 }
                 if (captionMatches(transformedFrame, bounds)) {
-                    return InputCoordinateSpace.NATURAL;
+                    return transformedInputSpace(geometry);
                 }
                 if (caption.frame.left == 0
                             && caption.frame.top == 0
@@ -1763,6 +1768,16 @@ final class DesktopSelfTestInputSuite {
                 && frame.left == bounds.left
                 && frame.top == bounds.top
                 && frame.right == bounds.right;
+    }
+
+    private static InputCoordinateSpace transformedInputSpace(
+            final DesktopSelfTestGeometry geometry) {
+        if (!geometry.hasInputOutputOffset()) {
+            return InputCoordinateSpace.NATURAL;
+        }
+        return geometry.transformsInputOrientation()
+                ? InputCoordinateSpace.NATURAL_OUTPUT
+                : InputCoordinateSpace.OUTPUT;
     }
 
     private static Rect directFrame(
@@ -1841,7 +1856,9 @@ final class DesktopSelfTestInputSuite {
         }
         return inputWindowDetail(entry,
                 directCoordinates ? "display"
-                        : transformedCoordinates ? "natural" : "task-local")
+                        : transformedCoordinates
+                                ? geometry.transformedInputCoordinatesLabel()
+                                : "task-local")
                 + (transformedCoordinates
                         ? ", normalized=" + transformedFrame : "");
     }
@@ -1874,7 +1891,9 @@ final class DesktopSelfTestInputSuite {
         }
         return inputWindowDetail(entry,
                 directCoordinates ? "display"
-                        : transformedCoordinates ? "natural" : "task-local")
+                        : transformedCoordinates
+                                ? geometry.transformedInputCoordinatesLabel()
+                                : "task-local")
                 + (transformedCoordinates
                         ? ", normalized=" + transformedFrame : "");
     }

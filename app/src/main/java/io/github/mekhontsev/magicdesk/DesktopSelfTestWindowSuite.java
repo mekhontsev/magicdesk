@@ -83,7 +83,7 @@ final class DesktopSelfTestWindowSuite {
                 targetDisplayId);
         samplePhoneUiBestEffort();
         final DesktopSelfTestGeometry geometry = verifyDesktopViewport(
-                appContext, targetDisplayId, result);
+                appContext, targetDisplayId, captureSource, result);
         verifyDesktopWallpaper(targetDisplayId, result);
         DesktopSelfTestHostObserver.markReady();
         DesktopSelfTestTaskStackGuard.begin(
@@ -769,6 +769,7 @@ final class DesktopSelfTestWindowSuite {
     private static DesktopSelfTestGeometry verifyDesktopViewport(
             final Context context,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final DesktopSelfTestResult result)
             throws AbortSelfTest {
         return require(result,
@@ -793,8 +794,15 @@ final class DesktopSelfTestWindowSuite {
                             && workArea.bottom < display.bottom
                             && densityDpi > 0
                             && rotation >= 0) {
-                        return new DesktopSelfTestGeometry(
-                                display, workArea, densityDpi, rotation);
+                        return DesktopSelfTestViewportProbe.withCaptureOutput(
+                                context,
+                                displayId,
+                                captureSource,
+                                new DesktopSelfTestGeometry(
+                                        display,
+                                        workArea,
+                                        densityDpi,
+                                        rotation));
                     }
                 }
                 SystemClock.sleep(POLL_MILLIS);
@@ -1264,7 +1272,7 @@ final class DesktopSelfTestWindowSuite {
                 "DISPLAY-004",
                 "Refresh input viewport after application fullscreen",
                 () -> DesktopSelfTestViewportProbe.awaitInputViewport(
-                        context, displayId, geometry));
+                        context, displayId, captureSource, geometry));
         final Rect leftBounds = geometry.leftWindow();
         final Rect rightBounds = geometry.rightWindow();
         final SurfaceReferenceResult surfaceReference =

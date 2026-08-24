@@ -14,6 +14,8 @@ final class DesktopSelfTestGeometry {
     final Rect workArea;
     final int densityDpi;
     private final Rect inputDisplayBounds;
+    private final Rect inputOutputBounds;
+    private final boolean separateInputOutput;
     private final int displayRotation;
     private final int minimumWindowWidth;
     private final int minimumWindowHeight;
@@ -41,7 +43,8 @@ final class DesktopSelfTestGeometry {
             final int minimumWindowWidth,
             final int minimumWindowHeight) {
         this(displayBounds, workArea, densityDpi, displayRotation,
-                minimumWindowWidth, minimumWindowHeight, displayBounds);
+                minimumWindowWidth, minimumWindowHeight, displayBounds,
+                displayBounds, false);
     }
 
     private DesktopSelfTestGeometry(
@@ -51,14 +54,21 @@ final class DesktopSelfTestGeometry {
             final int displayRotation,
             final int minimumWindowWidth,
             final int minimumWindowHeight,
-            final Rect inputDisplayBounds) {
+            final Rect inputDisplayBounds,
+            final Rect inputOutputBounds,
+            final boolean separateInputOutput) {
         if (!hasArea(displayBounds)
                 || !hasArea(workArea)
                 || !hasArea(inputDisplayBounds)
+                || !hasArea(inputOutputBounds)
                 || workArea.left < displayBounds.left
                 || workArea.top < displayBounds.top
                 || workArea.right > displayBounds.right
                 || workArea.bottom > displayBounds.bottom
+                || (separateInputOutput
+                        && (width(inputOutputBounds) < width(displayBounds)
+                                || height(inputOutputBounds)
+                                        < height(displayBounds)))
                 || densityDpi <= 0
                 || displayRotation < Surface.ROTATION_0
                 || displayRotation > Surface.ROTATION_270) {
@@ -68,6 +78,8 @@ final class DesktopSelfTestGeometry {
         this.workArea = copy(workArea);
         this.densityDpi = densityDpi;
         this.inputDisplayBounds = copy(inputDisplayBounds);
+        this.inputOutputBounds = copy(inputOutputBounds);
+        this.separateInputOutput = separateInputOutput;
         this.displayRotation = displayRotation;
         this.minimumWindowWidth = Math.max(1, minimumWindowWidth);
         this.minimumWindowHeight = Math.max(1, minimumWindowHeight);
@@ -131,7 +143,9 @@ final class DesktopSelfTestGeometry {
                 displayRotation,
                 Math.max(minimumWindowWidth, width(bounds)),
                 Math.max(minimumWindowHeight, height(bounds)),
-                inputDisplayBounds);
+                inputDisplayBounds,
+                inputOutputBounds,
+                separateInputOutput);
     }
 
     DesktopSelfTestGeometry withViewport(
@@ -150,7 +164,10 @@ final class DesktopSelfTestGeometry {
                 densityDpi,
                 displayRotation,
                 minimumWindowWidth,
-                minimumWindowHeight);
+                minimumWindowHeight,
+                separateInputOutput ? inputOutputBounds : displayBounds,
+                separateInputOutput ? inputOutputBounds : displayBounds,
+                separateInputOutput);
     }
 
     DesktopSelfTestGeometry withInputViewport(
@@ -163,7 +180,24 @@ final class DesktopSelfTestGeometry {
                 displayRotation,
                 minimumWindowWidth,
                 minimumWindowHeight,
-                inputDisplayBounds);
+                separateInputOutput
+                        ? inputOutputBounds : inputDisplayBounds,
+                inputOutputBounds,
+                separateInputOutput);
+    }
+
+    DesktopSelfTestGeometry withCenteredInputOutput(
+            final Rect outputBounds) {
+        return new DesktopSelfTestGeometry(
+                displayBounds,
+                workArea,
+                densityDpi,
+                displayRotation,
+                minimumWindowWidth,
+                minimumWindowHeight,
+                outputBounds,
+                outputBounds,
+                !sameBounds(outputBounds, displayBounds));
     }
 
     /** Converts InputDispatcher's natural-orientation frame to display space. */
@@ -205,10 +239,25 @@ final class DesktopSelfTestGeometry {
                 break;
         }
         return rect(
-                rotated.left + inputDisplayBounds.left,
-                rotated.top + inputDisplayBounds.top,
-                rotated.right + inputDisplayBounds.left,
-                rotated.bottom + inputDisplayBounds.top);
+                rotated.left + inputDisplayBounds.left - inputOffsetX(),
+                rotated.top + inputDisplayBounds.top - inputOffsetY(),
+                rotated.right + inputDisplayBounds.left - inputOffsetX(),
+                rotated.bottom + inputDisplayBounds.top - inputOffsetY());
+    }
+
+    boolean hasInputOutputOffset() {
+        return inputOffsetX() != 0 || inputOffsetY() != 0;
+    }
+
+    boolean transformsInputOrientation() {
+        return displayRotation != Surface.ROTATION_0;
+    }
+
+    String transformedInputCoordinatesLabel() {
+        if (!hasInputOutputOffset()) {
+            return "natural";
+        }
+        return transformsInputOrientation() ? "natural-output" : "output";
     }
 
     boolean containsWindow(final Rect bounds) {
@@ -262,7 +311,28 @@ final class DesktopSelfTestGeometry {
     public String toString() {
         return "display=" + format(displayBounds)
                 + ", work=" + format(workArea)
-                + ", density=" + densityDpi;
+                + ", density=" + densityDpi
+                + (hasInputOutputOffset()
+                        ? ", inputOutput=" + format(inputOutputBounds)
+                                + ", inputOffset=" + inputOffsetX()
+                                + "," + inputOffsetY()
+                        : "");
+    }
+
+    private int inputOffsetX() {
+        return separateInputOutput
+                ? inputOutputBounds.left
+                        + (width(inputOutputBounds) - width(displayBounds)) / 2
+                        - displayBounds.left
+                : 0;
+    }
+
+    private int inputOffsetY() {
+        return separateInputOutput
+                ? inputOutputBounds.top
+                        + (height(inputOutputBounds) - height(displayBounds)) / 2
+                        - displayBounds.top
+                : 0;
     }
 
     private Rect relativeBounds(
@@ -328,6 +398,13 @@ final class DesktopSelfTestGeometry {
         return bounds != null
                 && bounds.right > bounds.left
                 && bounds.bottom > bounds.top;
+    }
+
+    private static boolean sameBounds(final Rect first, final Rect second) {
+        return first.left == second.left
+                && first.top == second.top
+                && first.right == second.right
+                && first.bottom == second.bottom;
     }
 
     private static int width(final Rect bounds) {

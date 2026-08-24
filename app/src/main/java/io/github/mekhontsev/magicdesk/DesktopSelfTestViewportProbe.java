@@ -7,6 +7,7 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.view.Display;
 
 import java.io.IOException;
@@ -28,10 +29,43 @@ final class DesktopSelfTestViewportProbe {
     static DesktopSelfTestGeometry awaitInputViewport(
             final Context context,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final DesktopSelfTestGeometry baseline) throws IOException {
         final Snapshot snapshot = awaitSnapshot(context, displayId);
-        return baseline.withInputViewport(
-                snapshot.display, snapshot.rotation);
+        return withCaptureOutput(
+                context,
+                displayId,
+                captureSource,
+                baseline.withInputViewport(
+                        snapshot.display, snapshot.rotation));
+    }
+
+    static DesktopSelfTestGeometry withCaptureOutput(
+            final Context context,
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry baseline) {
+        if (context == null || captureSource == null
+                || captureSource.logicalDisplayId == displayId) {
+            return baseline;
+        }
+        final DisplayManager manager = context.getSystemService(
+                DisplayManager.class);
+        final Display output = manager == null ? null
+                : manager.getDisplay(captureSource.logicalDisplayId);
+        if (output == null) {
+            return baseline;
+        }
+        final DisplayMetrics metrics = new DisplayMetrics();
+        output.getRealMetrics(metrics);
+        if (metrics.widthPixels < baseline.displayBounds.width()
+                || metrics.heightPixels < baseline.displayBounds.height()) {
+            return baseline;
+        }
+        // Projection stacks may host tasks in a centered logical viewport while
+        // InputDispatcher publishes frames in the paired output's coordinates.
+        return baseline.withCenteredInputOutput(new Rect(
+                0, 0, metrics.widthPixels, metrics.heightPixels));
     }
 
     private static Snapshot awaitSnapshot(

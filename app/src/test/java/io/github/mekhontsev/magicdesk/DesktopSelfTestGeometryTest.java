@@ -163,6 +163,34 @@ public final class DesktopSelfTestGeometryTest {
     }
 
     @Test
+    public void mapsCenteredPhysicalOutputFramesIntoDesktopSpace() {
+        final DesktopSelfTestGeometry geometry =
+                new DesktopSelfTestGeometry(
+                        rect(0, 0, 1920, 1080),
+                        rect(0, 0, 1920, 1016),
+                        160)
+                        .withCenteredInputOutput(rect(0, 0, 2560, 1080));
+
+        assertRect(geometry.inputFrame(
+                        new TaskInputWindowParser.Frame(
+                                474, 102, 1280, 142)),
+                154, 102, 960, 142);
+        assertTrue(geometry.hasInputOutputOffset());
+        assertEquals("output", geometry.transformedInputCoordinatesLabel());
+        assertTrue(geometry.toString().contains("inputOffset=320,0"));
+
+        final DesktopSelfTestGeometry refreshed = geometry
+                .withInputViewport(rect(0, 0, 1920, 1080), Surface.ROTATION_0)
+                .withViewport(
+                        rect(0, 0, 1920, 1080),
+                        rect(0, 0, 1920, 1016));
+        assertRect(refreshed.inputFrame(
+                        new TaskInputWindowParser.Frame(
+                                397, 91, 1242, 131)),
+                77, 91, 922, 131);
+    }
+
+    @Test
     public void sharesParsedTaskBoundsAcrossSelfTestSuites() {
         final TaskStackParser.Bounds parsed =
                 new TaskStackParser.Bounds(10, 20, 300, 400);
