@@ -113,6 +113,11 @@ Available resolutions and refresh rates depend on what Android and the active
 platform or SoC backend can read under the connected shell identity. A missing
 vendor timing interface disables only that control.
 
+On verified Nubia firmware that exposes its complete EDID list only to root,
+the independent [Native Display Mode Helper](native-display-mode-helper.md)
+can apply the advertised native timing before MagicDesk starts. It is an
+optional direct-root tool, not a Shizuku or MagicDesk runtime requirement.
+
 ## Development Builds
 
 Every non-documentation push to `main` publishes a release-signed development

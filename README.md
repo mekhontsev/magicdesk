@@ -12,9 +12,10 @@ files, input, and an authorized shell identity. It does not stream
 applications, embed them in replacement views, or run a guest operating
 system.
 
-The project uses one APK and one codebase. Standard Android behavior forms the
-baseline; platform, display, and SoC drivers add capabilities only when runtime
-probes verify them.
+The MagicDesk desktop uses one APK and one codebase across supported vendors.
+Standard Android behavior forms the baseline; platform, display, and SoC
+drivers add capabilities only when runtime probes verify them. Optional root
+hardware helpers remain separate and are never desktop requirements.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -215,6 +216,11 @@ Read [Shell access and privilege modes](docs/privilege-modes.md),
 [Automation](docs/automation.md), and [third-party notices](THIRD_PARTY_NOTICES.md)
 before enabling privileged or automated workflows.
 
+Firmware that hides the monitor's complete timing list from shell UID 2000 can
+be tested with the independent, direct-root
+[Native Display Mode Helper](docs/native-display-mode-helper.md). It is not
+part of the main APK or required for normal MagicDesk operation.
+
 ## Diagnostics
 
 Open **Tools > Diagnostics** after reproducing a problem. Attach the complete
@@ -252,6 +258,7 @@ variants, verification commands, and pull-request expectations.
 - [Automation and MCP](docs/automation.md)
 - [Desktop Entry files](docs/desktop-entries.md)
 - [Shell access and privilege modes](docs/privilege-modes.md)
+- [Native Display Mode Helper](docs/native-display-mode-helper.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Validation matrix](docs/testing-backlog.md)

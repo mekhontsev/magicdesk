@@ -41,6 +41,12 @@ Build the debug APK:
 ./gradlew :app:assembleDebug
 ```
 
+Optional add-ons are separate applications:
+
+```sh
+./gradlew :display-fixes:assembleDebug :kernel-fixes:assembleDebug
+```
+
 On Windows, use `gradlew.bat` instead of `./gradlew`.
 
 Run the complete local verification before submitting a change:

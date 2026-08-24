@@ -39,8 +39,8 @@ firmware task, display, input, or capture behavior.
 - JVM tests cover state models, parsers, lifecycle ownership, task and display
   policies, shell quoting, filesystem operations, and platform isolation.
 - Android lint and debug assembly cover the main application and independent
-  Kernel Fixes APK. Package-boundary checks reject input helpers or kernel
-  artifacts in the wrong APK.
+  Display Fixes and Kernel Fixes APKs. Package-boundary checks reject input
+  helpers or kernel artifacts in the wrong APK.
 - CI builds on Linux and Windows. Non-documentation pushes to `main` also build,
   sign, verify, and publish the rolling development APK.
 - The desktop self-test runs the production session and task paths on phone,
@@ -72,6 +72,10 @@ firmware task, display, input, or capture behavior.
 
 ## Pending Hardware Validation
 
+- [ ] On Z80 Ultra with root granted only to Display Fixes, verify the helper
+  selects `2560x1080`, survives its HPD cycle, and MagicDesk retains that mode
+  with **Output mode** set to **System / native** while Shizuku remains UID
+  2000.
 - [ ] Verify proportional file, shortcut, and widget placement across two
   differently sized external desktops.
 - [ ] Test first-run onboarding on a compatible device that has never used

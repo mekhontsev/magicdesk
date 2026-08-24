@@ -1414,6 +1414,14 @@ desktop starts leave the mode selected by SmartCast or another system UI
 untouched. This ownership distinction is persisted with the display profile,
 so restarting MagicDesk cannot repeatedly clear a system-owned mode.
 
+Some firmware permits the vendor timing sequence only to root and hides the
+EDID node from shell UID 2000. The independent `display-fixes` APK can perform
+the same one-shot sequence through a user-approved direct `su` command before
+MagicDesk starts. Both clients use `display-mode-core` for parsing and native
+mode selection. The helper is not discovered by the main application, does
+not alter the normal Shizuku runtime contract, and is documented in
+[Native Display Mode Helper](native-display-mode-helper.md).
+
 ### Caption visibility
 
 RedMagic uses separate privacy filters for wireless and wired projection:
@@ -1842,25 +1850,30 @@ tests cannot prove firmware behavior.
 
 ## Build And Release Boundaries
 
-The Gradle project has three modules:
+The Gradle project has five modules:
 
 - `app`: main MagicDesk APK;
+- `display-mode-core`: pure Java EDID parsing and timing-selection policy;
+- `display-fixes`: independent optional direct-root display helper APK;
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK.
 
 Every main-app build compiles the two native input helpers from source. CI must
 verify that the main APK contains both helpers and no `.ko`, and that the
-Kernel Fixes APK contains exactly the reviewed module and no input helper.
+Kernel Fixes APK contains exactly the reviewed module and no input helper. The
+Display Fixes APK contains neither native input helpers nor kernel code.
 
 The kernel module itself is not compiled in normal Android CI. Rebuilding it
 requires the exact upstream kernel source, config, symbol versions, and guarded
 script documented in [VITURE XR resolution fix](xr-resolution-fix.md).
 
-Normal CI builds unsigned release variants of both applications and runs
-`scripts/verify-apks.sh` with both APKs to enforce their package boundaries.
+Normal CI builds unsigned release variants of all three applications and runs
+`scripts/verify-apks.sh` with their APKs to enforce package boundaries. The
+pure Java timing module is tested independently.
 
 For a `v*` tag, the release workflow loads signing credentials through
 `gradle/release-signing.gradle`, signs only the main MagicDesk APK, verifies its
 certificate and package boundary, emits a SHA-256 file, and publishes that APK
-as the tagged release. The firmware-specific Kernel Fixes APK is not a tagged
-release artifact. Local debug builds never require release secrets.
+as the tagged release. The optional Display Fixes and firmware-specific Kernel
+Fixes APKs are not tagged release artifacts. Local debug builds never require
+release secrets.

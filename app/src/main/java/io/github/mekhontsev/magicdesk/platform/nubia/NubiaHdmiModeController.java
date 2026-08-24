@@ -6,6 +6,8 @@ import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackend;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackends;
+import io.github.mekhontsev.magicdesk.display.DisplayTiming;
+import io.github.mekhontsev.magicdesk.display.DisplayTimingPolicy;
 
 import android.content.Context;
 import android.hardware.display.DisplayManager;
@@ -16,12 +18,7 @@ import android.view.Display;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 final class NubiaHdmiModeController {
     static final int VENDOR_SIZE_UNCHANGED = -1;
@@ -37,8 +34,6 @@ final class NubiaHdmiModeController {
             "io.github.mekhontsev.magicdesk.platform.nubia.ConsoleDisplayCommand";
     private static final long MODE_TIMEOUT_MS = 10_000L;
     private static final long MODE_POLL_MS = 100L;
-    private static final Pattern MODE_PATTERN = Pattern.compile(
-            "^(\\d+)x(\\d+)\\s+(\\d+)\\s+(\\d+)$");
     private static final Object PROBE_LOCK = new Object();
     private static volatile String sPermanentReadFailure;
 
@@ -298,26 +293,13 @@ final class NubiaHdmiModeController {
 
     static List<Mode> parseModes(final String output) {
         final ArrayList<Mode> modes = new ArrayList<>();
-        if (output == null) {
-            return modes;
-        }
-        for (final String line : output.split("\\r?\\n")) {
-            final Matcher matcher = MODE_PATTERN.matcher(line.trim());
-            if (!matcher.matches()) {
-                continue;
-            }
-            try {
-                final Mode mode = new Mode(
-                        Integer.parseInt(matcher.group(1)),
-                        Integer.parseInt(matcher.group(2)),
-                        Integer.parseInt(matcher.group(3)),
-                        Integer.parseInt(matcher.group(4)));
-                if (mode.isValid()) {
-                    modes.add(mode);
-                }
-            } catch (NumberFormatException ignored) {
-                // Ignore malformed vendor node entries.
-            }
+        for (final DisplayTiming timing
+                : DisplayTimingPolicy.parseNubiaModes(output)) {
+            modes.add(new Mode(
+                    timing.width(),
+                    timing.height(),
+                    timing.refreshRate(),
+                    timing.pictureAspect()));
         }
         return modes;
     }
@@ -507,78 +489,17 @@ final class NubiaHdmiModeController {
     }
 
     private static List<Mode> normalizeModes(final List<Mode> modes) {
-        final Map<String, Mode> uniqueModes = new LinkedHashMap<>();
-        for (final Mode mode : modes) {
-            final String timing = mode.timingKey();
-            final Mode existing = uniqueModes.get(timing);
-            if (existing == null
-                    || mode.pictureAspect > existing.pictureAspect) {
-                uniqueModes.put(timing, mode);
-            }
-        }
-        final ArrayList<Mode> sorted = new ArrayList<>(uniqueModes.values());
-        Collections.sort(sorted, new Comparator<Mode>() {
-            @Override
-            public int compare(final Mode left, final Mode right) {
-                int result = Integer.compare(right.height, left.height);
-                if (result == 0) {
-                    result = Integer.compare(right.width, left.width);
-                }
-                if (result == 0) {
-                    result = Integer.compare(
-                            right.refreshRate, left.refreshRate);
-                }
-                return result;
-            }
-        });
-        return Collections.unmodifiableList(sorted);
+        return DisplayTimingPolicy.normalize(modes);
     }
 
     private static Mode findMode(
             final List<Mode> modes,
             final String timing) {
-        if (timing == null || timing.isEmpty()) {
-            return null;
-        }
-        for (final Mode mode : modes) {
-            if (timing.equals(mode.timingKey())) {
-                return mode;
-            }
-        }
-        return null;
+        return DisplayTimingPolicy.find(modes, timing);
     }
 
     private static Mode bestNativeResolution(final List<Mode> modes) {
-        int maxHeight = 0;
-        for (final Mode mode : modes) {
-            maxHeight = Math.max(maxHeight, mode.height);
-        }
-
-        boolean hasNonCinemaMode = false;
-        for (final Mode mode : modes) {
-            if (mode.height == maxHeight && mode.pictureAspect != 4) {
-                hasNonCinemaMode = true;
-                break;
-            }
-        }
-
-        Mode best = null;
-        for (final Mode mode : modes) {
-            if (mode.height != maxHeight
-                    || (hasNonCinemaMode && mode.pictureAspect == 4)) {
-                continue;
-            }
-            if (best == null
-                    || mode.width > best.width
-                    || (mode.width == best.width
-                            && mode.refreshRate > best.refreshRate)
-                    || (mode.width == best.width
-                            && mode.refreshRate == best.refreshRate
-                            && mode.pictureAspect > best.pictureAspect)) {
-                best = mode;
-            }
-        }
-        return best;
+        return DisplayTimingPolicy.bestNative(modes);
     }
 
     private static int waitForMode(
@@ -753,7 +674,7 @@ final class NubiaHdmiModeController {
         NONE
     }
 
-    static final class Mode {
+    static final class Mode implements DisplayTiming {
         final int width;
         final int height;
         final int refreshRate;
@@ -770,9 +691,30 @@ final class NubiaHdmiModeController {
             this.pictureAspect = pictureAspect;
         }
 
-        boolean isValid() {
+        @Override
+        public boolean isValid() {
             return width > 0 && height > 0 && refreshRate > 0
                     && pictureAspect >= 0;
+        }
+
+        @Override
+        public int width() {
+            return width;
+        }
+
+        @Override
+        public int height() {
+            return height;
+        }
+
+        @Override
+        public int refreshRate() {
+            return refreshRate;
+        }
+
+        @Override
+        public int pictureAspect() {
+            return pictureAspect;
         }
 
         boolean sameTiming(final Mode other) {
@@ -789,7 +731,8 @@ final class NubiaHdmiModeController {
                     && height == other.height;
         }
 
-        String timingKey() {
+        @Override
+        public String timingKey() {
             return width + "x" + height + "@" + refreshRate;
         }
 

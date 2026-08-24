@@ -38,8 +38,8 @@ certificate. Its SHA-256 fingerprint is:
 The main APK contains no independent privilege-escalation path, kernel module,
 or kernel-module loader. Optional local MCP automation is disabled by default,
 binds only to loopback, and requires a generated bearer token. The separate
-Kernel Fixes APK remains outside the main application's runtime and release
-boundary.
+Display Fixes and Kernel Fixes APKs remain outside the main application's
+runtime and release boundary.
 
 ## Capability Boundary
 
@@ -181,8 +181,15 @@ captured by an earlier MagicDesk installation.
 MagicDesk has no boot receiver. Rebooting leaves the phone in its normal state
 until the user launches MagicDesk manually.
 
-## Optional Root Add-on
+## Optional Root Add-ons
 
 The separate `MagicDesk Kernel Fixes` APK is outside this runtime contract. It
 has its own icon, requests root itself, and is never discovered or launched by
 the main application. See [VITURE XR resolution fix](xr-resolution-fix.md).
+
+The separate `MagicDesk Display Fixes` APK follows the same isolation rule. It
+requests direct `su` access, applies one capability-checked native display
+timing operation, and completes without binding Shizuku or leaving a root
+process.
+It exists for firmware where shell UID 2000 cannot read the monitor's complete
+mode list. See [Native Display Mode Helper](native-display-mode-helper.md).

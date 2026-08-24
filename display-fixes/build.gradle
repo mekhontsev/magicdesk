@@ -1,0 +1,28 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = 'io.github.mekhontsev.magicdesk.displayfixes'
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = 'io.github.mekhontsev.magicdesk.displayfixes'
+        minSdk = 35
+        targetSdk = 37
+        versionCode = 100
+        versionName = '1.0'
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation project(':display-mode-core')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+apply from: rootProject.file('gradle/release-signing.gradle')

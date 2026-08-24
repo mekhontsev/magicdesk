@@ -6,9 +6,13 @@ plugins {
 tasks.register('verifyDevelopment') {
     group = 'verification'
     description = 'Runs local checks and builds all debug APKs.'
-    dependsOn ':app:testDebugUnitTest',
+    dependsOn ':display-mode-core:test',
+            ':app:testDebugUnitTest',
             ':app:lintDebug',
             ':app:assembleDebug',
+            ':display-fixes:testDebugUnitTest',
+            ':display-fixes:lintDebug',
+            ':display-fixes:assembleDebug',
             ':kernel-fixes:lintDebug',
             ':kernel-fixes:assembleDebug'
 }

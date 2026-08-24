@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">MagicDesk Display Fixes</string>
+    <string name="screen_title">Native display mode</string>
+    <string name="screen_subtitle">Optional root helper for firmware that hides the monitor EDID from Android shell</string>
+    <string name="root_notice">Root is requested directly from your superuser manager. Shizuku is not used.</string>
+    <string name="status_working">Waiting for root and checking the connected display...</string>
+    <string name="status_applied">Native mode applied</string>
+    <string name="status_active">Native mode already active</string>
+    <string name="status_no_root">Root access was not granted</string>
+    <string name="status_no_display">No wired external display found</string>
+    <string name="status_unsupported">This firmware does not expose the supported Nubia display interface</string>
+    <string name="status_failed">Could not apply the native display mode</string>
+    <string name="detail_applied">%1$s is active. Start MagicDesk with its output mode set to System/native.</string>
+    <string name="detail_active">%1$s is already active. MagicDesk can now use the existing output.</string>
+    <string name="action_retry">Retry</string>
+</resources>

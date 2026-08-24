@@ -109,7 +109,7 @@ jobs:
             > "$RUNNER_TEMP/magicdesk-signing/release.jks"
           chmod 600 "$RUNNER_TEMP/magicdesk-signing/release.jks"
 
-      - name: Lint and build signed main APK
+      - name: Lint and build signed APKs
         if: github.event_name == 'push'
         env:
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_FILE: ${{ runner.temp }}/magicdesk-signing/release.jks
@@ -122,20 +122,28 @@ jobs:
           version_suffix="dev.$GITHUB_RUN_NUMBER.$short_sha"
           ./gradlew --no-daemon \
             -PMAGICDESK_VERSION_SUFFIX="$version_suffix" \
+            :display-mode-core:test \
             :app:testDebugUnitTest \
+            :display-fixes:testDebugUnitTest \
             :app:lintRelease \
+            :display-fixes:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
+            :display-fixes:assembleRelease \
             :kernel-fixes:assembleRelease
 
       - name: Lint and build unsigned release APKs
         if: github.event_name != 'push'
         run: |
           ./gradlew --no-daemon \
+            :display-mode-core:test \
             :app:testDebugUnitTest \
+            :display-fixes:testDebugUnitTest \
             :app:lintRelease \
+            :display-fixes:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
+            :display-fixes:assembleRelease \
             :kernel-fixes:assembleRelease
 
       - name: Verify signed APK and package boundaries
@@ -144,17 +152,21 @@ jobs:
         run: |
           build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
           core_apk=app/build/outputs/apk/release/app-release.apk
+          display_fixes_apk=display-fixes/build/outputs/apk/release/display-fixes-release.apk
           "$build_tools/apksigner" verify --verbose "$core_apk"
+          "$build_tools/apksigner" verify --verbose "$display_fixes_apk"
           ./scripts/verify-apks.sh \
             "$core_apk" \
-            kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk \
+            "$display_fixes_apk"
 
       - name: Verify unsigned APK boundaries
         if: github.event_name != 'push'
         run: |
           ./scripts/verify-apks.sh \
             app/build/outputs/apk/release/app-release-unsigned.apk \
-            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk \
+            display-fixes/build/outputs/apk/release/display-fixes-release-unsigned.apk
 
       - name: Prepare signed main artifact
         if: github.event_name == 'push'
@@ -192,8 +204,10 @@ jobs:
           retention-days: 14
           path: |
             app/build/outputs/apk/release/app-release-unsigned.apk
+            display-fixes/build/outputs/apk/release/display-fixes-release-unsigned.apk
             kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
             app/build/reports/lint-results-release.html
+            display-fixes/build/reports/lint-results-release.html
             kernel-fixes/build/reports/lint-results-release.html
 
   windows-smoke:
