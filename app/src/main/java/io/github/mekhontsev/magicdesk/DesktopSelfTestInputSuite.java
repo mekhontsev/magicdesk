@@ -1500,7 +1500,12 @@ final class DesktopSelfTestInputSuite {
                                         task.bounds, beforeBounds)
                                 && geometry.isSnapped(
                                         DesktopSelfTestGeometry.toRect(
-                                                task.bounds), left));
+                                        task.bounds), left));
+                waitForCaptionInputFrame(
+                        displayId,
+                        taskId,
+                        DesktopSelfTestGeometry.toRect(placed.bounds),
+                        geometry);
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
@@ -1922,6 +1927,7 @@ final class DesktopSelfTestInputSuite {
             final int displayId,
             final int x,
             final int y) throws IOException {
+        requirePointerHover(displayId, x, y);
         if (!ShellAccess.injectPointerClickAt(
                 displayId, x, y, MotionEvent.BUTTON_PRIMARY)) {
             throw new IOException("production pointer route rejected click");

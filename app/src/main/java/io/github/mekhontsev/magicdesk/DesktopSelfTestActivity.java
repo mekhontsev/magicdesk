@@ -17,6 +17,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 
@@ -69,6 +70,8 @@ public class DesktopSelfTestActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         mExpectedDisplayId = getIntent().getIntExtra(
                 EXTRA_DISPLAY_ID, Display.INVALID_DISPLAY);
         mAllowDisplayMove = getIntent().getBooleanExtra(
