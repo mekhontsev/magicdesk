@@ -140,6 +140,11 @@ identifiable.
 
 New vendor support is evidence-driven and keeps one APK:
 
+Developers investigating the device with a coding agent should also follow the
+canonical [AI-assisted device support workflow](ai-assisted-device-porting.md).
+It covers MCP tracing, architecture classification, regression evidence, and
+the handoff format without requiring the agent to inherit prior chat history.
+
 1. Install the current development APK and complete normal Device Setup.
 2. Open **Tools > Diagnostics**, refresh the normal report, then explicitly run
    **Extended vendor probe** if the standard driver lacks a firmware feature.

@@ -1,5 +1,26 @@
 # Repository Instructions
 
+## Device Support Work
+
+Before changing platform, display, window, input, launcher, or cleanup behavior,
+read `CONTRIBUTING.md`, `docs/ai-assisted-device-porting.md`, and the relevant
+sections of `docs/architecture.md`, `docs/compatibility.md`, and
+`docs/automation.md`.
+
+Establish a current-`main` baseline from a complete compatibility report and an
+exact reproduction before editing. Classify the owning boundary first. Keep one
+APK and one codebase: prefer shared Android behavior and runtime capabilities;
+isolate genuine firmware behavior in a focused `PlatformExtension`, SoC
+behavior in `SocDisplayModeBackend`, display lifecycle in the existing four
+drivers, and window policy in the existing transition gateway. Do not add model
+checks, fixed runtime delays, coordinate-based production actions, root
+requirements, or device-specific forks.
+
+Use semantic MCP actions and event-driven waits when available. Interactive
+self-tests require an awake, unlocked device and must retain production paths
+and assertions. Do not weaken a test to make a device pass. Close an active
+desktop through its production cleanup path before installing another APK.
+
 ## Releases
 
 When the user asks to publish a MagicDesk release, treat the release tag and

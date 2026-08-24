@@ -70,9 +70,12 @@ the active override. Release builds always use automatic platform selection.
 ## Adding Platform Support
 
 Start from a complete compatibility report and the manual checklist in
-[Compatibility](docs/compatibility.md). Add or update a deterministic fixture
-under `app/src/test/resources/compatibility` before changing selection logic.
-Exact tested fingerprints and confirmed scope belong in
+[Compatibility](docs/compatibility.md). Contributors using a coding agent
+should follow [AI-Assisted Device Support](docs/ai-assisted-device-porting.md),
+which defines the evidence, MCP observation, architecture classification, and
+device verification workflow. Add or update a deterministic fixture under
+`app/src/test/resources/compatibility` before changing selection logic. Exact
+tested fingerprints and confirmed scope belong in
 `app/src/main/assets/compatibility/firmware-profiles.json`; they must not select
 a driver or contain executable configuration.
 

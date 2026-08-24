@@ -18,9 +18,10 @@ drivers add capabilities only when runtime probes verify them. Optional root
 hardware helpers remain separate and are never desktop requirements.
 
 > **Development note:** MagicDesk is a vibe-coded project, built primarily
-> through iterative AI-assisted development and hands-on testing on real
-> Android hardware. Its privileged shell integration and optional undocumented
-> vendor interfaces make independent source review especially important.
+> through [iterative AI-assisted development](docs/ai-assisted-device-porting.md)
+> and hands-on testing on real Android hardware. Its privileged shell
+> integration and optional undocumented vendor interfaces make independent
+> source review especially important.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -267,6 +268,7 @@ variants, verification commands, and pull-request expectations.
 - [Workstation tools](docs/workstation-tools.md)
 - [Architecture](docs/architecture.md)
 - [Automation and MCP](docs/automation.md)
+- [AI-assisted device support](docs/ai-assisted-device-porting.md)
 - [Desktop Entry files](docs/desktop-entries.md)
 - [Shell access and privilege modes](docs/privilege-modes.md)
 - [Native Display Mode Helper](docs/native-display-mode-helper.md)
