@@ -1069,7 +1069,7 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static void enterFullscreenThroughShortcut(
+    static void enterFullscreenThroughShortcut(
             final int displayId,
             final int taskId) throws IOException {
         focusTaskThroughDesktop(displayId, taskId);
@@ -1098,7 +1098,7 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static String concealFullscreenBehindWorkspace(
+    private static String demoteFullscreenBehindWorkspace(
             final Context context,
             final int displayId,
             final int fullscreenTaskId,
@@ -1116,7 +1116,7 @@ final class DesktopSelfTestInputSuite {
                             + fullscreenTaskId);
         }
         final List<Integer> focusOrder =
-                TaskbarTaskOrder.concealFullscreenTask(
+                TaskbarTaskOrder.demoteActiveTask(
                         snapshot,
                         fullscreenTaskId,
                         MagicDeskRuntime.getLastVisibleFreeformTasks(
@@ -1137,7 +1137,7 @@ final class DesktopSelfTestInputSuite {
                 windowedTaskId,
                 windowedToken,
                 "4");
-        final TaskWindowSnapshot concealed =
+        final TaskWindowSnapshot demoted =
                 DesktopSelfTestTasks.waitForBackgroundFullscreenTask(
                         displayId, fullscreenTaskId);
         final TaskStackParser.Entry workspace = waitForTask(
@@ -1148,8 +1148,8 @@ final class DesktopSelfTestInputSuite {
                         && "freeform".equals(task.windowingMode)
                         && task.bounds != null
                         && !task.bounds.isEmpty());
-        return "concealed=" + concealed.taskId + "/fullscreen/"
-                + (concealed.visible ? "visible" : "hidden")
+        return "demoted=" + demoted.taskId + "/fullscreen/"
+                + (demoted.visible ? "visible" : "occluded")
                 + ", workspace=" + workspace.taskId + "/freeform"
                 + ", order=" + focusOrder;
     }
@@ -1163,14 +1163,14 @@ final class DesktopSelfTestInputSuite {
             final String windowedToken) {
         check(result,
                 "FULLSCREEN-TASKBAR-001",
-                "Conceal fullscreen behind the saved window workspace",
+                "Demote fullscreen behind the saved window workspace",
                 () -> {
                     try {
                         enterFullscreenThroughShortcut(
                                 displayId, fullscreenTaskId);
                         DesktopSelfTestHostObserver.stage(
                                 "FULLSCREEN-TASKBAR-001-CONCEAL");
-                        return concealFullscreenBehindWorkspace(
+                        return demoteFullscreenBehindWorkspace(
                                 context,
                                 displayId,
                                 fullscreenTaskId,
@@ -1187,7 +1187,7 @@ final class DesktopSelfTestInputSuite {
                 });
     }
 
-    private static void restoreFullscreenThroughShortcut(
+    static void restoreFullscreenThroughShortcut(
             final int displayId,
             final int taskId) throws IOException {
         final TaskRepository.Snapshot snapshot =
@@ -1219,6 +1219,37 @@ final class DesktopSelfTestInputSuite {
         }
         if (!MagicDeskRuntime.handleActiveTaskShortcut(
                 DesktopTaskController.SHORTCUT_RESTORE)) {
+            throw new IOException(
+                    "MagicDesk fullscreen restore is unavailable");
+        }
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && "freeform".equals(entry.windowingMode)
+                        && entry.bounds != null
+                        && !entry.bounds.isEmpty());
+    }
+
+    static void restoreFullscreenTaskThroughDesktop(
+            final int displayId,
+            final int taskId) throws IOException {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        final TaskRepository.TaskEntry task =
+                DesktopShellActivity.findTask(snapshot, taskId);
+        if (task == null) {
+            throw new IOException("fullscreen task is unavailable: " + taskId);
+        }
+        if (task.isFreeform()) {
+            return;
+        }
+        if (!task.isFullscreen()) {
+            throw new IOException("unexpected task mode during restore: "
+                    + task.windowingMode);
+        }
+        if (!MagicDeskRuntime.arrangeTask(
+                taskId, DesktopTaskController.SHORTCUT_RESTORE)) {
             throw new IOException(
                     "MagicDesk fullscreen restore is unavailable");
         }
@@ -1785,7 +1816,7 @@ final class DesktopSelfTestInputSuite {
         return new Rect(frame.left, frame.top, frame.right, frame.bottom);
     }
 
-    private static void focusTaskThroughDesktop(
+    static void focusTaskThroughDesktop(
             final int displayId,
             final int taskId) throws IOException {
         final TaskRepository.Snapshot snapshot =

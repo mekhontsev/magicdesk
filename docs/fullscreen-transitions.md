@@ -42,13 +42,47 @@ application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
 Fullscreen API session.
 
-Task-area ownership determines the hierarchy used when another fullscreen
-task appears. On an isolated secondary display, all fullscreen tasks enter the
-same organizer area in one transition and later focus changes reorder siblings
-only. On the phone, the immersive task remains under MagicDesk's session area;
-managed peers stay in the fullscreen sibling and both parents are focused in
-one transition. This keeps the strong external-display invariant without
-letting a phone fullscreen root compete with primary HOME and Recents.
+On wired, wireless, and simulated desktops, an application initially enters
+immersive fullscreen in the ordinary display parent. A singleton remains
+there. When focus must switch at least two fullscreen tasks, the shell
+atomically places the complete stack under one temporary fullscreen parent.
+This is the hierarchy invariant established by MagicDesk 1.8: reordering the
+same tasks in Nubia's freeform-oriented area can demote a background task to
+freeform. Phone desktop instead keeps the host and every application in its
+single persistent session parent.
+
+Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The full
+stack is supplied only while preparing missing children; subsequent operations
+activate the selected child alone and do not change any task's mode, bounds, or
+parent. Phone desktop provides the same activation semantics by reordering only
+children of its session parent; it does not create a second organizer area.
+The immutable external behavior and the phone ownership decision are recorded
+in
+[MagicDesk 1.8 fullscreen reference](fullscreen-1.8-reference.md).
+
+## Activate and demote
+
+Task selection is modeled as z-order, not as a window-state transition:
+
+- `activate(target)` places the selected task at the front of its compatible
+  hierarchy. A background task selected from the taskbar, task overview,
+  Alt+Tab, or MCP follows this operation through `DesktopTaskController`.
+- `demote(active)` rotates the foreground task behind the next MRU application.
+  Selecting the already-active taskbar item uses this operation. If there is no
+  peer, the desktop host comes to the front while the application remains live
+  below it.
+
+Both operations preserve the task's windowing mode, bounds, parent, and hidden
+state. In particular, an occluded task is not minimized: a covered fullscreen
+task becomes visible again as soon as the task above it leaves, and it remains
+visible around a freeform task placed above it. A mixed stack is therefore
+ordered as desktop host, fullscreen plane, and freeform windows. The concrete
+parent hierarchy follows workspace ownership, but callers use the same
+semantics and focus gateway.
+
+`demote` is deliberately distinct from `show desktop`. The latter presents a
+saved workspace as a user command; it does not define the behavior of clicking
+an active application icon.
 
 An orientation change can make Android report the saved freeform mode and bounds
 before WMShell has recreated the task decoration. Orientation task callbacks
@@ -62,30 +96,14 @@ using the phone display, restarting the application, or exposing the firmware's
 partial freeform state.
 
 The same shell-owned visibility boundary is shared by running-task display
-moves and fullscreen repair through `ShellPreparedTaskTransition`. When a task
-belongs to MagicDesk's fullscreen parent, a manual restore or snap reparents it
-to the active desktop parent, applies freeform mode and final bounds, and
-reveals its caption in one WMShell transition. A fullscreen peer stays under
-the existing parent until its own restore or removal; this avoids a redundant
-hierarchy change that can invalidate projection displays. A non-focusable
-structural HOME task keeps the fullscreen parent alive and non-empty for the
-desktop session; while it contains no application task, the whole parent
-remains below the real desktop host. The phone fullscreen parent is placed
-beside MagicDesk's persistent session area in Android's default task container,
-and restored tasks return to the session area through its token. Phone,
-simulated, and external displays share the structural lifecycle and transition
-commands, while `DesktopTaskAreaPolicy` determines which fullscreen tasks enter
-the parent.
-
-At phone-session teardown, applications leave the fullscreen sibling first.
-Framework deletion then removes the sibling together with its structural HOME
-child in one locked operation before session tasks are returned to Android's
-default task area. The session area retains both the real desktop host and its
-own structural HOME while application tasks leave. During area deletion Nubia
-reparents the standard host before removing the old area; the structural child
-keeps that area non-empty until framework teardown removes it. MagicDesk
-finishes the host only after organizer cleanup. Some WMS implementations cannot
-calculate root-task priority while an empty child task area remains attached.
+moves and fullscreen repair through `ShellPreparedTaskTransition`. A task in
+the ordinary display parent applies freeform mode and final bounds in place. A
+task in a shared `DEFAULT` fullscreen parent is detached while applying its
+final freeform geometry. A phone task already belongs to the persistent session
+parent, so restore changes only its mode, bounds, and order. At phone-session
+teardown, `ShellDesktopTaskArea` returns its application tasks and host while
+the session's structural HOME child keeps that area non-empty until framework
+deletion.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

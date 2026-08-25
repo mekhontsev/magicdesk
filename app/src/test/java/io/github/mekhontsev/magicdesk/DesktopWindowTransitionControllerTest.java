@@ -59,4 +59,10 @@ public final class DesktopWindowTransitionControllerTest {
                 () -> DesktopWindowTransitionRequest.closeFreeform(
                         -1, 42));
     }
+
+    @Test
+    public void restoreCanTargetAFullscreenTaskDirectly() {
+        assertTrue(DesktopWindowTransitionController.supportsFullscreenTask(
+                DesktopWindowTransitionController.SHORTCUT_RESTORE));
+    }
 }

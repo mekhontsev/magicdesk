@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.util.Log;
@@ -56,8 +57,13 @@ final class DesktopWindowTransitionController {
     void observeWindowingModeChange(
             final int taskId,
             final int previousMode,
-            final int currentMode) {
+            final int currentMode,
+            final boolean backgroundAppFullscreenReleased) {
         final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
+        if (backgroundAppFullscreenReleased) {
+            finishObservedAppFullscreenRestore(state);
+            return;
+        }
         if (!shouldForgetManagedFullscreenState(
                 previousMode,
                 currentMode,
@@ -70,6 +76,22 @@ final class DesktopWindowTransitionController {
         if (state != null) {
             state.clearFullscreenRestoreBounds();
             state.setAppRequestedFullscreen(false);
+        }
+    }
+
+    private void finishObservedAppFullscreenRestore(
+            final DesktopTaskRuntimeState state) {
+        if (state == null) {
+            return;
+        }
+        final boolean transitionPending = state.isFullscreenTransition();
+        state.finishFullscreenTransition();
+        state.clearFullscreenRestoreBounds();
+        state.setAppRequestedFullscreen(false);
+        if (transitionPending && !hasFullscreenTransitions()) {
+            finishWorkspaceTransition(mRuntimeState.displayId(), true);
+        } else {
+            mRuntimeState.scheduleRefresh();
         }
     }
 
@@ -86,6 +108,7 @@ final class DesktopWindowTransitionController {
 
     static boolean supportsFullscreenTask(final int shortcut) {
         return shortcut == SHORTCUT_CLOSE
+                || shortcut == SHORTCUT_RESTORE
                 || shortcut == SHORTCUT_SNAP_LEFT
                 || shortcut == SHORTCUT_SNAP_RIGHT;
     }
@@ -99,7 +122,13 @@ final class DesktopWindowTransitionController {
                 makeFullscreen(task, false);
                 break;
             case SHORTCUT_RESTORE:
-                restoreOrMinimize(task, minimizeFocusTask);
+                if (task.isFullscreen()) {
+                    mTaskStates.state(task.taskId)
+                            .setManualImmersiveOverride(true);
+                    restoreFullscreenTask(task, true);
+                } else {
+                    restoreOrMinimize(task, minimizeFocusTask);
+                }
                 break;
             case SHORTCUT_SNAP_LEFT:
                 snap(task, true);
@@ -137,14 +166,19 @@ final class DesktopWindowTransitionController {
             final int taskId,
             final boolean requestingImmersive,
             final boolean initialSample,
-            final boolean restoredByObserver) {
+            final boolean foreground) {
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
-        final Boolean previous =
-                state.updateImmersiveRequested(requestingImmersive);
-        if (restoredByObserver) {
-            finishObservedAppFullscreenRestore(state);
+        if (shouldIgnoreBackgroundImmersiveExit(
+                requestingImmersive, initialSample, foreground)) {
+            // Losing input focus temporarily exposes system bars. Do not retain
+            // that sample as an application-requested fullscreen exit. TaskInfo
+            // focus is unreliable for organizer children, so the shell observer
+            // reports the actual focused input window.
+            state.clearImmersiveRequested();
             return;
         }
+        final Boolean previous =
+                state.updateImmersiveRequested(requestingImmersive);
         if (initialSample) {
             if (shouldReconcileInitialImmersiveSample(
                     previous,
@@ -167,17 +201,19 @@ final class DesktopWindowTransitionController {
         mRuntimeState.scheduleRefresh();
     }
 
-    private void finishObservedAppFullscreenRestore(
-            final DesktopTaskRuntimeState state) {
-        final boolean transitionPending = state.isFullscreenTransition();
-        state.finishFullscreenTransition();
-        state.clearFullscreenRestoreBounds();
-        state.setAppRequestedFullscreen(false);
-        if (transitionPending && !hasFullscreenTransitions()) {
-            finishWorkspaceTransition(mRuntimeState.displayId(), true);
-        } else {
-            mRuntimeState.scheduleRefresh();
-        }
+    void observeRequestedOrientation(
+            final int taskId,
+            final int requestedOrientation) {
+        mTaskStates.state(taskId)
+                .setRequestedOrientation(requestedOrientation);
+        mRuntimeState.scheduleRefresh();
+    }
+
+    static boolean shouldIgnoreBackgroundImmersiveExit(
+            final boolean requestingImmersive,
+            final boolean initialSample,
+            final boolean foreground) {
+        return !requestingImmersive && !initialSample && !foreground;
     }
 
     void noteManualFreeformTransition(final int taskId) {
@@ -247,9 +283,11 @@ final class DesktopWindowTransitionController {
 
     void reconcile(
             final List<TaskRepository.TaskEntry> allTasks,
-            final List<TaskRepository.TaskEntry> visibleFreeformTasks) {
+            final List<TaskRepository.TaskEntry> visibleFreeformTasks,
+            final boolean focusHandoffPending) {
         reconcileSubmittedAppFullscreenTransitions(allTasks);
-        reconcileImmersiveRequests(allTasks, visibleFreeformTasks);
+        reconcileImmersiveRequests(
+                allTasks, visibleFreeformTasks, focusHandoffPending);
     }
 
     private void minimize(final TaskRepository.TaskEntry task,
@@ -584,7 +622,8 @@ final class DesktopWindowTransitionController {
 
     private void reconcileImmersiveRequests(
             final List<TaskRepository.TaskEntry> allTasks,
-            final List<TaskRepository.TaskEntry> visibleFreeformTasks) {
+            final List<TaskRepository.TaskEntry> visibleFreeformTasks,
+            final boolean focusHandoffPending) {
         final Set<Integer> liveTaskIds = new HashSet<>();
         for (final TaskRepository.TaskEntry task : allTasks) {
             liveTaskIds.add(Integer.valueOf(task.taskId));
@@ -599,7 +638,9 @@ final class DesktopWindowTransitionController {
         for (final Integer taskId : appRequestedFullscreenTaskIds()) {
             final DesktopTaskRuntimeState state =
                     mTaskStates.find(taskId.intValue());
-            if (state == null || state.isImmersiveRequested()) {
+            if (state == null
+                    || state.immersiveRequested() == null
+                    || state.isImmersiveRequested()) {
                 continue;
             }
             final TaskRepository.TaskEntry task =
@@ -607,6 +648,24 @@ final class DesktopWindowTransitionController {
             if (task == null) {
                 state.setAppRequestedFullscreen(false);
                 state.clearFullscreenRestoreBounds();
+                continue;
+            }
+            if (hasFixedRequestedOrientation(
+                    state.requestedOrientation())) {
+                // A fixed-orientation fullscreen entry briefly exposes system
+                // bars before and while the display rotates. The activity still
+                // owns that orientation request, so this is not yet proof of an
+                // application exit. Wait for a renewed immersive sample or for
+                // the activity to release its orientation request.
+                state.clearImmersiveRequested();
+                continue;
+            }
+            if (focusHandoffPending || !task.active) {
+                // Background immersive activities commonly expose system
+                // bars while another task takes focus. That sample must not
+                // become a deferred exit request when the task is activated
+                // again; wait for its next foreground immersive sample.
+                state.clearImmersiveRequested();
                 continue;
             }
             if (state.isFullscreenTransition()) {
@@ -648,6 +707,32 @@ final class DesktopWindowTransitionController {
                 && !topState.isFullscreenTransition()) {
             makeFullscreen(topTask, true);
         }
+    }
+
+    static boolean hasFixedRequestedOrientation(
+            final int requestedOrientation) {
+        return isLandscapeRequest(requestedOrientation)
+                || isPortraitRequest(requestedOrientation);
+    }
+
+    private static boolean isLandscapeRequest(final int orientation) {
+        return orientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
+    }
+
+    private static boolean isPortraitRequest(final int orientation) {
+        return orientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
+                || orientation
+                        == ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
     }
 
     private void reconcileSubmittedAppFullscreenTransitions(

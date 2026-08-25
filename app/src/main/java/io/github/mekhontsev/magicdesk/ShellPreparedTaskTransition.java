@@ -69,7 +69,8 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final Rect bounds,
-            final IBinder transitionToken)
+            final IBinder transitionToken,
+            final Object targetParentToken)
             throws ReflectiveOperationException {
         applyFreeform(
                 service,
@@ -77,7 +78,8 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 FreeformApplication.EXISTING_OPEN_TRANSITION,
-                transitionToken);
+                transitionToken,
+                targetParentToken);
     }
 
     static void prepareFreeform(
@@ -351,10 +353,13 @@ final class ShellPreparedTaskTransition {
                                             == FreeformApplication.HIDE_SYNC));
         }
         if (application
-                == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
+                        == FreeformApplication.DETACH_AND_SHOW_TRANSITION
+                || (application
+                                == FreeformApplication.EXISTING_OPEN_TRANSITION
+                        && targetParentToken != null)) {
             // The fullscreen parent belongs to the long-lived shell observer.
-            // Detach and reveal in the same WMShell transition so no default-
-            // parent fullscreen frame can become visible between operations.
+            // Reparent and reveal in the same WMShell transition so no
+            // intermediate parent or fullscreen frame becomes visible.
             transactionClass.getMethod(
                     "reparent", tokenClass, tokenClass, Boolean.TYPE)
                     .invoke(transaction, new Object[]{

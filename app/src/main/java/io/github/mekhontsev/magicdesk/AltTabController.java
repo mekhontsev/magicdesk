@@ -135,10 +135,6 @@ final class AltTabController {
 
         final TaskRepository.TaskEntry target =
                 mTasks.get(mSelectedIndex);
-        final List<TaskRepository.TaskEntry> fullscreenStack =
-                target.isFullscreen()
-                        ? selectFullscreenTasks(mTasks)
-                        : Collections.emptyList();
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(), target);
         reset();
@@ -153,19 +149,7 @@ final class AltTabController {
         mActivity.focusTask(
                 app,
                 target,
-                fullscreenStack.size() > 1 ? fullscreenStack : null,
                 mActivity::hideAllPanels);
-    }
-
-    private static List<TaskRepository.TaskEntry> selectFullscreenTasks(
-            final List<TaskRepository.TaskEntry> tasks) {
-        final List<TaskRepository.TaskEntry> fullscreen = new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.isFullscreen()) {
-                fullscreen.add(task);
-            }
-        }
-        return fullscreen;
     }
 
     void reset() {

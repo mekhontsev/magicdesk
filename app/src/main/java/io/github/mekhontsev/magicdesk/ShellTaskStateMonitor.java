@@ -9,6 +9,7 @@ import android.util.Log;
 import android.view.WindowInsets;
 
 import java.io.Closeable;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,13 +27,15 @@ final class ShellTaskStateMonitor implements Closeable {
                 List<?> tasks,
                 List<TaskWindowState> windowStates);
         void onImmersiveRequest(
-                int taskId, boolean requesting, boolean initialSample);
+                int taskId, boolean requesting, boolean initialSample,
+                boolean foreground);
         void onWindowingModeChanged(
                 int displayId,
                 int taskId,
                 int previousMode,
                 int currentMode,
-                int previousCaptionSourceId);
+                int previousCaptionSourceId,
+                boolean focused);
         void onFreeformBoundsChanged(
                 int taskId,
                 String stateKey,
@@ -45,6 +48,7 @@ final class ShellTaskStateMonitor implements Closeable {
         final Object task;
         final int taskId;
         final boolean visible;
+        final boolean focused;
         final int requestedVisibleTypes;
         final int windowingMode;
         final int activityType;
@@ -58,6 +62,7 @@ final class ShellTaskStateMonitor implements Closeable {
                 final Object rawTask,
                 final int observedTaskId,
                 final boolean observedVisible,
+                final boolean observedFocused,
                 final int observedVisibleTypes,
                 final int observedWindowingMode,
                 final int observedActivityType,
@@ -69,6 +74,7 @@ final class ShellTaskStateMonitor implements Closeable {
             task = rawTask;
             taskId = observedTaskId;
             visible = observedVisible;
+            focused = observedFocused;
             requestedVisibleTypes = observedVisibleTypes;
             windowingMode = observedWindowingMode;
             activityType = observedActivityType;
@@ -113,6 +119,7 @@ final class ShellTaskStateMonitor implements Closeable {
     private int mDisplayId = -1;
     private Rect mDisplayBounds = new Rect();
     private Rect mWorkAreaBounds = new Rect();
+    private boolean mTaskFocusAuthoritative;
 
     ShellTaskStateMonitor(
             final Context context,
@@ -144,7 +151,8 @@ final class ShellTaskStateMonitor implements Closeable {
     void configure(
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds) {
+            final Rect workAreaBounds,
+            final boolean taskFocusAuthoritative) {
         if (displayId < 0
                 || displayBounds == null
                 || displayBounds.isEmpty()
@@ -159,12 +167,14 @@ final class ShellTaskStateMonitor implements Closeable {
             }
             if (mDisplayId == displayId
                     && mDisplayBounds.equals(displayBounds)
-                    && mWorkAreaBounds.equals(workAreaBounds)) {
+                    && mWorkAreaBounds.equals(workAreaBounds)
+                    && mTaskFocusAuthoritative == taskFocusAuthoritative) {
                 return;
             }
             mDisplayId = displayId;
             mDisplayBounds = new Rect(displayBounds);
             mWorkAreaBounds = new Rect(workAreaBounds);
+            mTaskFocusAuthoritative = taskFocusAuthoritative;
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
@@ -296,6 +306,8 @@ final class ShellTaskStateMonitor implements Closeable {
             final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             final boolean visible =
                     HiddenTaskApi.getBooleanField(task, "isVisible");
+            final boolean focused =
+                    HiddenTaskApi.getBooleanField(task, "isFocused");
             final int requestedVisibleTypes = visible
                     ? mRequestedVisibleTypes.getInt(task) : 0;
             final int windowingMode =
@@ -324,6 +336,7 @@ final class ShellTaskStateMonitor implements Closeable {
                     task,
                     taskId,
                     visible,
+                    focused,
                     requestedVisibleTypes,
                     windowingMode,
                     activityType,
@@ -346,6 +359,7 @@ final class ShellTaskStateMonitor implements Closeable {
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Map<Integer, Integer> visibleTypesByTask = new HashMap<>();
         final Map<Integer, Integer> processIdsByTask = new HashMap<>();
+        final Map<Integer, Boolean> focusedByTask = new HashMap<>();
         final Map<ProcessIdentity, Integer> runningProcesses =
                 loadRunningProcesses();
         for (final TaskWindowState state : states) {
@@ -357,6 +371,7 @@ final class ShellTaskStateMonitor implements Closeable {
             visibleTypesByTask.put(
                     taskId,
                     Integer.valueOf(state.requestedVisibleTypes));
+            focusedByTask.put(taskId, Boolean.valueOf(state.focused));
             final Integer processId = findProcessId(
                     state.task, runningProcesses);
             if (processId != null) {
@@ -365,10 +380,12 @@ final class ShellTaskStateMonitor implements Closeable {
         }
 
         final List<ImmersiveEvent> events = new ArrayList<>();
+        final boolean taskFocusAuthoritative;
         synchronized (mLock) {
             if (displayId != mDisplayId || mClosed) {
                 return;
             }
+            taskFocusAuthoritative = mTaskFocusAuthoritative;
             for (final Map.Entry<Integer, Integer> entry
                     : visibleTypesByTask.entrySet()) {
                 final Integer previous = mLastVisibleTypes.put(
@@ -387,21 +404,57 @@ final class ShellTaskStateMonitor implements Closeable {
                     Log.i(TAG, "immersive state task=" + entry.getKey()
                             + " pid=" + processId
                             + " initial=" + initialSample
+                            + " focused=" + Boolean.TRUE.equals(
+                                    focusedByTask.get(entry.getKey()))
                             + " requesting="
                             + isRequestingImmersive(
                                     entry.getValue().intValue()));
                     events.add(new ImmersiveEvent(
                             entry.getKey().intValue(),
                             isRequestingImmersive(entry.getValue().intValue()),
-                            initialSample));
+                            initialSample,
+                            Boolean.TRUE.equals(
+                                    focusedByTask.get(entry.getKey()))));
                 }
             }
             mLastVisibleTypes.keySet().retainAll(liveTaskIds);
             mLastProcessIds.keySet().retainAll(liveTaskIds);
         }
+        String inputState = null;
+        boolean inputStateRead = false;
         for (final ImmersiveEvent event : events) {
+            boolean foreground = true;
+            if (!event.requesting && !event.initialSample) {
+                foreground = event.taskFocused;
+                if (!taskFocusAuthoritative && !foreground
+                        && !inputStateRead) {
+                    inputStateRead = true;
+                    try {
+                        inputState = InputStateDump.read();
+                    } catch (IOException error) {
+                        Log.w(TAG, "could not inspect immersive input focus",
+                                error);
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        Log.w(TAG, "immersive input focus interrupted", error);
+                    }
+                }
+                if (!taskFocusAuthoritative && !foreground) {
+                    foreground = inputState != null
+                            && TaskInputWindowParser.isTaskFocused(
+                                    inputState, displayId, event.taskId);
+                }
+                Log.i(TAG, "immersive exit focus task=" + event.taskId
+                        + " taskFocused=" + event.taskFocused
+                        + " foreground=" + foreground
+                        + (taskFocusAuthoritative
+                                ? " source=task" : " source=task+input"));
+            }
             mListener.onImmersiveRequest(
-                    event.taskId, event.requesting, event.initialSample);
+                    event.taskId,
+                    event.requesting,
+                    event.initialSample,
+                    foreground);
         }
     }
 
@@ -508,7 +561,8 @@ final class ShellTaskStateMonitor implements Closeable {
                             currentMode,
                             sourceId == null
                                     ? TaskLocalInsetsSourceParser.NO_SOURCE_ID
-                                    : sourceId.intValue()));
+                                    : sourceId.intValue(),
+                            findFocusedState(states, taskId.intValue())));
                 }
                 if (currentMode == WINDOWING_MODE_FREEFORM) {
                     if (previous == null
@@ -581,13 +635,25 @@ final class ShellTaskStateMonitor implements Closeable {
                     event.taskId,
                     event.previousMode,
                     event.currentMode,
-                    event.previousCaptionSourceId);
+                    event.previousCaptionSourceId,
+                    event.focused);
         }
     }
 
     private static boolean isRequestingImmersive(
             final int requestedVisibleTypes) {
         return (requestedVisibleTypes & WindowInsets.Type.statusBars()) == 0;
+    }
+
+    private static boolean findFocusedState(
+            final List<TaskWindowState> states,
+            final int taskId) {
+        for (final TaskWindowState state : states) {
+            if (state.taskId == taskId) {
+                return state.focused;
+            }
+        }
+        return false;
     }
 
     static boolean isInitialClientSample(
@@ -614,14 +680,17 @@ final class ShellTaskStateMonitor implements Closeable {
         final int taskId;
         final boolean requesting;
         final boolean initialSample;
+        final boolean taskFocused;
 
         ImmersiveEvent(
                 final int taskId,
                 final boolean requesting,
-                final boolean initialSample) {
+                final boolean initialSample,
+                final boolean taskFocused) {
             this.taskId = taskId;
             this.requesting = requesting;
             this.initialSample = initialSample;
+            this.taskFocused = taskFocused;
         }
     }
 
@@ -642,16 +711,19 @@ final class ShellTaskStateMonitor implements Closeable {
         final int previousMode;
         final int currentMode;
         final int previousCaptionSourceId;
+        final boolean focused;
 
         WindowingModeEvent(
                 final int taskId,
                 final int previousMode,
                 final int currentMode,
-                final int previousCaptionSourceId) {
+                final int previousCaptionSourceId,
+                final boolean focused) {
             this.taskId = taskId;
             this.previousMode = previousMode;
             this.currentMode = currentMode;
             this.previousCaptionSourceId = previousCaptionSourceId;
+            this.focused = focused;
         }
     }
 

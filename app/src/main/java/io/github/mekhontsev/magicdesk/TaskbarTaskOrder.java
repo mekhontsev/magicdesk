@@ -5,95 +5,101 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Builds the complete desktop z-order used when concealing a fullscreen task. */
+/**
+ * Builds activate/demote z-orders without changing task window state.
+ *
+ * <p>Demotion rotates the active task behind its next MRU peer. It never
+ * minimizes, hides, reparents, resizes, or changes the mode of that task.</p>
+ */
 final class TaskbarTaskOrder {
     private TaskbarTaskOrder() {
     }
 
-    static List<Integer> concealFullscreenTask(
+    static List<Integer> demoteActiveTask(
             final TaskRepository.Snapshot snapshot,
-            final int fullscreenTaskId,
+            final int activeTaskId,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst) {
         final List<Integer> order = new ArrayList<>();
-        if (snapshot == null || !snapshot.available || fullscreenTaskId < 0) {
+        if (snapshot == null || !snapshot.available || activeTaskId < 0) {
             return order;
         }
-        final TaskRepository.TaskEntry fullscreenTask = findTask(
-                snapshot.tasks, fullscreenTaskId);
+        final TaskRepository.TaskEntry activeTask = findTask(
+                snapshot.tasks, activeTaskId);
         final TaskRepository.TaskEntry desktopHost = findDesktopHost(
                 snapshot.tasks);
-        if (fullscreenTask == null || !fullscreenTask.isFullscreen()
+        if (activeTask == null || !activeTask.active
                 || desktopHost == null
-                || fullscreenTask.displayId != desktopHost.displayId) {
+                || activeTask.displayId != desktopHost.displayId
+                || !DesktopManagedTaskPolicy
+                        .isControllableApplicationTask(activeTask)) {
             return order;
         }
 
-        // focusDesktopTasks consumes a bottom-first order. Put the concealed
-        // fullscreen task below the host, then restore every live freeform
-        // window above the host without changing their previous z-order.
+        final List<TaskRepository.TaskEntry> nextTasksTopFirst =
+                resolveNextTasks(
+                        snapshot.tasks,
+                        savedWorkspaceTopFirst,
+                        activeTask);
         final Set<Integer> includedTaskIds = new HashSet<>();
-        addTask(order, includedTaskIds, fullscreenTask.taskId);
+        if (nextTasksTopFirst.isEmpty()) {
+            // With no peer, bringing the desktop host forward is the same
+            // z-order operation: the application remains live beneath it.
+            addTask(order, includedTaskIds, activeTask.taskId);
+            addTask(order, includedTaskIds, desktopHost.taskId);
+            return order;
+        }
+
+        // focusDesktopTasks consumes a bottom-first order. Keep the desktop
+        // below the demoted task, preserve every peer's relative order, and
+        // activate the task that was immediately behind the old foreground.
         addTask(order, includedTaskIds, desktopHost.taskId);
-        final List<TaskRepository.TaskEntry> workspace = resolveWorkspace(
-                snapshot.tasks, savedWorkspaceTopFirst, fullscreenTaskId);
-        for (int index = workspace.size() - 1; index >= 0; index--) {
-            addTask(order, includedTaskIds, workspace.get(index).taskId);
+        addTask(order, includedTaskIds, activeTask.taskId);
+        for (int index = nextTasksTopFirst.size() - 1; index >= 0; index--) {
+            addTask(
+                    order,
+                    includedTaskIds,
+                    nextTasksTopFirst.get(index).taskId);
         }
         return order;
     }
 
-    private static List<TaskRepository.TaskEntry> resolveWorkspace(
+    private static List<TaskRepository.TaskEntry> resolveNextTasks(
             final List<TaskRepository.TaskEntry> liveTasks,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
-            final int excludedTaskId) {
-        final List<TaskRepository.TaskEntry> workspace = new ArrayList<>();
+            final TaskRepository.TaskEntry activeTask) {
+        final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
         final Set<Integer> includedTaskIds = new HashSet<>();
+        if (liveTasks != null) {
+            for (final TaskRepository.TaskEntry liveTask : liveTasks) {
+                addPeerTask(tasks, includedTaskIds, liveTask, activeTask);
+            }
+        }
+        // A saved workspace can contain live freeform roots that a vendor dump
+        // temporarily omits from the useful z-order while fullscreen is active.
         if (savedWorkspaceTopFirst != null) {
             for (final TaskRepository.TaskEntry savedTask
                     : savedWorkspaceTopFirst) {
                 final TaskRepository.TaskEntry liveTask = savedTask == null
                         ? null : findTask(liveTasks, savedTask.taskId);
-                addWorkspaceTask(
-                        workspace, includedTaskIds, liveTask, excludedTaskId);
+                addPeerTask(tasks, includedTaskIds, liveTask, activeTask);
             }
         }
-        if (!workspace.isEmpty()) {
-            return workspace;
-        }
-
-        // A fullscreen task can also originate outside MagicDesk's explicit
-        // transition path. In that case there is no saved workspace, so use
-        // every currently visible freeform task above the desktop host.
-        if (liveTasks != null) {
-            for (final TaskRepository.TaskEntry liveTask : liveTasks) {
-                if (DesktopTaskController.isDesktopHostTask(liveTask)) {
-                    break;
-                }
-                if (liveTask != null && liveTask.visible) {
-                    addWorkspaceTask(
-                            workspace,
-                            includedTaskIds,
-                            liveTask,
-                            excludedTaskId);
-                }
-            }
-        }
-        return workspace;
+        return tasks;
     }
 
-    private static void addWorkspaceTask(
-            final List<TaskRepository.TaskEntry> workspace,
+    private static void addPeerTask(
+            final List<TaskRepository.TaskEntry> tasks,
             final Set<Integer> includedTaskIds,
             final TaskRepository.TaskEntry task,
-            final int excludedTaskId) {
-        if (task == null || task.taskId == excludedTaskId
-                || !task.isFreeform()
+            final TaskRepository.TaskEntry activeTask) {
+        if (task == null || task.taskId == activeTask.taskId
+                || task.displayId != activeTask.displayId
                 || !DesktopManagedTaskPolicy
                         .isControllableApplicationTask(task)
                 || !includedTaskIds.add(Integer.valueOf(task.taskId))) {
             return;
         }
-        workspace.add(task);
+        tasks.add(task);
     }
 
     private static TaskRepository.TaskEntry findDesktopHost(

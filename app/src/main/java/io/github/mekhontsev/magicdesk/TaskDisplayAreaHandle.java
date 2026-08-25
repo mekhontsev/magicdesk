@@ -64,6 +64,23 @@ final class TaskDisplayAreaHandle {
         return mFeatureId;
     }
 
+    /** Controls whether child activity requests may rotate this desktop area. */
+    void setIgnoreOrientationRequest(
+            final Object service,
+            final boolean ignore) throws ReflectiveOperationException {
+        final Class<?> tokenClass = Class.forName(
+                "android.window.WindowContainerToken");
+        final Class<?> transactionClass = Class.forName(
+                "android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        transactionClass.getMethod(
+                "setIgnoreOrientationRequest", tokenClass, Boolean.TYPE)
+                .invoke(transaction, mToken, Boolean.valueOf(ignore));
+        SyncWindowContainerTransaction.apply(
+                service, transactionClass, transaction);
+    }
+
     /** Reparents any live child tasks before this organizer area is deleted. */
     void detachChildTasks(
             final Object service,

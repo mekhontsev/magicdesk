@@ -559,6 +559,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                     "MagicDesk desktop session");
             int backstopTaskId = -1;
             try {
+                // A desktop is one stable viewport. Individual activities may
+                // adapt their own content, but must not rotate the session and
+                // every other window with it.
+                area.setIgnoreOrientationRequest(mService, true);
                 backstopTaskId = TaskDisplayAreaLaunchCommand
                         .launchFullscreenTask(
                                 mService,

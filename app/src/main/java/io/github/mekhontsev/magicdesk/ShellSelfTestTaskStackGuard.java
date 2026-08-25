@@ -24,7 +24,9 @@ final class ShellSelfTestTaskStackGuard {
             final int hostTaskId,
             final String stage) {
         mAnalyzer = new SelfTestTaskStackInvariantAnalyzer(
-                displayId, hostTaskId, SystemClock.uptimeMillis());
+                displayId,
+                hostTaskId,
+                SystemClock.uptimeMillis());
         mError = "";
         try {
             mAnalyzer.begin(stage, capture());

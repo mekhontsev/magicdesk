@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private static final String TAG = "MagicDeskTasks";
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final ComponentName PHONE_TOUCHPAD_ACTIVITY =
             new ComponentName(
                     "io.github.mekhontsev.magicdesk",
@@ -59,6 +60,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mExternalNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
     private Boolean mDesktopTaskAreaForeground;
+    private DesktopTaskAreaPolicy mTaskAreaPolicy =
+            DesktopTaskAreaPolicy.DEFAULT;
     private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
     private int mReportedOwnershipDisplayId = Display.INVALID_DISPLAY;
     private int[] mReportedDesktopTaskIds = new int[0];
@@ -266,18 +269,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     public void onImmersiveRequest(
                             final int taskId,
                             final boolean requesting,
-                            final boolean initialSample) {
-                        final boolean restoredByObserver = !initialSample
-                                && !requesting
-                                && mFullscreenTaskArea.restoreAppFullscreen(
-                                        mService,
-                                        mConfiguredDisplayId,
-                                        taskId);
+                            final boolean initialSample,
+                            final boolean foreground) {
                         callCallback(() -> mCallback.onImmersiveRequest(
                                 taskId,
                                 requesting,
                                 initialSample,
-                                restoredByObserver));
+                                foreground));
                     }
 
                     @Override
@@ -286,15 +284,21 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int taskId,
                             final int previousMode,
                             final int currentMode,
-                            final int previousCaptionSourceId) {
-                        mFullscreenTaskArea.onWindowingModeChanged(
-                                displayId, taskId, currentMode);
+                            final int previousCaptionSourceId,
+                            final boolean focused) {
+                        final boolean backgroundAppFullscreenReleased =
+                                mFullscreenTaskArea.onWindowingModeChanged(
+                                        displayId,
+                                        taskId,
+                                        currentMode,
+                                        focused);
                         mSelfTestTaskStackGuard.sample("windowing-mode");
                         callCallback(() -> mCallback.onWindowingModeChanged(
                                 taskId,
                                 previousMode,
                                 currentMode,
-                                previousCaptionSourceId));
+                                previousCaptionSourceId,
+                                backgroundAppFullscreenReleased));
                     }
 
                     @Override
@@ -370,6 +374,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mPhoneLauncherCircuitBreaker.configure(false);
             updateExternalNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
+            mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
             mFocusController.configure(-1);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
@@ -377,10 +382,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
-            // The fullscreen area is a sibling of the phone session area.
-            // Delete it after draining its tasks into the session, before
-            // session tasks are reparented to the default task container.
-            // An empty task area makes affected WMS priority traversal fail.
+            // Release the temporary fullscreen parent before the workspace
+            // task area is torn down.
             mFullscreenTaskArea.configure(
                     Display.INVALID_DISPLAY,
                     DesktopTaskAreaPolicy.DEFAULT,
@@ -413,8 +416,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId,
                 managedTaskArea,
                 desktopHostTaskId)) {
-            // The fullscreen sibling releases tasks into the current session
-            // and is deleted before that session becomes a reparent target.
+            // Release any previous fullscreen parent before changing the
+            // workspace task-area configuration.
             mFullscreenTaskArea.configure(
                     Display.INVALID_DISPLAY,
                     DesktopTaskAreaPolicy.DEFAULT,
@@ -427,11 +430,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId,
                 managedTaskArea,
                 desktopHostTaskId);
+        mTaskAreaPolicy = managedTaskArea
+                ? DesktopTaskAreaPolicy.SESSION
+                : DesktopTaskAreaPolicy.DEFAULT;
         mFullscreenTaskArea.configure(
                 displayId,
-                managedTaskArea
-                        ? DesktopTaskAreaPolicy.SESSION
-                        : DesktopTaskAreaPolicy.DEFAULT,
+                mTaskAreaPolicy,
                 mDesktopTaskArea.fullscreenAreaParentFeatureId(),
                 mDesktopTaskArea.fullscreenTaskReleaseParentToken(
                         displayId));
@@ -449,7 +453,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
         mTaskActivityModeGuard.configure(displayId);
-        mStateMonitor.configure(displayId, displayBounds, workAreaBounds);
+        mStateMonitor.configure(
+                displayId,
+                displayBounds,
+                workAreaBounds,
+                mTaskAreaPolicy == DesktopTaskAreaPolicy.DEFAULT);
         reportDesktopTaskOwnership();
     }
 
@@ -495,14 +503,23 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             mService, displayId, focusTaskIds);
             if (focusResult
                     == ShellFullscreenTaskArea.FocusResult.NOT_HANDLED) {
+                final int targetTaskId =
+                        focusTaskIds[focusTaskIds.length - 1];
+                final Object targetTask = HiddenTaskApi.requireTask(
+                        mService, displayId, targetTaskId);
+                final int[] fallbackTaskIds =
+                        HiddenTaskApi.getWindowConfigurationValue(
+                                targetTask, "getWindowingMode")
+                                == WINDOWING_MODE_FULLSCREEN
+                                        ? new int[]{targetTaskId}
+                                        : focusTaskIds;
                 TaskWindowingCommand.focusTasks(
-                        mService, displayId, focusTaskIds);
-                reportDesktopTaskAreaForeground(
-                        focusTaskIds[focusTaskIds.length - 1]);
+                        mService, displayId, fallbackTaskIds);
+                reportDesktopTaskAreaForeground(targetTaskId);
             } else {
                 // The fullscreen owner knows the destination hierarchy before
                 // WMS applies its queued transition. Do not infer foreground
-                // from the task's still-stale parent in that interval.
+                // from the still-stale task parent.
                 reportDesktopTaskAreaForeground(
                         focusResult
                                 == ShellFullscreenTaskArea.FocusResult
@@ -811,7 +828,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        mSelfTestTaskStackGuard.start(displayId, hostTaskId, stage);
+        mSelfTestTaskStackGuard.start(
+                displayId,
+                hostTaskId,
+                stage);
     }
 
     void setSelfTestTaskStackGuardStage(final String stage) {
@@ -845,6 +865,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     @Override
     public void onTaskStackChanged() {
+        mFullscreenTaskArea.onTaskStackChanged();
         mMigrationGuard.onTaskStackChanged();
         signalChange("stack-changed");
     }
@@ -936,14 +957,25 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onActivityRequestedOrientationChanged(
             final int taskId,
             final int requestedOrientation) {
-        signalChange("activity-orientation");
+        reportRequestedOrientation(
+                taskId, requestedOrientation, "activity-orientation");
     }
 
     @Override
     public void onTaskRequestedOrientationChanged(
             final int taskId,
             final int requestedOrientation) {
-        signalChange("task-orientation");
+        reportRequestedOrientation(
+                taskId, requestedOrientation, "task-orientation");
+    }
+
+    private void reportRequestedOrientation(
+            final int taskId,
+            final int requestedOrientation,
+            final String reason) {
+        callCallback(() -> mCallback.onTaskRequestedOrientationChanged(
+                taskId, requestedOrientation));
+        signalChange(reason);
     }
 
     @Override

@@ -242,6 +242,18 @@ public final class TaskWindowingCommand {
     static void focusTasksWithinCurrentParent(
             final Object service,
             final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        focusTasksWithinCurrentParent(
+                service, displayId, taskIds, transactionClass, transaction);
+    }
+
+    static void focusTasksWithinCurrentParent(
+            final Object service,
+            final int displayId,
             final int[] taskIds,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
@@ -255,6 +267,27 @@ public final class TaskWindowingCommand {
     }
 
     private static void focusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction,
+            final boolean includeParents) throws ReflectiveOperationException {
+        addFocusOperations(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction,
+                includeParents);
+        // Keep any hierarchy changes supplied by the caller and the focus
+        // reorder in one transition. A synchronous hierarchy transaction
+        // followed by TO_FRONT can overlap an existing WMShell transition.
+        TaskFullscreenTransitionCommand.startTransition(
+                TRANSIT_TO_FRONT, transactionClass, transaction);
+    }
+
+    private static void addFocusOperations(
             final Object service,
             final int displayId,
             final int[] taskIds,
@@ -277,11 +310,6 @@ public final class TaskWindowingCommand {
                     Boolean.TRUE,
                     Boolean.valueOf(includeParents));
         }
-        // Keep any hierarchy changes supplied by the caller and the focus
-        // reorder in one transition. A synchronous hierarchy transaction
-        // followed by TO_FRONT can overlap an existing WMShell transition.
-        TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_TO_FRONT, transactionClass, transaction);
     }
 
     static void closeDesktopTask(

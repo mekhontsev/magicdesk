@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.content.pm.ActivityInfo;
+
 import org.junit.Test;
 
 public final class ImmersiveRequestStateTest {
@@ -63,4 +65,30 @@ public final class ImmersiveRequestStateTest {
                 .shouldReconcileInitialImmersiveSample(
                         Boolean.FALSE, false, false));
     }
+
+    @Test
+    public void ignoresOnlyBackgroundImmersiveExit() {
+        assertTrue(DesktopWindowTransitionController
+                .shouldIgnoreBackgroundImmersiveExit(false, false, false));
+        assertFalse(DesktopWindowTransitionController
+                .shouldIgnoreBackgroundImmersiveExit(false, false, true));
+        assertFalse(DesktopWindowTransitionController
+                .shouldIgnoreBackgroundImmersiveExit(false, true, false));
+        assertFalse(DesktopWindowTransitionController
+                .shouldIgnoreBackgroundImmersiveExit(true, false, false));
+    }
+
+    @Test
+    public void holdsFullscreenWhileFixedOrientationIsRequested() {
+        assertTrue(DesktopWindowTransitionController
+                .hasFixedRequestedOrientation(
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE));
+        assertTrue(DesktopWindowTransitionController
+                .hasFixedRequestedOrientation(
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT));
+        assertFalse(DesktopWindowTransitionController
+                .hasFixedRequestedOrientation(
+                        ActivityInfo.SCREEN_ORIENTATION_USER));
+    }
+
 }

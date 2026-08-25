@@ -1415,9 +1415,8 @@ public abstract class DesktopShellActivity extends Activity
     void focusTask(
             final AppItem app,
             final TaskRepository.TaskEntry task,
-            final List<TaskRepository.TaskEntry> focusStack,
             final Runnable completion) {
-        mAppTasks.focusTask(app, task, focusStack, completion);
+        mAppTasks.focusTask(app, task, completion);
     }
 
     void toggleTaskbarTask(

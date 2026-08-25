@@ -4,6 +4,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.os.SystemClock;
 
 import java.io.BufferedReader;
@@ -29,6 +30,29 @@ final class DesktopSelfTestFixtureState {
 
     static void clearImmersive(final Context context) {
         clear(context, DesktopSelfTestActivity.IMMERSIVE_MARKER_FILE);
+        clear(context,
+                DesktopSelfTestActivity.IMMERSIVE_SURFACE_MARKER_FILE);
+    }
+
+    static void clearWindowModeTransitions(final Context context) {
+        clear(context, DesktopSelfTestActivity.WINDOW_MODE_MARKER_FILE);
+    }
+
+    static void assertNoWindowModeTransition(
+            final Context context,
+            final String token,
+            final int displayId) throws IOException {
+        SystemClock.sleep(POLL_MILLIS);
+        final File marker = new File(
+                context.getFilesDir(),
+                DesktopSelfTestActivity.WINDOW_MODE_MARKER_FILE);
+        final String transition = readFile(marker);
+        if (!transition.isEmpty()) {
+            throw new IOException("application observed an unexpected window"
+                    + " mode transition: " + transition
+                    + ", expected task=" + token + "|" + displayId
+                    + " to remain fullscreen");
+        }
     }
 
     static void awaitFirstFrame(
@@ -61,6 +85,43 @@ final class DesktopSelfTestFixtureState {
                 DesktopSelfTestActivity.IMMERSIVE_MARKER_FILE,
                 token + "|" + displayId + "|" + enabled,
                 displayId);
+    }
+
+    static Rect awaitImmersiveSurface(
+            final Context context,
+            final String token,
+            final int displayId) throws IOException {
+        final File marker = new File(
+                context.getFilesDir(),
+                DesktopSelfTestActivity.IMMERSIVE_SURFACE_MARKER_FILE);
+        final String prefix = token + "|" + displayId + "|";
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        String actual;
+        do {
+            actual = readFile(marker);
+            if (actual.startsWith(prefix)) {
+                final String[] fields = actual.split("\\|");
+                if (fields.length == 6) {
+                    try {
+                        final Rect bounds = new Rect(
+                                Integer.parseInt(fields[2]),
+                                Integer.parseInt(fields[3]),
+                                Integer.parseInt(fields[4]),
+                                Integer.parseInt(fields[5]));
+                        if (!bounds.isEmpty()) {
+                            return bounds;
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // Keep polling until a complete marker is visible.
+                    }
+                }
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("expected immersive surface marker="
+                + prefix + "<bounds>, actual=" + actual
+                + ", tasks=" + taskStateDetail(displayId));
     }
 
     private static void clear(

@@ -328,10 +328,12 @@ final class DesktopSelfTestWindowSuite {
                 result,
                 targetDisplayId,
                 targetFixtureTaskId,
+                windowBounds,
                 browserBounds,
                 captureSource,
                 browserSurfaceReference,
-                browserCaptionReference);
+                browserCaptionReference,
+                settledGeometry);
         require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
             ShellAccess.run(AppProcessCommand.run(
                     "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
@@ -359,11 +361,13 @@ final class DesktopSelfTestWindowSuite {
             final Context appContext,
             final DesktopSelfTestResult result,
             final int displayId,
-            final int taskId,
+            final int peerTaskId,
+            final Rect peerRestoreBounds,
             final Rect expectedBounds,
             final DisplayCaptureSource captureSource,
             final SurfaceReferenceResult surfaceReference,
-            final DesktopSelfTestInputSuite.CaptionReference captionReference)
+            final DesktopSelfTestInputSuite.CaptionReference captionReference,
+            final DesktopSelfTestGeometry geometry)
             throws AbortSelfTest {
         final String token = Long.toHexString(System.nanoTime());
         final SettledWindowLaunch launch = require(
@@ -377,7 +381,7 @@ final class DesktopSelfTestWindowSuite {
                                             displayId,
                                             token,
                                             expectedBounds));
-                    if (observation.taskId == taskId) {
+                    if (observation.taskId == peerTaskId) {
                         throw new IOException(
                                 "Android reused the primary test task");
                     }
@@ -394,22 +398,115 @@ final class DesktopSelfTestWindowSuite {
         final int immersiveTaskId = launch.settled.taskId;
         DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
                 immersiveTaskId);
+        int additionalPeerTaskId = -1;
+        boolean peersPrepared = false;
         boolean restored = false;
         try {
+            final String additionalPeerToken =
+                    Long.toHexString(System.nanoTime());
+            final SettledWindowLaunch additionalPeerLaunch = require(
+                    result,
+                    "WINDOW-020-PEER",
+                    "Launch another fullscreen switching peer",
+                    () -> {
+                        final DesktopTaskLaunchProbe.Observation observation =
+                                preservePhoneTouchpad(() ->
+                                        launchFixtureAndObserve(
+                                                displayId,
+                                                additionalPeerToken,
+                                                expectedBounds,
+                                                DesktopSelfTestFixtureAppearance
+                                                        .SECONDARY));
+                        if (observation.taskId == peerTaskId
+                                || observation.taskId == immersiveTaskId) {
+                            throw new IOException(
+                                    "Android reused an existing test task");
+                        }
+                        final TaskStackParser.Entry settled = waitForTask(
+                                displayId,
+                                FIXTURE_CLASS,
+                                entry -> entry.taskId == observation.taskId
+                                        && "freeform".equals(
+                                                entry.windowingMode)
+                                        && DesktopSelfTestGeometry.matches(
+                                                entry.bounds,
+                                                expectedBounds));
+                        return new SettledWindowLaunch(observation, settled);
+                    });
+            additionalPeerTaskId = additionalPeerLaunch.settled.taskId;
+            final int secondPeerTaskId = additionalPeerTaskId;
+            DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
+                    secondPeerTaskId);
+            require(result,
+                    "WINDOW-020-PREPARE",
+                    "Prepare two fullscreen peers around app fullscreen",
+                    () -> prepareAppFullscreenPeers(
+                            displayId,
+                            new int[]{peerTaskId, secondPeerTaskId},
+                            new Rect[]{peerRestoreBounds, expectedBounds}));
+            peersPrepared = true;
             require(result,
                     "WINDOW-015",
                     "Enter application-requested fullscreen",
                     () -> {
+                        final Rect expectedDisplayBounds = new Rect(
+                                geometry.displayBounds);
+                        final int expectedRotation = displayRotation(
+                                appContext, displayId);
+                        DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                                displayId, immersiveTaskId);
+                        waitForTask(
+                                displayId,
+                                BROWSER_FIXTURE_CLASS,
+                                entry -> entry.taskId == immersiveTaskId
+                                        && entry.visible
+                                        && "freeform".equals(
+                                                entry.windowingMode));
+                        waitForFrontTask(displayId, immersiveTaskId);
                         DesktopSelfTestFixtureState.clearImmersive(appContext);
                         setFixtureImmersive(token, true);
                         DesktopSelfTestFixtureState.awaitImmersive(
                                 appContext, token, displayId, true);
+                        final Rect immersiveSurfaceBounds =
+                                DesktopSelfTestFixtureState
+                                        .awaitImmersiveSurface(
+                                                appContext,
+                                                token,
+                                                displayId);
                         final TaskStackParser.Entry task = waitForTask(
                                 displayId,
                                 BROWSER_FIXTURE_CLASS,
                                 entry -> entry.taskId == immersiveTaskId
                                         && "fullscreen".equals(
-                                                entry.windowingMode));
+                                                entry.windowingMode)
+                                        && DesktopSelfTestGeometry.matches(
+                                                entry.bounds,
+                                                expectedDisplayBounds));
+                        final Rect actualDisplayBounds = currentDisplayBounds(
+                                appContext, displayId);
+                        final int actualRotation = displayRotation(
+                                appContext, displayId);
+                        if (!expectedDisplayBounds.equals(actualDisplayBounds)
+                                || actualRotation != expectedRotation) {
+                            throw new IOException(
+                                    "application orientation request changed"
+                                            + " desktop viewport: expected="
+                                            + DesktopSelfTestGeometry.format(
+                                                    expectedDisplayBounds)
+                                            + "/rotation=" + expectedRotation
+                                            + ", actual="
+                                            + DesktopSelfTestGeometry.format(
+                                                    actualDisplayBounds)
+                                            + "/rotation=" + actualRotation);
+                        }
+                        final String surface = verifyFullscreenFixtureSurface(
+                                captureSource,
+                                new Rect(
+                                        task.bounds.left,
+                                        task.bounds.top,
+                                        task.bounds.right,
+                                        task.bounds.bottom),
+                                immersiveSurfaceBounds);
                         // The application request and MagicDesk's task
                         // transition are asynchronous. Exiting before both
                         // settle creates an artificial transition race that a
@@ -417,8 +514,22 @@ final class DesktopSelfTestWindowSuite {
                         return "task=" + task.taskId
                                 + ", mode=" + task.windowingMode
                                 + ", bounds="
-                                + DesktopSelfTestGeometry.format(task.bounds);
+                                + DesktopSelfTestGeometry.format(task.bounds)
+                                + ", rotation=" + actualRotation
+                                + ", " + surface;
                     });
+            DesktopSelfTestFixtureState.clearWindowModeTransitions(
+                    appContext);
+            require(result,
+                    "WINDOW-020",
+                    "Preserve application fullscreen across three tasks",
+                    () -> verifyAppFullscreenTaskSwitch(
+                            appContext,
+                            token,
+                            displayId,
+                            immersiveTaskId,
+                            new int[]{peerTaskId, secondPeerTaskId},
+                            captureSource));
             require(result,
                     "WINDOW-016",
                     "Restore application-requested window bounds",
@@ -451,7 +562,18 @@ final class DesktopSelfTestWindowSuite {
                             displayId,
                             immersiveTaskId,
                             expectedBounds,
+                            surfaceReference,
+                            DesktopSelfTestFixtureAppearance.SECONDARY.color(),
                             2));
+            require(result,
+                    "WINDOW-020-CLEANUP",
+                    "Restore fullscreen peers after app fullscreen",
+                    () -> restoreAppFullscreenPeers(
+                            displayId,
+                            immersiveTaskId,
+                            new int[]{peerTaskId, secondPeerTaskId},
+                            new Rect[]{peerRestoreBounds, expectedBounds}));
+            peersPrepared = false;
             restored = true;
             verifyDesktopSurfaceMatches(
                     result,
@@ -478,6 +600,12 @@ final class DesktopSelfTestWindowSuite {
                     expectedBounds,
                     captionReference);
         } finally {
+            if (peersPrepared) {
+                restorePeerTasksBestEffort(
+                        displayId,
+                        new int[]{peerTaskId, additionalPeerTaskId},
+                        new Rect[]{peerRestoreBounds, expectedBounds});
+            }
             if (!restored) {
                 try {
                     setFixtureImmersive(token, false);
@@ -486,7 +614,191 @@ final class DesktopSelfTestWindowSuite {
                 }
             }
             removeFixtureTaskBestEffort(immersiveTaskId);
+            if (additionalPeerTaskId >= 0) {
+                removeFixtureTaskBestEffort(additionalPeerTaskId);
+            }
         }
+    }
+
+    private static String prepareAppFullscreenPeers(
+            final int displayId,
+            final int[] peerTaskIds,
+            final Rect[] peerRestoreBounds) throws IOException {
+        int prepared = 0;
+        try {
+            for (final int peerTaskId : peerTaskIds) {
+                DesktopSelfTestInputSuite.enterFullscreenThroughShortcut(
+                        displayId, peerTaskId);
+                waitForTask(
+                        displayId,
+                        FIXTURE_CLASS,
+                        entry -> entry.taskId == peerTaskId
+                                && entry.visible
+                                && "fullscreen".equals(
+                                        entry.windowingMode));
+                waitForFrontTask(displayId, peerTaskId);
+                prepared++;
+            }
+            return "tasks=" + formatTaskIds(peerTaskIds)
+                    + "/fullscreen";
+        } catch (IOException error) {
+            restorePeerTasksBestEffort(
+                    displayId,
+                    peerTaskIds,
+                    peerRestoreBounds,
+                    prepared);
+            throw error;
+        }
+    }
+
+    private static String verifyAppFullscreenTaskSwitch(
+            final Context appContext,
+            final String token,
+            final int displayId,
+            final int immersiveTaskId,
+            final int[] peerTaskIds,
+            final DisplayCaptureSource captureSource) throws IOException {
+        for (int index = 0; index < peerTaskIds.length; index++) {
+            final int peerTaskId = peerTaskIds[index];
+            DesktopSelfTestHostObserver.stage(
+                    "WINDOW-020-PEER-" + (index + 1));
+            DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                    displayId, peerTaskId);
+            waitForFrontTask(displayId, peerTaskId);
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == peerTaskId
+                            && entry.visible
+                            && "fullscreen".equals(entry.windowingMode));
+            DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                    displayId, peerTaskId);
+            requireFullscreenTasks(
+                    displayId, immersiveTaskId, peerTaskIds);
+        }
+
+        DesktopSelfTestHostObserver.stage("WINDOW-020-RETURN");
+        DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                displayId, immersiveTaskId);
+        final TaskStackParser.Entry restored = waitForTask(
+                displayId,
+                BROWSER_FIXTURE_CLASS,
+                entry -> entry.taskId == immersiveTaskId
+                        && entry.visible
+                        && "fullscreen".equals(entry.windowingMode));
+        waitForFrontTask(displayId, immersiveTaskId);
+        DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                displayId, immersiveTaskId);
+        requireFullscreenTasks(displayId, immersiveTaskId, peerTaskIds);
+        DesktopSelfTestFixtureState.awaitImmersive(
+                appContext, token, displayId, true);
+        final Rect immersiveSurfaceBounds = DesktopSelfTestFixtureState
+                .awaitImmersiveSurface(appContext, token, displayId);
+        DesktopSelfTestFixtureState.assertNoWindowModeTransition(
+                appContext, token, displayId);
+        final String surface = verifyFullscreenFixtureSurface(
+                captureSource,
+                new Rect(
+                        restored.bounds.left,
+                        restored.bounds.top,
+                        restored.bounds.right,
+                        restored.bounds.bottom),
+                immersiveSurfaceBounds);
+        return "task=" + restored.taskId + "/fullscreen/visible"
+                + ", peers=" + formatTaskIds(peerTaskIds)
+                + "/fullscreen, " + surface;
+    }
+
+    private static void requireFullscreenTasks(
+            final int displayId,
+            final int immersiveTaskId,
+            final int[] peerTaskIds) throws IOException {
+        waitForTask(
+                displayId,
+                BROWSER_FIXTURE_CLASS,
+                entry -> entry.taskId == immersiveTaskId
+                        && "fullscreen".equals(entry.windowingMode));
+        for (final int peerTaskId : peerTaskIds) {
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == peerTaskId
+                            && "fullscreen".equals(entry.windowingMode));
+        }
+    }
+
+    private static String restoreAppFullscreenPeers(
+            final int displayId,
+            final int immersiveTaskId,
+            final int[] peerTaskIds,
+            final Rect[] peerRestoreBounds) throws IOException {
+        DesktopSelfTestHostObserver.stage("WINDOW-020-CLEANUP");
+        for (int index = peerTaskIds.length - 1; index >= 0; index--) {
+            final int peerTaskId = peerTaskIds[index];
+            final Rect restoreBounds = peerRestoreBounds[index];
+            DesktopSelfTestInputSuite.restoreFullscreenTaskThroughDesktop(
+                    displayId, peerTaskId);
+            waitForTask(
+                    displayId,
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == peerTaskId
+                            && "freeform".equals(entry.windowingMode)
+                            && DesktopSelfTestGeometry.matches(
+                                    entry.bounds, restoreBounds));
+        }
+        return "peers=" + formatTaskIds(peerTaskIds) + "/freeform, task="
+                + immersiveTaskId + "/freeform";
+    }
+
+    private static void restorePeerTasksBestEffort(
+            final int displayId,
+            final int[] peerTaskIds,
+            final Rect[] peerRestoreBounds) {
+        restorePeerTasksBestEffort(
+                displayId,
+                peerTaskIds,
+                peerRestoreBounds,
+                peerTaskIds.length);
+    }
+
+    private static void restorePeerTasksBestEffort(
+            final int displayId,
+            final int[] peerTaskIds,
+            final Rect[] peerRestoreBounds,
+            final int count) {
+        for (int index = Math.min(count, peerTaskIds.length) - 1;
+                index >= 0;
+                index--) {
+            final int peerTaskId = peerTaskIds[index];
+            if (peerTaskId < 0) {
+                continue;
+            }
+            try {
+                DesktopSelfTestInputSuite.restoreFullscreenTaskThroughDesktop(
+                        displayId, peerTaskId);
+                final Rect restoreBounds = peerRestoreBounds[index];
+                waitForTask(
+                        displayId,
+                        FIXTURE_CLASS,
+                        entry -> entry.taskId == peerTaskId
+                                && "freeform".equals(entry.windowingMode)
+                                && DesktopSelfTestGeometry.matches(
+                                        entry.bounds, restoreBounds));
+            } catch (IOException ignored) {
+                // Global self-test cleanup removes any remaining fixture task.
+            }
+        }
+    }
+
+    private static String formatTaskIds(final int[] taskIds) {
+        final StringBuilder result = new StringBuilder();
+        for (final int taskId : taskIds) {
+            if (result.length() > 0) {
+                result.append(',');
+            }
+            result.append(taskId);
+        }
+        return result.toString();
     }
 
     private static String repeatAppRequestedFullscreenRestore(
@@ -495,10 +807,18 @@ final class DesktopSelfTestWindowSuite {
             final int displayId,
             final int taskId,
             final Rect expectedBounds,
+            final SurfaceReferenceResult surfaceReference,
+            final int underlyingSurfaceColor,
             final int repetitions) throws IOException {
+        final StringBuilder surfaceSamples = new StringBuilder();
         for (int index = 0; index < repetitions; index++) {
             DesktopSelfTestHostObserver.stage(
                     "WINDOW-019-ENTER-" + (index + 1));
+            DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                    displayId, taskId);
+            waitForFrontTask(displayId, taskId);
+            DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                    displayId, taskId);
             DesktopSelfTestFixtureState.clearImmersive(appContext);
             setFixtureImmersive(token, true);
             DesktopSelfTestFixtureState.awaitImmersive(
@@ -519,13 +839,239 @@ final class DesktopSelfTestWindowSuite {
                     displayId,
                     BROWSER_FIXTURE_CLASS,
                     entry -> entry.taskId == taskId
+                            && entry.visible
                             && "freeform".equals(entry.windowingMode)
                             && DesktopSelfTestGeometry.matches(
                                     entry.bounds, expectedBounds));
+            waitForFrontTask(displayId, taskId);
+            DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                    displayId, taskId);
+            appendStableUnderlyingSurfaceSample(
+                    surfaceSamples,
+                    surfaceReference,
+                    underlyingSurfaceColor,
+                    "restore-" + (index + 1));
         }
         return "task=" + taskId + ", cycles=" + repetitions
                 + ", bounds="
-                + DesktopSelfTestGeometry.format(expectedBounds);
+                + DesktopSelfTestGeometry.format(expectedBounds)
+                + (surfaceSamples.length() == 0
+                        ? ", surface=" + surfaceReference.error
+                        : ", surface=" + surfaceSamples);
+    }
+
+    private static void appendStableUnderlyingSurfaceSample(
+            final StringBuilder samples,
+            final SurfaceReferenceResult surfaceReference,
+            final int expectedColor,
+            final String stage) throws IOException {
+        if (surfaceReference.reference == null) {
+            return;
+        }
+        final DesktopTransitionSurfaceProbe.Reference expected =
+                surfaceReference.reference;
+        final String output = ShellAccess.run(
+                DesktopTransitionSurfaceProbe.createCaptureCommand(
+                        expected.captureSource,
+                        expected.x,
+                        expected.y));
+        final DesktopTransitionSurfaceProbe.Reference actual =
+                DesktopTransitionSurfaceProbe.parseReference(
+                        expected.captureSource,
+                        expected.x,
+                        expected.y,
+                        output);
+        if (!DesktopTransitionSurfaceProbe.sameColor(
+                expectedColor, actual.color)) {
+            throw new IOException("underlying fullscreen surface changed after "
+                    + stage
+                    + ": expected="
+                    + DesktopTransitionSurfaceProbe.formatColor(expectedColor)
+                    + ", actual="
+                    + DesktopTransitionSurfaceProbe.formatColor(actual.color));
+        }
+        if (samples.length() > 0) {
+            samples.append(',');
+        }
+        samples.append(stage).append(':').append(
+                DesktopTransitionSurfaceProbe.formatColor(actual.color));
+    }
+
+    private static String verifyFullscreenFixtureSurface(
+            final DisplayCaptureSource captureSource,
+            final Rect fullscreenBounds,
+            final Rect contentBounds) throws IOException {
+        if (fullscreenBounds == null || fullscreenBounds.isEmpty()
+                || contentBounds == null || contentBounds.isEmpty()) {
+            throw new IOException(
+                    "fullscreen fixture or content has no bounds");
+        }
+        final int edgeTolerance = 2;
+        if (contentBounds.left > fullscreenBounds.left + edgeTolerance
+                || contentBounds.right
+                        < fullscreenBounds.right - edgeTolerance
+                || contentBounds.top < fullscreenBounds.top - edgeTolerance
+                || contentBounds.bottom
+                        > fullscreenBounds.bottom + edgeTolerance) {
+            throw new IOException("fullscreen fixture content is outside its"
+                    + " task: task="
+                    + DesktopSelfTestGeometry.format(fullscreenBounds)
+                    + ", content="
+                    + DesktopSelfTestGeometry.format(contentBounds));
+        }
+        final int contentX = contentBounds.left
+                + Math.max(1, contentBounds.width() / 4);
+        final int markerX = contentBounds.left
+                + Math.max(1, contentBounds.width() * 7 / 8);
+        final int contentCenterY = contentBounds.centerY();
+        final int contentTopY = contentBounds.top
+                + Math.min(20, Math.max(1, contentBounds.height() / 8));
+        final int topGap = Math.max(
+                0, contentBounds.top - fullscreenBounds.top);
+        final int bottomGap = Math.max(
+                0, fullscreenBounds.bottom - contentBounds.bottom);
+        final int unoccupiedHeight = topGap + bottomGap;
+        final int letterboxThreshold = Math.max(
+                edgeTolerance, fullscreenBounds.height() / 8);
+        final boolean letterboxed = unoccupiedHeight > letterboxThreshold;
+        if (letterboxed && fullscreenBounds.width()
+                >= fullscreenBounds.height()) {
+            throw new IOException("landscape desktop unexpectedly letterboxed"
+                    + " landscape fixture: task="
+                    + DesktopSelfTestGeometry.format(fullscreenBounds)
+                    + ", content="
+                    + DesktopSelfTestGeometry.format(contentBounds));
+        }
+        final int gapStart;
+        final int gapEnd;
+        if (topGap >= bottomGap) {
+            gapStart = fullscreenBounds.top;
+            gapEnd = contentBounds.top;
+        } else {
+            gapStart = contentBounds.bottom;
+            gapEnd = fullscreenBounds.bottom;
+        }
+        int contentTopColor = 0;
+        int contentCenterColor = 0;
+        int markerColor = 0;
+        int frameTopColor = 0;
+        int gapFirstColor = 0;
+        int gapSecondColor = 0;
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            contentTopColor = captureSurfaceColor(
+                    captureSource, contentX, contentTopY);
+            contentCenterColor = captureSurfaceColor(
+                    captureSource, contentX, contentCenterY);
+            markerColor = captureSurfaceColor(
+                    captureSource, markerX, contentCenterY);
+            boolean settled = isTransitionFixtureColor(contentCenterColor)
+                    && DesktopTransitionSurfaceProbe.sameColor(
+                            contentTopColor, contentCenterColor)
+                    && isSurfaceMarkerColor(markerColor);
+            if (settled && !letterboxed) {
+                final int frameTopY = fullscreenBounds.top
+                        + Math.min(20, Math.max(
+                                1, fullscreenBounds.height() / 8));
+                frameTopColor = captureSurfaceColor(
+                        captureSource, contentX, frameTopY);
+                settled = isTransitionFixtureColor(frameTopColor);
+            }
+            if (settled && letterboxed) {
+                final int gapLength = gapEnd - gapStart;
+                final int firstY = gapStart + Math.max(1, gapLength / 3);
+                final int secondY = gapStart
+                        + Math.max(1, gapLength * 2 / 3);
+                gapFirstColor = captureSurfaceColor(
+                        captureSource, fullscreenBounds.centerX(), firstY);
+                gapSecondColor = captureSurfaceColor(
+                        captureSource, fullscreenBounds.centerX(), secondY);
+                settled = !DesktopTransitionSurfaceProbe.sameColor(
+                                contentCenterColor, gapFirstColor)
+                        && DesktopTransitionSurfaceProbe.sameColor(
+                                gapFirstColor, gapSecondColor);
+            }
+            if (settled) {
+                return "surface=content:"
+                        + DesktopTransitionSurfaceProbe.formatColor(
+                                contentCenterColor)
+                        + ",marker:"
+                        + DesktopTransitionSurfaceProbe.formatColor(
+                                markerColor)
+                        + (letterboxed
+                                ? ",letterbox:"
+                                        + DesktopTransitionSurfaceProbe
+                                                .formatColor(gapFirstColor)
+                                        + ",contentBounds="
+                                        + DesktopSelfTestGeometry.format(
+                                                contentBounds)
+                                : ",full,frameTop:"
+                                        + DesktopTransitionSurfaceProbe
+                                                .formatColor(frameTopColor));
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        if (!isTransitionFixtureColor(contentCenterColor)) {
+            throw new IOException("fullscreen fixture content is not rendered: "
+                    + DesktopTransitionSurfaceProbe.formatColor(
+                            contentCenterColor)
+                    + " at " + DesktopSelfTestGeometry.format(contentBounds));
+        }
+        if (!DesktopTransitionSurfaceProbe.sameColor(
+                contentCenterColor, contentTopColor)) {
+            throw new IOException("fullscreen fixture leaves a top gap: top="
+                    + DesktopTransitionSurfaceProbe.formatColor(
+                            contentTopColor)
+                    + ", center="
+                    + DesktopTransitionSurfaceProbe.formatColor(
+                            contentCenterColor));
+        }
+        if (!isSurfaceMarkerColor(markerColor)) {
+            throw new IOException("fullscreen fixture surface marker is not"
+                    + " rendered: "
+                    + DesktopTransitionSurfaceProbe.formatColor(markerColor));
+        }
+        if (!letterboxed && !isTransitionFixtureColor(frameTopColor)) {
+            throw new IOException("fullscreen fixture leaves a visible top"
+                    + " gap: top="
+                    + DesktopTransitionSurfaceProbe.formatColor(frameTopColor)
+                    + ", content="
+                    + DesktopTransitionSurfaceProbe.formatColor(
+                            contentCenterColor));
+        }
+        if (letterboxed) {
+            throw new IOException("fixed-orientation letterbox is not uniform: "
+                    + DesktopTransitionSurfaceProbe.formatColor(gapFirstColor)
+                    + " vs "
+                    + DesktopTransitionSurfaceProbe.formatColor(
+                            gapSecondColor));
+        }
+        throw new IOException("fullscreen fixture surface did not settle");
+    }
+
+    private static boolean isTransitionFixtureColor(final int color) {
+        final int red = (color >>> 16) & 0xFF;
+        final int green = (color >>> 8) & 0xFF;
+        final int blue = color & 0xFF;
+        return blue >= green + 24 && green >= red + 16;
+    }
+
+    private static boolean isSurfaceMarkerColor(final int color) {
+        return ((color >>> 16) & 0xFF) >= 200
+                && ((color >>> 8) & 0xFF) >= 200
+                && (color & 0xFF) >= 200;
+    }
+
+    private static int captureSurfaceColor(
+            final DisplayCaptureSource captureSource,
+            final int x,
+            final int y) throws IOException {
+        final String output = ShellAccess.run(
+                DesktopTransitionSurfaceProbe.createCaptureCommand(
+                        captureSource, x, y));
+        return DesktopTransitionSurfaceProbe.parseReference(
+                captureSource, x, y, output).color;
     }
 
     private static void verifyDesktopSurfaceMatches(
@@ -822,6 +1368,20 @@ final class DesktopSelfTestWindowSuite {
         }
         return context.createDisplayContext(display)
                 .getResources().getDisplayMetrics().densityDpi;
+    }
+
+    private static Rect currentDisplayBounds(
+            final Context context, final int displayId) {
+        final DisplayManager manager = context.getSystemService(
+                DisplayManager.class);
+        final Display display = manager == null
+                ? null : manager.getDisplay(displayId);
+        if (display == null) {
+            return new Rect();
+        }
+        final DisplayMetrics metrics = new DisplayMetrics();
+        display.getRealMetrics(metrics);
+        return new Rect(0, 0, metrics.widthPixels, metrics.heightPixels);
     }
 
     private static int displayRotation(

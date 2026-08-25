@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -42,10 +43,15 @@ public class DesktopSelfTestActivity extends Activity {
     static final String TEXT_MARKER_FILE = "desktop-self-test-text.txt";
     static final String IMMERSIVE_MARKER_FILE =
             "desktop-self-test-immersive.txt";
+    static final String IMMERSIVE_SURFACE_MARKER_FILE =
+            "desktop-self-test-immersive-surface.txt";
+    static final String WINDOW_MODE_MARKER_FILE =
+            "desktop-self-test-window-mode.txt";
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private String mToken = "";
     private boolean mAllowDisplayMove;
     private boolean mImmersiveReceiverRegistered;
+    private boolean mImmersiveEnabled;
     private DesktopSelfTestFixtureAppearance mAppearance =
             DesktopSelfTestFixtureAppearance.PRIMARY;
     private final BroadcastReceiver mImmersiveReceiver =
@@ -126,6 +132,16 @@ public class DesktopSelfTestActivity extends Activity {
     }
 
     private void applyImmersive(final boolean enabled) {
+        mImmersiveEnabled = enabled;
+        applyImmersiveBars(enabled);
+        configureImmersiveWindow(enabled);
+    }
+
+    protected final boolean isImmersiveEnabled() {
+        return mImmersiveEnabled;
+    }
+
+    protected final void applyImmersiveBars(final boolean enabled) {
         final WindowInsetsController controller =
                 getWindow().getInsetsController();
         if (controller == null) {
@@ -136,7 +152,6 @@ public class DesktopSelfTestActivity extends Activity {
         } else {
             exitBrowserImmersiveMode(controller);
         }
-        configureImmersiveWindow(enabled);
     }
 
     protected void configureImmersiveWindow(final boolean enabled) {
@@ -173,7 +188,7 @@ public class DesktopSelfTestActivity extends Activity {
                         .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 
-    private void recordImmersiveFrame(final boolean enabled) {
+    protected void recordImmersiveFrame(final boolean enabled) {
         final android.view.View decor = getWindow().getDecorView();
         decor.requestApplyInsets();
         decor.getViewTreeObserver().addOnPreDrawListener(
@@ -191,6 +206,13 @@ public class DesktopSelfTestActivity extends Activity {
                     }
                 });
         decor.invalidate();
+    }
+
+    protected final void recordWindowModeTransition(
+            final boolean multiWindow) {
+        writeMarker(WINDOW_MODE_MARKER_FILE,
+                mToken + "|" + displayId() + "|"
+                        + (multiWindow ? "freeform" : "fullscreen"));
     }
 
     protected FrameLayout createContent() {
@@ -244,6 +266,16 @@ public class DesktopSelfTestActivity extends Activity {
 
     protected final int fixtureSurfaceColor() {
         return mAppearance.color();
+    }
+
+    protected final void recordImmersiveSurfaceBounds(final Rect bounds) {
+        if (bounds == null || bounds.isEmpty()) {
+            return;
+        }
+        writeMarker(IMMERSIVE_SURFACE_MARKER_FILE,
+                mToken + "|" + displayId() + "|"
+                        + bounds.left + "|" + bounds.top + "|"
+                        + bounds.right + "|" + bounds.bottom);
     }
 
     private void recordFirstFrame(final FrameLayout content) {

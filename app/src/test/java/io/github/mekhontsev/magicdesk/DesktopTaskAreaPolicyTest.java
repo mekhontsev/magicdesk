@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -12,5 +13,13 @@ public final class DesktopTaskAreaPolicyTest {
                 .usesSessionFullscreenHierarchy());
         assertTrue(DesktopTaskAreaPolicy.SESSION
                 .usesSessionFullscreenHierarchy());
+        assertEquals(2, DesktopTaskAreaPolicy.DEFAULT
+                .minimumFullscreenTasksForSharedArea());
+        assertEquals(2, DesktopTaskAreaPolicy.SESSION
+                .minimumFullscreenTasksForSharedArea());
+        assertFalse(DesktopTaskAreaPolicy.DEFAULT
+                .requiresFullscreenBackstop());
+        assertTrue(DesktopTaskAreaPolicy.SESSION
+                .requiresFullscreenBackstop());
     }
 }

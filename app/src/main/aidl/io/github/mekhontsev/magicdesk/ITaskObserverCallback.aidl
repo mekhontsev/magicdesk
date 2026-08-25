@@ -5,13 +5,14 @@ oneway interface ITaskObserverCallback {
 
     void onImmersiveRequest(
         int taskId, boolean requesting, boolean initialSample,
-        boolean restoredByObserver) = 2;
+        boolean foreground) = 2;
 
     void onTaskGone(int taskId) = 3;
 
     void onWindowingModeChanged(
         int taskId, int previousMode, int currentMode,
-        int previousCaptionSourceId) = 4;
+        int previousCaptionSourceId,
+        boolean backgroundAppFullscreenReleased) = 4;
 
     void onFocusStackResult(
         long sequence, boolean success, int taskCount, String error) = 5;
@@ -42,4 +43,7 @@ oneway interface ITaskObserverCallback {
     void onPhoneLauncherEvent(
         int type, String processName, int pid, String reason,
         boolean protectionActivated) = 14;
+
+    void onTaskRequestedOrientationChanged(
+        int taskId, int requestedOrientation) = 15;
 }

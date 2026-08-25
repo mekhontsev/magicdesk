@@ -168,6 +168,28 @@ final class TaskInputWindowParser {
         return new WindowSnapshot(focused, taskWindows, systemDialogs, true);
     }
 
+    static boolean hasVisibleNotificationPanel(
+            final String dump, final int displayId) {
+        final String dispatcher = currentDispatcherState(dump);
+        if (dispatcher.isEmpty()) {
+            return false;
+        }
+        for (final String line : dispatcher.split("\\r?\\n")) {
+            final WindowState window = parseWindowState(line);
+            if (window == null
+                    || window.displayId != displayId
+                    || window.notVisible) {
+                continue;
+            }
+            final String title = window.title;
+            if (title.contains("NotificationShade")
+                    || title.contains("QuickSettings")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean containsWindow(
             final List<WindowState> windows,
             final int displayId,

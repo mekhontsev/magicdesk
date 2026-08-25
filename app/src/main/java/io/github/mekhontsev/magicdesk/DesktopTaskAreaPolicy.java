@@ -9,4 +9,14 @@ enum DesktopTaskAreaPolicy {
     boolean usesSessionFullscreenHierarchy() {
         return this == SESSION;
     }
+
+    /** Number of fullscreen application tasks that require a shared parent. */
+    int minimumFullscreenTasksForSharedArea() {
+        return 2;
+    }
+
+    /** Whether an empty sibling area needs a structural HOME child. */
+    boolean requiresFullscreenBackstop() {
+        return this == SESSION;
+    }
 }

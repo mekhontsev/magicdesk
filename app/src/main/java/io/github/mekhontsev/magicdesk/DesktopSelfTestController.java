@@ -106,6 +106,9 @@ final class DesktopSelfTestController {
                 }
                 return "uid=" + uid;
             });
+            if (target == DesktopSelfTestTarget.PHONE) {
+                preparePhoneSystemPanel(result);
+            }
             if (!DesktopSelfTestCapabilityAudit.run(
                     appContext, result, target)) {
                 throw new AbortSelfTest();
@@ -219,6 +222,48 @@ final class DesktopSelfTestController {
             return "unlock the phone before starting the test";
         }
         return null;
+    }
+
+    private static void preparePhoneSystemPanel(
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        try {
+            if (!isPhoneSystemPanelVisible()) {
+                result.add(DesktopSelfTestResult.State.PASS,
+                        "SELFTEST-PRECONDITION-002",
+                        "Close the phone notification shade",
+                        "already closed");
+                return;
+            }
+            ShellAccess.run("/system/bin/cmd statusbar collapse");
+            final long deadline = SystemClock.uptimeMillis()
+                    + STEP_TIMEOUT_MILLIS;
+            while (SystemClock.uptimeMillis() < deadline) {
+                if (!isPhoneSystemPanelVisible()) {
+                    result.add(DesktopSelfTestResult.State.PASS,
+                            "SELFTEST-PRECONDITION-002",
+                            "Close the phone notification shade",
+                            "closed");
+                    return;
+                }
+                SystemClock.sleep(POLL_MILLIS);
+            }
+            failAndAbort(result,
+                    "SELFTEST-PRECONDITION-002",
+                    "Close the phone notification shade",
+                    "SystemUI did not close the notification shade or "
+                            + "Quick Settings");
+        } catch (IOException error) {
+            failAndAbort(result,
+                    "SELFTEST-PRECONDITION-002",
+                    "Close the phone notification shade",
+                    usefulMessage(error));
+        }
+    }
+
+    private static boolean isPhoneSystemPanelVisible() throws IOException {
+        return TaskInputWindowParser.hasVisibleNotificationPanel(
+                ShellAccess.run("/system/bin/dumpsys input"),
+                Display.DEFAULT_DISPLAY);
     }
 
     private static void requireNoActiveDesktop(

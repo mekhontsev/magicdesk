@@ -24,7 +24,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private int mSampleCount;
     private int mEventCount;
     private int mDroppedSamples;
-    private int mFullscreenTaskAreaFeatureId = DISPLAY_AREA_FEATURE_UNKNOWN;
+    private int mSharedFullscreenParentFeatureId =
+            DISPLAY_AREA_FEATURE_UNKNOWN;
     private String mPendingVisibilityGapKey;
     private String mPendingVisibilityGapDetail;
 
@@ -134,30 +135,20 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
 
         for (final TaskState task : snapshot.tasks) {
-            if (task.fixture
-                    && mDisplayId != 0
-                    && task.displayId == 0
-                    && task.windowingMode == WINDOWING_MODE_FREEFORM) {
-                addAnomaly("phone-freeform:" + mStage.name + ':' + task.taskId,
-                        formatSample(reason, snapshot)
-                                + " fixture " + task.taskId
-                                + " entered phone/freeform");
-            }
-            if (task.fixture
-                    && task.displayId != 0
-                    && task.displayId != mDisplayId) {
+            if (task.fixture && task.displayId != mDisplayId
+                    && task.windowingMode != WINDOWING_MODE_FULLSCREEN) {
                 addAnomaly("fixture-display:" + mStage.name + ':'
                                 + task.taskId + ':' + task.displayId,
                         formatSample(reason, snapshot)
                                 + " fixture " + task.taskId
-                                + " entered display " + task.displayId);
+                                + " left selected display " + mDisplayId
+                                + " for display " + task.displayId
+                                + " in mode " + task.windowingMode);
             }
             if (task.taskId != mHostTaskId && !task.backstop
                     && task.home && task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
-                if (mDisplayId == 0
-                        && !isPhoneHomeAboveDesktopContent(
-                                snapshot, task.taskId)) {
+                if (!isHomeAboveDesktopContent(snapshot, task.taskId)) {
                     continue;
                 }
                 addAnomaly("visible-home:" + mStage.name + ':' + task.taskId,
@@ -216,7 +207,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         return false;
     }
 
-    private boolean isPhoneHomeAboveDesktopContent(
+    private boolean isHomeAboveDesktopContent(
             final Snapshot snapshot,
             final int homeTaskId) {
         // ActivityTaskManager returns running tasks top-first. Nubia keeps its
@@ -244,6 +235,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
         final Snapshot last = stage.samples.get(
                 stage.samples.size() - 1).snapshot;
+        analyzeFullscreenHierarchyContract(stage, last);
         analyzeFullscreenTaskAreaContinuity(stage, last);
         if (stage.samples.size() < 2) {
             return;
@@ -261,6 +253,107 @@ final class SelfTestTaskStackInvariantAnalyzer {
         analyzeVisibility(stage, first, last);
     }
 
+    private void analyzeFullscreenHierarchyContract(
+            final Stage stage,
+            final Snapshot last) {
+        if ("WINDOW-015".equals(stage.name)) {
+            analyzeFullscreenHierarchy(stage, last);
+            return;
+        }
+        if (!isSharedFullscreenStage(stage.name)) {
+            return;
+        }
+        analyzeFullscreenHierarchy(stage, last);
+        if (isStableFullscreenSwitchStage(stage.name)) {
+            analyzeFullscreenParentStability(stage);
+        }
+    }
+
+    private void analyzeFullscreenHierarchy(
+            final Stage stage,
+            final Snapshot snapshot) {
+        analyzeSharedFullscreenArea(stage, snapshot);
+    }
+
+    private void analyzeSharedFullscreenArea(
+            final Stage stage,
+            final Snapshot snapshot) {
+        final List<TaskState> fullscreenTasks =
+                desktopFullscreenFixtures(snapshot);
+        if (fullscreenTasks.size() < 2
+                || mSharedFullscreenParentFeatureId
+                        == DISPLAY_AREA_FEATURE_UNKNOWN) {
+            addAnomaly("fullscreen-shared-area:" + stage.name,
+                    formatSample("stage-end", snapshot)
+                            + " fullscreen peers did not enter one shared area");
+            return;
+        }
+        int areaTaskCount = 0;
+        for (final TaskState task : fullscreenTasks) {
+            if (task.displayAreaFeatureId
+                    == mSharedFullscreenParentFeatureId) {
+                areaTaskCount++;
+            }
+        }
+        final int expectedAreaTaskCount = fullscreenTasks.size();
+        if (areaTaskCount < expectedAreaTaskCount) {
+            addAnomaly("fullscreen-shared-members:" + stage.name,
+                    formatSample("stage-end", snapshot)
+                            + " expected at least " + expectedAreaTaskCount
+                            + " fullscreen tasks in area="
+                            + mSharedFullscreenParentFeatureId
+                            + ", found=" + areaTaskCount);
+        }
+    }
+
+    private void analyzeFullscreenParentStability(final Stage stage) {
+        if (stage.samples.isEmpty()) {
+            return;
+        }
+        final Snapshot first = stage.samples.get(0).snapshot;
+        for (final TaskState expected : desktopFullscreenFixtures(first)) {
+            for (final Sample sample : stage.samples) {
+                final TaskState current = sample.snapshot.find(expected.taskId);
+                if (current != null
+                        && current.displayAreaFeatureId
+                                != expected.displayAreaFeatureId) {
+                    addAnomaly("fullscreen-parent-transition:"
+                                    + stage.name + ':' + expected.taskId,
+                            formatSample(sample.reason, sample.snapshot)
+                                    + " task=" + expected.taskId
+                                    + " parent changed "
+                                    + expected.displayAreaFeatureId + " -> "
+                                    + current.displayAreaFeatureId);
+                    break;
+                }
+            }
+        }
+    }
+
+    private List<TaskState> desktopFullscreenFixtures(
+            final Snapshot snapshot) {
+        final List<TaskState> tasks = new ArrayList<>();
+        for (final TaskState task : snapshot.tasks) {
+            if (isDesktopFullscreenFixture(task)) {
+                tasks.add(task);
+            }
+        }
+        return tasks;
+    }
+
+    private static boolean isSharedFullscreenStage(final String stage) {
+        return "WINDOW-020-PREPARE".equals(stage)
+                || "WINDOW-020".equals(stage)
+                || stage.startsWith("WINDOW-020-PEER-")
+                || "WINDOW-020-RETURN".equals(stage);
+    }
+
+    private static boolean isStableFullscreenSwitchStage(
+            final String stage) {
+        return stage.startsWith("WINDOW-020-PEER-")
+                || "WINDOW-020-RETURN".equals(stage);
+    }
+
     private void observeFullscreenTaskArea(final Snapshot snapshot) {
         final TaskState host = snapshot.find(mHostTaskId);
         final int hostFeatureId = host == null
@@ -270,8 +363,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             final TaskState first = snapshot.tasks.get(firstIndex);
             if (!isDesktopFullscreenFixture(first)
                     || first.displayAreaFeatureId
-                            == DISPLAY_AREA_FEATURE_UNKNOWN
-                    || first.displayAreaFeatureId == hostFeatureId) {
+                            == DISPLAY_AREA_FEATURE_UNKNOWN) {
                 continue;
             }
             for (int secondIndex = firstIndex + 1;
@@ -280,11 +372,33 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 if (isDesktopFullscreenFixture(second)
                         && second.displayAreaFeatureId
                                 == first.displayAreaFeatureId) {
-                    mFullscreenTaskAreaFeatureId = first.displayAreaFeatureId;
+                    if (first.displayAreaFeatureId == hostFeatureId
+                            && !hasSessionBackstop(
+                                    snapshot, hostFeatureId)) {
+                        continue;
+                    }
+                    mSharedFullscreenParentFeatureId =
+                            first.displayAreaFeatureId;
                     return;
                 }
             }
         }
+    }
+
+    private boolean hasSessionBackstop(
+            final Snapshot snapshot,
+            final int featureId) {
+        if (featureId == DISPLAY_AREA_FEATURE_UNKNOWN) {
+            return false;
+        }
+        for (final TaskState task : snapshot.tasks) {
+            if (task.backstop
+                    && task.displayId == mDisplayId
+                    && task.displayAreaFeatureId == featureId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void analyzeFullscreenTaskAreaContinuity(
@@ -292,7 +406,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             final Snapshot snapshot) {
         if (!("FULLSCREEN-LIFECYCLE-001".equals(stage.name)
                 || "FULLSCREEN-LIFECYCLE-003".equals(stage.name))
-                || mFullscreenTaskAreaFeatureId
+                || mSharedFullscreenParentFeatureId
                         == DISPLAY_AREA_FEATURE_UNKNOWN) {
             return;
         }
@@ -308,51 +422,54 @@ final class SelfTestTaskStackInvariantAnalyzer {
         }
         if (survivor == null
                 || survivor.displayAreaFeatureId
-                        == mFullscreenTaskAreaFeatureId) {
+                        == mSharedFullscreenParentFeatureId) {
             return;
         }
         addAnomaly("fullscreen-parent-changed:" + survivor.taskId,
                 formatSample("stage-end", snapshot)
                         + " lone fullscreen task=" + survivor.taskId
                         + " left fullscreen area="
-                        + mFullscreenTaskAreaFeatureId
+                        + mSharedFullscreenParentFeatureId
                         + " for area=" + survivor.displayAreaFeatureId);
     }
 
     private void validateFullscreenTaskArea(
             final String reason,
             final Snapshot snapshot) {
-        if (mFullscreenTaskAreaFeatureId
+        if (mSharedFullscreenParentFeatureId
                 == DISPLAY_AREA_FEATURE_UNKNOWN) {
             return;
         }
         final TaskState host = snapshot.find(mHostTaskId);
-        if (host != null && host.displayAreaFeatureId
-                == mFullscreenTaskAreaFeatureId) {
+        final boolean sessionParent = host != null
+                && host.displayAreaFeatureId
+                        == mSharedFullscreenParentFeatureId
+                && hasSessionBackstop(
+                        snapshot, mSharedFullscreenParentFeatureId);
+        if (!sessionParent && host != null && host.displayAreaFeatureId
+                == mSharedFullscreenParentFeatureId) {
             addAnomaly("desktop-host-in-fullscreen-area:" + mStage.name,
                     formatSample(reason, snapshot)
                             + " desktop host entered fullscreen area="
-                            + mFullscreenTaskAreaFeatureId);
+                            + mSharedFullscreenParentFeatureId);
         }
         int backstopCount = 0;
         for (final TaskState task : snapshot.tasks) {
             if (task.backstop
                     && task.displayId == mDisplayId
-                    && task.home
                     && task.displayAreaFeatureId
-                            == mFullscreenTaskAreaFeatureId
-                    && task.windowingMode == WINDOWING_MODE_FULLSCREEN) {
+                            == mSharedFullscreenParentFeatureId) {
                 backstopCount++;
             }
         }
-        final int expectedBackstopCount = 1;
+        final int expectedBackstopCount = sessionParent ? 1 : 0;
         if (backstopCount != expectedBackstopCount) {
             addAnomaly("fullscreen-backstop:" + mStage.name + ':'
                             + backstopCount,
                     formatSample(reason, snapshot)
                             + " expected " + expectedBackstopCount
-                            + " HOME fullscreen-area backstops, found="
-                            + backstopCount);
+                            + " HOME shared-parent backstops,"
+                            + " found=" + backstopCount);
         }
     }
 

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 
 /** Transient window-management state owned by one Android task id. */
@@ -34,6 +35,8 @@ final class DesktopTaskRuntimeState {
     private Rect mWindowRestoreBounds;
     private Rect mFullscreenRestoreBounds;
     private Boolean mImmersiveRequested;
+    private int mRequestedOrientation =
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private boolean mAppRequestedFullscreen;
     private FullscreenTransition mFullscreenTransition =
             FullscreenTransition.NONE;
@@ -129,8 +132,24 @@ final class DesktopTaskRuntimeState {
         return previous;
     }
 
+    synchronized Boolean immersiveRequested() {
+        return mImmersiveRequested;
+    }
+
+    synchronized void clearImmersiveRequested() {
+        mImmersiveRequested = null;
+    }
+
     synchronized boolean isImmersiveRequested() {
         return Boolean.TRUE.equals(mImmersiveRequested);
+    }
+
+    synchronized void setRequestedOrientation(final int orientation) {
+        mRequestedOrientation = orientation;
+    }
+
+    synchronized int requestedOrientation() {
+        return mRequestedOrientation;
     }
 
     synchronized boolean isAppRequestedFullscreen() {

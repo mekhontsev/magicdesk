@@ -190,6 +190,7 @@ public final class ShellProcessFailureTrackerTest {
                 null,
                 TASK_ID,
                 true,
+                false,
                 0,
                 WINDOWING_MODE_FREEFORM,
                 1,

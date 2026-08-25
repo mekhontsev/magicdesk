@@ -21,6 +21,18 @@ self-tests require an awake, unlocked device and must retain production paths
 and assertions. Do not weaken a test to make a device pass. Close an active
 desktop through its production cleanup path before installing another APK.
 
+## Fullscreen Focus Work
+
+Before changing fullscreen, task focus, Alt+Tab, taskbar activation, or task
+display-area ownership, read `docs/fullscreen-1.8-reference.md`. Treat its
+singleton and shared-parent behavior as a compatibility contract, not as
+historical background. Taskbar, Alt+Tab, overview, and MCP focus must continue
+through the same `DesktopTaskController` gateway. Preserve the activate/demote
+contract in `docs/fullscreen-transitions.md`: activation and demotion only
+change z-order; they never hide, minimize, reparent, resize, or change the
+windowing mode of an application task. Run the focused unit tests and the
+simulated and phone desktop self-tests after changing this path.
+
 ## Releases
 
 When the user asks to publish a MagicDesk release, treat the release tag and

@@ -25,14 +25,17 @@ final class DesktopTaskWatcher {
         void onChanged(int generation);
         void onImmersiveRequest(int generation, int taskId,
                 boolean requesting, boolean initialSample,
-                boolean restoredByObserver);
+                boolean foreground);
+        void onTaskRequestedOrientationChanged(
+                int generation, int taskId, int requestedOrientation);
         void onTaskGone(int generation, int taskId);
         void onWindowingModeChanged(
                 int generation,
                 int taskId,
                 int previousMode,
                 int currentMode,
-                int previousCaptionSourceId);
+                int previousCaptionSourceId,
+                boolean backgroundAppFullscreenReleased);
         void onFreeformBoundsChanged(
                 int generation,
                 int taskId,
@@ -658,13 +661,22 @@ final class DesktopTaskWatcher {
             final int taskId,
             final boolean requesting,
             final boolean initialSample,
-            final boolean restoredByObserver) {
+            final boolean foreground) {
         postIfActive(generation, () -> mListener.onImmersiveRequest(
                 generation,
                 taskId,
                 requesting,
                 initialSample,
-                restoredByObserver));
+                foreground));
+    }
+
+    private void onTaskRequestedOrientationChanged(
+            final int generation,
+            final int taskId,
+            final int requestedOrientation) {
+        postIfActive(generation, () ->
+                mListener.onTaskRequestedOrientationChanged(
+                        generation, taskId, requestedOrientation));
     }
 
     private void onTaskGone(
@@ -679,14 +691,16 @@ final class DesktopTaskWatcher {
             final int taskId,
             final int previousMode,
             final int currentMode,
-            final int previousCaptionSourceId) {
+            final int previousCaptionSourceId,
+            final boolean backgroundAppFullscreenReleased) {
         postIfActive(generation, () ->
                 mListener.onWindowingModeChanged(
                         generation,
                         taskId,
                         previousMode,
                         currentMode,
-                        previousCaptionSourceId));
+                        previousCaptionSourceId,
+                        backgroundAppFullscreenReleased));
     }
 
     private void onFreeformBoundsChanged(
@@ -1010,13 +1024,21 @@ final class DesktopTaskWatcher {
                 final int taskId,
                 final boolean requesting,
                 final boolean initialSample,
-                final boolean restoredByObserver) throws RemoteException {
+                final boolean foreground) throws RemoteException {
             mOwner.onImmersiveRequest(
                     mGeneration,
                     taskId,
                     requesting,
                     initialSample,
-                    restoredByObserver);
+                    foreground);
+        }
+
+        @Override
+        public void onTaskRequestedOrientationChanged(
+                final int taskId,
+                final int requestedOrientation) throws RemoteException {
+            mOwner.onTaskRequestedOrientationChanged(
+                    mGeneration, taskId, requestedOrientation);
         }
 
         @Override
@@ -1029,13 +1051,16 @@ final class DesktopTaskWatcher {
                 final int taskId,
                 final int previousMode,
                 final int currentMode,
-                final int previousCaptionSourceId) throws RemoteException {
+                final int previousCaptionSourceId,
+                final boolean backgroundAppFullscreenReleased)
+                throws RemoteException {
             mOwner.onWindowingModeChanged(
                     mGeneration,
                     taskId,
                     previousMode,
                     currentMode,
-                    previousCaptionSourceId);
+                    previousCaptionSourceId,
+                    backgroundAppFullscreenReleased);
         }
 
         @Override

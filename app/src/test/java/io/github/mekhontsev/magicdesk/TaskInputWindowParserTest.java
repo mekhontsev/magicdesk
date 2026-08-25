@@ -307,6 +307,43 @@ public final class TaskInputWindowParserTest {
     }
 
     @Test
+    public void detectsVisibleNotificationShadeOnPhoneDisplay() {
+        final String dump =
+                "Input Dispatcher State:\n"
+                        + "  Display: 0\n"
+                        + "    Windows:\n"
+                        + "      0: name=shade NotificationShade, id=1, "
+                        + "displayId=0, inputConfig=TRUSTED_OVERLAY, alpha=1, "
+                        + "applicationInfo.name=, ownerPid=100, "
+                        + "ownerUid=10100, token=x\n"
+                        + "      1: name=status StatusBar, id=2, "
+                        + "displayId=0, inputConfig=TRUSTED_OVERLAY, alpha=1, "
+                        + "applicationInfo.name=, ownerPid=100, "
+                        + "ownerUid=10100, token=y\n";
+
+        assertTrue(TaskInputWindowParser.hasVisibleNotificationPanel(dump, 0));
+        assertFalse(TaskInputWindowParser.hasVisibleNotificationPanel(dump, 3));
+    }
+
+    @Test
+    public void ignoresClosedNotificationShadeAndVisibleStatusBar() {
+        final String dump =
+                "Input Dispatcher State:\n"
+                        + "  Display: 0\n"
+                        + "    Windows:\n"
+                        + "      0: name=shade NotificationShade, id=1, "
+                        + "displayId=0, inputConfig=NOT_VISIBLE | "
+                        + "TRUSTED_OVERLAY, alpha=1, applicationInfo.name=, "
+                        + "ownerPid=100, ownerUid=10100, token=x\n"
+                        + "      1: name=status StatusBar, id=2, "
+                        + "displayId=0, inputConfig=TRUSTED_OVERLAY, alpha=1, "
+                        + "applicationInfo.name=, ownerPid=100, "
+                        + "ownerUid=10100, token=y\n";
+
+        assertFalse(TaskInputWindowParser.hasVisibleNotificationPanel(dump, 0));
+    }
+
+    @Test
     public void rejectsTruncatedWindowSnapshot() {
         final TaskInputWindowParser.WindowSnapshot snapshot =
                 TaskInputWindowParser.readWindowSnapshot(

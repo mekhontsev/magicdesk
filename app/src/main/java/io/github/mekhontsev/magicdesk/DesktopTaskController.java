@@ -68,6 +68,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
     private boolean mSessionOwnershipReady;
+    private volatile List<TaskRepository.TaskEntry> mLatestTasks =
+            Collections.emptyList();
     private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
 
     DesktopTaskController(
@@ -144,10 +146,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             return;
                         }
                         if (mTaskWatcherReady) {
+                            final List<Integer> focusTaskIds =
+                                    prepareFocusTaskIds(
+                                            Collections.singletonList(
+                                                    Integer.valueOf(taskId)),
+                                            taskId,
+                                            null);
                             sendFocusTasks(
                                     mDisplayId,
-                                    Collections.singletonList(
-                                            Integer.valueOf(taskId)),
+                                    focusTaskIds,
                                     null);
                         } else {
                             TaskRepository.bringTaskToFront(
@@ -194,13 +201,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final int taskId,
                             final boolean requesting,
                             final boolean initialSample,
-                            final boolean restoredByObserver) {
+                            final boolean foreground) {
                         if (mRunning) {
                             mWindowTransitions.handleImmersiveRequest(
                                     taskId,
                                     requesting,
                                     initialSample,
-                                    restoredByObserver);
+                                    foreground);
+                        }
+                    }
+
+                    @Override
+                    public void onTaskRequestedOrientationChanged(
+                            final int generation,
+                            final int taskId,
+                            final int requestedOrientation) {
+                        if (mRunning) {
+                            mWindowTransitions.observeRequestedOrientation(
+                                    taskId, requestedOrientation);
                         }
                     }
 
@@ -220,14 +238,18 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final int taskId,
                             final int previousMode,
                             final int currentMode,
-                            final int previousCaptionSourceId) {
+                            final int previousCaptionSourceId,
+                            final boolean backgroundAppFullscreenReleased) {
                         if (!mRunning) {
                             return;
                         }
                         Log.d(TAG, "windowing mode task=" + taskId
                                 + " " + previousMode + " -> " + currentMode);
                         mWindowTransitions.observeWindowingModeChange(
-                                taskId, previousMode, currentMode);
+                                taskId,
+                                previousMode,
+                                currentMode,
+                                backgroundAppFullscreenReleased);
                         // MagicDesk fullscreen commands already refresh the
                         // client caption and retain restore geometry. Only a
                         // native caption-button transition needs this repair.
@@ -371,6 +393,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mDisplayId = -1;
         mFocusingTaskId = -1;
         mActiveTaskId = -1;
+        mLatestTasks = Collections.emptyList();
         clearSessionOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
@@ -707,10 +730,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 new ArrayList<>(orderedTaskIds);
         final int focusedTaskId = orderedTaskIdList.get(
                 orderedTaskIdList.size() - 1).intValue();
-        sendFocusTasks(
-                mDisplayId,
-                orderedTaskIdList,
-                beginFocusTracking(focusedTaskId, callback));
+        focusThroughGateway(
+                orderedTaskIdList, focusedTaskId, topTask, callback);
     }
 
     @Override
@@ -727,10 +748,52 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             return;
         }
         final int focusedTaskId = taskIds.get(taskIds.size() - 1).intValue();
+        focusThroughGateway(taskIds, focusedTaskId, null, callback);
+    }
+
+    /** Common focus route for taskbar, Alt+Tab, overview, and automation. */
+    private void focusThroughGateway(
+            final List<Integer> requestedTaskIds,
+            final int focusedTaskId,
+            final TaskRepository.TaskEntry focusedTask,
+            final TaskRepository.ActionCallback callback) {
+        final List<Integer> preparedTaskIds = prepareFocusTaskIds(
+                requestedTaskIds, focusedTaskId, focusedTask);
         sendFocusTasks(
-                displayId,
-                new ArrayList<>(taskIds),
+                mDisplayId,
+                preparedTaskIds,
                 beginFocusTracking(focusedTaskId, callback));
+    }
+
+    private List<Integer> prepareFocusTaskIds(
+            final List<Integer> requestedTaskIds,
+            final int focusedTaskId,
+            final TaskRepository.TaskEntry focusedTask) {
+        final List<TaskRepository.TaskEntry> latestTasks = mLatestTasks;
+        final TaskRepository.TaskEntry target = focusedTask != null
+                && focusedTask.taskId == focusedTaskId
+                        ? focusedTask
+                        : findTask(latestTasks, focusedTaskId);
+        if (target == null || !target.isFullscreen()
+                || !isFocusableTask(target)) {
+            return new ArrayList<>(requestedTaskIds);
+        }
+
+        // Supply the complete fullscreen hierarchy as preparation context.
+        // The shell owner reparents only missing managed tasks, then activates
+        // the selected task alone. Taskbar, Alt+Tab, overview, and automation
+        // therefore share one focus path without rebuilding a prepared area.
+        final LinkedHashSet<Integer> orderedTaskIds = new LinkedHashSet<>();
+        for (int index = latestTasks.size() - 1; index >= 0; index--) {
+            final TaskRepository.TaskEntry task = latestTasks.get(index);
+            if (task != null && task.displayId == mDisplayId
+                    && task.isFullscreen() && isFocusableTask(task)) {
+                orderedTaskIds.add(Integer.valueOf(task.taskId));
+            }
+        }
+        orderedTaskIds.remove(Integer.valueOf(focusedTaskId));
+        orderedTaskIds.add(Integer.valueOf(focusedTaskId));
+        return new ArrayList<>(orderedTaskIds);
     }
 
     private TaskRepository.ActionCallback beginFocusTracking(
@@ -1300,6 +1363,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
+        mLatestTasks = Collections.unmodifiableList(
+                new ArrayList<>(snapshot.tasks));
         if (mSnapshotListener != null) {
             mSnapshotListener.onSnapshot(
                     mDisplayId,
@@ -1355,7 +1420,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mActiveTaskId = activeTask == null ? -1 : activeTask.taskId;
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
-        mWindowTransitions.reconcile(snapshot.tasks, visibleTasks);
+        mWindowTransitions.reconcile(
+                snapshot.tasks,
+                visibleTasks,
+                focusingTaskId >= 0);
     }
 
     private void clearSessionOwnership() {

@@ -611,18 +611,16 @@ final class AppTaskController {
     void focusTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
-        focusTask(app, task, null, null);
+        focusTask(app, task, null);
     }
 
     void focusTask(
             final AppItem app,
             final TaskRepository.TaskEntry task,
-            final List<TaskRepository.TaskEntry> focusStack,
             final Runnable completion) {
         focusTaskWithResult(
                 app,
                 task,
-                focusStack,
                 completion == null
                         ? null
                         : success -> completion.run());
@@ -635,7 +633,6 @@ final class AppTaskController {
         focusTaskWithResult(
                 app,
                 task,
-                null,
                 success -> {
                     if (success) {
                         runIfPresent(onPrepared);
@@ -646,17 +643,11 @@ final class AppTaskController {
     private void focusTaskWithResult(
             final AppItem app,
             final TaskRepository.TaskEntry task,
-            final List<TaskRepository.TaskEntry> focusStack,
             final TaskFocusCompletion completion) {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_switching_to, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks;
-        if (focusStack == null) {
-            visibleTasks = takeInteractionVisibleTasks();
-        } else {
-            visibleTasks = new ArrayList<>(focusStack);
-            mInteractionVisibleTasks = Collections.emptyList();
-        }
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                takeInteractionVisibleTasks();
         final int displayId = mActivity.getCurrentDisplayId();
         TaskRepository.load(displayId, snapshot ->
                 mActivity.runOnUiThread(() -> {
@@ -766,49 +757,31 @@ final class AppTaskController {
             focusTask(app, currentTask);
             return;
         }
-        if (currentTask.isFullscreen()) {
-            concealFullscreenTask(
-                    app, currentTask, displayId, savedWorkspace, snapshot);
-            return;
-        }
-        if (!currentTask.isFreeform()) {
+        if (!currentTask.isFullscreen() && !currentTask.isFreeform()) {
             focusTask(app, currentTask);
             return;
         }
-        final TaskRepository.TaskEntry nextTask =
-                findNextVisibleTask(currentTask.taskId, snapshot);
-        final TaskRepository.TaskEntry desktopTask =
-                findDesktopHostTask(snapshot);
-        final TaskRepository.TaskEntry focusTask =
-                nextTask != null ? nextTask : desktopTask;
-        TaskRepository.minimizeTask(
-                currentTask, focusTask,
-                result -> mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
-                        return;
-                    }
-                    if (!result.success) {
-                        showTaskbarActionFailure(app, result.message);
-                        mActivity.refreshTaskSnapshot();
-                        return;
-                    }
-                    mActivity.refreshTaskSnapshot();
-                }));
+        demoteTaskbarTask(
+                app, currentTask, displayId, savedWorkspace, snapshot);
     }
 
-    private void concealFullscreenTask(
+    private void demoteTaskbarTask(
             final AppItem app,
             final TaskRepository.TaskEntry task,
             final int displayId,
             final List<TaskRepository.TaskEntry> savedWorkspace,
             final TaskRepository.Snapshot snapshot) {
         final List<Integer> focusOrder =
-                TaskbarTaskOrder.concealFullscreenTask(
+                TaskbarTaskOrder.demoteActiveTask(
                         snapshot, task.taskId, savedWorkspace);
         if (focusOrder.size() < 2) {
-            showTaskbarActionFailure(app, "desktop host unavailable");
+            showTaskbarActionFailure(app, "task stack unavailable");
             return;
         }
+        final TaskRepository.TaskEntry target =
+                DesktopShellActivity.findTask(
+                        snapshot,
+                        focusOrder.get(focusOrder.size() - 1).intValue());
         MagicDeskRuntime.focusDesktopTasks(
                 displayId,
                 focusOrder,
@@ -819,7 +792,8 @@ final class AppTaskController {
                     if (!result.success) {
                         showTaskbarActionFailure(app, result.message);
                     } else {
-                        mActivity.setTaskbarVisible(true);
+                        mActivity.setTaskbarVisible(
+                                target == null || !target.isFullscreen());
                     }
                     mActivity.refreshTaskSnapshot();
                 }));
@@ -832,42 +806,6 @@ final class AppTaskController {
                 R.string.status_switch_failed,
                 detail == null || detail.length() == 0
                         ? app.label : detail));
-    }
-
-    private TaskRepository.TaskEntry findNextVisibleTask(
-            final int excludedTaskId,
-            final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.available) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry candidate : snapshot.tasks) {
-            if (DesktopTaskController.isDesktopHostTask(candidate)) {
-                break;
-            }
-            if (candidate != null
-                    && candidate.taskId != excludedTaskId
-                    && candidate.visible
-                    && candidate.isFreeform()
-                    && !candidate.home
-                    && !mActivity.getPackageName().equals(
-                            candidate.packageName)) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
-    private TaskRepository.TaskEntry findDesktopHostTask(
-            final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.available) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (DesktopTaskController.isDesktopHostTask(task)) {
-                return task;
-            }
-        }
-        return null;
     }
 
     void openTaskFullscreen(

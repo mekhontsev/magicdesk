@@ -62,7 +62,8 @@ final class ShellTaskLauncher {
                 activityIdentity,
                 displayId,
                 bounds,
-                WINDOWING_MODE_FREEFORM);
+                WINDOWING_MODE_FREEFORM,
+                taskAreaToken);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another windowed task launch is in progress");
@@ -73,17 +74,17 @@ final class ShellTaskLauncher {
                     intent.getComponent(), WINDOWING_MODE_FREEFORM);
         }
         try {
-            final Class<?> tokenClass = taskAreaToken == null
-                    ? null
-                    : Class.forName("android.window.WindowContainerToken");
+            // A managed session parent is joined by the opening WCT below.
+            // Supplying it in ActivityOptions makes display 0 expose a
+            // fullscreen starting task before the freeform override applies.
             final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
                     mService,
                     displayId,
                     intent,
                     intent.getComponent().getPackageName(),
                     bounds,
-                    tokenClass,
-                    taskAreaToken,
+                    null,
+                    null,
                     false,
                     pending::onTransitionStarted);
             pending.complete(taskId);
@@ -122,7 +123,8 @@ final class ShellTaskLauncher {
                 activityIdentity,
                 displayId,
                 new Rect(),
-                WINDOWING_MODE_FULLSCREEN);
+                WINDOWING_MODE_FULLSCREEN,
+                null);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another task launch is in progress");
@@ -171,6 +173,7 @@ final class ShellTaskLauncher {
         private final int mDisplayId;
         private final Rect mBounds;
         private final int mWindowingMode;
+        private final Object mTargetParentToken;
         private int mObservedTaskId = -1;
         private IBinder mTransitionToken;
         private boolean mApplied;
@@ -181,11 +184,13 @@ final class ShellTaskLauncher {
                 final LaunchActivityIdentity activityIdentity,
                 final int displayId,
                 final Rect bounds,
-                final int windowingMode) {
+                final int windowingMode,
+                final Object targetParentToken) {
             mActivityIdentity = activityIdentity;
             mDisplayId = displayId;
             mBounds = new Rect(bounds);
             mWindowingMode = windowingMode;
+            mTargetParentToken = targetParentToken;
         }
 
         synchronized void onTaskCreated(
@@ -240,7 +245,8 @@ final class ShellTaskLauncher {
                     mDisplayId,
                     taskId,
                     mBounds,
-                    mTransitionToken);
+                    mTransitionToken,
+                    mTargetParentToken);
             mApplied = true;
             Log.i(TAG, "joined initial transition task=" + taskId
                     + " early=" + mObservedByCallback);
