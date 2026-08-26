@@ -51,7 +51,8 @@ final class DeviceSetupRuntimeController {
         KeyboardShortcutWatcher.stop();
         PlatformDrivers.current().phoneUi().requestPhoneScreenRestore();
         if (context != null) {
-            MagicDeskRuntime.stop(context.getApplicationContext());
+            MagicDeskRuntime.retainAutomationOrStop(
+                    context.getApplicationContext());
         }
     }
 }

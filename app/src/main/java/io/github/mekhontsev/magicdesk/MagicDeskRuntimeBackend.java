@@ -6,6 +6,8 @@ import android.graphics.Point;
 interface MagicDeskRuntimeBackend {
     boolean isAvailable();
 
+    boolean isDesktopRuntimeInitialized();
+
     void prepareForStop(Runnable completion);
 
     void releaseDesktopTaskSession(Runnable completion);

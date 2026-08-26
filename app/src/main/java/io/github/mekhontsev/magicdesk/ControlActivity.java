@@ -71,6 +71,7 @@ public final class ControlActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        MagicDeskRuntime.startAutomation(this);
         consumeOpenDesktopRequest(getIntent());
         synchronized (ControlActivity.class) {
             sActive = new WeakReference<>(this);

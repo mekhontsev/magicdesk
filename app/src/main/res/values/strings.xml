@@ -411,6 +411,7 @@
     <string name="notification_channel_description">Keeps MagicDesk desktop controls available.</string>
     <string name="notification_hw_connected">Hardware keyboard connected</string>
     <string name="notification_hw_disconnected">No hardware keyboard</string>
+    <string name="notification_automation_ready">Automation server ready</string>
     <string name="notification_open_touchpad">Open touchpad</string>
     <string name="control_panel_title">MagicDesk %1$s</string>
     <string name="control_panel_subtitle">Phone control panel</string>

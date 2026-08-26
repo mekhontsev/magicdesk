@@ -403,6 +403,11 @@ runtime integration and are not distributed through the same release path.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
   enabled, it starts one bounded Streamable HTTP server on literal
   `127.0.0.1:8765`; stopping the runtime closes the listener and workers.
+  A user launch may first create the service in automation-only mode so an MCP
+  client can connect before Shizuku is available. That mode owns only the
+  foreground service and MCP transport. The same service is promoted in place
+  after setup authorization; desktop, task, input, and platform runtimes are
+  not initialized by the automation-only start.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
   and state boundary. Developer input, self-test, and force-stop tools require
   a separate setting and disappear when that setting is disabled.

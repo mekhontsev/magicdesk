@@ -20,6 +20,10 @@ final class MagicDeskMcpPreferences {
     private MagicDeskMcpPreferences() {
     }
 
+    static boolean isEnabled(final Context context) {
+        return preferences(context).getBoolean(ENABLED, false);
+    }
+
     static Values load(final Context context) {
         final SharedPreferences preferences = preferences(context);
         String token = preferences.getString(TOKEN, "");

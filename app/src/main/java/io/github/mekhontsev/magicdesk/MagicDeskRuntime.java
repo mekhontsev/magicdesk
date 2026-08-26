@@ -13,6 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Stable process-local entry point for the optional runtime service. */
 public final class MagicDeskRuntime {
+    private static final String ACTION_START_AUTOMATION =
+            BuildConfig.APPLICATION_ID + ".action.START_AUTOMATION";
     private static WeakReference<MagicDeskRuntimeBackend> sBackend =
             new WeakReference<>(null);
 
@@ -22,6 +24,37 @@ public final class MagicDeskRuntime {
     public static void start(final Context context) {
         context.startForegroundService(
                 new Intent(context, MagicDeskRuntimeService.class));
+    }
+
+    static void startAutomation(final Context context) {
+        if (context == null
+                || !MagicDeskMcpPreferences.isEnabled(context)) {
+            return;
+        }
+        context.startForegroundService(
+                new Intent(context, MagicDeskRuntimeService.class)
+                        .setAction(ACTION_START_AUTOMATION));
+    }
+
+    static boolean isAutomationStart(final Intent intent) {
+        return intent != null
+                && ACTION_START_AUTOMATION.equals(intent.getAction());
+    }
+
+    static void retainAutomationOrStop(final Context context) {
+        if (context == null) {
+            return;
+        }
+        if (!MagicDeskMcpPreferences.isEnabled(context)) {
+            stop(context);
+            return;
+        }
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null || !backend.isDesktopRuntimeInitialized()) {
+            startAutomation(context);
+            return;
+        }
+        stop(context, () -> startAutomation(context));
     }
 
     public static void stop(final Context context) {

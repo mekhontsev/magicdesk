@@ -62,6 +62,11 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public boolean isDesktopRuntimeInitialized() {
+        return !mDestroyed && mInitialized;
+    }
+
+    @Override
     public void refreshNotification() {
         if (mDestroyed) {
             return;
@@ -438,6 +443,22 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public int onStartCommand(final Intent intent, final int flags, final int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
+        if (MagicDeskRuntime.isAutomationStart(intent)) {
+            mMcpRuntime.reconcile();
+            updateNotification();
+            return START_NOT_STICKY;
+        }
+        final String action = intent == null ? null : intent.getAction();
+        if (!DeviceSetupManager.isRuntimeAuthorized()
+                && (ACTION_OPEN_CONTROL_PANEL.equals(action)
+                        || ACTION_OPEN_TOUCHPAD.equals(action))) {
+            mMcpRuntime.reconcile();
+            if (ACTION_OPEN_CONTROL_PANEL.equals(action)) {
+                openPhoneControlPanel();
+            }
+            updateNotification();
+            return START_NOT_STICKY;
+        }
         initialize();
         if (intent != null) {
             if (ACTION_OPEN_CONTROL_PANEL.equals(intent.getAction())) {
@@ -470,6 +491,7 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void onDestroy() {
+        final boolean desktopRuntimeInitialized = mInitialized;
         mDestroyed = true;
         MagicDeskRuntime.detach(this);
         ShellAccess.removeStateListener(mShellStateListener);
@@ -502,8 +524,10 @@ public final class MagicDeskRuntimeService extends Service
             mMcpRuntime.close();
             mMcpRuntime = null;
         }
-        mPlatform.stopRuntime();
-        mPhoneUi.requestPhoneScreenRestore();
+        if (desktopRuntimeInitialized) {
+            mPlatform.stopRuntime();
+            mPhoneUi.requestPhoneScreenRestore();
+        }
         if (mHandler != null) {
             mHandler.removeCallbacksAndMessages(null);
         }
@@ -623,6 +647,9 @@ public final class MagicDeskRuntimeService extends Service
         if (mMcpRuntime != null) {
             mMcpRuntime.reconcile();
         }
+        if (!mInitialized && !MagicDeskMcpPreferences.isEnabled(this)) {
+            stopSelf();
+        }
     }
 
     private void updatePlatformCaptionTarget() {
@@ -683,7 +710,9 @@ public final class MagicDeskRuntimeService extends Service
                         pendingIntentFlags());
         final String text = mOperationStatus != null
                 ? mOperationStatus
-                : (mDesktopInput != null
+                : (!mInitialized
+                        ? getString(R.string.notification_automation_ready)
+                        : mDesktopInput != null
                         && mDesktopInput.hasHardwareKeyboard()
                         ? getString(R.string.notification_hw_connected)
                         : getString(R.string.notification_hw_disconnected));

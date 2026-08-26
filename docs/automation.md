@@ -48,6 +48,18 @@ curl -sS http://127.0.0.1:8765/mcp \
 The server supports MCP `initialize`, `ping`, `tools/list`, `tools/call`,
 `resources/list`, and `resources/read`. It does not require an MCP session ID.
 
+### Starting After a Phone Reboot
+
+When the MCP server is enabled, opening MagicDesk from its normal launcher icon
+starts the server before the Shizuku compatibility audit. This intentionally
+does not start desktop, input, task-observer, or vendor runtime components.
+An automation client can therefore connect first and bring up Shizuku later;
+the same MagicDesk process then promotes to the full runtime after the normal
+audit succeeds, without replacing the MCP connection.
+
+For Codex on the phone, open MagicDesk once before the first `resume` after a
+reboot. No automatic boot receiver is installed.
+
 ## Access Levels
 
 The tool catalog has three explicit levels:

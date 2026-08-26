@@ -175,6 +175,11 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
+        public boolean isDesktopRuntimeInitialized() {
+            return true;
+        }
+
+        @Override
         public void prepareForStop(final Runnable completion) {
             completion.run();
         }
