@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
-import android.os.IBinder;
 
 /**
  * Owns task visibility boundaries used while shell changes window hierarchy.
@@ -13,8 +12,6 @@ import android.os.IBinder;
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellPreparedTaskTransition {
-    private static final int TRANSIT_OPEN = 1;
-    private static final int TRANSIT_TO_FRONT = 3;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
@@ -69,7 +66,7 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final Rect bounds,
-            final IBinder transitionToken,
+            final ShellWindowTransitionExecutor.OpeningTransition transition,
             final Object targetParentToken)
             throws ReflectiveOperationException {
         applyFreeform(
@@ -78,7 +75,7 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 FreeformApplication.EXISTING_OPEN_TRANSITION,
-                transitionToken,
+                transition,
                 targetParentToken);
     }
 
@@ -161,7 +158,7 @@ final class ShellPreparedTaskTransition {
         transactionClass.getMethod(
                 "setHidden", tokenClass, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.TRUE);
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
 
@@ -273,7 +270,7 @@ final class ShellPreparedTaskTransition {
                 tokenClass,
                 taskToken,
                 windowingMode != WINDOWING_MODE_FREEFORM);
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
 
@@ -300,7 +297,7 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final Rect bounds,
             final FreeformApplication application,
-            final IBinder transitionToken)
+            final ShellWindowTransitionExecutor.OpeningTransition transition)
             throws ReflectiveOperationException {
         applyFreeform(
                 service,
@@ -308,7 +305,7 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 application,
-                transitionToken,
+                transition,
                 null);
     }
 
@@ -318,7 +315,7 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final Rect bounds,
             final FreeformApplication application,
-            final IBinder transitionToken,
+            final ShellWindowTransitionExecutor.OpeningTransition transition,
             final Object targetParentToken)
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -375,18 +372,24 @@ final class ShellPreparedTaskTransition {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, transaction, tokenClass, taskToken, false);
         if (application == FreeformApplication.HIDE_SYNC) {
-            SyncWindowContainerTransaction.apply(
+            ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
         } else if (application
                 == FreeformApplication.EXISTING_OPEN_TRANSITION) {
-            TaskFullscreenTransitionCommand.continueTransition(
-                    transitionToken, transactionClass, transaction);
-        } else if (application == FreeformApplication.OPEN_TRANSITION) {
-            TaskFullscreenTransitionCommand.startTransition(
-                    TRANSIT_OPEN, transactionClass, transaction);
+            ShellWindowTransitionExecutor.continueOpening(
+                    transition, transactionClass, transaction);
         } else {
-            TaskFullscreenTransitionCommand.startTransition(
-                    transactionClass, transaction);
+            final ShellWindowTransitionExecutor.SystemTransition
+                    transitionType = application
+                    == FreeformApplication.OPEN_TRANSITION
+                            ? ShellWindowTransitionExecutor.SystemTransition.OPEN
+                            : ShellWindowTransitionExecutor.SystemTransition.CHANGE;
+            ShellWindowTransitionExecutor.playSystemTransition(
+                    displayId,
+                    transitionType,
+                    transactionClass,
+                    transaction,
+                    "freeform-" + application.name());
         }
     }
 
@@ -457,11 +460,15 @@ final class ShellPreparedTaskTransition {
                 taskToken,
                 true);
         if (application != FullscreenApplication.SHOW_TRANSITION) {
-            SyncWindowContainerTransaction.apply(
+            ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
         } else {
-            TaskFullscreenTransitionCommand.startTransition(
-                    TRANSIT_TO_FRONT, transactionClass, transaction);
+            ShellWindowTransitionExecutor.playSystemTransition(
+                    displayId,
+                    ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                    transactionClass,
+                    transaction,
+                    "show-prepared-fullscreen");
         }
     }
 }

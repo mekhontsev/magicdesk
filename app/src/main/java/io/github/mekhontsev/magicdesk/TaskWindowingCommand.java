@@ -9,7 +9,6 @@ import java.lang.reflect.Method;
 public final class TaskWindowingCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final int TRANSIT_TO_FRONT = 3;
 
     private TaskWindowingCommand() {
     }
@@ -196,7 +195,7 @@ public final class TaskWindowingCommand {
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                 .invoke(transaction, focusTaskToken, Boolean.TRUE, Boolean.TRUE);
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
         System.out.println("task-minimized=" + taskId
                 + " focused=" + focusTaskId);
@@ -283,8 +282,12 @@ public final class TaskWindowingCommand {
         // Keep any hierarchy changes supplied by the caller and the focus
         // reorder in one transition. A synchronous hierarchy transaction
         // followed by TO_FRONT can overlap an existing WMShell transition.
-        TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_TO_FRONT, transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                transactionClass,
+                transaction,
+                "focus-tasks");
     }
 
     private static void addFocusOperations(
@@ -354,7 +357,7 @@ public final class TaskWindowingCommand {
                         survivorToken,
                         Boolean.TRUE,
                         Boolean.TRUE);
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, focusTransaction);
 
         final Object transaction =
@@ -372,7 +375,7 @@ public final class TaskWindowingCommand {
                         Boolean.TRUE);
         // Keep the survivor in the same fullscreen parent. The removed task is
         // already in the background, so it cannot replace survivor input focus.
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
 
@@ -410,8 +413,12 @@ public final class TaskWindowingCommand {
             transactionClass.getMethod("removeTask", tokenClass)
                     .invoke(transaction, taskToken);
         }
-        TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_TO_FRONT, transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                transactionClass,
+                transaction,
+                "close-desktop-tasks");
     }
 
     static void focusFullscreenTask(
@@ -440,8 +447,12 @@ public final class TaskWindowingCommand {
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
-        TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_TO_FRONT, transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
+                transactionClass,
+                transaction,
+                "focus-fullscreen-task");
     }
 
     static boolean normalizeFullscreenTask(
@@ -588,8 +599,12 @@ public final class TaskWindowingCommand {
         // Finalize all restored windows in one transition. Independent task
         // moves can otherwise settle out of order and overwrite each other's
         // freeform state on physical projection displays.
-        TaskFullscreenTransitionCommand.startTransition(
-                transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass,
+                transaction,
+                "restore-desktop-tasks");
         if (bounds != null) {
             for (int index = 0; index < taskIds.length; index++) {
                 TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(

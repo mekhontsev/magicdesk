@@ -259,8 +259,12 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         // Mark ownership before WMShell can publish the resulting mode or
         // parent change to the long-lived task observer.
         mOwnership.markDesktop(taskId);
-        TaskFullscreenTransitionCommand.startTransition(
-                transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                mDisplayId,
+                ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass,
+                transaction,
+                "place-task-in-session-area");
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, mArea.featureId(), true);
     }
@@ -366,7 +370,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE)
                 .invoke(transaction, mArea.token(), Boolean.valueOf(foreground));
-        SyncWindowContainerTransaction.applyAsync(
+        ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
         mAreaAtTop = Boolean.valueOf(foreground);
         Log.d(TAG, "desktop task area foreground=" + foreground
@@ -646,7 +650,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE)
                 .invoke(transaction, mArea.token(), Boolean.TRUE);
-        SyncWindowContainerTransaction.applyAsync(
+        ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
         mAreaAtTop = Boolean.TRUE;
         waitForTaskArea(hostTaskId, mArea.featureId(), true);
@@ -765,7 +769,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                     taskToken,
                     true);
         }
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 mService, transactionClass, transaction);
     }
 

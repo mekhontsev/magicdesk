@@ -53,6 +53,16 @@ final class DesktopSelfTestDisplayRemovalSuite {
                 throw new IOException(
                         "no live fullscreen fixture on display " + displayId);
             }
+            final WindowTransitionHealthDiagnostics.IdleResult idle =
+                    WindowTransitionHealthDiagnostics.awaitDisplayIdle(
+                            MagicDeskApplication.applicationContext(),
+                            displayId,
+                            STEP_TIMEOUT_MILLIS);
+            if (!idle.idle) {
+                throw new IOException(
+                        "window transitions did not finish on display "
+                                + displayId + ": " + idle.detail);
+            }
             lease.close();
             waitForDisplayRemoval(displayId);
             result.add(DesktopSelfTestResult.State.PASS,

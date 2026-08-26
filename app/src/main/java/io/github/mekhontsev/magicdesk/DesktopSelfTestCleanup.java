@@ -94,6 +94,18 @@ final class DesktopSelfTestCleanup {
         }
         if (lease != null) {
             try {
+                if (displayId > Display.DEFAULT_DISPLAY
+                        && !WindowTransitionHealthDiagnostics
+                                .awaitDisplayIdle(
+                                        MagicDeskApplication
+                                                .applicationContext(),
+                                        displayId,
+                                        STEP_TIMEOUT_MILLIS)
+                                .idle) {
+                    throw new IOException(
+                            "window transitions remained active on display "
+                                    + displayId);
+                }
                 lease.close();
             } catch (IOException error) {
                 clean = false;

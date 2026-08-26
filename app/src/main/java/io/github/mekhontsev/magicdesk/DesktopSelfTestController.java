@@ -106,6 +106,7 @@ final class DesktopSelfTestController {
                 }
                 return "uid=" + uid;
             });
+            requireHealthyWindowTransitions(appContext, result);
             if (target == DesktopSelfTestTarget.PHONE) {
                 preparePhoneSystemPanel(result);
             }
@@ -174,6 +175,7 @@ final class DesktopSelfTestController {
                     displayId,
                     lease,
                     restoreExternalMirror);
+            recordWindowTransitionHealth(appContext, result);
             restoreResultTask(result, target, resultTaskId);
             RUNNING.set(false);
         }
@@ -222,6 +224,91 @@ final class DesktopSelfTestController {
             return "unlock the phone before starting the test";
         }
         return null;
+    }
+
+    private static void requireHealthyWindowTransitions(
+            final Context context,
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        final WindowTransitionHealthDiagnostics.Snapshot snapshot =
+                WindowTransitionHealthDiagnostics.capture(context);
+        if (!snapshot.available) {
+            failAndAbort(
+                    result,
+                    "SELFTEST-SYSTEM-001",
+                    "Window transition runtime health",
+                    "cannot inspect SystemPerformanceHinter: "
+                            + snapshot.error);
+        }
+        if (snapshot.pendingOpeningCount > 0) {
+            failAndAbort(
+                    result,
+                    "SELFTEST-SYSTEM-001",
+                    "Window transition runtime health",
+                    "MagicDesk has " + snapshot.pendingOpeningCount
+                            + " pending opening continuations; oldest="
+                            + snapshot.oldestPendingOpeningAgeMillis
+                            + "ms");
+        }
+        if (snapshot.hasStaleTransitions()) {
+            failAndAbort(
+                    result,
+                    "SELFTEST-SYSTEM-001",
+                    "Window transition runtime health",
+                    "stale transition performance sessions reference "
+                            + "missing displays: "
+                            + snapshot.staleDetail()
+                            + "; restart system_server or reboot before "
+                            + "running the self-test");
+        }
+        result.add(
+                DesktopSelfTestResult.State.PASS,
+                "SELFTEST-SYSTEM-001",
+                "Window transition runtime health",
+                "active=" + snapshot.sessions.size()
+                        + ", stale=0");
+    }
+
+    private static void recordWindowTransitionHealth(
+            final Context context,
+            final DesktopSelfTestResult result) {
+        final WindowTransitionHealthDiagnostics.Snapshot snapshot =
+                WindowTransitionHealthDiagnostics.capture(context);
+        if (!snapshot.available) {
+            result.add(
+                    DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-SYSTEM-002",
+                    "Window transition runtime after cleanup",
+                    "cannot inspect SystemPerformanceHinter: "
+                            + snapshot.error);
+            return;
+        }
+        if (snapshot.pendingOpeningCount > 0) {
+            result.add(
+                    DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-SYSTEM-002",
+                    "Window transition runtime after cleanup",
+                    "MagicDesk retained " + snapshot.pendingOpeningCount
+                            + " opening continuations; oldest="
+                            + snapshot.oldestPendingOpeningAgeMillis
+                            + "ms");
+            return;
+        }
+        if (snapshot.hasStaleTransitions()) {
+            result.add(
+                    DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-SYSTEM-002",
+                    "Window transition runtime after cleanup",
+                    "self-test left transition performance sessions for "
+                            + "missing displays: "
+                            + snapshot.staleDetail()
+                            + "; restart system_server or reboot");
+            return;
+        }
+        result.add(
+                DesktopSelfTestResult.State.PASS,
+                "SELFTEST-SYSTEM-002",
+                "Window transition runtime after cleanup",
+                "active=" + snapshot.sessions.size() + ", stale=0");
     }
 
     private static void preparePhoneSystemPanel(

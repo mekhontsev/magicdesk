@@ -9,6 +9,7 @@ import java.io.IOException;
 /** Owns the overlay display used when no physical desktop display is present. */
 final class SimulatedDesktopDisplayController {
     private static final String TAG = "MagicDeskSimulatedDisplay";
+    private static final long TRANSITION_IDLE_TIMEOUT_MILLIS = 5_000L;
 
     private static SimulatedDisplayLease sLease;
     private static int sDisplayId = Display.INVALID_DISPLAY;
@@ -47,14 +48,29 @@ final class SimulatedDesktopDisplayController {
             if (sDisplayId != displayId) {
                 return;
             }
-            sDisplayId = Display.INVALID_DISPLAY;
             lease = sLease;
-            sLease = null;
         }
         if (lease == null) {
             return;
         }
         try {
+            final WindowTransitionHealthDiagnostics.IdleResult idle =
+                    WindowTransitionHealthDiagnostics.awaitDisplayIdle(
+                            MagicDeskApplication.applicationContext(),
+                            displayId,
+                            TRANSITION_IDLE_TIMEOUT_MILLIS);
+            if (!idle.idle) {
+                throw new IOException(
+                        "window transitions remained active on display "
+                                + displayId + ": " + idle.detail);
+            }
+            synchronized (SimulatedDesktopDisplayController.class) {
+                if (sDisplayId != displayId || sLease != lease) {
+                    return;
+                }
+                sDisplayId = Display.INVALID_DISPLAY;
+                sLease = null;
+            }
             lease.close();
         } catch (IOException error) {
             Log.w(TAG, "Could not remove the simulated display", error);

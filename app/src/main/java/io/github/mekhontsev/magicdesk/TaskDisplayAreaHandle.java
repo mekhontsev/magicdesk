@@ -77,7 +77,7 @@ final class TaskDisplayAreaHandle {
         transactionClass.getMethod(
                 "setIgnoreOrientationRequest", tokenClass, Boolean.TYPE)
                 .invoke(transaction, mToken, Boolean.valueOf(ignore));
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
 
@@ -151,7 +151,7 @@ final class TaskDisplayAreaHandle {
                             targetParentToken,
                             Boolean.valueOf(onTop)});
         }
-        SyncWindowContainerTransaction.apply(
+        ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
         Log.i(TAG, "detached tasks=" + childTaskIds
                 + " from feature=" + mFeatureId);

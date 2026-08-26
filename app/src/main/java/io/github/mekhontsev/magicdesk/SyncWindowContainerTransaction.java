@@ -38,7 +38,8 @@ final class SyncWindowContainerTransaction {
         callbackBinder.await(syncId);
     }
 
-    static void applyAsync(final Object activityTaskManagerService,
+    /** Applies an atomic hierarchy WCT without waiting for application draw. */
+    static void applyWithoutSurfaceSync(final Object activityTaskManagerService,
             final Class<?> transactionClass, final Object transaction)
             throws ReflectiveOperationException {
         final Object controller = activityTaskManagerService.getClass()

@@ -26,7 +26,8 @@ import java.util.Set;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
     interface TransitionStartedCallback {
-        void onTransitionStarted(IBinder transitionToken)
+        void onTransitionStarted(
+                ShellWindowTransitionExecutor.OpeningTransition transition)
                 throws ReflectiveOperationException;
     }
 
@@ -305,11 +306,9 @@ public final class TaskDisplayAreaLaunchCommand {
             // Supplying the launch as the transition's WCT lets the persistent
             // task observer join mode, bounds, and an optional organizer-owned
             // task area to the same authoritative opening transition.
-            final IBinder transitionToken =
-                    launchPendingIntentTransition(intent, options);
-            if (transitionCallback != null) {
-                transitionCallback.onTransitionStarted(transitionToken);
-            }
+            final ShellWindowTransitionExecutor.OpeningTransition transition =
+                    launchPendingIntentTransition(displayId, intent, options);
+            transitionCallback.onTransitionStarted(transition);
         }
         return waitForTask(
                 service,
@@ -419,7 +418,9 @@ public final class TaskDisplayAreaLaunchCommand {
         launchActivity(service, intent, options);
     }
 
-    private static IBinder launchPendingIntentTransition(
+    private static ShellWindowTransitionExecutor.OpeningTransition
+            launchPendingIntentTransition(
+            final int displayId,
             final Intent intent,
             final ActivityOptions options) throws ReflectiveOperationException {
         ActivityOptions.class.getMethod(
@@ -444,8 +445,12 @@ public final class TaskDisplayAreaLaunchCommand {
                 Intent.class,
                 Bundle.class)
                 .invoke(transaction, pendingIntent, intent, options.toBundle());
-        return TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_OPEN, transactionClass, transaction);
+        return ShellWindowTransitionExecutor.beginOpening(
+                displayId,
+                TRANSIT_OPEN,
+                transactionClass,
+                transaction,
+                "launch-pending-intent");
     }
 
     private static Context createShellContext()
@@ -779,8 +784,12 @@ public final class TaskDisplayAreaLaunchCommand {
                         transaction,
                         Integer.valueOf(taskId),
                         options.toBundle());
-        TaskFullscreenTransitionCommand.startTransition(
-                TRANSIT_OPEN, transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                targetDisplayId,
+                ShellWindowTransitionExecutor.SystemTransition.OPEN,
+                transactionClass,
+                transaction,
+                "move-running-task");
     }
 
     private static DesktopTransitionSurfaceProbe.Result moveRootTask(

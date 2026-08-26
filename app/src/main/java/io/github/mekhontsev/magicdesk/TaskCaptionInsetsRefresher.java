@@ -134,7 +134,8 @@ final class TaskCaptionInsetsRefresher {
                         Integer.valueOf(captionType), new Rect(), null,
                         Integer.valueOf(0));
         setLastProviderId(transactionClass, add, sourceId);
-        SyncWindowContainerTransaction.apply(service, transactionClass, add);
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, add);
 
         final Object remove = transactionClass.getConstructor().newInstance();
         transactionClass.getMethod(
@@ -143,7 +144,8 @@ final class TaskCaptionInsetsRefresher {
                 .invoke(remove, taskToken, owner, Integer.valueOf(0),
                         Integer.valueOf(captionType));
         setLastProviderId(transactionClass, remove, sourceId);
-        SyncWindowContainerTransaction.apply(service, transactionClass, remove);
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, remove);
     }
 
     private static void setLastProviderId(final Class<?> transactionClass,

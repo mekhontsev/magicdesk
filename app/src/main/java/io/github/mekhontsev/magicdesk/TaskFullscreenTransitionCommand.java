@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
-import android.os.IBinder;
 
 import java.util.concurrent.TimeUnit;
 
@@ -10,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskFullscreenTransitionCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
-    private static final int TRANSIT_CHANGE = 6;
     private static final long TRANSITION_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(3);
     private static final long TRANSITION_POLL_MILLIS = 20L;
 
@@ -80,7 +78,12 @@ public final class TaskFullscreenTransitionCommand {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
 
-        startTransition(transactionClass, fullscreenTransaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass,
+                fullscreenTransaction,
+                "enter-fullscreen");
         awaitFullscreen(service, displayId, taskId);
         return refreshCaptionIfRequested(
                 service,
@@ -110,40 +113,6 @@ public final class TaskFullscreenTransitionCommand {
                     captionSourceId, e);
             return false;
         }
-    }
-
-    static IBinder startTransition(final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        return startTransition(
-                TRANSIT_CHANGE, transactionClass, transaction);
-    }
-
-    static IBinder startTransition(final int transitionType,
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        final Class<?> organizerClass = Class.forName("android.window.WindowOrganizer");
-        final Object organizer = organizerClass.getConstructor().newInstance();
-        return (IBinder) organizerClass.getMethod(
-                "startNewTransition", Integer.TYPE, transactionClass)
-                .invoke(
-                        organizer,
-                        Integer.valueOf(transitionType),
-                        transaction);
-    }
-
-    static void continueTransition(
-            final IBinder transitionToken,
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        if (transitionToken == null) {
-            throw new IllegalArgumentException("missing transition token");
-        }
-        final Class<?> organizerClass =
-                Class.forName("android.window.WindowOrganizer");
-        final Object organizer = organizerClass.getConstructor().newInstance();
-        organizerClass.getMethod(
-                "startTransition", IBinder.class, transactionClass)
-                .invoke(organizer, transitionToken, transaction);
     }
 
     static void awaitFullscreen(final Object service, final int displayId,

@@ -450,8 +450,12 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             } else {
                 // A singleton retains the display's ordinary parent, matching
                 // the proven 1.8 hierarchy.
-                TaskFullscreenTransitionCommand.startTransition(
-                        transactionClass, transaction);
+                ShellWindowTransitionExecutor.playSystemTransition(
+                        displayId,
+                        ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                        transactionClass,
+                        transaction,
+                        "enter-application-fullscreen");
             }
             if (joinPreparedArea) {
                 mTaskIds.add(Integer.valueOf(taskId));
@@ -909,7 +913,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                     "setWindowingMode", tokenClass, Integer.TYPE)
                     .invoke(transaction, areaToken,
                             Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            SyncWindowContainerTransaction.apply(
+            ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
             if (mTaskAreaPolicy.requiresFullscreenBackstop()) {
                 // Display 0 retains this sibling organizer across task

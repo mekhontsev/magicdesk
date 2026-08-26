@@ -159,6 +159,37 @@ public final class ShellAccess {
         }
     }
 
+    static boolean awaitWindowTransitionsIdle(
+            final int displayId,
+            final long timeoutMillis) throws IOException {
+        try {
+            return requireService().awaitWindowTransitionsIdle(
+                    displayId, timeoutMillis);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "window transition wait failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static int[] getWindowTransitionRuntimeState() throws IOException {
+        try {
+            final int[] state = requireService()
+                    .getWindowTransitionRuntimeState();
+            if (state == null || state.length < 2) {
+                throw new IOException(
+                        "window transition runtime state is unavailable");
+            }
+            return new int[]{state[0], state[1]};
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "cannot inspect window transition runtime", error);
+        }
+    }
+
     static boolean isSupportedServiceUid(final int uid) {
         return uid == SHELL_UID || uid == ROOT_UID;
     }

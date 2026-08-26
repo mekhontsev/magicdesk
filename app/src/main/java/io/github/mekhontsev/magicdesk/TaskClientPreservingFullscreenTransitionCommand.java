@@ -58,14 +58,19 @@ public final class TaskClientPreservingFullscreenTransitionCommand {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, transaction, tokenClass, taskToken, true);
         /*
-         * startNewTransition() accepts the transaction even when another system
+         * The system transition accepts the transaction even when another system
          * transition is still running. Do not wait for the resulting windowing
          * mode here: a slow first frame can keep Nubia's launch transition open
          * indefinitely, while retrying would enqueue the same relaunch twice.
          * DesktopTaskController observes the task and completes its local state
          * once WindowManager eventually applies this transaction.
          */
-        TaskFullscreenTransitionCommand.startTransition(transactionClass, transaction);
+        ShellWindowTransitionExecutor.playSystemTransition(
+                displayId,
+                ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                transactionClass,
+                transaction,
+                "client-preserving-fullscreen");
     }
 
     private static int parseInt(final String value, final String label) {

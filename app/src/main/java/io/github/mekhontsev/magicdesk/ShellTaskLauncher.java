@@ -4,7 +4,6 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
-import android.os.IBinder;
 import android.util.Log;
 
 /** Launches a task with its requested mode known before the task appears. */
@@ -97,6 +96,7 @@ final class ShellTaskLauncher {
                     WINDOWING_MODE_FREEFORM);
             return taskId;
         } finally {
+            pending.releaseTransition();
             if (mListener != null) {
                 mListener.onTaskLaunchFinished(
                         intent.getComponent(), WINDOWING_MODE_FREEFORM);
@@ -175,7 +175,7 @@ final class ShellTaskLauncher {
         private final int mWindowingMode;
         private final Object mTargetParentToken;
         private int mObservedTaskId = -1;
-        private IBinder mTransitionToken;
+        private ShellWindowTransitionExecutor.OpeningTransition mTransition;
         private boolean mApplied;
         private boolean mObservedByCallback;
         private boolean mIdentified;
@@ -206,9 +206,10 @@ final class ShellTaskLauncher {
             }
         }
 
-        synchronized void onTransitionStarted(final IBinder transitionToken)
+        synchronized void onTransitionStarted(
+                final ShellWindowTransitionExecutor.OpeningTransition transition)
                 throws ReflectiveOperationException {
-            mTransitionToken = transitionToken;
+            mTransition = transition;
             if (mObservedTaskId >= 0) {
                 apply(mObservedTaskId);
             }
@@ -236,7 +237,7 @@ final class ShellTaskLauncher {
                 mApplied = true;
                 return;
             }
-            if (mTransitionToken == null) {
+            if (mTransition == null) {
                 throw new IllegalStateException(
                         "launch transition token is unavailable");
             }
@@ -245,11 +246,18 @@ final class ShellTaskLauncher {
                     mDisplayId,
                     taskId,
                     mBounds,
-                    mTransitionToken,
+                    mTransition,
                     mTargetParentToken);
             mApplied = true;
             Log.i(TAG, "joined initial transition task=" + taskId
                     + " early=" + mObservedByCallback);
+        }
+
+        synchronized void releaseTransition() {
+            final ShellWindowTransitionExecutor.OpeningTransition transition =
+                    mTransition;
+            mTransition = null;
+            ShellWindowTransitionExecutor.releaseOpening(transition);
         }
 
         private void identify(final int taskId) {

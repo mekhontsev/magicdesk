@@ -68,7 +68,8 @@ public final class TaskCaptionInsetsCommand {
                 .getMethod("getExcludeInsetsTypes")
                 .invoke(hierarchyOp)).intValue();
         System.out.println("caption-inset-types=" + requestedTypes);
-        SyncWindowContainerTransaction.apply(service, transactionClass, transaction);
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, transaction);
     }
 
     static void addCaptionInsetOperation(final Class<?> transactionClass,
