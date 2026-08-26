@@ -558,6 +558,33 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return output;
     }
 
+    static int[] planeBottomReorderOrder(
+            final int[] taskIds,
+            final Set<Integer> planeTaskIds) {
+        if (taskIds == null || taskIds.length == 0
+                || planeTaskIds == null || planeTaskIds.isEmpty()) {
+            return new int[0];
+        }
+        int count = 0;
+        for (final int taskId : taskIds) {
+            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
+                count++;
+            }
+        }
+        final int[] output = new int[count];
+        int outputIndex = 0;
+        // Every reorder-to-bottom inserts below the preceding operation. Walk
+        // the desired top-to-bottom order so the committed hierarchy retains
+        // the original bottom-to-top MRU order.
+        for (int index = taskIds.length - 1; index >= 0; index--) {
+            final int taskId = taskIds[index];
+            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
+                output[outputIndex++] = taskId;
+            }
+        }
+        return output;
+    }
+
     private static void addOrderOperations(
             final Object service,
             final int displayId,
@@ -574,10 +601,26 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final int targetTaskId = taskIds[taskIds.length - 1];
         final boolean fullscreenForeground = planes.containsKey(
                 Integer.valueOf(targetTaskId));
+        if (!fullscreenForeground) {
+            for (final int taskId : planeBottomReorderOrder(
+                    taskIds, planes.keySet())) {
+                final TaskDisplayAreaHandle plane = planes.get(
+                        Integer.valueOf(taskId));
+                transactionClass.getMethod(
+                        "reorder", tokenClass, Boolean.TYPE)
+                        .invoke(
+                                transaction,
+                                plane.token(),
+                                Boolean.FALSE);
+            }
+        }
         for (final int taskId : taskIds) {
             final TaskDisplayAreaHandle plane =
                     planes.get(Integer.valueOf(taskId));
             if (plane != null) {
+                if (!fullscreenForeground) {
+                    continue;
+                }
                 final boolean active = fullscreenForeground
                         && taskId == targetTaskId;
                 if (fullscreenForeground && !active) {
@@ -806,7 +849,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 "android.window.WindowContainerTransaction");
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
-        for (final TaskDisplayAreaHandle plane : mPlanes.values()) {
+        for (final int taskId : planeBottomReorderOrder(
+                toIntArray(mPlaneOrder), mPlanes.keySet())) {
+            final TaskDisplayAreaHandle plane = mPlanes.get(
+                    Integer.valueOf(taskId));
             transactionClass.getMethod(
                     "reorder", tokenClass, Boolean.TYPE)
                     .invoke(transaction, plane.token(), Boolean.FALSE);

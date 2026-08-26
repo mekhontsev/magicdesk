@@ -809,6 +809,226 @@ final class DesktopSelfTestInputSuite {
                 geometry);
     }
 
+    static void runMixedFullscreenFreeformTest(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry) {
+        final String code = "FULLSCREEN-MIXED-001";
+        try {
+            DesktopSelfTestHostObserver.stage(
+                    "FULLSCREEN-MIXED-001-LAUNCH-FREEFORM");
+            final MixedFreeformFixture fixture = launchMixedFreeformFixture(
+                    context,
+                    displayId,
+                    geometry.primaryWindow(),
+                    DesktopSelfTestFixtureAppearance.TRANSITION);
+            DesktopSelfTestHostObserver.stage(
+                    "FULLSCREEN-MIXED-001-LAUNCH-FIRST");
+            final MixedFreeformFixture first = launchMixedFreeformFixture(
+                    context,
+                    displayId,
+                    geometry.captionControlsWindow(false),
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
+            DesktopSelfTestHostObserver.stage(
+                    "FULLSCREEN-MIXED-001-LAUNCH-SECOND");
+            final MixedFreeformFixture second = launchMixedFreeformFixture(
+                    context,
+                    displayId,
+                    geometry.captionControlsWindow(true),
+                    DesktopSelfTestFixtureAppearance.SECONDARY);
+            if (fixture.taskId == first.taskId
+                    || fixture.taskId == second.taskId
+                    || first.taskId == second.taskId) {
+                throw new IOException("Android reused a mixed-stack task");
+            }
+            DesktopSelfTestHostObserver.stage(
+                    "FULLSCREEN-MIXED-001-PREPARE");
+            prepareFullscreenPair(
+                    displayId, first.taskId, second.taskId, geometry);
+            final boolean keepsFreeformAboveFullscreen =
+                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
+                            .usesIndependentFullscreenPlanes();
+
+            DesktopSelfTestHostObserver.stage(
+                    "FULLSCREEN-MIXED-001-SWITCH");
+            // Keep Alt held while selecting the freeform task from the live
+            // task switcher order. Only the final selection is committed.
+            final String freeformFocus = focusFieldThroughAltTabSelection(
+                    context,
+                    displayId,
+                    fixture.taskId,
+                    fixture.token,
+                    "5");
+            inspectFullscreenModes(
+                    displayId,
+                    second.taskId,
+                    first.taskId,
+                    "behind freeform after Alt+Tab");
+            waitForFreeformState(displayId, fixture, true);
+
+            final int sampleX = fixture.bounds.right
+                    + Math.max(1,
+                            (geometry.workArea.right - fixture.bounds.right)
+                                    / 2);
+            final int sampleY = geometry.workArea.centerY();
+            final int initialBackgroundColor = awaitDisplayColor(
+                    captureSource,
+                    sampleX,
+                    sampleY,
+                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
+
+            focusTaskThroughDesktop(displayId, first.taskId);
+            waitForFrontTask(displayId, first.taskId);
+            waitForTaskInputFocus(displayId, first.taskId);
+            waitForFreeformState(
+                    displayId, fixture, keepsFreeformAboveFullscreen);
+            inspectFullscreenModes(
+                    displayId,
+                    first.taskId,
+                    second.taskId,
+                    "after selecting the older fullscreen task");
+            final int firstBackgroundColor = awaitDisplayColor(
+                    captureSource,
+                    sampleX,
+                    sampleY,
+                    DesktopSelfTestFixtureAppearance.PRIMARY.color());
+
+            focusTaskThroughDesktop(displayId, second.taskId);
+            waitForFrontTask(displayId, second.taskId);
+            waitForTaskInputFocus(displayId, second.taskId);
+            waitForFreeformState(
+                    displayId, fixture, keepsFreeformAboveFullscreen);
+            inspectFullscreenModes(
+                    displayId,
+                    second.taskId,
+                    first.taskId,
+                    "after selecting the newer fullscreen task");
+            final int secondBackgroundColor = awaitDisplayColor(
+                    captureSource,
+                    sampleX,
+                    sampleY,
+                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
+
+            // The simulated-display removal suite requires every remaining
+            // fixture to be fullscreen. This is a normal user transition and
+            // also leaves the other targets in one cleanup-friendly state.
+            focusTaskThroughDesktop(displayId, fixture.taskId);
+            waitForFrontTask(displayId, fixture.taskId);
+            waitForTaskInputFocus(displayId, fixture.taskId);
+            enterFullscreenThroughShortcut(displayId, fixture.taskId);
+            result.add(
+                    DesktopSelfTestResult.State.PASS,
+                    code,
+                    "Keep the selected fullscreen background behind freeform",
+                    freeformFocus
+                            + ", backgrounds="
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    initialBackgroundColor)
+                            + "/"
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    firstBackgroundColor)
+                            + "/"
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    secondBackgroundColor)
+                            + ", fullscreen=" + second.taskId
+                            + ", older=" + first.taskId
+                            + ", freeform-on-fullscreen="
+                            + (keepsFreeformAboveFullscreen
+                                    ? "visible" : "occluded"));
+        } catch (Exception error) {
+            result.add(
+                    DesktopSelfTestResult.State.FAIL,
+                    code,
+                    "Keep the selected fullscreen background behind freeform",
+                    usefulMessage(error));
+        }
+    }
+
+    private static MixedFreeformFixture launchMixedFreeformFixture(
+            final Context context,
+            final int displayId,
+            final Rect bounds,
+            final DesktopSelfTestFixtureAppearance appearance)
+            throws IOException {
+        final String token = "mixed-"
+                + Long.toHexString(System.nanoTime());
+        final Intent intent = TaskDisplayAreaLaunchCommand
+                .createSelfTestIntent(
+                        displayId,
+                        token,
+                        false,
+                        appearance);
+        final DesktopTaskLaunchProbe.Observation launch =
+                DesktopSelfTestTasks.launchWindowedAndObserve(
+                        displayId, bounds, FIXTURE_CLASS, intent);
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(launch.taskId);
+        DesktopSelfTestFixtureState.awaitFirstFrame(
+                context, token, displayId);
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == launch.taskId
+                        && task.visible
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, bounds));
+        return new MixedFreeformFixture(launch.taskId, token, bounds);
+    }
+
+    private static void waitForFreeformState(
+            final int displayId,
+            final MixedFreeformFixture fixture,
+            final boolean visible) throws IOException {
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == fixture.taskId
+                        && task.visible == visible
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, fixture.bounds));
+    }
+
+    private static int awaitDisplayColor(
+            final DisplayCaptureSource captureSource,
+            final int x,
+            final int y,
+            final int expectedColor) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        int actualColor = 0;
+        do {
+            final String output = ShellAccess.run(
+                    DesktopTransitionSurfaceProbe.createCaptureCommand(
+                            captureSource, x, y));
+            actualColor = DesktopTransitionSurfaceProbe.parseReference(
+                    captureSource, x, y, output).color;
+            if (colorsMatch(expectedColor, actualColor)) {
+                return actualColor;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("fullscreen background did not match: expected="
+                + DesktopTransitionSurfaceProbe.formatColor(expectedColor)
+                + ", actual="
+                + DesktopTransitionSurfaceProbe.formatColor(actualColor)
+                + ", sample=" + x + "," + y);
+    }
+
+    private static boolean colorsMatch(
+            final int expected,
+            final int actual) {
+        final int tolerance = 12;
+        return Math.abs(((expected >>> 16) & 0xFF)
+                        - ((actual >>> 16) & 0xFF)) <= tolerance
+                && Math.abs(((expected >>> 8) & 0xFF)
+                        - ((actual >>> 8) & 0xFF)) <= tolerance
+                && Math.abs((expected & 0xFF) - (actual & 0xFF))
+                        <= tolerance;
+    }
+
     private static void runFullscreenTaskAreaLifecycleTests(
             final Context context,
             final DesktopSelfTestResult result,
@@ -1795,6 +2015,64 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
+    private static String focusFieldThroughAltTabSelection(
+            final Context context,
+            final int displayId,
+            final int taskId,
+            final String token,
+            final String digit) throws IOException {
+        DesktopSelfTestFixtureState.clearText(context);
+        final int panelGeneration =
+                DesktopSelfTestHostObserver.altTabPanelGeneration();
+        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+            throw new IOException("desktop Alt+Tab is unavailable");
+        }
+        waitForAltTabPanel(panelGeneration);
+        int steps = 1;
+        while (DesktopSelfTestHostObserver.altTabSelectedTaskId() != taskId) {
+            if (steps >= 64) {
+                DesktopRuntimeBridge.cancelAltTab();
+                throw new IOException("Alt+Tab did not expose task " + taskId);
+            }
+            final int selectionGeneration =
+                    DesktopSelfTestHostObserver.altTabSelectionGeneration();
+            if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+                DesktopRuntimeBridge.cancelAltTab();
+                throw new IOException("desktop Alt+Tab is unavailable");
+            }
+            waitForAltTabSelection(selectionGeneration);
+            steps++;
+        }
+        if (!DesktopRuntimeBridge.finishAltTab()) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw new IOException("desktop Alt+Tab completion is unavailable");
+        }
+        try {
+            waitForFrontTask(displayId, taskId);
+            typeAndVerifyText(context, displayId, taskId, token, digit);
+            return "task=" + taskId + ", token=" + token
+                    + ", steps=" + steps;
+        } catch (IOException error) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw error;
+        }
+    }
+
+    private static void waitForAltTabSelection(
+            final int previousGeneration) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        do {
+            if (DesktopSelfTestHostObserver.altTabSelectionGeneration()
+                    > previousGeneration) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        DesktopRuntimeBridge.cancelAltTab();
+        throw new IOException("Alt+Tab selection did not advance");
+    }
+
     static void typeAndVerifyText(
             final Context context,
             final int displayId,
@@ -2084,6 +2362,21 @@ final class DesktopSelfTestInputSuite {
         return AppProcessCommand.run(
                 "io.github.mekhontsev.magicdesk.DesktopPointerCommand",
                 arguments);
+    }
+
+    private static final class MixedFreeformFixture {
+        final int taskId;
+        final String token;
+        final Rect bounds;
+
+        MixedFreeformFixture(
+                final int taskId,
+                final String token,
+                final Rect bounds) {
+            this.taskId = taskId;
+            this.token = token;
+            this.bounds = new Rect(bounds);
+        }
     }
 
     private static final class MaximizedTaskPair {

@@ -21,6 +21,8 @@ final class DesktopSelfTestHostObserver {
     private static boolean sLostReadyUi;
     private static int sTaskbarHiddenGeneration;
     private static int sAltTabPanelGeneration;
+    private static int sAltTabSelectionGeneration;
+    private static int sAltTabSelectedTaskId = -1;
     private static int sGeneration;
     private static final List<String> EVENTS = new ArrayList<>();
 
@@ -39,6 +41,8 @@ final class DesktopSelfTestHostObserver {
         sLostReadyUi = false;
         sTaskbarHiddenGeneration = 0;
         sAltTabPanelGeneration = 0;
+        sAltTabSelectionGeneration = 0;
+        sAltTabSelectedTaskId = -1;
         EVENTS.clear();
     }
 
@@ -70,9 +74,27 @@ final class DesktopSelfTestHostObserver {
         return sAltTabPanelGeneration;
     }
 
-    static synchronized void noteAltTabPanelShown() {
+    static synchronized void noteAltTabPanelShown(
+            final int selectedTaskId) {
         if (sActive) {
             sAltTabPanelGeneration++;
+            noteAltTabSelectionChanged(selectedTaskId);
+        }
+    }
+
+    static synchronized int altTabSelectionGeneration() {
+        return sAltTabSelectionGeneration;
+    }
+
+    static synchronized int altTabSelectedTaskId() {
+        return sAltTabSelectedTaskId;
+    }
+
+    static synchronized void noteAltTabSelectionChanged(
+            final int selectedTaskId) {
+        if (sActive) {
+            sAltTabSelectedTaskId = selectedTaskId;
+            sAltTabSelectionGeneration++;
         }
     }
 
@@ -142,6 +164,8 @@ final class DesktopSelfTestHostObserver {
         sLostReadyUi = false;
         sTaskbarHiddenGeneration = 0;
         sAltTabPanelGeneration = 0;
+        sAltTabSelectionGeneration = 0;
+        sAltTabSelectedTaskId = -1;
         EVENTS.clear();
     }
 

@@ -35,6 +35,8 @@ final class AltTabController {
                 mPendingOffset += offset;
             } else {
                 selectOffset(offset);
+                DesktopSelfTestHostObserver.noteAltTabSelectionChanged(
+                        selectedTaskId());
                 mActivity.populateTaskOverview(
                         mActivity.getTaskSnapshot());
             }
@@ -114,7 +116,8 @@ final class AltTabController {
                     } else if (!mActivity.showAltTabPanel()) {
                         reset();
                     } else {
-                        DesktopSelfTestHostObserver.noteAltTabPanelShown();
+                        DesktopSelfTestHostObserver.noteAltTabPanelShown(
+                                selectedTaskId());
                     }
                 }));
     }
@@ -194,5 +197,11 @@ final class AltTabController {
         final int current = mSelectedIndex < 0 ? 0 : mSelectedIndex;
         mSelectedIndex = Math.floorMod(
                 current + offset, mTasks.size());
+    }
+
+    private int selectedTaskId() {
+        return mSelectedIndex >= 0 && mSelectedIndex < mTasks.size()
+                ? mTasks.get(mSelectedIndex).taskId
+                : -1;
     }
 }

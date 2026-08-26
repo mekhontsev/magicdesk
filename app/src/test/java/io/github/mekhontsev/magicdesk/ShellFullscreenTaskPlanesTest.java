@@ -85,6 +85,24 @@ public final class ShellFullscreenTaskPlanesTest {
                         true));
     }
 
+    @Test
+    public void lowersPlanesWithoutReversingTheirMixedStackOrder() {
+        assertArrayEquals(
+                new int[]{11, 10},
+                ShellFullscreenTaskPlanes.planeBottomReorderOrder(
+                        new int[]{10, 11, 20},
+                        planeIds(10, 11)));
+    }
+
+    @Test
+    public void ignoresOrdinaryTasksWhenLoweringFullscreenPlanes() {
+        assertArrayEquals(
+                new int[]{12, 11, 10},
+                ShellFullscreenTaskPlanes.planeBottomReorderOrder(
+                        new int[]{10, 20, 11, 21, 12, 22},
+                        planeIds(10, 11, 12)));
+    }
+
     private static java.util.List<Integer> asList(final int[] values) {
         final java.util.List<Integer> result = new java.util.ArrayList<>();
         for (final int value : values) {

@@ -593,9 +593,11 @@ runtime integration and are not distributed through the same release path.
   focus, single-task restore and close, direct fullscreen session launches,
   system-Back removal, survivor visibility and parent continuity, structural
   task isolation, inactive-area ordering, and abrupt display removal.
-  `FULLSCREEN-PLANE-EXIT-001` through `004` additionally verify repeatable
-  release to the original freeform parent, while the surface probe checks that
-  the desktop remains rendered throughout the operation.
+  `FULLSCREEN-MIXED-001` additionally verifies the durable
+  fullscreen/freeform/fullscreen visual order through the production Alt+Tab
+  and task-focus routes. `FULLSCREEN-PLANE-EXIT-001` through `004` additionally
+  verify repeatable release to the original freeform parent, while the surface
+  probe checks that the desktop remains rendered throughout the operation.
 - Fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
@@ -910,10 +912,17 @@ through both the desktop task controller and mouse input. It also switches the
 pair twice as true-fullscreen tasks and verifies that neither task becomes
 freeform while the Alt+Tab panel is open or after focus changes. It restores and
 closes one task, then verifies that the fullscreen survivor still receives real
-injected text. Input assertions wait for the current InputDispatcher focus
-state rather than a fixed transition delay. InputDispatcher frames are
-normalized from the display's natural coordinates into its current rotation,
-so the same PHONE scenario runs in portrait and landscape. The test also
+injected text. A mixed-stack phase places a third freeform task between two
+fullscreen peers, selects it through Alt+Tab, and verifies from the rendered
+surface that the most recently selected fullscreen peer remains its background
+while the older peer stays underneath. It then selects both fullscreen peers
+through the production focus route and verifies their rendered colors. A
+default-parent desktop keeps the freeform window above that background; a
+session-parent desktop occludes it without changing its freeform mode. Input
+assertions wait for the current InputDispatcher focus state rather than a fixed
+transition delay. InputDispatcher frames are normalized from the display's
+natural coordinates into its current rotation, so the same PHONE scenario runs
+in portrait and landscape. The test also
 requests the native horizontal resize cursor and verifies WMShell's transition
 trace when that firmware trace is available.
 

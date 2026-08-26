@@ -2069,6 +2069,12 @@ final class DesktopSelfTestWindowSuite {
                 currentInputGeometry);
         DesktopSelfTestBackNavigationSuite.run(
                 context, result, displayId, geometry);
+        DesktopSelfTestInputSuite.runMixedFullscreenFreeformTest(
+                context,
+                result,
+                displayId,
+                captureSource,
+                currentInputGeometry);
     }
 
     private static FocusWindowPair recreateFocusWindowPair(
