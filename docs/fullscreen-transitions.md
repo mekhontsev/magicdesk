@@ -42,23 +42,51 @@ application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
 Fullscreen API session.
 
-On wired, wireless, and simulated desktops, an application initially enters
-immersive fullscreen in the ordinary display parent. A singleton remains
-there. When focus must switch at least two fullscreen tasks, the shell
-atomically places the complete stack under one temporary fullscreen parent.
-This is the hierarchy invariant established by MagicDesk 1.8: reordering the
-same tasks in Nubia's freeform-oriented area can demote a background task to
-freeform. Phone desktop instead keeps the host and every application in its
+The current baseline preserves MagicDesk 1.8's shared-parent protection on
+wired, wireless, and simulated desktops. Characterization of the fast 1.8
+taskbar path also found a stable two-plane state: Firefox remained in the
+ordinary display parent while another fullscreen task remained in the
+organizer area. Switching then required z-order only and did not disturb the
+browser's immersive session.
+
+The target `DEFAULT` topology generalizes that result to any number of
+fullscreen tasks by retaining a stable ordering plane for each fullscreen
+residency. Phone desktop instead keeps the host and every application in its
 single persistent session parent.
 
-Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The full
-stack is supplied only while preparing missing children; subsequent operations
-activate the selected child alone and do not change any task's mode, bounds, or
-parent. Phone desktop provides the same activation semantics by reordering only
-children of its session parent; it does not create a second organizer area.
+Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. Once a task
+has entered fullscreen, activation raises that task and its existing ordering
+plane in one atomic WCT and does not change any task's mode, bounds, parent, or
+hidden state. Phone desktop provides the same activation semantics by
+reordering only children of its session parent; it does not create a second
+organizer area. The focus WCT does not request BLAST draw synchronization and
+is not repeated through `TRANSIT_TO_FRONT`.
 The immutable external behavior and the phone ownership decision are recorded
 in
 [MagicDesk 1.8 fullscreen reference](fullscreen-1.8-reference.md).
+
+## Window transition ownership target
+
+Shell-side WCT submission and raw opening transition tokens have one owner.
+Ordinary focus, reorder, windowing, bounds, and parent changes use an atomic WCT
+without `startNewTransition`. A launch that must append its early freeform WCT
+to the system opening transition retains the token until that continuation is
+accepted. WMShell owns visual playback and completion; MagicDesk must not call
+`finishTransition` merely because task mode already changed.
+
+A synchronously hidden prepared task is revealed through a system-played
+transition rather than a plain WCT. This is a surface-producing boundary:
+WMShell must rebuild the task leash, native caption, and caption input window.
+Steady-state activation and geometry changes never use this route.
+
+Owned desktop display teardown passes one bounded quiescence gate. It waits for
+both MagicDesk's pending opening continuations and WindowManager transition
+performance sessions on that display, and requires a stable idle interval
+before removing the display. Compatibility reports flag sessions that refer to
+missing display IDs. The self-test checks this before mutation and after
+cleanup. An already orphaned system session cannot be repaired safely by
+another task transaction; restart `system_server` or reboot. Restarting
+SystemUI may help on some builds but is not reliable after display removal.
 
 ## Activate and demote
 

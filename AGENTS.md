@@ -24,14 +24,35 @@ desktop through its production cleanup path before installing another APK.
 ## Fullscreen Focus Work
 
 Before changing fullscreen, task focus, Alt+Tab, taskbar activation, or task
-display-area ownership, read `docs/fullscreen-1.8-reference.md`. Treat its
-singleton and shared-parent behavior as a compatibility contract, not as
-historical background. Taskbar, Alt+Tab, overview, and MCP focus must continue
-through the same `DesktopTaskController` gateway. Preserve the activate/demote
-contract in `docs/fullscreen-transitions.md`: activation and demotion only
-change z-order; they never hide, minimize, reparent, resize, or change the
-windowing mode of an application task. Run the focused unit tests and the
-simulated and phone desktop self-tests after changing this path.
+display-area ownership, read `docs/fullscreen-1.8-reference.md`. Taskbar,
+Alt+Tab, overview, and MCP focus must continue through the same
+`DesktopTaskController` gateway. Preserve the activate/demote contract in
+`docs/fullscreen-transitions.md`: activation and demotion only change z-order;
+they never hide, minimize, reparent, resize, or change an application's
+windowing mode.
+
+For `DEFAULT` ownership, a fullscreen task must retain a stable ordering plane
+for its entire fullscreen residency. Steady-state activation must not collapse
+peers into one parent, move a task between parents, use
+`startNewTransition`, or repeat the reorder as a synthetic focus transition.
+Those operations expose a visible WMShell handoff and browser-style apps can
+interpret it as an immersive exit. Do not use `applySyncTransaction` for
+steady-state focus: a stopped target can have `NO_SURFACE`, making BLAST wait
+for its draw timeout. `SESSION` ownership keeps all phone desktop tasks in its
+one existing parent and reorders children only.
+
+All shell WCT submission and opening transition tokens must have one explicit
+owner. Ordinary reorder, mode, bounds, and parent operations are atomic WCTs,
+not raw transitions. An opening launch retains its token until its early WCT is
+accepted; WMShell owns visual playback and completion. Never remove an owned
+desktop display while a MagicDesk transition continuation or a WindowManager
+performance session still references it.
+
+Before completing such a change, compare the transaction sequence directly
+with tag `v1.8.0`, run the focused unit tests and the simulated and phone
+desktop self-tests, and verify repeated fullscreen switching on a wired display
+with a browser-style application. Both self-tests must retain zero failures;
+never weaken their assertions to accommodate an implementation change.
 
 ## Releases
 

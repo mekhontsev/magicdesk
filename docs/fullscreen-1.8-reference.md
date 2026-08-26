@@ -1,71 +1,88 @@
 # MagicDesk 1.8 fullscreen reference
 
-This document pins the fullscreen behavior that later focus changes must
-preserve. The immutable reference is release tag `v1.8.0`, commit
+This document records both the implementation and the characterized behavior
+that later focus changes must preserve. The immutable source reference is
+release tag `v1.8.0`, commit
 `6415d128f0b27ca0774127fd890654d7f98c5895`.
 
-The primary source is
-`app/src/main/java/io/github/mekhontsev/magicdesk/ShellFullscreenTaskArea.java`
-at that commit. Inspect it directly with:
+Inspect the original implementation directly with:
 
 ```sh
 git show v1.8.0:app/src/main/java/io/github/mekhontsev/magicdesk/ShellFullscreenTaskArea.java
 ```
 
-## Established behavior
+## Literal 1.8 implementation
 
-1. One fullscreen application task remains in the display's ordinary task
-   area. `isFullscreenStack()` returns false for fewer than two tasks, and
-   `beginAppFullscreen()` changes mode and bounds without reparenting.
-2. A dedicated fullscreen task area is created only when a focus operation
-   must switch a stack of at least two fullscreen application tasks.
-3. Every member of that stack is set to fullscreen with empty bounds and is
-   reparented into the same fullscreen task area before focus changes.
-4. Reordering tasks inside that shared parent avoids Nubia resolving a
+1. One fullscreen task remains in the display's ordinary task area.
+2. A dedicated fullscreen task area is created when at least two fullscreen
+   tasks must be switched.
+3. The implementation can set those peers to fullscreen, clear their bounds,
+   and place them under that shared parent before changing focus.
+4. Reordering children of the organizer area avoids Nubia resolving a
    background fullscreen task as freeform.
-5. If the stack later has one survivor, that survivor remains in the shared
-   parent until restore or removal. The now-empty area may remain available for
-   observer reuse or cleanup. It exists because a multi-task stack existed
-   earlier; a fresh singleton still starts outside it.
+5. A survivor can remain in that area until restore or removal.
 
-## Current deliberate extension
+These facts explain the original protection against Nubia's mode-loss bug, but
+the literal shared-parent sequence is not by itself the UX contract.
 
-MagicDesk now sends taskbar, task overview, MCP, and Alt+Tab through the same
-`DesktopTaskController` focus gateway. The gateway supplies the complete
-fullscreen set only as hierarchy-preparation context. Once all tasks share the
-correct parent, each activation focuses only the selected task. A steady-state
-switch must not change any peer's windowing mode, bounds, or parent and must not
-dispatch an application-visible multi-window transition.
+## Characterized 1.8 behavior
 
-## Phone ownership decision
+The fast taskbar path was reproduced on real Nubia firmware. The first Alt+Tab
+could place two tasks in the shared organizer area and make Firefox leave its
+HTML Fullscreen session. After Firefox was made fullscreen again, it remained
+in the ordinary display parent while its peer remained in the organizer area.
+Taskbar switching then became immediate: WindowManager reported task/parent
+z-order movement without pause, stop, mode, bounds, or parent changes visible
+to either application.
+
+That stable two-plane state is the behavioral reference. Reconstructing only
+the literal shared-parent preparation can reproduce the Firefox regression
+that the working 1.8 state avoided.
+
+## Target generalization
+
+Under `DEFAULT` ownership, generalize the characterized state to any number of
+fullscreen tasks. Each fullscreen task needs a stable ordering plane from
+fullscreen entry until freeform restore or close. The implementation may let
+one task use the ordinary display parent, provided its ordering identity stays
+stable and activation can order it atomically with dedicated planes.
+
+Taskbar, task overview, MCP, and Alt+Tab enter the same
+`DesktopTaskController` focus gateway. Activation raises only the selected task
+and its existing plane in one atomic WCT. It must not change a peer's mode,
+bounds, parent, or hidden state and must not start a raw WMShell transition.
+
+The focus WCT must not use BLAST draw synchronization. A stopped target may
+have `NO_SURFACE` until activation, causing a sync timeout. It must also not be
+followed by a duplicate `TRANSIT_TO_FRONT`: a second application-visible
+handoff is unnecessary once hierarchy and input target are committed atomically.
+
+## Phone ownership
 
 The phone desktop uses `DesktopTaskAreaPolicy.SESSION`. Its persistent session
 area is required to isolate the desktop from Android HOME and the MagicDesk
 control panel. It is also the sole parent for the desktop host, freeform tasks,
 managed fullscreen tasks, and application-requested fullscreen tasks.
 
-Do not create another fullscreen sibling on the phone. The dedicated shared
-fullscreen area solves a Nubia mode-loss defect observed on wired, wireless,
-and simulated displays; that defect has not been observed on display 0. Phone
-focus and Back handling must use the existing session area instead of adding a
-second organizer hierarchy.
-
-This is an ownership decision, not a vendor check: `SESSION` means one session
-area, while `DEFAULT` may create the 1.8 shared fullscreen area. Do not infer
-phone behavior from the external-display reference, and do not weaken the
-external shared parent to simplify the phone path.
+Do not create independent fullscreen planes on the phone. This is an ownership
+decision, not a vendor check: `SESSION` means one session area, while
+`DEFAULT` uses stable fullscreen ordering planes. Phone focus and Back handling
+must use the existing session area instead of adding a second organizer
+hierarchy.
 
 ## Characterization coverage
 
-The desktop self-test enforces the contract around `WINDOW-015` and
+The desktop self-test checks the hierarchy around `WINDOW-015` and
 `WINDOW-020`:
 
-- preparing two or more fullscreen peers creates one shared parent;
-- external and simulated stacks put every fullscreen fixture in that parent;
-- phone sessions keep every fixture in their one session parent;
-- target switches retain task modes, parents, real input focus, and the
-  browser-style immersive surface.
+- external and simulated fullscreen peers retain stable ordering parents;
+- phone fullscreen peers remain in their one session parent;
+- target switches retain mode, parent, input focus, and browser-style
+  immersive state;
+- no stage exposes a desktop visibility gap.
 
-`SelfTestTaskStackInvariantAnalyzerTest` covers these decisions without an
-Android device. The simulated and phone self-tests cover the real WMShell and
-firmware transitions.
+`SelfTestTaskStackInvariantAnalyzerTest` checks the structural rules without an
+Android device. Simulated, phone, and wired self-tests exercise the real
+WindowManager and firmware paths. The implementation must keep the existing
+simulated and phone suites at zero failures while this target topology is
+introduced.
