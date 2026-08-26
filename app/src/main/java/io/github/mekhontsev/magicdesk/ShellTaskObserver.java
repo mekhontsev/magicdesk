@@ -498,13 +498,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             }
             final int[] focusTaskIds =
                     Arrays.copyOf(liveTaskIds, appliedTaskCount);
+            final int targetTaskId =
+                    focusTaskIds[focusTaskIds.length - 1];
             final ShellFullscreenTaskArea.FocusResult focusResult =
                     mFullscreenTaskArea.focusStack(
                             mService, displayId, focusTaskIds);
             if (focusResult
                     == ShellFullscreenTaskArea.FocusResult.NOT_HANDLED) {
-                final int targetTaskId =
-                        focusTaskIds[focusTaskIds.length - 1];
                 final Object targetTask = HiddenTaskApi.requireTask(
                         mService, displayId, targetTaskId);
                 final int[] fallbackTaskIds =
@@ -525,6 +525,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 == ShellFullscreenTaskArea.FocusResult
                                         .SESSION_FOREGROUND);
             }
+            // Organizer-area reorders do not reliably emit the framework
+            // focus callback on Nubia. Reuse the normal stale-input detector
+            // explicitly so task and InputDispatcher focus converge without
+            // a second task transition.
+            mFocusController.requestFocusReconciliation(targetTaskId);
             signalFocusStackResult(
                     sequence, true, appliedTaskCount, "");
         } catch (ReflectiveOperationException | RuntimeException error) {

@@ -279,15 +279,11 @@ public final class TaskWindowingCommand {
                 transactionClass,
                 transaction,
                 includeParents);
-        // Keep any hierarchy changes supplied by the caller and the focus
-        // reorder in one transition. A synchronous hierarchy transaction
-        // followed by TO_FRONT can overlap an existing WMShell transition.
-        ShellWindowTransitionExecutor.playSystemTransition(
-                displayId,
-                ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
-                transactionClass,
-                transaction,
-                "focus-tasks");
+        // Focus is a steady-state z-order change. Submitting the complete WCT
+        // atomically avoids creating a raw transition token that can outlive an
+        // external display when a queued focus request races desktop teardown.
+        ShellWindowTransitionExecutor.applyAtomic(
+                service, transactionClass, transaction);
     }
 
     private static void addFocusOperations(

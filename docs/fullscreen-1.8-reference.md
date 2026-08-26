@@ -73,12 +73,15 @@ hierarchy.
 ## Characterization coverage
 
 The desktop self-test checks the hierarchy around `WINDOW-015` and
-`WINDOW-020`:
+`WINDOW-020`, and checks plane release through `FULLSCREEN-PLANE-EXIT-001`
+through `004`:
 
 - external and simulated fullscreen peers retain stable ordering parents;
 - phone fullscreen peers remain in their one session parent;
 - target switches retain mode, parent, input focus, and browser-style
   immersive state;
+- a `DEFAULT` task returns from its plane to its original freeform parent and
+  can repeat the complete enter/restore cycle;
 - no stage exposes a desktop visibility gap.
 
 `SelfTestTaskStackInvariantAnalyzerTest` checks the structural rules without an

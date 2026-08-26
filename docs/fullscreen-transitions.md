@@ -42,17 +42,12 @@ application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
 Fullscreen API session.
 
-The current baseline preserves MagicDesk 1.8's shared-parent protection on
-wired, wireless, and simulated desktops. Characterization of the fast 1.8
-taskbar path also found a stable two-plane state: Firefox remained in the
-ordinary display parent while another fullscreen task remained in the
-organizer area. Switching then required z-order only and did not disturb the
-browser's immersive session.
-
-The target `DEFAULT` topology generalizes that result to any number of
-fullscreen tasks by retaining a stable ordering plane for each fullscreen
-residency. Phone desktop instead keeps the host and every application in its
-single persistent session parent.
+The `DEFAULT` topology generalizes MagicDesk 1.8's characterized two-plane
+state to any number of fullscreen tasks. Each task enters its own
+organizer-created ordering plane and retains that task/plane relationship for
+its complete fullscreen residency. The plane's organizer leash also retains a
+stable surface-order identity. Phone desktop instead keeps the host and every
+application in its single persistent session parent.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. Once a task
 has entered fullscreen, activation raises that task and its existing ordering
@@ -112,26 +107,26 @@ semantics and focus gateway.
 saved workspace as a user command; it does not define the behavior of clicking
 an active application icon.
 
-An orientation change can make Android report the saved freeform mode and bounds
-before WMShell has recreated the task decoration. Orientation task callbacks
-wake the shell observer immediately; when system bars become visible again,
-the same observer hides the task, establishes a real fullscreen-to-freeform
-mode boundary, and reveals the same Activity at its saved bounds through the
-normal WMShell transition. Detachment is required only for tasks owned by
-MagicDesk's multi-window fullscreen parent. The application process is not in
-the critical path. This restores the desktop surface and native caption without
-using the phone display, restarting the application, or exposing the firmware's
-partial freeform state.
+An orientation change can make Android report the saved freeform mode and
+bounds before WMShell has recreated the task decoration. Orientation task
+callbacks wake the shell observer immediately and route the task through the
+same ownership-specific restore operation.
 
-The same shell-owned visibility boundary is shared by running-task display
-moves and fullscreen repair through `ShellPreparedTaskTransition`. A task in
-the ordinary display parent applies freeform mode and final bounds in place. A
-task in a shared `DEFAULT` fullscreen parent is detached while applying its
-final freeform geometry. A phone task already belongs to the persistent session
-parent, so restore changes only its mode, bounds, and order. At phone-session
-teardown, `ShellDesktopTaskArea` returns its application tasks and host while
-the session's structural HOME child keeps that area non-empty until framework
-deletion.
+A task in a `DEFAULT` fullscreen plane exits through ActivityTaskManager's
+existing-task launch path with its final freeform mode, display, and bounds. A
+temporary HOME child keeps only that source plane structurally valid while the
+framework selects the ordinary destination area; after the application task
+has left, deleting the plane removes the temporary child with it. The backstop
+does not exist during normal fullscreen focus and never becomes a desktop
+layer. A phone task already belongs to the persistent session parent, so its
+restore changes only mode, bounds, and order. Both paths preserve the Activity
+instance and avoid a display-0 trampoline.
+
+`ShellPreparedTaskTransition` separately owns hidden preparation and reveal
+for running-task display moves and freeform decoration repair outside the
+per-plane exit path. At phone-session teardown, `ShellDesktopTaskArea` returns
+its application tasks and host while the session's structural HOME child keeps
+that area non-empty until framework deletion.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

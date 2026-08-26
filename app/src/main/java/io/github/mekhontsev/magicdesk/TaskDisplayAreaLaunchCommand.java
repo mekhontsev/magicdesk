@@ -792,6 +792,43 @@ public final class TaskDisplayAreaLaunchCommand {
                 "move-running-task");
     }
 
+    /**
+     * Lets ActivityTaskManager move a live task out of an organizer-owned
+     * fullscreen area while applying its freeform launch configuration.
+     */
+    static void restartExistingTaskAsFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
+        if (service == null || displayId < 0 || taskId < 0
+                || !hasExplicitBounds(bounds)) {
+            throw new IllegalArgumentException(
+                    "invalid existing task freeform restart");
+        }
+        HiddenTaskApi.requireTask(service, displayId, taskId);
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        options.setLaunchBounds(new Rect(bounds));
+        ActivityOptions.class.getMethod(
+                "setLaunchWindowingMode", Integer.TYPE)
+                .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
+        ActivityOptions.class.getMethod(
+                "setFlexibleLaunchSize", Boolean.TYPE)
+                .invoke(options, Boolean.TRUE);
+        final Object result = service.getClass().getMethod(
+                "startActivityFromRecents", Integer.TYPE, Bundle.class)
+                .invoke(
+                        service,
+                        Integer.valueOf(taskId),
+                        options.toBundle());
+        if (!(result instanceof Integer)
+                || ((Integer) result).intValue() < 0) {
+            throw new IllegalStateException(
+                    "existing task freeform restart failed: " + result);
+        }
+    }
+
     private static DesktopTransitionSurfaceProbe.Result moveRootTask(
             final Object service,
             final int taskId,

@@ -13,6 +13,12 @@ public final class DesktopTaskAreaPolicyTest {
                 .usesSessionFullscreenHierarchy());
         assertTrue(DesktopTaskAreaPolicy.SESSION
                 .usesSessionFullscreenHierarchy());
+        assertFalse(DesktopTaskAreaPolicy.DEFAULT.usesSessionParent());
+        assertTrue(DesktopTaskAreaPolicy.SESSION.usesSessionParent());
+        assertTrue(DesktopTaskAreaPolicy.DEFAULT
+                .usesIndependentFullscreenPlanes());
+        assertFalse(DesktopTaskAreaPolicy.SESSION
+                .usesIndependentFullscreenPlanes());
         assertEquals(2, DesktopTaskAreaPolicy.DEFAULT
                 .minimumFullscreenTasksForSharedArea());
         assertEquals(2, DesktopTaskAreaPolicy.SESSION

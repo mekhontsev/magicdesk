@@ -13,15 +13,19 @@ final class TaskDisplayAreaHandle {
 
     private final Object mOrganizer;
     private final Object mToken;
+    private final Object mLeash;
     private final int mFeatureId;
     private boolean mClosed;
+    private boolean mLeashReleased;
 
     private TaskDisplayAreaHandle(
             final Object organizer,
             final Object token,
+            final Object leash,
             final int featureId) {
         mOrganizer = organizer;
         mToken = token;
+        mLeash = leash;
         mFeatureId = featureId;
     }
 
@@ -29,6 +33,21 @@ final class TaskDisplayAreaHandle {
             final int displayId,
             final int parentFeatureId,
             final String name) throws ReflectiveOperationException {
+        return create(displayId, parentFeatureId, name, false);
+    }
+
+    static TaskDisplayAreaHandle createSurfaceOrdered(
+            final int displayId,
+            final int parentFeatureId,
+            final String name) throws ReflectiveOperationException {
+        return create(displayId, parentFeatureId, name, true);
+    }
+
+    private static TaskDisplayAreaHandle create(
+            final int displayId,
+            final int parentFeatureId,
+            final String name,
+            final boolean retainLeash) throws ReflectiveOperationException {
         final Class<?> organizerClass = Class.forName(
                 "android.window.DisplayAreaOrganizer");
         final Executor directExecutor = Runnable::run;
@@ -50,10 +69,16 @@ final class TaskDisplayAreaHandle {
         final Object token = HiddenTaskApi.getField(areaInfo, "token");
         final int featureId = HiddenTaskApi.getIntField(
                 areaInfo, "featureId");
-        releaseLeash(appeared);
+        final Object leash = appeared.getClass()
+                .getMethod("getLeash")
+                .invoke(appeared);
+        if (!retainLeash) {
+            releaseSurface(leash);
+        }
         Log.i(TAG, "created task display area feature=" + featureId
                 + " display=" + displayId + " name=" + name);
-        return new TaskDisplayAreaHandle(organizer, token, featureId);
+        return new TaskDisplayAreaHandle(
+                organizer, token, retainLeash ? leash : null, featureId);
     }
 
     Object token() {
@@ -62,6 +87,14 @@ final class TaskDisplayAreaHandle {
 
     int featureId() {
         return mFeatureId;
+    }
+
+    synchronized Object surfaceLeash() {
+        if (mLeash == null || mLeashReleased) {
+            throw new IllegalStateException(
+                    "task display area has no retained surface leash");
+        }
+        return mLeash;
     }
 
     /** Controls whether child activity requests may rotate this desktop area. */
@@ -205,6 +238,7 @@ final class TaskDisplayAreaHandle {
                     "deleteTaskDisplayArea", tokenClass)
                     .invoke(mOrganizer, mToken);
             mClosed = true;
+            releaseRetainedLeash();
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             directFailure = error;
@@ -217,6 +251,7 @@ final class TaskDisplayAreaHandle {
         try {
             recoverOrphanedArea();
             mClosed = true;
+            releaseRetainedLeash();
             Log.w(TAG, "recovered task display area feature=" + mFeatureId
                     + " after direct removal failed: "
                     + usefulMessage(directFailure));
@@ -279,11 +314,28 @@ final class TaskDisplayAreaHandle {
             final Object leash = appeared.getClass()
                     .getMethod("getLeash")
                     .invoke(appeared);
-            if (leash != null) {
-                leash.getClass().getMethod("release").invoke(leash);
-            }
+            releaseSurface(leash);
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             // No caller retains the organizer surface handle.
+        }
+    }
+
+    private synchronized void releaseRetainedLeash() {
+        if (mLeash == null || mLeashReleased) {
+            return;
+        }
+        releaseSurface(mLeash);
+        mLeashReleased = true;
+    }
+
+    private static void releaseSurface(final Object leash) {
+        if (leash == null) {
+            return;
+        }
+        try {
+            leash.getClass().getMethod("release").invoke(leash);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // Releasing a local SurfaceControl handle is best-effort.
         }
     }
 }

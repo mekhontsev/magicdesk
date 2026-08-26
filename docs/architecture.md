@@ -237,11 +237,11 @@ and the client-preserving refresh described in
 
 `DesktopTaskAreaPolicy` selects both the ordinary workspace owner and the
 fullscreen hierarchy. `DEFAULT` targets use the display's ordinary task
-container. A single fullscreen application remains there; once at least two
-fullscreen tasks must be switchable, the complete set moves under one
-temporary shared fullscreen parent. This is the MagicDesk 1.8 invariant:
-reordering those tasks as independent children of Nubia's freeform-oriented
-external area can resolve a background task as freeform.
+container for the host and freeform windows. Every fullscreen application is
+placed in its own organizer-created ordering plane under that workspace. The
+task retains the same plane for its complete fullscreen residency, so focus
+never reparents it or exposes Nubia's freeform-oriented external area to a
+fullscreen peer switch.
 
 `SESSION` targets already have one persistent organizer area containing the
 phone desktop host and its application tasks. Freeform, manually fullscreen,
@@ -252,11 +252,12 @@ is selected from workspace ownership; the fullscreen manager does not infer a
 display kind or vendor.
 
 Taskbar, task overview, MCP, and Alt+Tab submit the semantic target to the same
-`DesktopTaskController` focus gateway. The controller adds the complete live
-fullscreen set as preparation context. The shell reparents only missing
-children and then focuses the selected task alone. Once prepared, a switch
-does not change task mode, bounds, or parent. UI and automation controllers
-never construct their own fullscreen stack or transition sequence.
+`DesktopTaskController` focus gateway. The shell resolves the complete live
+fullscreen set, creates a plane for any fullscreen task not yet represented,
+and atomically orders the selected task and its existing plane.
+Steady-state switches do not change task mode, bounds, parent, or hidden state.
+UI and automation controllers never construct their own fullscreen stack or
+transition sequence.
 
 Task selection has two explicit z-order operations:
 
@@ -275,19 +276,19 @@ previous task without a repair transition. Neither operation changes task
 mode, bounds, parent, or hidden state. For mixed stacks the durable order is
 desktop host, managed fullscreen plane, then freeform windows.
 
-`ShellFullscreenTaskArea` owns both policies behind one focus and transition
-boundary. Its temporary area exists only for `DEFAULT`; it has no structural
-task, retains a surviving fullscreen task until restore or removal, and is
-removed through normal observer cleanup. `SESSION` reorders children only
-within the existing phone session area. No delayed mode repair or guessed
-timeout is involved.
+`ShellFullscreenTaskArea` is the stable facade over both topology strategies.
+`IndependentFullscreenTaskTopology` and `ShellFullscreenTaskPlanes` own
+`DEFAULT` plane creation, ordering, restore, and removal. `SESSION` reorders
+children only within the existing phone session area. No delayed mode repair
+or guessed focus timeout is involved.
 
 Application-driven restores are completed by the observer before their result
-crosses Binder. They use a hidden fullscreen-to-freeform mode boundary to
-rebuild native decoration without changing the Activity, display, or desktop
-session. Only a task owned by the `DEFAULT` shared fullscreen parent needs to
-be detached during that transition. A phone-session task and an ordinary
-singleton root remain in place.
+crosses Binder. A `DEFAULT` task leaves its independent plane through
+ActivityTaskManager's existing-task freeform launch path. A temporary HOME
+child keeps the source plane structurally valid while framework root selection
+moves the application task; the plane and child are deleted together only
+after the task reaches its original workspace parent. A phone-session task
+remains in place and changes only mode, bounds, and order.
 
 ## Modules
 
@@ -574,17 +575,20 @@ runtime integration and are not distributed through the same release path.
   protection and phone-touchpad preservation cannot be entered twice by the
   launcher and reuse path.
 - `ShellFullscreenTaskArea` owns both fullscreen policies behind one API. On a
-  `DEFAULT` target, a singleton remains in its ordinary parent and a stack of
-  at least two tasks is prepared once under an on-demand shared parent. On a
-  `SESSION` target, the same focus requests reorder tasks inside the existing
-  phone session parent. Application-requested fullscreen follows the selected
-  ownership policy without recreating its Activity.
+  `DEFAULT` target, each fullscreen task receives one stable, independently
+  ordered plane until it restores or closes. On a `SESSION` target, the same
+  focus requests reorder tasks inside the existing phone session parent.
+  Application-requested fullscreen follows the selected ownership policy
+  without recreating its Activity.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
   focus, single-task restore and close, direct fullscreen session launches,
   system-Back removal, survivor visibility and parent continuity, structural
   task isolation, inactive-area ordering, and abrupt display removal.
-- Shared fullscreen commands perform caption-source repair only when requested
+  `FULLSCREEN-PLANE-EXIT-001` through `004` additionally verify repeatable
+  release to the original freeform parent, while the surface probe checks that
+  the desktop remains rendered throughout the operation.
+- Fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
   the same platform policy. Shell input recovery calls the selected
   `PlatformPointerDriver`; the Nubia driver alone chooses its firmware-specific
@@ -908,11 +912,11 @@ trace when that firmware trace is available.
 The application-fullscreen phase keeps one application-owned immersive task
 and two MagicDesk-managed fullscreen peers alive together. It activates each
 peer through the common single-task focus gateway, returns to the immersive
-task, and verifies the singleton's initial parent, the prepared group's shared
-parent, stable parents during switching, all three task modes, real input
-focus, the application's immersive marker, and the rendered fullscreen
-surface. This catches a repeated hierarchy rebuild and an implementation that
-works only for a pair of tasks.
+task, and verifies distinct stable planes on `DEFAULT` ownership or one shared
+session parent on `SESSION`, all three task modes, real input focus, the
+application's immersive marker, and the rendered fullscreen surface. This
+catches a repeated hierarchy rebuild and an implementation that works only for
+a pair of tasks.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
@@ -947,8 +951,8 @@ cross-root host transition that would resume and raise the phone control panel.
 The fullscreen MagicDesk host is the bottom application task in the session
 area. Its freeform, manually fullscreen, and application-requested fullscreen
 tasks are siblings above it. Focus operations reorder only children of this
-one parent; display 0 does not create the separate shared fullscreen area used
-by `DEFAULT` targets. The persistent session area's inert HOME task keeps it
+one parent; display 0 does not create the independent fullscreen planes used by
+`DEFAULT` targets. The persistent session area's inert HOME task keeps it
 structurally valid while framework teardown returns application tasks and the
 host to Android's default area. Android 16 may still create its native desktop
 wallpaper in display 0's default area, but the session child remains above that
@@ -983,10 +987,10 @@ with the current test stage. A pure analyzer checks the desktop host, fixture
 display and windowing mode, HOME visibility, one-way task transitions, and
 windowed/fullscreen visibility continuity. It receives only the selected
 display ID and desktop-host task ID; it does not branch on a display kind,
-display number, task-area policy, or vendor. It infers the shared fullscreen
-feature ID from a prepared group and then requires every member to retain that
-parent. A session backstop distinguishes the phone's existing parent from a
-temporary `DEFAULT` parent without target-specific test logic. A fixture may
+display number, task-area policy, or vendor. A session backstop identifies the
+phone's existing parent; when it is absent, the analyzer requires every
+simultaneous fullscreen fixture to have a distinct feature ID and retain that
+parent throughout focus switches. A fixture may
 leave the selected display only in fullscreen mode during
 the explicit transfer scenario. A visible freeform fixture with a
 hidden desktop host is an error on every target; this also detects a native
@@ -1546,10 +1550,11 @@ and display stay unchanged.
 
 `ShellPreparedTaskTransition` is the single owner of the hidden preparation,
 final reveal, and rollback transactions used by freeform rebuilds and task
-moves. It detaches a task only when the temporary shared fullscreen parent owns
-that task, returning it to the target's ordinary workspace parent. Higher-level
+moves. Independent fullscreen-plane exit instead uses the topology-owned
+ActivityTaskManager path described above, because framework root selection
+must remove the live task before its organizer plane is deleted. Higher-level
 controllers retain lifecycle policy; interactive drag, resize, and focus never
-pass through this prepared-state mechanism.
+pass through the prepared-state mechanism.
 
 Above that executor, `DesktopWindowTransitionRequest` defines the semantic
 operation (`enter-fullscreen`, application fullscreen, freeform restore, or

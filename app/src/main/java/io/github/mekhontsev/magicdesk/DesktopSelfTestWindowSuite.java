@@ -166,6 +166,12 @@ final class DesktopSelfTestWindowSuite {
                 settledWindow.bounds);
         final DesktopSelfTestGeometry settledGeometry =
                 geometry.withObservedWindow(windowBounds);
+        runFullscreenPlaneExitPreflight(
+                result,
+                targetDisplayId,
+                targetFixtureTaskId,
+                windowBounds,
+                surfaceReference);
         final DesktopSelfTestInputSuite.CaptionReference captionReference =
                 DesktopSelfTestInputSuite.alignCaptionReference(
                         requestedCaptionReference,
@@ -1817,6 +1823,139 @@ final class DesktopSelfTestWindowSuite {
         static SurfaceReferenceResult unavailable(final String error) {
             return new SurfaceReferenceResult(null, error);
         }
+    }
+
+    private static void runFullscreenPlaneExitPreflight(
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int taskId,
+            final Rect restoreBounds,
+            final SurfaceReferenceResult surfaceReference)
+            throws AbortSelfTest {
+        final DesktopSelfTestTaskHierarchy.Snapshot initial = require(
+                result,
+                "FULLSCREEN-PLANE-EXIT-001",
+                "Capture initial task hierarchy",
+                () -> DesktopSelfTestTaskHierarchy.inspect(
+                        displayId, taskId));
+        final DesktopTransitionSurfaceProbe.Observation surfaceObservation =
+                beginSurfaceObservation(surfaceReference);
+        sampleDesktopSurface(
+                surfaceObservation, surfaceReference, "before");
+
+        final DesktopSelfTestTaskHierarchy.Snapshot firstFullscreen = require(
+                result,
+                "FULLSCREEN-PLANE-EXIT-002",
+                "Enter fullscreen through the desktop transition gateway",
+                () -> arrangeTaskAndWaitForHierarchy(
+                        displayId,
+                        taskId,
+                        DesktopTaskController.SHORTCUT_FULLSCREEN,
+                        WINDOWING_MODE_FULLSCREEN,
+                        null,
+                        null));
+        final DesktopSelfTestTaskHierarchy.Snapshot firstRestored = require(
+                result,
+                "FULLSCREEN-PLANE-EXIT-003",
+                "Leave fullscreen and restore the original task parent",
+                () -> arrangeTaskAndWaitForHierarchy(
+                        displayId,
+                        taskId,
+                        DesktopTaskController.SHORTCUT_RESTORE,
+                        WINDOWING_MODE_FREEFORM,
+                        restoreBounds,
+                        Integer.valueOf(initial.featureId)));
+        sampleDesktopSurface(
+                surfaceObservation, surfaceReference, "first-restored");
+
+        require(
+                result,
+                "FULLSCREEN-PLANE-EXIT-004",
+                "Repeat fullscreen parent creation and release",
+                () -> {
+                    final DesktopSelfTestTaskHierarchy.Snapshot fullscreen =
+                            arrangeTaskAndWaitForHierarchy(
+                                    displayId,
+                                    taskId,
+                                    DesktopTaskController.SHORTCUT_FULLSCREEN,
+                                    WINDOWING_MODE_FULLSCREEN,
+                                    null,
+                                    null);
+                    final DesktopSelfTestTaskHierarchy.Snapshot restored =
+                            arrangeTaskAndWaitForHierarchy(
+                                    displayId,
+                                    taskId,
+                                    DesktopTaskController.SHORTCUT_RESTORE,
+                                    WINDOWING_MODE_FREEFORM,
+                                    restoreBounds,
+                                    Integer.valueOf(initial.featureId));
+                    if (!DesktopRuntimeBridge.isDesktopWallpaperRendered(
+                            displayId)) {
+                        throw new IOException(
+                                "desktop wallpaper is not rendered after"
+                                        + " fullscreen plane release");
+                    }
+                    return "first=" + firstFullscreen.featureId
+                            + "->" + firstRestored.featureId
+                            + ", second=" + fullscreen.featureId
+                            + "->" + restored.featureId
+                            + ", initial=" + initial.featureId;
+                });
+        sampleDesktopSurface(
+                surfaceObservation, surfaceReference, "second-restored");
+        recordDesktopSurfaceObservation(
+                result,
+                "FULLSCREEN-PLANE-EXIT-SURFACE-001",
+                "Preserve the desktop surface across fullscreen plane release",
+                surfaceReference,
+                surfaceObservation);
+    }
+
+    private static DesktopSelfTestTaskHierarchy.Snapshot
+            arrangeTaskAndWaitForHierarchy(
+                    final int displayId,
+                    final int taskId,
+                    final int shortcut,
+                    final int expectedMode,
+                    final Rect expectedBounds,
+                    final Integer expectedFeatureId) throws IOException {
+        if (!MagicDeskRuntime.arrangeTask(taskId, shortcut)) {
+            throw new IOException("desktop task transition is unavailable");
+        }
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                entry -> entry.taskId == taskId
+                        && (expectedMode == WINDOWING_MODE_FULLSCREEN
+                                ? "fullscreen".equals(entry.windowingMode)
+                                : "freeform".equals(entry.windowingMode))
+                        && (expectedBounds == null
+                                || DesktopSelfTestGeometry.matches(
+                                        entry.bounds, expectedBounds)));
+        waitForFrontTask(displayId, taskId);
+
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        DesktopSelfTestTaskHierarchy.Snapshot observed = null;
+        do {
+            observed = DesktopSelfTestTaskHierarchy.inspect(
+                    displayId, taskId);
+            if (observed.displayId == displayId
+                    && observed.windowingMode == expectedMode
+                    && observed.visible
+                    && observed.focused
+                    && (expectedFeatureId == null
+                            || observed.featureId
+                                    == expectedFeatureId.intValue())) {
+                return observed;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task hierarchy did not settle: observed="
+                + observed
+                + ", expected-mode=" + expectedMode
+                + (expectedFeatureId == null
+                        ? "" : ", expected-feature=" + expectedFeatureId));
     }
 
     private static void runTwoWindowFocusTests(

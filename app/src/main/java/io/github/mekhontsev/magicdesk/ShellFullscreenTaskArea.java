@@ -10,10 +10,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         FULLSCREEN_FOREGROUND
     }
 
-    private final ShellFullscreenTaskTopology mTopology;
+    private final ShellFullscreenTaskTopology mSessionTopology;
+    private final ShellFullscreenTaskTopology mIndependentTopology;
+    private ShellFullscreenTaskTopology mTopology;
 
     ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
-        mTopology = new LegacyFullscreenTaskTopology(ownership);
+        mSessionTopology = new LegacyFullscreenTaskTopology(ownership);
+        mIndependentTopology =
+                new IndependentFullscreenTaskTopology(ownership);
+        mTopology = mSessionTopology;
     }
 
     synchronized FocusResult focusStack(
@@ -90,6 +95,17 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final DesktopTaskAreaPolicy taskAreaPolicy,
             final int parentFeatureId,
             final Object releaseParentToken) {
+        if (taskAreaPolicy == null) {
+            throw new IllegalArgumentException(
+                    "fullscreen task area policy is required");
+        }
+        final ShellFullscreenTaskTopology selected =
+                taskAreaPolicy.usesIndependentFullscreenPlanes()
+                        ? mIndependentTopology : mSessionTopology;
+        if (selected != mTopology) {
+            mTopology.close();
+            mTopology = selected;
+        }
         mTopology.configure(
                 displayId,
                 taskAreaPolicy,
@@ -128,6 +144,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     @Override
     public synchronized void close() {
-        mTopology.close();
+        mSessionTopology.close();
+        mIndependentTopology.close();
     }
 }

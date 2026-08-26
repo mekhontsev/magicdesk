@@ -10,6 +10,16 @@ enum DesktopTaskAreaPolicy {
         return this == SESSION;
     }
 
+    /** Whether tasks already live in one session-owned task display area. */
+    boolean usesSessionParent() {
+        return this == SESSION;
+    }
+
+    /** Whether each fullscreen task needs an independently reordered plane. */
+    boolean usesIndependentFullscreenPlanes() {
+        return this == DEFAULT;
+    }
+
     /** Number of fullscreen application tasks that require a shared parent. */
     int minimumFullscreenTasksForSharedArea() {
         return 2;

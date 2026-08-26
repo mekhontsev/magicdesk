@@ -55,6 +55,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
         if (!focused || taskId < 0) {
             return;
         }
+        requestFocusReconciliation(taskId);
+    }
+
+    void requestFocusReconciliation(final int taskId) {
+        if (taskId < 0) {
+            return;
+        }
         synchronized (mPendingLock) {
             if (!mAcceptingEvents) {
                 return;
