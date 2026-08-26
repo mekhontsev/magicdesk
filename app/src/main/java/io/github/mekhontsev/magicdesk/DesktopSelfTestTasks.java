@@ -37,27 +37,27 @@ final class DesktopSelfTestTasks {
                 + "; last=" + describe(lastObserved));
     }
 
-    static TaskWindowSnapshot waitForBackgroundFullscreenTask(
+    static DesktopSelfTestTaskHierarchy.Snapshot waitForStableFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
+            final int taskId,
+            final int expectedFeatureId) throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
-        TaskWindowSnapshot lastObserved = null;
+        DesktopSelfTestTaskHierarchy.Snapshot lastObserved = null;
         do {
-            lastObserved = MagicDeskRuntime.inspectTaskWindow(
+            lastObserved = DesktopSelfTestTaskHierarchy.inspect(
                     displayId, taskId);
-            // A translucent phone desktop can leave the covered task visible
-            // to WMS. Losing task focus is the cross-driver z-order contract.
             if (lastObserved != null
-                    && lastObserved.focusKnown
-                    && !lastObserved.focused
-                    && lastObserved.isFullscreen()) {
+                    && lastObserved.displayId == displayId
+                    && lastObserved.windowingMode == 1
+                    && lastObserved.featureId == expectedFeatureId) {
                 return lastObserved;
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + taskId
-                + " did not remain unfocused and fullscreen on display "
-                + displayId + "; last=" + describe(lastObserved));
+                + " did not remain fullscreen in feature "
+                + expectedFeatureId + " on display " + displayId
+                + "; last=" + lastObserved);
     }
 
     private static String describe(final TaskStackParser.Entry task) {
@@ -69,21 +69,6 @@ final class DesktopSelfTestTasks {
                 + "/mode=" + task.windowingMode
                 + "/" + (task.visible ? "visible" : "hidden")
                 + "/bounds=" + DesktopSelfTestGeometry.format(task.bounds);
-    }
-
-    private static String describe(final TaskWindowSnapshot task) {
-        if (task == null) {
-            return "absent";
-        }
-        return "task=" + task.taskId
-                + "/display=" + task.displayId
-                + "/mode=" + task.windowingMode
-                + "/" + (task.visibilityKnown
-                        ? (task.visible ? "visible" : "hidden")
-                        : "visibility-unknown")
-                + "/" + (task.focusKnown
-                        ? (task.focused ? "focused" : "unfocused")
-                        : "focus-unknown");
     }
 
     static TaskStackParser.Entry waitForFrontTask(
@@ -217,11 +202,20 @@ final class DesktopSelfTestTasks {
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
             if (task.displayId == displayId
                     && task.visible
-                    && !task.isHome()) {
+                    && !task.isHome()
+                    && !isStructuralBackstop(task)) {
                 return task;
             }
         }
         return null;
+    }
+
+    private static boolean isStructuralBackstop(
+            final TaskStackParser.Entry task) {
+        final String className = BuildConfig.APPLICATION_ID
+                + ".TaskAreaBackstopActivity";
+        return hasClass(task.componentName, className)
+                || hasClass(task.topActivityName, className);
     }
 
     static TaskStackParser.Entry findTask(

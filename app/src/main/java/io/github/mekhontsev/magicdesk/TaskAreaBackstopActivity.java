@@ -53,10 +53,11 @@ public final class TaskAreaBackstopActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Some WMS implementations briefly select the structural HOME child
-        // while a finishing client task is being removed. Give that temporary
-        // selection a valid input channel, but never let it consume pointer
-        // input or finish in response to Back.
+        // WindowManager may select the anchor between removal of the client
+        // task and the callback that parks the whole plane. Keep a valid
+        // focusable input channel during that boundary to avoid an input ANR;
+        // the window never accepts pointer input, and an idle plane itself is
+        // made non-focusable by ShellFullscreenTaskPlanes.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,

@@ -284,11 +284,14 @@ or guessed focus timeout is involved.
 
 Application-driven restores are completed by the observer before their result
 crosses Binder. A `DEFAULT` task leaves its independent plane through
-ActivityTaskManager's existing-task freeform launch path. A temporary HOME
-child keeps the source plane structurally valid while framework root selection
-moves the application task; the plane and child are deleted together only
-after the task reaches its original workspace parent. A phone-session task
-remains in place and changes only mode, bounds, and order.
+ActivityTaskManager's existing-task freeform launch path. Every plane contains
+one retained standard anchor task, which keeps the source hierarchy valid while
+framework root selection moves the application task. The now-idle plane is
+made non-focusable and reused by a later fullscreen task, avoiding repeated
+organizer creation and deletion. Session teardown deletes the owned areas and
+their anchors. If Android removes a display first and migrates an anchor to the
+phone, the plane owner removes that exact task by saved ID and component. A
+phone-session task remains in place and changes only mode, bounds, and order.
 
 ## Modules
 

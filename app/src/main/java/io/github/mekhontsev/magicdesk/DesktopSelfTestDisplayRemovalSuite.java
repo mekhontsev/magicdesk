@@ -7,8 +7,8 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskById;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 
-import android.content.ComponentName;
 import android.content.Intent;
+import android.graphics.Rect;
 import android.os.SystemClock;
 import android.view.Display;
 
@@ -137,24 +137,30 @@ final class DesktopSelfTestDisplayRemovalSuite {
                         false,
                         DesktopSelfTestFixtureAppearance.PRIMARY)
                 .setAction(Intent.ACTION_VIEW);
-        final ComponentName component = intent.getComponent();
-        try (DesktopTaskLaunchProbe probe =
-                     DesktopTaskLaunchProbe.open(-1, component)) {
-            FullscreenAppLauncher.launch(intent, displayId);
-            final DesktopTaskLaunchProbe.Observation observation =
-                    probe.awaitObservation();
-            if (observation.displayId != displayId) {
-                throw new IOException(
-                        "removal fixture launched on display "
-                                + observation.displayId);
-            }
-            waitForTask(
-                    displayId,
-                    DesktopSelfTestComponents.FIXTURE_CLASS,
-                    task -> task.taskId == observation.taskId
-                            && task.visible
-                            && "fullscreen".equals(task.windowingMode));
-        }
+        final Rect bounds = FloatingWindowController
+                .getDefaultWindowBounds(displayId);
+        final DesktopTaskLaunchProbe.Observation observation =
+                DesktopSelfTestTasks.launchWindowedAndObserve(
+                        displayId,
+                        bounds,
+                        DesktopSelfTestComponents.FIXTURE_CLASS,
+                        intent);
+        waitForTask(
+                displayId,
+                DesktopSelfTestComponents.FIXTURE_CLASS,
+                task -> task.taskId == observation.taskId
+                        && task.visible
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, bounds));
+        DesktopSelfTestInputSuite.enterFullscreenThroughShortcut(
+                displayId, observation.taskId);
+        waitForTask(
+                displayId,
+                DesktopSelfTestComponents.FIXTURE_CLASS,
+                task -> task.taskId == observation.taskId
+                        && task.visible
+                        && "fullscreen".equals(task.windowingMode));
     }
 
     private static void waitForDisplayRemoval(final int displayId)

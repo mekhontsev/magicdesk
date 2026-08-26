@@ -177,13 +177,15 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.desktop" />
 
-        <!-- Keeps organizer-owned task areas structurally non-empty. Separate
-             HOME instances can retain the session and fullscreen areas. -->
+        <!-- Keeps organizer-owned fullscreen slots structurally non-empty.
+             The standard task is retained while its slot is reused. -->
         <activity
             android:name=".TaskAreaBackstopActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"
             android:exported="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:process=":task_area_backstop"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.task_area_backstop"
             android:theme="@style/TaskAreaBackstopTheme" />

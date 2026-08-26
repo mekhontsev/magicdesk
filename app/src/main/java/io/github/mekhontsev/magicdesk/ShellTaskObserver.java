@@ -382,8 +382,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mStateMonitor.clearConfiguration();
-            // Release the temporary fullscreen parent before the workspace
-            // task area is torn down.
+            // Release reusable fullscreen slots before the workspace task
+            // area is torn down.
             mFullscreenTaskArea.configure(
                     Display.INVALID_DISPLAY,
                     DesktopTaskAreaPolicy.DEFAULT,
@@ -456,8 +456,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mStateMonitor.configure(
                 displayId,
                 displayBounds,
-                workAreaBounds,
-                mTaskAreaPolicy == DesktopTaskAreaPolicy.DEFAULT);
+                workAreaBounds);
         reportDesktopTaskOwnership();
     }
 

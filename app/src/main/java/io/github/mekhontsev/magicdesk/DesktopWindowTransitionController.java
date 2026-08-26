@@ -660,11 +660,11 @@ final class DesktopWindowTransitionController {
                 state.clearImmersiveRequested();
                 continue;
             }
-            if (focusHandoffPending || !task.active) {
-                // Background immersive activities commonly expose system
-                // bars while another task takes focus. That sample must not
-                // become a deferred exit request when the task is activated
-                // again; wait for its next foreground immersive sample.
+            if (focusHandoffPending) {
+                // Background immersive exits are filtered when the state
+                // monitor reports the actual focused input window. Do not use
+                // TaskInfo.active here: organizer children can remain falsely
+                // inactive even after input focus has returned to them.
                 state.clearImmersiveRequested();
                 continue;
             }

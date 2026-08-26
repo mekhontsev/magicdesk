@@ -106,8 +106,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
             mEventCount++;
         }
         validateFullscreenParentContinuity(reason, snapshot);
-        observeFullscreenParents(snapshot);
         validateFullscreenTaskArea(reason, snapshot);
+        observeFullscreenParents(snapshot);
         validateUniversal(reason, snapshot);
         validateVisibilityContinuity(reason, snapshot, event);
         if (!mStage.samples.isEmpty()
@@ -315,6 +315,18 @@ final class SelfTestTaskStackInvariantAnalyzer {
                         formatSample("stage-end", snapshot)
                                 + " fullscreen tasks share plane="
                                 + task.displayAreaFeatureId);
+                continue;
+            }
+            final int anchorCount = countBackstops(
+                    snapshot, task.displayAreaFeatureId);
+            if (anchorCount != 1) {
+                addAnomaly("fullscreen-slot-anchor:" + stage.name + ':'
+                                + task.displayAreaFeatureId,
+                        formatSample("stage-end", snapshot)
+                                + " fullscreen plane="
+                                + task.displayAreaFeatureId
+                                + " expected exactly one anchor, found="
+                                + anchorCount);
             }
         }
     }
@@ -402,33 +414,100 @@ final class SelfTestTaskStackInvariantAnalyzer {
             final String reason,
             final Snapshot snapshot) {
         final TaskState host = snapshot.find(mHostTaskId);
-        int backstopCount = 0;
-        int backstopFeatureId = DISPLAY_AREA_FEATURE_UNKNOWN;
+        final int hostFeatureId = host == null
+                ? DISPLAY_AREA_FEATURE_UNKNOWN
+                : host.displayAreaFeatureId;
+        int sessionBackstopCount = 0;
+        final Map<Integer, Integer> slotAnchorCounts =
+                new LinkedHashMap<>();
         for (final TaskState task : snapshot.tasks) {
-            if (task.backstop && task.displayId == mDisplayId) {
-                backstopCount++;
-                backstopFeatureId = task.displayAreaFeatureId;
+            if (!task.backstop || task.displayId != mDisplayId) {
+                continue;
+            }
+            if (hostFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN
+                    && task.displayAreaFeatureId == hostFeatureId) {
+                sessionBackstopCount++;
+                continue;
+            }
+            if (task.displayAreaFeatureId
+                    == DISPLAY_AREA_FEATURE_UNKNOWN) {
+                addAnomaly("fullscreen-slot-parent:" + mStage.name + ':'
+                                + task.taskId,
+                        formatSample(reason, snapshot)
+                                + " fullscreen slot anchor=" + task.taskId
+                                + " has no display-area feature id");
+                continue;
+            }
+            final Integer count = slotAnchorCounts.get(
+                    Integer.valueOf(task.displayAreaFeatureId));
+            slotAnchorCounts.put(
+                    Integer.valueOf(task.displayAreaFeatureId),
+                    Integer.valueOf(count == null ? 1 : count + 1));
+        }
+        if (sessionBackstopCount > 1) {
+            addAnomaly("fullscreen-backstop-count:" + mStage.name + ':'
+                            + sessionBackstopCount,
+                    formatSample(reason, snapshot)
+                            + " expected at most one session backstop,"
+                            + " found=" + sessionBackstopCount);
+        }
+        for (final Map.Entry<Integer, Integer> entry
+                : slotAnchorCounts.entrySet()) {
+            final int featureId = entry.getKey().intValue();
+            final int anchorCount = entry.getValue().intValue();
+            if (anchorCount != 1) {
+                addAnomaly("fullscreen-slot-anchor-count:" + mStage.name
+                                + ':' + featureId,
+                        formatSample(reason, snapshot)
+                                + " fullscreen slot=" + featureId
+                                + " expected exactly one anchor, found="
+                                + anchorCount);
+            }
+            int fullscreenFixtureCount = 0;
+            for (final TaskState child : snapshot.tasks) {
+                if (!child.fixture
+                        || child.displayId != mDisplayId
+                        || child.displayAreaFeatureId != featureId) {
+                    continue;
+                }
+                if (child.windowingMode != WINDOWING_MODE_FULLSCREEN) {
+                    addAnomaly("fullscreen-slot-windowing:" + mStage.name
+                                    + ':' + featureId + ':' + child.taskId,
+                            formatSample(reason, snapshot)
+                                    + " fullscreen slot=" + featureId
+                                    + " contains non-fullscreen fixture="
+                                    + child.taskId + " mode="
+                                    + child.windowingMode);
+                } else {
+                    fullscreenFixtureCount++;
+                }
+            }
+            if (fullscreenFixtureCount > 1) {
+                addAnomaly("fullscreen-slot-app-count:" + mStage.name + ':'
+                                + featureId,
+                        formatSample(reason, snapshot)
+                                + " fullscreen slot=" + featureId
+                                + " contains " + fullscreenFixtureCount
+                                + " fullscreen fixtures");
             }
         }
-        if (backstopCount > 1) {
-            addAnomaly("fullscreen-backstop-count:" + mStage.name + ':'
-                            + backstopCount,
-                    formatSample(reason, snapshot)
-                            + " expected at most one session backstop, found="
-                            + backstopCount);
-        } else if (backstopCount == 1
-                && (host == null
-                        || host.displayAreaFeatureId
-                                == DISPLAY_AREA_FEATURE_UNKNOWN
-                        || backstopFeatureId
-                                != host.displayAreaFeatureId)) {
-            addAnomaly("fullscreen-backstop-parent:" + mStage.name,
-                    formatSample(reason, snapshot)
-                            + " session backstop area=" + backstopFeatureId
-                            + " does not match desktop host area="
-                            + (host == null ? DISPLAY_AREA_FEATURE_UNKNOWN
-                                    : host.displayAreaFeatureId));
+    }
+
+    private int countBackstops(
+            final Snapshot snapshot,
+            final int featureId) {
+        if (featureId == DISPLAY_AREA_FEATURE_UNKNOWN) {
+            return 0;
         }
+        int count = 0;
+        for (final TaskState task : snapshot.tasks) {
+            if (task.backstop
+                    && task.displayId == mDisplayId
+                    && task.displayAreaFeatureId == featureId) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void validateFullscreenParentContinuity(

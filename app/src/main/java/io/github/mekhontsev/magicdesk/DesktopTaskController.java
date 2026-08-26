@@ -203,6 +203,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final boolean initialSample,
                             final boolean foreground) {
                         if (mRunning) {
+                            if (!requesting
+                                    && !initialSample
+                                    && foreground) {
+                                confirmTrackedFocus(taskId);
+                            }
                             mWindowTransitions.handleImmersiveRequest(
                                     taskId,
                                     requesting,
@@ -848,6 +853,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
     }
 
+    private void confirmTrackedFocus(final int taskId) {
+        if (mFocusingTaskId != taskId) {
+            return;
+        }
+        mActiveTaskId = taskId;
+        mFocusingTaskId = -1;
+    }
+
     private void sendFocusTasks(
             final int displayId,
             final List<Integer> taskIds,
@@ -1411,8 +1424,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (focusingTask == null) {
                 clearTrackedFocus(focusingTaskId);
             } else if (focusingTask.active) {
-                mActiveTaskId = focusingTaskId;
-                mFocusingTaskId = -1;
+                confirmTrackedFocus(focusingTaskId);
             }
         } else {
             final TaskRepository.TaskEntry activeTask =

@@ -429,7 +429,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                 // Once a switchable fullscreen hierarchy exists, entering its
                 // next member under a sibling root can demote an existing child
                 // on Nubia. Reparent and activate it in the same TO_FRONT WCT.
-                TaskWindowingCommand.focusTasks(
+                TaskWindowingCommand.addFocusTasks(
                         service,
                         displayId,
                         new int[]{taskId},
@@ -437,22 +437,23 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                         transaction);
             } else if (useSessionParent) {
                 // Application immersive remains in the phone session parent.
-                TaskWindowingCommand.focusTasksWithinCurrentParent(
+                TaskWindowingCommand.addFocusTasksWithinCurrentParent(
                         service,
                         displayId,
                         new int[]{taskId},
                         transactionClass,
                         transaction);
-            } else {
-                // A singleton retains the display's ordinary parent, matching
-                // the proven 1.8 hierarchy.
-                ShellWindowTransitionExecutor.playSystemTransition(
-                        displayId,
-                        ShellWindowTransitionExecutor.SystemTransition.CHANGE,
-                        transactionClass,
-                        transaction,
-                        "enter-application-fullscreen");
             }
+            // A mode change owns surfaces and native decorations. Keep parent
+            // selection policy-specific, but always let WMShell play the same
+            // complete transition instead of applying part of it as a raw
+            // focus transaction.
+            ShellWindowTransitionExecutor.playSystemTransition(
+                    displayId,
+                    ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                    transactionClass,
+                    transaction,
+                    "enter-application-fullscreen");
             if (joinPreparedArea) {
                 mTaskIds.add(Integer.valueOf(taskId));
             }

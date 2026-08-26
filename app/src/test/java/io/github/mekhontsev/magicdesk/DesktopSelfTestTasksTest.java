@@ -89,4 +89,25 @@ public final class DesktopSelfTestTasksTest {
         assertEquals(20, DesktopSelfTestTasks.findFrontTask(
                 stack, 8).taskId);
     }
+
+    @Test
+    public void ignoresStructuralFullscreenSlotAnchor() {
+        final String stack =
+                "RootTask id=12 displayId=8\n"
+                        + " configuration={mWindowingMode=fullscreen}\n"
+                        + " taskId=22: io.github.mekhontsev.magicdesk/"
+                        + ".TaskAreaBackstopActivity "
+                        + "topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".TaskAreaBackstopActivity} visible=true\n"
+                        + "RootTask id=10 displayId=8\n"
+                        + " configuration={mWindowingMode=fullscreen}\n"
+                        + " taskId=20: io.github.mekhontsev.magicdesk/"
+                        + ".DesktopActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/.DesktopActivity} "
+                        + "visible=true\n";
+
+        assertEquals(20, DesktopSelfTestTasks.findFrontTask(
+                stack, 8).taskId);
+    }
 }

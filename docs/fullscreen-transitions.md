@@ -113,14 +113,18 @@ callbacks wake the shell observer immediately and route the task through the
 same ownership-specific restore operation.
 
 A task in a `DEFAULT` fullscreen plane exits through ActivityTaskManager's
-existing-task launch path with its final freeform mode, display, and bounds. A
-temporary HOME child keeps only that source plane structurally valid while the
-framework selects the ordinary destination area; after the application task
-has left, deleting the plane removes the temporary child with it. The backstop
-does not exist during normal fullscreen focus and never becomes a desktop
-layer. A phone task already belongs to the persistent session parent, so its
-restore changes only mode, bounds, and order. Both paths preserve the Activity
-instance and avoid a display-0 trampoline.
+existing-task launch path with its final freeform mode, display, and bounds.
+Each plane has one retained standard anchor task that keeps the source
+hierarchy valid while the framework selects the ordinary destination area.
+After the application leaves, the plane becomes a non-focusable idle slot and
+is reused by a later fullscreen task. The anchor has a valid input channel for
+the brief task-removal boundary, accepts no pointer input, and cannot own focus
+while its plane is idle. Session teardown removes all owned planes and anchors;
+if display removal has already migrated an anchor to display 0, ownership is
+verified by both saved task ID and component before that task is removed. A
+phone task already belongs to the persistent session parent, so its restore
+changes only mode, bounds, and order. Both paths preserve the Activity instance
+and avoid a display-0 trampoline.
 
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the

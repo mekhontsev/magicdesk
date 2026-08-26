@@ -229,7 +229,22 @@ public final class TaskWindowingCommand {
             final int[] taskIds,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
-        focusTasks(
+        addFocusTasks(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction);
+        applyFocusTransaction(service, transactionClass, transaction);
+    }
+
+    static void addFocusTasks(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
+        addFocusOperations(
                 service,
                 displayId,
                 taskIds,
@@ -256,7 +271,22 @@ public final class TaskWindowingCommand {
             final int[] taskIds,
             final Class<?> transactionClass,
             final Object transaction) throws ReflectiveOperationException {
-        focusTasks(
+        addFocusTasksWithinCurrentParent(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction);
+        applyFocusTransaction(service, transactionClass, transaction);
+    }
+
+    static void addFocusTasksWithinCurrentParent(
+            final Object service,
+            final int displayId,
+            final int[] taskIds,
+            final Class<?> transactionClass,
+            final Object transaction) throws ReflectiveOperationException {
+        addFocusOperations(
                 service,
                 displayId,
                 taskIds,
@@ -265,20 +295,10 @@ public final class TaskWindowingCommand {
                 false);
     }
 
-    private static void focusTasks(
+    private static void applyFocusTransaction(
             final Object service,
-            final int displayId,
-            final int[] taskIds,
             final Class<?> transactionClass,
-            final Object transaction,
-            final boolean includeParents) throws ReflectiveOperationException {
-        addFocusOperations(
-                service,
-                displayId,
-                taskIds,
-                transactionClass,
-                transaction,
-                includeParents);
+            final Object transaction) throws ReflectiveOperationException {
         // Focus is a steady-state z-order change. Submitting the complete WCT
         // atomically avoids creating a raw transition token that can outlive an
         // external display when a queued focus request races desktop teardown.

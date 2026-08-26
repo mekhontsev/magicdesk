@@ -119,7 +119,6 @@ final class ShellTaskStateMonitor implements Closeable {
     private int mDisplayId = -1;
     private Rect mDisplayBounds = new Rect();
     private Rect mWorkAreaBounds = new Rect();
-    private boolean mTaskFocusAuthoritative;
 
     ShellTaskStateMonitor(
             final Context context,
@@ -151,8 +150,7 @@ final class ShellTaskStateMonitor implements Closeable {
     void configure(
             final int displayId,
             final Rect displayBounds,
-            final Rect workAreaBounds,
-            final boolean taskFocusAuthoritative) {
+            final Rect workAreaBounds) {
         if (displayId < 0
                 || displayBounds == null
                 || displayBounds.isEmpty()
@@ -167,14 +165,12 @@ final class ShellTaskStateMonitor implements Closeable {
             }
             if (mDisplayId == displayId
                     && mDisplayBounds.equals(displayBounds)
-                    && mWorkAreaBounds.equals(workAreaBounds)
-                    && mTaskFocusAuthoritative == taskFocusAuthoritative) {
+                    && mWorkAreaBounds.equals(workAreaBounds)) {
                 return;
             }
             mDisplayId = displayId;
             mDisplayBounds = new Rect(displayBounds);
             mWorkAreaBounds = new Rect(workAreaBounds);
-            mTaskFocusAuthoritative = taskFocusAuthoritative;
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
             mLastFreeformBounds.clear();
@@ -380,12 +376,10 @@ final class ShellTaskStateMonitor implements Closeable {
         }
 
         final List<ImmersiveEvent> events = new ArrayList<>();
-        final boolean taskFocusAuthoritative;
         synchronized (mLock) {
             if (displayId != mDisplayId || mClosed) {
                 return;
             }
-            taskFocusAuthoritative = mTaskFocusAuthoritative;
             for (final Map.Entry<Integer, Integer> entry
                     : visibleTypesByTask.entrySet()) {
                 final Integer previous = mLastVisibleTypes.put(
@@ -426,8 +420,11 @@ final class ShellTaskStateMonitor implements Closeable {
             boolean foreground = true;
             if (!event.requesting && !event.initialSample) {
                 foreground = event.taskFocused;
-                if (!taskFocusAuthoritative && !foreground
-                        && !inputStateRead) {
+                // TaskInfo.isFocused is false for a focused child of an
+                // organizer TaskDisplayArea on some firmware. Confirm every
+                // negative sample against InputDispatcher before treating an
+                // immersive exit as a background event.
+                if (!foreground && !inputStateRead) {
                     inputStateRead = true;
                     try {
                         inputState = InputStateDump.read();
@@ -439,7 +436,7 @@ final class ShellTaskStateMonitor implements Closeable {
                         Log.w(TAG, "immersive input focus interrupted", error);
                     }
                 }
-                if (!taskFocusAuthoritative && !foreground) {
+                if (!foreground) {
                     foreground = inputState != null
                             && TaskInputWindowParser.isTaskFocused(
                                     inputState, displayId, event.taskId);
@@ -447,7 +444,7 @@ final class ShellTaskStateMonitor implements Closeable {
                 Log.i(TAG, "immersive exit focus task=" + event.taskId
                         + " taskFocused=" + event.taskFocused
                         + " foreground=" + foreground
-                        + (taskFocusAuthoritative
+                        + (event.taskFocused
                                 ? " source=task" : " source=task+input"));
             }
             mListener.onImmersiveRequest(

@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Rect;
 import android.util.Log;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -14,18 +15,21 @@ import java.util.Set;
 /** Keeps non-phone fullscreen tasks on stable, independently reordered planes. */
 final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
-    private static final int ACTIVITY_TYPE_HOME = 2;
+    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private final Map<Integer, TaskDisplayAreaHandle> mPlanes =
             new LinkedHashMap<>();
-    private final Map<Integer, Integer> mExitBackstopTaskIds =
+    private final Map<TaskDisplayAreaHandle, Integer> mPlaneAnchorTaskIds =
             new LinkedHashMap<>();
+    private final List<TaskDisplayAreaHandle> mAvailablePlanes =
+            new ArrayList<>();
     private final List<Integer> mPlaneOrder = new ArrayList<>();
     private Object mService;
     private int mDisplayId = -1;
     private int mParentFeatureId;
     private Object mReleaseParentToken;
+    private int mNextPlaneSlotId;
 
     synchronized void configure(
             final int displayId,
@@ -36,6 +40,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             mDisplayId = -1;
             mParentFeatureId = 0;
             mReleaseParentToken = null;
+            mNextPlaneSlotId = 0;
             return;
         }
         if (mDisplayId != displayId
@@ -142,28 +147,20 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final TaskDisplayAreaHandle plane =
                     mPlanes.get(Integer.valueOf(taskId));
             final int planeFeatureId = plane.featureId();
-            final int backstopTaskId = ensureExitBackstop(
-                    service, displayId, taskId, plane);
-            // ActivityTaskManager owns the root-task selection and its normal
-            // transition. The temporary HOME child keeps the source area
-            // structurally valid while Nubia computes destination priorities.
-            TaskDisplayAreaLaunchCommand.restartExistingTaskAsFreeform(
-                    service, displayId, taskId, bounds);
+            // The slot's standard anchor remains in the source area while the
+            // application is reparented. Nubia's mirror implementation tears
+            // down the display when a live task area becomes empty.
+            ShellPreparedTaskTransition.detachAndShowFreeform(
+                    service,
+                    displayId,
+                    taskId,
+                    bounds,
+                    mReleaseParentToken);
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, bounds);
             waitForTaskOutsidePlane(
                     service, displayId, taskId, planeFeatureId);
-            mPlaneOrder.remove(Integer.valueOf(taskId));
-            mPlanes.remove(Integer.valueOf(taskId));
-            mExitBackstopTaskIds.remove(Integer.valueOf(taskId));
-            if (!plane.closeIfOnlyOwnedChildren(
-                    service,
-                    displayId,
-                    Collections.singleton(Integer.valueOf(backstopTaskId)))) {
-                throw new IllegalStateException(
-                        "could not release fullscreen plane feature="
-                                + planeFeatureId);
-            }
+            releasePlane(service, taskId);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not restore fullscreen plane task="
@@ -172,52 +169,115 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
     }
 
-    private int ensureExitBackstop(
+    private TaskDisplayAreaHandle acquirePlane(
+            final Object service,
+            final int displayId)
+            throws ReflectiveOperationException {
+        if (!mAvailablePlanes.isEmpty()) {
+            final TaskDisplayAreaHandle plane = mAvailablePlanes.remove(0);
+            requirePlaneAnchor(service, displayId, plane);
+            return plane;
+        }
+        final TaskDisplayAreaHandle plane =
+                TaskDisplayAreaHandle.createSurfaceOrdered(
+                        displayId,
+                        mParentFeatureId,
+                        "MagicDesk fullscreen slot " + mNextPlaneSlotId++);
+        int anchorTaskId = -1;
+        try {
+            anchorTaskId = TaskDisplayAreaLaunchCommand
+                    .launchFullscreenTask(
+                            service,
+                            displayId,
+                            TaskAreaBackstopActivity.createIntent(
+                                    "fullscreen-slot:" + displayId + ':'
+                                            + plane.featureId()),
+                            BuildConfig.APPLICATION_ID,
+                            Class.forName(
+                                    "android.window.WindowContainerToken"),
+                            plane.token(),
+                            ACTIVITY_TYPE_STANDARD);
+            final Object anchor = HiddenTaskApi.requireTask(
+                    service, displayId, anchorTaskId);
+            if (!isStandardBackstop(anchor)) {
+                throw new IllegalStateException(
+                        "fullscreen slot anchor is not a standard task");
+            }
+            waitForTaskInsidePlane(
+                    service,
+                    displayId,
+                    anchorTaskId,
+                    plane.featureId());
+            mPlaneAnchorTaskIds.put(
+                    plane, Integer.valueOf(anchorTaskId));
+            return plane;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            if (anchorTaskId >= 0) {
+                plane.closeIfOnlyOwnedChildren(
+                        service,
+                        displayId,
+                        Collections.singleton(Integer.valueOf(anchorTaskId)));
+                removeMigratedAnchorTasks(
+                        service,
+                        Collections.singletonMap(
+                                Integer.valueOf(anchorTaskId),
+                                Integer.valueOf(plane.featureId())));
+            } else {
+                plane.closeIfEmpty(service, displayId);
+            }
+            throw error;
+        }
+    }
+
+    private int requirePlaneAnchor(
+            final Object service,
+            final int displayId,
+            final TaskDisplayAreaHandle plane)
+            throws ReflectiveOperationException {
+        final Integer anchorTaskId = mPlaneAnchorTaskIds.get(plane);
+        final Object anchor = anchorTaskId == null
+                ? null
+                : HiddenTaskApi.findTask(
+                        service, displayId, anchorTaskId.intValue());
+        if (!isStandardBackstop(anchor)
+                || HiddenTaskApi.getIntField(
+                        anchor, "displayAreaFeatureId") != plane.featureId()) {
+            throw new IllegalStateException(
+                    "fullscreen slot lost its anchor feature="
+                            + plane.featureId());
+        }
+        return anchorTaskId.intValue();
+    }
+
+    private static boolean isStandardBackstop(final Object task)
+            throws ReflectiveOperationException {
+        return task != null
+                && TaskAreaBackstopActivity.isBackstopComponent(
+                        HiddenTaskApi.getTaskComponent(task))
+                && HiddenTaskApi.getWindowConfigurationValue(
+                        task, "getActivityType") == ACTIVITY_TYPE_STANDARD;
+    }
+
+    private static void waitForTaskInsidePlane(
             final Object service,
             final int displayId,
             final int taskId,
-            final TaskDisplayAreaHandle plane)
-            throws ReflectiveOperationException {
-        final Integer existing = mExitBackstopTaskIds.get(
-                Integer.valueOf(taskId));
-        if (existing != null) {
-            final Object task = HiddenTaskApi.findTask(
-                    service, displayId, existing.intValue());
-            if (task != null
-                    && TaskAreaBackstopActivity.isBackstopComponent(
-                            HiddenTaskApi.getTaskComponent(task))
-                    && HiddenTaskApi.getIntField(
-                            task, "displayAreaFeatureId")
-                            == plane.featureId()) {
-                return existing.intValue();
+            final int planeFeatureId) throws ReflectiveOperationException {
+        final long deadline = android.os.SystemClock.uptimeMillis() + 5_000L;
+        int observedFeatureId = Integer.MIN_VALUE;
+        do {
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            observedFeatureId = HiddenTaskApi.getIntField(
+                    task, "displayAreaFeatureId");
+            if (observedFeatureId == planeFeatureId) {
+                return;
             }
-            mExitBackstopTaskIds.remove(Integer.valueOf(taskId));
-        }
-        final int backstopTaskId = TaskDisplayAreaLaunchCommand
-                .launchFullscreenTask(
-                        service,
-                        displayId,
-                        TaskAreaBackstopActivity.createIntent(
-                                "plane-exit:" + displayId + ':'
-                                        + plane.featureId()),
-                        BuildConfig.APPLICATION_ID,
-                        Class.forName(
-                                "android.window.WindowContainerToken"),
-                        plane.token(),
-                        ACTIVITY_TYPE_HOME);
-        final Object backstop = HiddenTaskApi.requireTask(
-                service, displayId, backstopTaskId);
-        if (!TaskAreaBackstopActivity.isBackstopComponent(
-                        HiddenTaskApi.getTaskComponent(backstop))
-                || HiddenTaskApi.getIntField(
-                        backstop, "displayAreaFeatureId")
-                        != plane.featureId()) {
-            throw new IllegalStateException(
-                    "fullscreen plane exit backstop is misplaced");
-        }
-        mExitBackstopTaskIds.put(
-                Integer.valueOf(taskId), Integer.valueOf(backstopTaskId));
-        return backstopTaskId;
+            android.os.SystemClock.sleep(50L);
+        } while (android.os.SystemClock.uptimeMillis() < deadline);
+        throw new IllegalStateException(
+                "task did not enter fullscreen plane feature="
+                        + planeFeatureId + ", observed=" + observedFeatureId);
     }
 
     private static void waitForTaskOutsidePlane(
@@ -260,7 +320,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     service, displayId, taskId, survivorTaskId);
             removeTask(service, taskId);
             return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
+        } catch (IOException | ReflectiveOperationException
+                | RuntimeException error) {
             Log.w(TAG, "could not close fullscreen plane task="
                     + taskId, error);
             return false;
@@ -325,22 +386,20 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             throws ReflectiveOperationException {
         discardStalePlaneRecords(service, displayId);
 
-        final Map<Integer, TaskDisplayAreaHandle> createdPlanes =
+        final Map<Integer, TaskDisplayAreaHandle> acquiredPlanes =
                 new LinkedHashMap<>();
         for (final Integer taskId : fullscreenTaskIds) {
             if (mPlanes.containsKey(taskId)) {
                 continue;
             }
-            final TaskDisplayAreaHandle plane =
-                    TaskDisplayAreaHandle.createSurfaceOrdered(
-                            displayId,
-                            mParentFeatureId,
-                            "MagicDesk fullscreen plane " + taskId);
-            createdPlanes.put(taskId, plane);
+            acquiredPlanes.put(
+                    taskId,
+                    acquirePlane(
+                            service, displayId));
         }
         final Map<Integer, TaskDisplayAreaHandle> effectivePlanes =
                 new LinkedHashMap<>(mPlanes);
-        effectivePlanes.putAll(createdPlanes);
+        effectivePlanes.putAll(acquiredPlanes);
 
         final Class<?> tokenClass =
                 Class.forName("android.window.WindowContainerToken");
@@ -350,8 +409,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 transactionClass.getConstructor().newInstance();
         try {
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
-                    : createdPlanes.entrySet()) {
+                    : acquiredPlanes.entrySet()) {
                 final Object planeToken = entry.getValue().token();
+                transactionClass.getMethod(
+                        "setFocusable", tokenClass, Boolean.TYPE)
+                        .invoke(
+                                transaction,
+                                planeToken,
+                                Boolean.TRUE);
                 transactionClass.getMethod(
                         "setWindowingMode", tokenClass, Integer.TYPE)
                         .invoke(
@@ -411,6 +476,22 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     effectivePlanes,
                     mReleaseParentToken);
             if (forceEnteringFullscreen) {
+                final Object enteringTaskToken =
+                        HiddenTaskApi.requireTaskToken(
+                                service, displayId, enteringTaskId);
+                // Select the application after its plane is raised. Doing this
+                // earlier lets the plane's structural anchor retain focus when
+                // the transaction is finally applied by WMShell.
+                transactionClass.getMethod(
+                        "reorder",
+                        tokenClass,
+                        Boolean.TYPE,
+                        Boolean.TYPE)
+                        .invoke(
+                                transaction,
+                                enteringTaskToken,
+                                Boolean.TRUE,
+                                Boolean.TRUE);
                 ShellWindowTransitionExecutor.playSystemTransition(
                         displayId,
                         ShellWindowTransitionExecutor.SystemTransition.CHANGE,
@@ -422,7 +503,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                         service, transactionClass, transaction);
                 applySurfaceOrder(stableOrder, effectivePlanes);
             }
-            mPlanes.putAll(createdPlanes);
+            mPlanes.putAll(acquiredPlanes);
             mPlaneOrder.clear();
             for (final int taskId : stableOrder) {
                 if (effectivePlanes.containsKey(Integer.valueOf(taskId))) {
@@ -435,8 +516,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     + " target="
                     + requestedTaskIds[requestedTaskIds.length - 1]);
         } catch (ReflectiveOperationException | RuntimeException error) {
-            for (final TaskDisplayAreaHandle plane : createdPlanes.values()) {
-                plane.closeIfEmpty(service, displayId);
+            for (final TaskDisplayAreaHandle plane : acquiredPlanes.values()) {
+                if (!mAvailablePlanes.contains(plane)) {
+                    mAvailablePlanes.add(plane);
+                }
             }
             throw error;
         }
@@ -491,31 +574,24 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final int targetTaskId = taskIds[taskIds.length - 1];
         final boolean fullscreenForeground = planes.containsKey(
                 Integer.valueOf(targetTaskId));
-        int activePlaneTaskId = fullscreenForeground ? targetTaskId : -1;
-        if (!fullscreenForeground) {
-            for (final int taskId : taskIds) {
-                if (planes.containsKey(Integer.valueOf(taskId))) {
-                    activePlaneTaskId = taskId;
-                }
-            }
-        }
         for (final int taskId : taskIds) {
             final TaskDisplayAreaHandle plane =
                     planes.get(Integer.valueOf(taskId));
             if (plane != null) {
-                final boolean active = taskId == activePlaneTaskId;
-                // Plane visibility is represented only by z-order. Explicitly
-                // hiding or showing a covered plane produces an application-visible
-                // lifecycle handoff; browser video then leaves HTML fullscreen.
-                // Nubia still needs focusability to identify the input target
-                // when the tasks live in separate TaskDisplayAreas.
-                transactionClass.getMethod(
-                        "setFocusable", tokenClass, Boolean.TYPE)
-                        .invoke(
-                                transaction,
-                                plane.token(),
-                                Boolean.valueOf(
-                                        active && fullscreenForeground));
+                final boolean active = fullscreenForeground
+                        && taskId == targetTaskId;
+                if (fullscreenForeground && !active) {
+                    // Raising one fullscreen plane must not reorder the
+                    // covered planes. Moving every inactive sibling to the
+                    // bottom reverses their relative order on each cycle, so
+                    // restoring a freeform window exposes a different task.
+                    continue;
+                }
+                // Each plane remains focusable and owns exactly one fullscreen
+                // root. Reordering the plane is therefore sufficient to move
+                // both visual and input focus. Mutating focusability or
+                // reordering the child root itself creates lifecycle effects
+                // that applications can observe as a task switch.
                 transactionClass.getMethod(
                         "reorder", tokenClass, Boolean.TYPE)
                         .invoke(
@@ -523,20 +599,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 plane.token(),
                                 Boolean.valueOf(
                                         active && fullscreenForeground));
-                if (active && fullscreenForeground) {
-                    final Object taskToken = HiddenTaskApi.requireTaskToken(
-                            service, displayId, taskId);
-                    transactionClass.getMethod(
-                            "reorder",
-                            tokenClass,
-                            Boolean.TYPE,
-                            Boolean.TYPE)
-                            .invoke(
-                                    transaction,
-                                    taskToken,
-                                    Boolean.TRUE,
-                                    Boolean.TRUE);
-                }
                 continue;
             }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -567,14 +629,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
     }
 
-    private static void applySurfaceOrder(
+    private void applySurfaceOrder(
             final int[] taskIds,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
-        applySurfaceLayers(surfaceLayers(taskIds, planes.keySet(), false), planes);
+        applySurfaceLayers(
+                surfaceLayers(taskIds, planes.keySet(), false), planes);
     }
 
-    private static void applySurfaceOrderBelowWorkspace(
+    private void applySurfaceOrderBelowWorkspace(
             final List<Integer> taskIds,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
@@ -619,11 +682,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return layers;
     }
 
-    private static void applySurfaceLayers(
+    private void applySurfaceLayers(
             final Map<Integer, Integer> layers,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
-        if (layers.isEmpty()) {
+        if (layers.isEmpty() && mAvailablePlanes.isEmpty()) {
             return;
         }
         final Class<?> surfaceClass = Class.forName(
@@ -641,6 +704,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 plane.surfaceLeash(),
                                 entry.getValue());
             }
+            int idleLayer = -mPlaneAnchorTaskIds.size();
+            for (final TaskDisplayAreaHandle plane : mAvailablePlanes) {
+                transactionClass.getMethod(
+                        "setLayer", surfaceClass, Integer.TYPE)
+                        .invoke(
+                                transaction,
+                                plane.surfaceLeash(),
+                                Integer.valueOf(idleLayer++));
+            }
             transactionClass.getMethod("apply").invoke(transaction);
         } finally {
             transactionClass.getMethod("close").invoke(transaction);
@@ -651,12 +723,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final int displayId,
             final int closingTaskId,
-            final int survivorTaskId) throws ReflectiveOperationException {
+            final int survivorTaskId)
+            throws IOException, ReflectiveOperationException {
         final Class<?> tokenClass = Class.forName(
                 "android.window.WindowContainerToken");
         final Class<?> transactionClass = Class.forName(
                 "android.window.WindowContainerTransaction");
-        final Object transaction =
+        final Object focusTransaction =
                 transactionClass.getConstructor().newInstance();
         for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                 : mPlanes.entrySet()) {
@@ -664,28 +737,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     == survivorTaskId;
             final Object planeToken = entry.getValue().token();
             transactionClass.getMethod(
-                    "setFocusable", tokenClass, Boolean.TYPE)
-                    .invoke(
-                            transaction,
-                            planeToken,
-                            Boolean.valueOf(survivor));
-            transactionClass.getMethod(
                     "reorder", tokenClass, Boolean.TYPE)
                     .invoke(
-                            transaction,
+                            focusTransaction,
                             planeToken,
                             Boolean.valueOf(survivor));
-            if (survivor) {
-                final Object survivorToken = HiddenTaskApi.requireTaskToken(
-                        service, displayId, survivorTaskId);
-                transactionClass.getMethod(
-                        "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                        .invoke(
-                                transaction,
-                                survivorToken,
-                                Boolean.TRUE,
-                                Boolean.FALSE);
-            }
         }
         if (!mPlanes.containsKey(Integer.valueOf(survivorTaskId))) {
             final Object survivorToken = HiddenTaskApi.requireTaskToken(
@@ -693,20 +749,50 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             transactionClass.getMethod(
                     "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                     .invoke(
-                            transaction,
+                            focusTransaction,
                             survivorToken,
                             Boolean.TRUE,
                             Boolean.TRUE);
         }
-        final Object closingToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, closingTaskId);
-        transactionClass.getMethod("removeTask", tokenClass)
-                .invoke(transaction, closingToken);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        ShellWindowTransitionExecutor.applyAtomic(
+                service, transactionClass, focusTransaction);
         mPlaneOrder.remove(Integer.valueOf(survivorTaskId));
         mPlaneOrder.add(Integer.valueOf(survivorTaskId));
         applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes);
+        waitForInputFocus(displayId, survivorTaskId);
+
+        final Object closeTransaction =
+                transactionClass.getConstructor().newInstance();
+        final Object closingToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, closingTaskId);
+        transactionClass.getMethod("removeTask", tokenClass)
+                .invoke(closeTransaction, closingToken);
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, closeTransaction);
+    }
+
+    private static void waitForInputFocus(
+            final int displayId, final int taskId) throws IOException {
+        final long deadline = android.os.SystemClock.uptimeMillis() + 2_000L;
+        String lastInput = "";
+        do {
+            try {
+                lastInput = InputStateDump.read();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException(
+                        "fullscreen close focus wait interrupted", error);
+            }
+            if (TaskInputWindowParser.isTaskFocused(
+                    lastInput, displayId, taskId)) {
+                return;
+            }
+            android.os.SystemClock.sleep(25L);
+        } while (android.os.SystemClock.uptimeMillis() < deadline);
+        throw new IOException("surviving fullscreen task did not receive "
+                + "input focus before close: task=" + taskId
+                + ", display=" + displayId + "; "
+                + TaskInputWindowParser.describeFocus(lastInput, displayId));
     }
 
     private void focusDesktopHost(
@@ -756,6 +842,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             if (!ownership.isDesktopHostTask(taskId)
+                    && !TaskAreaBackstopActivity.isBackstopComponent(
+                            HiddenTaskApi.getTaskComponent(task))
                     && ownership.isDesktopTask(task)
                     && HiddenTaskApi.getWindowConfigurationValue(
                             task, "getWindowingMode")
@@ -777,6 +865,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final int taskId = HiddenTaskApi.getIntField(task, "taskId");
             if (taskId != closingTaskId
                     && !ownership.isDesktopHostTask(taskId)
+                    && !TaskAreaBackstopActivity.isBackstopComponent(
+                            HiddenTaskApi.getTaskComponent(task))
                     && ownership.isDesktopTask(task)
                     && HiddenTaskApi.getWindowConfigurationValue(
                             task, "getWindowingMode")
@@ -810,18 +900,50 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     }
 
     private void removeTask(final Object service, final int taskId) {
+        releasePlane(service, taskId);
+    }
+
+    private void releasePlane(final Object service, final int taskId) {
         mPlaneOrder.remove(Integer.valueOf(taskId));
         final TaskDisplayAreaHandle plane =
                 mPlanes.remove(Integer.valueOf(taskId));
-        final Integer backstopTaskId = mExitBackstopTaskIds.remove(
-                Integer.valueOf(taskId));
-        if (plane != null && service != null && mDisplayId >= 0) {
-            plane.closeIfOnlyOwnedChildren(
-                    service,
-                    mDisplayId,
-                    backstopTaskId == null
-                            ? Collections.<Integer>emptySet()
-                            : Collections.singleton(backstopTaskId));
+        if (plane == null) {
+            return;
+        }
+        if (!mAvailablePlanes.contains(plane)) {
+            mAvailablePlanes.add(plane);
+        }
+        if (service == null || mDisplayId < 0) {
+            return;
+        }
+        try {
+            requirePlaneAnchor(service, mDisplayId, plane);
+            final Class<?> tokenClass = Class.forName(
+                    "android.window.WindowContainerToken");
+            final Class<?> transactionClass = Class.forName(
+                    "android.window.WindowContainerTransaction");
+            final Object transaction =
+                    transactionClass.getConstructor().newInstance();
+            transactionClass.getMethod(
+                    "setFocusable", tokenClass, Boolean.TYPE)
+                    .invoke(transaction, plane.token(), Boolean.FALSE);
+            transactionClass.getMethod(
+                    "reorder", tokenClass, Boolean.TYPE)
+                    .invoke(transaction, plane.token(), Boolean.FALSE);
+            // Wait until WindowManager has committed focusability and
+            // hierarchy order before restoring the retained surface layers.
+            // Otherwise its later surface transaction can overwrite the
+            // fullscreen peer order that we apply below.
+            ShellWindowTransitionExecutor.applySynchronized(
+                    service, transactionClass, transaction);
+            // The hierarchy reorder above can also disturb sibling surface
+            // layers. Reassert active and idle slot layers together so the
+            // most recently exposed fullscreen peer remains underneath the
+            // restored freeform task without an intermediate wrong frame.
+            applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not park fullscreen slot feature="
+                    + plane.featureId(), error);
         }
     }
 
@@ -829,6 +951,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     public synchronized void close() {
         final Object service = mService;
         final int displayId = mDisplayId;
+        final Map<Integer, Integer> anchorFeatureIds = new LinkedHashMap<>();
+        for (final Map.Entry<TaskDisplayAreaHandle, Integer> entry
+                : mPlaneAnchorTaskIds.entrySet()) {
+            anchorFeatureIds.put(
+                    entry.getValue(),
+                    Integer.valueOf(entry.getKey().featureId()));
+        }
         for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                 : new ArrayList<>(mPlanes.entrySet())) {
             final Integer taskId = entry.getKey();
@@ -844,19 +973,65 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     Log.w(TAG, "could not detach fullscreen plane task="
                             + taskId, error);
                 }
-                final Integer backstopTaskId = mExitBackstopTaskIds.get(
-                        taskId);
-                plane.closeIfOnlyOwnedChildren(
-                        service,
-                        displayId,
-                        backstopTaskId == null
-                                ? Collections.<Integer>emptySet()
-                                : Collections.singleton(backstopTaskId));
             }
         }
+        for (final Map.Entry<TaskDisplayAreaHandle, Integer> entry
+                : new ArrayList<>(mPlaneAnchorTaskIds.entrySet())) {
+            if (service != null && displayId >= 0) {
+                entry.getKey().closeIfOnlyOwnedChildren(
+                        service,
+                        displayId,
+                        Collections.singleton(entry.getValue()));
+            }
+        }
+        // Android migrates standard tasks to the default display when a
+        // display disappears. If that happens before observer cleanup, the
+        // organizer area is already gone but its structural anchor can
+        // survive as an ordinary phone task. Remove only anchors whose task
+        // ids and components still match this owner.
+        removeMigratedAnchorTasks(service, anchorFeatureIds);
         mPlanes.clear();
-        mExitBackstopTaskIds.clear();
+        mPlaneAnchorTaskIds.clear();
+        mAvailablePlanes.clear();
         mPlaneOrder.clear();
         mService = null;
+        mNextPlaneSlotId = 0;
+    }
+
+    private static void removeMigratedAnchorTasks(
+            final Object service,
+            final Map<Integer, Integer> anchorFeatureIds) {
+        if (service == null || anchorFeatureIds == null
+                || anchorFeatureIds.isEmpty()) {
+            return;
+        }
+        try {
+            for (final Object task : HiddenTaskApi.getAllTasks(service)) {
+                final Integer taskId = Integer.valueOf(
+                        HiddenTaskApi.getIntField(task, "taskId"));
+                final Integer expectedFeatureId = anchorFeatureIds.get(taskId);
+                if (expectedFeatureId == null
+                        || !TaskAreaBackstopActivity.isBackstopComponent(
+                                HiddenTaskApi.getTaskComponent(task))) {
+                    continue;
+                }
+                final int actualFeatureId = HiddenTaskApi.getIntField(
+                        task, "displayAreaFeatureId");
+                if (actualFeatureId == expectedFeatureId.intValue()) {
+                    // The owned area is still alive. Removing its structural
+                    // anchor separately would recreate the empty-area crash
+                    // this task exists to prevent.
+                    continue;
+                }
+                if (!TaskControlCommand.removeTask(
+                        service, taskId.intValue())) {
+                    Log.w(TAG, "could not remove migrated fullscreen slot "
+                            + "anchor task=" + taskId);
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not remove migrated fullscreen slot anchors="
+                    + anchorFeatureIds.keySet(), error);
+        }
     }
 }

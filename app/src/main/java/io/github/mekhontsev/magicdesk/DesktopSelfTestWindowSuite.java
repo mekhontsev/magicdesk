@@ -21,6 +21,8 @@ import android.view.Display;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.AbortSelfTest;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.CheckedSupplier;
@@ -1881,6 +1883,8 @@ final class DesktopSelfTestWindowSuite {
                                     WINDOWING_MODE_FULLSCREEN,
                                     null,
                                     null);
+                    DesktopSelfTestHostObserver.stage(
+                            "FULLSCREEN-PLANE-EXIT-004-RESTORE");
                     final DesktopSelfTestTaskHierarchy.Snapshot restored =
                             arrangeTaskAndWaitForHierarchy(
                                     displayId,
@@ -2044,8 +2048,161 @@ final class DesktopSelfTestWindowSuite {
                 secondToken,
                 rightBounds,
                 currentInputGeometry);
+        final FocusWindowPair freshPair = require(
+                result,
+                "WINDOW-021",
+                "Recreate ordinary freeform windows after native snap",
+                () -> recreateFocusWindowPair(
+                        context,
+                        displayId,
+                        firstTaskId,
+                        secondTaskId,
+                        currentInputGeometry));
+        DesktopSelfTestInputSuite.runMaximizedAndFullscreenTests(
+                context,
+                result,
+                displayId,
+                freshPair.firstTaskId,
+                freshPair.firstToken,
+                freshPair.secondTaskId,
+                freshPair.secondToken,
+                currentInputGeometry);
         DesktopSelfTestBackNavigationSuite.run(
                 context, result, displayId, geometry);
+    }
+
+    private static FocusWindowPair recreateFocusWindowPair(
+            final Context context,
+            final int displayId,
+            final int previousFirstTaskId,
+            final int previousSecondTaskId,
+            final DesktopSelfTestGeometry geometry) throws Exception {
+        // Native snap state belongs to WMShell. Close the old pair through the
+        // same desktop lifecycle as a user action before creating ordinary
+        // freeform tasks; the emergency cleanup route intentionally performs
+        // stronger phone-repository recovery and is not a normal close.
+        closeTaskThroughDesktop(displayId, previousSecondTaskId);
+        closeTaskThroughDesktop(displayId, previousFirstTaskId);
+        DesktopSelfTestFixtureState.clearLaunchMarkers(context);
+
+        final String firstToken = Long.toHexString(System.nanoTime());
+        final Rect firstBounds = geometry.captionControlsWindow(false);
+        final DesktopTaskLaunchProbe.Observation first =
+                preservePhoneTouchpad(() -> launchFixtureAndObserve(
+                        displayId,
+                        firstToken,
+                        firstBounds,
+                        DesktopSelfTestFixtureAppearance.PRIMARY));
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(first.taskId);
+        DesktopSelfTestFixtureState.awaitFirstFrame(
+                context, firstToken, displayId);
+
+        final String secondToken = Long.toHexString(System.nanoTime());
+        final Rect secondBounds = geometry.captionControlsWindow(true);
+        final DesktopTaskLaunchProbe.Observation second =
+                preservePhoneTouchpad(() -> launchFixtureAndObserve(
+                        displayId,
+                        secondToken,
+                        secondBounds,
+                        DesktopSelfTestFixtureAppearance.SECONDARY));
+        if (second.taskId == first.taskId) {
+            throw new IOException("Android reused fresh task " + first.taskId);
+        }
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(second.taskId);
+        DesktopSelfTestFixtureState.awaitFirstFrame(
+                context, secondToken, displayId);
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == first.taskId
+                        && task.visible
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, firstBounds));
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == second.taskId
+                        && task.visible
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, secondBounds));
+        return new FocusWindowPair(
+                first.taskId,
+                firstToken,
+                second.taskId,
+                secondToken);
+    }
+
+    private static void closeTaskThroughDesktop(
+            final int displayId,
+            final int taskId) throws IOException {
+        final TaskRepository.Snapshot snapshot =
+                TaskRepository.loadNow(displayId);
+        if (!snapshot.available) {
+            throw new IOException("desktop task snapshot unavailable: "
+                    + snapshot.error);
+        }
+        TaskRepository.TaskEntry target = null;
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (task.taskId == taskId) {
+                target = task;
+                break;
+            }
+        }
+        if (target == null) {
+            throw new IOException("desktop task " + taskId
+                    + " disappeared before close");
+        }
+
+        final CountDownLatch completion = new CountDownLatch(1);
+        final TaskRepository.ActionResult[] action =
+                new TaskRepository.ActionResult[1];
+        MagicDeskRuntime.closeTask(target, result -> {
+            action[0] = result;
+            completion.countDown();
+        });
+        try {
+            if (!completion.await(
+                    STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException(
+                        "desktop task close timed out: " + taskId);
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "desktop task close interrupted: " + taskId,
+                    error);
+        }
+        if (action[0] == null || !action[0].success) {
+            throw new IOException("desktop task close failed: " + taskId
+                    + (action[0] == null || action[0].message.isEmpty()
+                            ? "" : ": " + action[0].message));
+        }
+        waitForTaskAbsent(taskId);
+    }
+
+    private static final class FocusWindowPair {
+        final int firstTaskId;
+        final String firstToken;
+        final int secondTaskId;
+        final String secondToken;
+
+        FocusWindowPair(
+                final int firstTaskId,
+                final String firstToken,
+                final int secondTaskId,
+                final String secondToken) {
+            this.firstTaskId = firstTaskId;
+            this.firstToken = firstToken;
+            this.secondTaskId = secondTaskId;
+            this.secondToken = secondToken;
+        }
+
+        @Override
+        public String toString() {
+            return "first=" + firstTaskId + ", second=" + secondTaskId;
+        }
     }
 
     private static void waitForWindowFocus(
