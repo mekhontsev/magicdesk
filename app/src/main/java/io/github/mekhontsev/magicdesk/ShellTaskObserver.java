@@ -262,6 +262,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     }
 
                     @Override
+                    public void onTaskStackChanged() {
+                        // TaskStackListener can miss focus/Z-order callbacks
+                        // for organizer children on Nubia. The existing state
+                        // monitor reports only actual sampled changes.
+                        callCallback(mCallback::onTasksChanged);
+                    }
+
+                    @Override
                     public void onImmersiveRequest(
                             final int taskId,
                             final boolean requesting,

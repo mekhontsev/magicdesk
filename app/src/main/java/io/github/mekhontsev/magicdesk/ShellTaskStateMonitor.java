@@ -26,6 +26,7 @@ final class ShellTaskStateMonitor implements Closeable {
                 int displayId,
                 List<?> tasks,
                 List<TaskWindowState> windowStates);
+        void onTaskStackChanged();
         void onImmersiveRequest(
                 int taskId, boolean requesting, boolean initialSample,
                 boolean foreground);
@@ -90,6 +91,11 @@ final class ShellTaskStateMonitor implements Closeable {
         }
     }
 
+    // Nubia can change organizer-child focus/Z-order without a matching
+    // TaskStackListener callback. This shared TaskInfo sample lets the UI
+    // hide the taskbar when a fullscreen plane covers nominally visible
+    // freeform tasks within 150 ms. Stack reconciliation only compares the
+    // in-memory sample; it does not add another poll or shell command.
     private static final long POLL_INTERVAL_MILLIS = 150;
     private static final int MAX_TASKS_TO_SCAN = 16;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
@@ -110,9 +116,11 @@ final class ShellTaskStateMonitor implements Closeable {
     // after WindowManager removes the source during fullscreen entry.
     private final Map<Integer, Integer> mCaptionSourceIds = new HashMap<>();
     private final Set<Integer> mCaptionCaptureAttempted = new HashSet<>();
+    private List<Long> mLastTaskStackFingerprint = new ArrayList<>();
     private final Thread mThread;
 
     private boolean mClosed;
+    private boolean mTaskStackSampled;
     private long mSampleGeneration;
     private int mDisplayId = -1;
     private Rect mDisplayBounds = new Rect();
@@ -175,6 +183,8 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastWindowingModes.clear();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
+            mLastTaskStackFingerprint.clear();
+            mTaskStackSampled = false;
             mSampleGeneration++;
             mLock.notifyAll();
         }
@@ -194,6 +204,8 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastWindowingModes.clear();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
+            mLastTaskStackFingerprint.clear();
+            mTaskStackSampled = false;
             mSampleGeneration++;
             mLock.notifyAll();
         }
@@ -222,6 +234,8 @@ final class ShellTaskStateMonitor implements Closeable {
             mLastWindowingModes.clear();
             mCaptionSourceIds.clear();
             mCaptionCaptureAttempted.clear();
+            mLastTaskStackFingerprint.clear();
+            mTaskStackSampled = false;
             mLock.notifyAll();
         }
         mThread.interrupt();
@@ -258,6 +272,7 @@ final class ShellTaskStateMonitor implements Closeable {
                         readWindowStates(tasks);
                 mListener.onTasksSampled(
                         displayId, tasks, windowStates);
+                publishTaskStackChanges(displayId, windowStates);
                 publishWindowChanges(displayId, windowStates);
                 publishImmersiveChanges(displayId, windowStates);
                 failureReported = false;
@@ -341,6 +356,51 @@ final class ShellTaskStateMonitor implements Closeable {
                     bounds));
         }
         return states;
+    }
+
+    private void publishTaskStackChanges(
+            final int displayId,
+            final List<TaskWindowState> states) {
+        final List<Long> fingerprint = taskStackFingerprint(states);
+        final boolean changed;
+        synchronized (mLock) {
+            if (mClosed || displayId != mDisplayId) {
+                return;
+            }
+            changed = !mTaskStackSampled
+                    || !fingerprint.equals(mLastTaskStackFingerprint);
+            if (changed) {
+                mLastTaskStackFingerprint = fingerprint;
+                mTaskStackSampled = true;
+            }
+        }
+        if (changed) {
+            mListener.onTaskStackChanged();
+        }
+    }
+
+    static List<Long> taskStackFingerprint(
+            final List<TaskWindowState> states) {
+        final List<Long> fingerprint = new ArrayList<>();
+        if (states == null) {
+            return fingerprint;
+        }
+        for (final TaskWindowState state : states) {
+            if (state == null) {
+                continue;
+            }
+            long value = ((long) state.taskId) << 32;
+            value |= ((long) state.windowingMode & 0xffffL) << 16;
+            value |= ((long) state.activityType & 0x3fffL) << 2;
+            if (state.visible) {
+                value |= 1L << 1;
+            }
+            if (state.focused) {
+                value |= 1L;
+            }
+            fingerprint.add(Long.valueOf(value));
+        }
+        return fingerprint;
     }
 
     private void publishImmersiveChanges(

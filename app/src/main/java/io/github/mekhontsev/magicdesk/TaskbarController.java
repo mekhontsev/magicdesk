@@ -746,6 +746,9 @@ final class TaskbarController {
     }
 
     private void activate(final TaskbarOverflowController.Entry taskbarItem) {
+        if (taskbarItem.task != null) {
+            mActivity.captureInteractionStackForPanel();
+        }
         mActivity.hideAllPanels();
         if (taskbarItem.task == null) {
             mActivity.launchDefault(taskbarItem.app);

@@ -12,6 +12,8 @@ final class AltTabController {
     private boolean mCommitPending;
     private int mGeneration;
     private int mPendingOffset;
+    private int mRequestedTaskId = -1;
+    private boolean mTaskbarActivation;
     private int mSelectedIndex = -1;
     private int mStartingTaskId = -1;
     private List<TaskRepository.TaskEntry> mTasks =
@@ -43,10 +45,28 @@ final class AltTabController {
             return;
         }
 
+        beginSelection(offset, -1, false);
+    }
+
+    void activateTask(final int taskId) {
+        if (taskId < 0) {
+            return;
+        }
+        reset();
+        beginSelection(0, taskId, true);
+    }
+
+    private void beginSelection(
+            final int offset,
+            final int requestedTaskId,
+            final boolean taskbarActivation) {
+
         mActive = true;
         mLoadInProgress = true;
         mCommitPending = false;
         mPendingOffset = offset;
+        mRequestedTaskId = requestedTaskId;
+        mTaskbarActivation = taskbarActivation;
         mSelectedIndex = -1;
         mTasks = Collections.emptyList();
         // Preserve app focus at key-down. A concurrent desktop-host refresh
@@ -106,10 +126,24 @@ final class AltTabController {
                     if (activeIndex < 0) {
                         activeIndex = mPendingOffset < 0 ? 0 : -1;
                     }
-                    mSelectedIndex = Math.floorMod(
-                            activeIndex + mPendingOffset,
-                            tasks.size());
+                    if (mRequestedTaskId >= 0) {
+                        mSelectedIndex = findTaskIndex(
+                                tasks, mRequestedTaskId);
+                        if (mSelectedIndex < 0) {
+                            reset();
+                            mActivity.clearInteractionVisibleTasks();
+                            return;
+                        }
+                    } else {
+                        mSelectedIndex = Math.floorMod(
+                                activeIndex + mPendingOffset,
+                                tasks.size());
+                    }
                     mPendingOffset = 0;
+                    if (mTaskbarActivation) {
+                        mActivity.finishTaskbarActivation();
+                        return;
+                    }
                     mActivity.populateTaskOverview(snapshot);
                     if (mCommitPending) {
                         finish();
@@ -161,6 +195,8 @@ final class AltTabController {
         mLoadInProgress = false;
         mCommitPending = false;
         mPendingOffset = 0;
+        mRequestedTaskId = -1;
+        mTaskbarActivation = false;
         mSelectedIndex = -1;
         mStartingTaskId = -1;
         mTasks = Collections.emptyList();

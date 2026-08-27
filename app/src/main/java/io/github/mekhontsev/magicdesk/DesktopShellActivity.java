@@ -1422,6 +1422,10 @@ public abstract class DesktopShellActivity extends Activity
     void toggleTaskbarTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
+        if (task != null && !task.active) {
+            mAltTabController.activateTask(task.taskId);
+            return;
+        }
         mAppTasks.toggleTaskbarTask(app, task);
     }
 
@@ -1431,6 +1435,19 @@ public abstract class DesktopShellActivity extends Activity
 
     void finishAltTab() {
         mAltTabController.finish();
+    }
+
+    void finishTaskbarActivation() {
+        if (!PlatformDrivers.current().windowing()
+                .requiresTaskActivationSurfaceFence()) {
+            mAltTabController.finish();
+            return;
+        }
+        final OverlayPanelController overlays = overlayPanels();
+        if (overlays == null || !overlays.runAfterSurfaceTraversalFence(
+                mAltTabController::finish)) {
+            mAltTabController.finish();
+        }
     }
 
     void cancelAltTabFromRuntime() {

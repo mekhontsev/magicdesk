@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.app.AppOpsManager;
 import android.content.Context;
+import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -31,6 +32,7 @@ final class OverlayPanelController {
     private final Context mApplicationContext;
     private final AppOpsManager mAppOpsManager;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private final Context mWindowContext;
     private final WindowManager mWindowManager;
     private final Rect mBounds = new Rect();
     private final Rect mChildBounds = new Rect();
@@ -44,12 +46,14 @@ final class OverlayPanelController {
     private View mPersistentView;
     private WindowManager.LayoutParams mPersistentParams;
     private View mTransientView;
+    private View mSurfaceTraversalFence;
     private boolean mAdded;
     private boolean mChildAdded;
     private boolean mVisibleFocusable;
     private boolean mChildFocusable;
     private boolean mPersistentAdded;
     private boolean mTransientAdded;
+    private boolean mSurfaceTraversalFenceAdded;
     private boolean mOverlayPermissionGranted;
     private boolean mPermissionWatcherStarted;
     private boolean mReleased;
@@ -80,6 +84,7 @@ final class OverlayPanelController {
                     "OVERLAY-002",
                     "Cannot create desktop overlays",
                     "Display not found: " + displayId);
+            mWindowContext = null;
             mWindowManager = null;
             return;
         }
@@ -88,6 +93,7 @@ final class OverlayPanelController {
                 .createWindowContext(
                         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                         null);
+        mWindowContext = windowContext;
         mWindowManager = windowContext.getSystemService(WindowManager.class);
         if (mAppOpsManager != null) {
             mAppOpsManager.startWatchingMode(
@@ -427,6 +433,63 @@ final class OverlayPanelController {
         mTransientAdded = false;
     }
 
+    boolean runAfterSurfaceTraversalFence(final Runnable action) {
+        if (mReleased || mWindowContext == null || mWindowManager == null
+                || action == null
+                || !Settings.canDrawOverlays(mApplicationContext)) {
+            return false;
+        }
+        removeSurfaceTraversalFence();
+
+        final View fence = new View(mWindowContext);
+        fence.setBackgroundColor(Color.TRANSPARENT);
+        final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                1,
+                1,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                flags,
+                PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.setTitle("MagicDesk task activation fence");
+        try {
+            mWindowManager.addView(fence, params);
+            mSurfaceTraversalFence = fence;
+            mSurfaceTraversalFenceAdded = true;
+            fence.postOnAnimation(() -> {
+                if (mSurfaceTraversalFenceAdded
+                        && mSurfaceTraversalFence == fence) {
+                    action.run();
+                }
+            });
+            return true;
+        } catch (RuntimeException error) {
+            Log.w(TAG, "failed to add task activation surface fence", error);
+            mSurfaceTraversalFence = null;
+            mSurfaceTraversalFenceAdded = false;
+            return false;
+        }
+    }
+
+    private void removeSurfaceTraversalFence() {
+        final View fence = mSurfaceTraversalFence;
+        if (mSurfaceTraversalFenceAdded && fence != null
+                && mWindowManager != null) {
+            try {
+                mWindowManager.removeViewImmediate(fence);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "failed to remove task activation surface fence",
+                        error);
+            }
+        }
+        mSurfaceTraversalFence = null;
+        mSurfaceTraversalFenceAdded = false;
+    }
+
     void setPersistentVisible(final boolean visible) {
         if (mPersistentAdded && mPersistentView != null) {
             mPersistentView.setVisibility(visible ? View.VISIBLE : View.GONE);
@@ -484,6 +547,7 @@ final class OverlayPanelController {
     void hideAll() {
         hideChild(false);
         hideTransient();
+        removeSurfaceTraversalFence();
         clearTextInputConnection();
         final View panel = mVisiblePanel;
         if (mAdded && panel != null && mWindowManager != null) {

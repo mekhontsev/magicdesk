@@ -23,6 +23,11 @@ final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
+    public boolean requiresTaskActivationSurfaceFence() {
+        return false;
+    }
+
+    @Override
     public boolean requiresPhoneTaskRecovery() {
         return false;
     }
