@@ -2,16 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
-import android.app.PendingIntent;
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Display;
 
@@ -25,19 +21,12 @@ import java.util.Set;
 /** Launches or moves a live task into its requested desktop hierarchy. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
-    interface TransitionStartedCallback {
-        void onTransitionStarted(
-                ShellWindowTransitionExecutor.OpeningTransition transition)
-                throws ReflectiveOperationException;
-    }
-
     private static final String PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk";
     private static final String ACTIVITY_CLASS =
             "io.github.mekhontsev.magicdesk.DesktopSelfTestActivity";
     private static final String BROWSER_ACTIVITY_CLASS =
             "io.github.mekhontsev.magicdesk.DesktopSelfTestBrowserActivity";
-    private static final int TRANSIT_OPEN = 1;
     private static final int ACTIVITY_TYPE_UNDEFINED = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
@@ -216,8 +205,7 @@ public final class TaskDisplayAreaLaunchCommand {
                         bounds,
                         null,
                         null,
-                        true,
-                        null);
+                        true);
                 // Keep the desktop surface visible until the cold task has
                 // drawn its first freeform frame.
                 ShellPreparedTaskTransition.revealFreeform(
@@ -280,8 +268,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final Rect bounds,
             final Class<?> containerTokenClass,
             final Object areaToken,
-            final boolean launchBehind,
-            final TransitionStartedCallback transitionCallback)
+            final boolean launchBehind)
             throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
@@ -300,16 +287,10 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
-        if (areaToken == null && transitionCallback == null) {
-            launchActivity(service, intent, options);
-        } else {
-            // Supplying the launch as the transition's WCT lets the persistent
-            // task observer join mode, bounds, and an optional organizer-owned
-            // task area to the same authoritative opening transition.
-            final ShellWindowTransitionExecutor.OpeningTransition transition =
-                    launchPendingIntentTransition(displayId, intent, options);
-            transitionCallback.onTransitionStarted(transition);
-        }
+        // The target hierarchy is known before launch. Callers that stage the
+        // task behind the desktop apply its final mode, bounds and order in a
+        // separate complete WMShell transition after the task id is known.
+        launchActivity(service, intent, options);
         return waitForTask(
                 service,
                 displayId,
@@ -347,7 +328,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 expectedPackage,
                 containerTokenClass,
                 areaToken,
-                ACTIVITY_TYPE_UNDEFINED);
+                ACTIVITY_TYPE_UNDEFINED,
+                false);
     }
 
     static int launchFullscreenTask(
@@ -358,6 +340,45 @@ public final class TaskDisplayAreaLaunchCommand {
             final Class<?> containerTokenClass,
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
+        return launchFullscreenTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                containerTokenClass,
+                areaToken,
+                activityType,
+                false);
+    }
+
+    static int launchFullscreenTaskBehind(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Class<?> containerTokenClass,
+            final Object areaToken,
+            final int activityType) throws ReflectiveOperationException {
+        return launchFullscreenTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                containerTokenClass,
+                areaToken,
+                activityType,
+                true);
+    }
+
+    private static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Class<?> containerTokenClass,
+            final Object areaToken,
+            final int activityType,
+            final boolean launchBehind) throws ReflectiveOperationException {
         if (intent == null || intent.getComponent() == null
                 || (areaToken == null) != (containerTokenClass == null)) {
             throw new IllegalArgumentException(
@@ -377,6 +398,10 @@ public final class TaskDisplayAreaLaunchCommand {
             ActivityOptions.class.getMethod(
                     "setLaunchActivityType", Integer.TYPE)
                     .invoke(options, Integer.valueOf(activityType));
+        }
+        if (launchBehind) {
+            ActivityOptions.class.getMethod("setAvoidMoveToFront")
+                    .invoke(options);
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
@@ -416,63 +441,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 "setLaunchTaskId", Integer.TYPE)
                 .invoke(options, Integer.valueOf(taskId));
         launchActivity(service, intent, options);
-    }
-
-    private static ShellWindowTransitionExecutor.OpeningTransition
-            launchPendingIntentTransition(
-            final int displayId,
-            final Intent intent,
-            final ActivityOptions options) throws ReflectiveOperationException {
-        ActivityOptions.class.getMethod(
-                "setPendingIntentBackgroundActivityStartMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(3));
-        // Match WMShell's launch path and avoid its initial-bounds regression.
-        ActivityOptions.class.getMethod(
-                "setFlexibleLaunchSize", Boolean.TYPE)
-                .invoke(options, Boolean.TRUE);
-        final Context shellContext = createShellContext();
-        final PendingIntent pendingIntent = PendingIntent.getActivity(
-                shellContext,
-                0,
-                intent,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "sendPendingIntent",
-                PendingIntent.class,
-                Intent.class,
-                Bundle.class)
-                .invoke(transaction, pendingIntent, intent, options.toBundle());
-        return ShellWindowTransitionExecutor.beginOpening(
-                displayId,
-                TRANSIT_OPEN,
-                transactionClass,
-                transaction,
-                "launch-pending-intent");
-    }
-
-    private static Context createShellContext()
-            throws ReflectiveOperationException {
-        if (Looper.myLooper() == null) {
-            Looper.prepare();
-        }
-        final Class<?> activityThreadClass =
-                Class.forName("android.app.ActivityThread");
-        final Object activityThread = activityThreadClass
-                .getMethod("systemMain")
-                .invoke(null);
-        final Context systemContext = (Context) activityThreadClass
-                .getMethod("getSystemContext")
-                .invoke(activityThread);
-        try {
-            return systemContext.createPackageContext(
-                    "com.android.shell", Context.CONTEXT_IGNORE_SECURITY);
-        } catch (PackageManager.NameNotFoundException error) {
-            throw new IllegalStateException(
-                    "Android shell package is unavailable", error);
-        }
     }
 
     private static void launchActivity(

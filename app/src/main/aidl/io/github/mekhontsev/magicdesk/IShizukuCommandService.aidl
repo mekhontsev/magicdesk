@@ -362,9 +362,4 @@ interface IShizukuCommandService {
 
     long getPtyProcessId(long requestId) = 94;
 
-    boolean awaitWindowTransitionsIdle(
-        int displayId, long timeoutMillis) = 95;
-
-    int[] getWindowTransitionRuntimeState() = 96;
-
 }

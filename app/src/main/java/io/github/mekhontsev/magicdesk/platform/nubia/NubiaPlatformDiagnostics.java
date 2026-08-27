@@ -152,10 +152,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 result, capabilities,
                 "vendor.display_command", "present",
                 "API-NUBIA-001", "RedMagic display command signature");
-        DesktopSelfTestCapabilityAudit.optional(
-                result, capabilities,
-                "vendor.hdmi_modes.read", "granted",
-                "API-NUBIA-011", "Vendor HDMI output-mode list");
+        // Shell-restricted EDID access is reported by compatibility
+        // diagnostics; it is not required by the desktop window workflow.
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
                 "vendor.phone_screen", "present",

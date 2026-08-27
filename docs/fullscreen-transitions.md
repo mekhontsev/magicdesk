@@ -60,23 +60,24 @@ The immutable external behavior and the phone ownership decision are recorded
 in
 [MagicDesk 1.8 fullscreen reference](fullscreen-1.8-reference.md).
 
-## Window transition ownership target
+## Window transition ownership
 
-Shell-side WCT submission and raw opening transition tokens have one owner.
-Ordinary focus and reorder changes use an atomic WCT without
-`startNewTransition`. A live task entering an independent fullscreen plane is
-a surface-producing boundary: MagicDesk first prepares the plane order, then
-uses ActivityTaskManager's `moveTaskToFront` with fullscreen launch options and
-the target task display area. Android creates the recognized transition and
+Shell-side WCT submission has one owner. Ordinary focus and reorder changes
+use an atomic WCT without `startNewTransition`. A cold freeform launch starts
+behind the desktop host so its framework default state is never exposed. Once
+the task ID is known, one complete WMShell `OPEN` establishes mode, bounds, and
+front order. No raw opening token crosses that launch boundary. This avoids a
+race where the framework finishes its launch transition before MagicDesk tries
+to append another transaction.
+
+A live task entering an independent fullscreen plane is a surface-producing
+boundary: MagicDesk first prepares the plane order, then uses
+ActivityTaskManager's `moveTaskToFront` with fullscreen launch options and the
+target task display area. Android creates the recognized transition and
 WMShell receives the task leash; the Activity instance is preserved. This is
 required on Nubia firmware, where a direct WCT updates an organized task's
 logical fullscreen bounds but deliberately leaves its old freeform surface
 crop in place.
-
-A launch that must append its early freeform WCT to the system opening
-transition retains the token until that continuation is accepted. WMShell owns
-visual playback and completion; MagicDesk must not call `finishTransition`
-merely because task mode already changed.
 
 A synchronously hidden prepared task is revealed through a system-played
 transition rather than a plain WCT. This is a surface-producing boundary:
@@ -84,13 +85,15 @@ WMShell must rebuild the task leash, native caption, and caption input window.
 Steady-state activation and geometry changes never use this route.
 
 Owned desktop display teardown passes one bounded quiescence gate. It waits for
-both MagicDesk's pending opening continuations and WindowManager transition
-performance sessions on that display, and requires a stable idle interval
-before removing the display. Compatibility reports flag sessions that refer to
-missing display IDs. The self-test checks this before mutation and after
-cleanup. An already orphaned system session cannot be repaired safely by
-another task transaction; restart `system_server` or reboot. Restarting
-SystemUI may help on some builds but is not reliable after display removal.
+WindowManager transition performance sessions on that display and requires a
+stable idle interval before removing the display. Compatibility reports flag
+sessions that refer to missing display IDs. The self-test records pre-existing
+stale sessions as a warning and uses their counts as a baseline; cleanup fails
+if the test creates any additional stale session, including a duplicate with
+the same display and flags. An already orphaned system session cannot be
+repaired safely by another task transaction; restart `system_server` or reboot.
+Restarting SystemUI may help on some builds but is not reliable after display
+removal.
 
 ## Activate and demote
 
@@ -128,12 +131,14 @@ hierarchy valid while the framework selects the ordinary destination area.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
 the brief task-removal boundary, accepts no pointer input, and cannot own focus
-while its plane is idle. Session teardown removes all owned planes and anchors;
-if display removal has already migrated an anchor to display 0, ownership is
-verified by both saved task ID and component before that task is removed. A
-phone task already belongs to the persistent session parent, so its restore
-changes only mode, bounds, and order. Both paths preserve the Activity instance
-and avoid a display-0 trampoline.
+while its plane is idle. A newly created anchor launches behind the current
+foreground task, so its structural `OPEN` cannot race the application's
+fullscreen entry or steal focus. Session teardown removes all owned planes and
+anchors; if display removal has already migrated an anchor to display 0,
+ownership is verified by both saved task ID and component before that task is
+removed. A phone task already belongs to the persistent session parent, so its
+restore changes only mode, bounds, and order. Both paths preserve the Activity
+instance and avoid a display-0 trampoline.
 
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the

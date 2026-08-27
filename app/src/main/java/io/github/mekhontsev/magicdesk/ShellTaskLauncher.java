@@ -4,7 +4,6 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
-import android.util.Log;
 
 /** Launches a task with its requested mode known before the task appears. */
 final class ShellTaskLauncher {
@@ -21,7 +20,6 @@ final class ShellTaskLauncher {
                 ComponentName component, int windowingMode);
     }
 
-    private static final String TAG = "MagicDeskWindowLaunch";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
@@ -61,8 +59,7 @@ final class ShellTaskLauncher {
                 activityIdentity,
                 displayId,
                 bounds,
-                WINDOWING_MODE_FREEFORM,
-                taskAreaToken);
+                WINDOWING_MODE_FREEFORM);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another windowed task launch is in progress");
@@ -73,20 +70,25 @@ final class ShellTaskLauncher {
                     intent.getComponent(), WINDOWING_MODE_FREEFORM);
         }
         try {
-            // A managed session parent is joined by the opening WCT below.
-            // Supplying it in ActivityOptions makes display 0 expose a
-            // fullscreen starting task before the freeform override applies.
             final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
                     mService,
                     displayId,
                     intent,
                     intent.getComponent().getPackageName(),
                     bounds,
-                    null,
-                    null,
-                    false,
-                    pending::onTransitionStarted);
+                    taskAreaToken == null
+                            ? null
+                            : Class.forName(
+                                    "android.window.WindowContainerToken"),
+                    taskAreaToken,
+                    true);
             pending.complete(taskId);
+            // Phone WindowManager may ignore a freeform ActivityOptions mode.
+            // Keep the new task behind the desktop until its id is known, then
+            // expose its final mode, bounds and order in one complete WMShell
+            // transition. No transition token crosses the launch boundary.
+            ShellPreparedTaskTransition.revealFreeform(
+                    mService, displayId, taskId, bounds);
             // WindowManager may enlarge bounds for an application's minimum
             // size, but the launch contract still requires freeform mode.
             TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
@@ -96,7 +98,6 @@ final class ShellTaskLauncher {
                     WINDOWING_MODE_FREEFORM);
             return taskId;
         } finally {
-            pending.releaseTransition();
             if (mListener != null) {
                 mListener.onTaskLaunchFinished(
                         intent.getComponent(), WINDOWING_MODE_FREEFORM);
@@ -123,8 +124,7 @@ final class ShellTaskLauncher {
                 activityIdentity,
                 displayId,
                 new Rect(),
-                WINDOWING_MODE_FULLSCREEN,
-                null);
+                WINDOWING_MODE_FULLSCREEN);
         if (mPendingLaunch != null) {
             throw new IllegalStateException(
                     "another task launch is in progress");
@@ -173,50 +173,31 @@ final class ShellTaskLauncher {
         private final int mDisplayId;
         private final Rect mBounds;
         private final int mWindowingMode;
-        private final Object mTargetParentToken;
         private int mObservedTaskId = -1;
-        private ShellWindowTransitionExecutor.OpeningTransition mTransition;
-        private boolean mApplied;
-        private boolean mObservedByCallback;
         private boolean mIdentified;
 
         PendingLaunch(
                 final LaunchActivityIdentity activityIdentity,
                 final int displayId,
                 final Rect bounds,
-                final int windowingMode,
-                final Object targetParentToken) {
+                final int windowingMode) {
             mActivityIdentity = activityIdentity;
             mDisplayId = displayId;
             mBounds = new Rect(bounds);
             mWindowingMode = windowingMode;
-            mTargetParentToken = targetParentToken;
         }
 
         synchronized void onTaskCreated(
                 final int taskId,
                 final ComponentName componentName) {
             final boolean matches = mActivityIdentity.matches(componentName);
-            if (!mApplied
-                    && mObservedTaskId < 0
-                    && matches) {
+            if (mObservedTaskId < 0 && matches) {
                 mObservedTaskId = taskId;
-                mObservedByCallback = true;
                 identify(taskId);
             }
         }
 
-        synchronized void onTransitionStarted(
-                final ShellWindowTransitionExecutor.OpeningTransition transition)
-                throws ReflectiveOperationException {
-            mTransition = transition;
-            if (mObservedTaskId >= 0) {
-                apply(mObservedTaskId);
-            }
-        }
-
-        synchronized void complete(final int taskId)
-                throws ReflectiveOperationException {
+        synchronized void complete(final int taskId) {
             if (mObservedTaskId < 0) {
                 mObservedTaskId = taskId;
                 identify(taskId);
@@ -225,39 +206,6 @@ final class ShellTaskLauncher {
                         "created task does not match launched task: observed="
                                 + mObservedTaskId + ", launched=" + taskId);
             }
-            apply(taskId);
-        }
-
-        private void apply(final int taskId)
-                throws ReflectiveOperationException {
-            if (mApplied) {
-                return;
-            }
-            if (mWindowingMode == WINDOWING_MODE_FULLSCREEN) {
-                mApplied = true;
-                return;
-            }
-            if (mTransition == null) {
-                throw new IllegalStateException(
-                        "launch transition token is unavailable");
-            }
-            ShellPreparedTaskTransition.joinOpenAsFreeform(
-                    mService,
-                    mDisplayId,
-                    taskId,
-                    mBounds,
-                    mTransition,
-                    mTargetParentToken);
-            mApplied = true;
-            Log.i(TAG, "joined initial transition task=" + taskId
-                    + " early=" + mObservedByCallback);
-        }
-
-        synchronized void releaseTransition() {
-            final ShellWindowTransitionExecutor.OpeningTransition transition =
-                    mTransition;
-            mTransition = null;
-            ShellWindowTransitionExecutor.releaseOpening(transition);
         }
 
         private void identify(final int taskId) {

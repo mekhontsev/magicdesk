@@ -74,6 +74,43 @@ public final class AppWindowStateStoreTest {
     }
 
     @Test
+    public void desktopSessionFlushesCombinedWindowStateOnce() {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        final String stateKey = "example.application";
+        final RelativeWindowBounds bounds =
+                new RelativeWindowBounds(2000, 1500, 6000, 7000);
+        AppWindowStateStore.beginSession();
+
+        assertTrue(AppWindowStateStore.rememberWindowed(stateKey, bounds));
+        assertTrue(AppWindowStateStore.rememberMode(
+                stateKey, AppWindowState.Mode.FULLSCREEN));
+
+        assertEquals(0, storage.writeCount);
+        assertEquals(
+                new AppWindowState(AppWindowState.Mode.FULLSCREEN, bounds),
+                AppWindowStateStore.load(stateKey));
+        assertTrue(AppWindowStateStore.endSession());
+        assertEquals(1, storage.writeCount);
+
+        DesktopStateStore.useStorageForTests(storage);
+        assertEquals(
+                new AppWindowState(AppWindowState.Mode.FULLSCREEN, bounds),
+                AppWindowStateStore.load(stateKey));
+    }
+
+    @Test
+    public void emptyDesktopSessionDoesNotWriteState() {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        AppWindowStateStore.beginSession();
+
+        assertTrue(AppWindowStateStore.endSession());
+
+        assertEquals(0, storage.writeCount);
+    }
+
+    @Test
     public void fullscreenModeKeepsLastWindowBounds() {
         DesktopStateStore.useStorageForTests(
                 new DesktopStateStore.Storage() {
@@ -149,18 +186,23 @@ public final class AppWindowStateStoreTest {
     }
 
     private static DesktopStateStore.Storage memoryStorage() {
-        return new DesktopStateStore.Storage() {
-            private String encoded = "";
+        return new RecordingStorage();
+    }
 
-            @Override
-            public String read() {
-                return encoded;
-            }
+    private static final class RecordingStorage
+            implements DesktopStateStore.Storage {
+        private String encoded = "";
+        private int writeCount;
 
-            @Override
-            public void write(final String value) {
-                encoded = value;
-            }
-        };
+        @Override
+        public String read() {
+            return encoded;
+        }
+
+        @Override
+        public void write(final String value) {
+            encoded = value;
+            writeCount++;
+        }
     }
 }

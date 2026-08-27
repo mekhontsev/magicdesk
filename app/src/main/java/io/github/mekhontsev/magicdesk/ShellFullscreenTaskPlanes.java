@@ -186,7 +186,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         int anchorTaskId = -1;
         try {
             anchorTaskId = TaskDisplayAreaLaunchCommand
-                    .launchFullscreenTask(
+                    .launchFullscreenTaskBehind(
                             service,
                             displayId,
                             TaskAreaBackstopActivity.createIntent(

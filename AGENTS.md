@@ -41,12 +41,14 @@ steady-state focus: a stopped target can have `NO_SURFACE`, making BLAST wait
 for its draw timeout. `SESSION` ownership keeps all phone desktop tasks in its
 one existing parent and reorders children only.
 
-All shell WCT submission and opening transition tokens must have one explicit
-owner. Ordinary reorder, mode, bounds, and parent operations are atomic WCTs,
-not raw transitions. An opening launch retains its token until its early WCT is
-accepted; WMShell owns visual playback and completion. Never remove an owned
-desktop display while a MagicDesk transition continuation or a WindowManager
-performance session still references it.
+All shell WCT submission must have one explicit owner. Ordinary reorder, mode,
+bounds, and parent operations are atomic WCTs, not raw transitions. A cold
+freeform launch starts behind the desktop host and, after its task ID is known,
+uses one complete WMShell `OPEN` transition for mode, bounds, and order. Do not
+retain a raw opening token across the launch boundary. Structural fullscreen
+plane anchors also launch behind the foreground task and never participate in
+the user's focus transition. Never remove an owned desktop display while a
+WindowManager performance session still references it.
 
 Before completing such a change, compare the transaction sequence directly
 with tag `v1.8.0`, run the focused unit tests and the simulated and phone

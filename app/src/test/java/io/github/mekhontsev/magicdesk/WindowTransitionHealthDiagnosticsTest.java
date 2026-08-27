@@ -58,15 +58,52 @@ public final class WindowTransitionHealthDiagnosticsTest {
     }
 
     @Test
-    public void includesMagicDeskPendingOpeningState() {
-        final WindowTransitionHealthDiagnostics.Snapshot snapshot =
+    public void staleTransitionCountsDistinguishNewCleanupResidue() {
+        final WindowTransitionHealthDiagnostics.Snapshot before =
                 WindowTransitionHealthDiagnostics.parse(
                         "SystemPerformanceHinter:\n"
-                                + "  Active sessions (0):\n",
-                        new HashSet<>(Arrays.asList(0)))
-                        .withPendingOpenings(2, 450);
+                                + "  Active sessions (1):\n"
+                                + "    reason=Transition flags=3 display=7\n",
+                        new HashSet<>(Arrays.asList(0)));
+        final WindowTransitionHealthDiagnostics.Snapshot after =
+                WindowTransitionHealthDiagnostics.parse(
+                        "SystemPerformanceHinter:\n"
+                                + "  Active sessions (2):\n"
+                                + "    reason=Transition flags=3 display=7\n"
+                                + "    reason=Transition flags=3 display=9\n",
+                        new HashSet<>(Arrays.asList(0)));
 
-        assertEquals(2, snapshot.pendingOpeningCount);
-        assertEquals(450, snapshot.oldestPendingOpeningAgeMillis);
+        final java.util.Map<String, Integer> newCounts =
+                after.staleTransitionCountsAfter(
+                        before.staleTransitionCounts());
+
+        assertEquals(1, newCounts.size());
+        assertEquals("display=9 flags=3", after.staleDetail(newCounts));
+        assertEquals(1, newCounts.size());
     }
+
+    @Test
+    public void duplicateStaleTransitionAfterBaselineIsNewResidue() {
+        final WindowTransitionHealthDiagnostics.Snapshot before =
+                WindowTransitionHealthDiagnostics.parse(
+                        "SystemPerformanceHinter:\n"
+                                + "  Active sessions (1):\n"
+                                + "    reason=Transition flags=3 display=7\n",
+                        new HashSet<>(Arrays.asList(0)));
+        final WindowTransitionHealthDiagnostics.Snapshot after =
+                WindowTransitionHealthDiagnostics.parse(
+                        "SystemPerformanceHinter:\n"
+                                + "  Active sessions (2):\n"
+                                + "    reason=Transition flags=3 display=7\n"
+                                + "    reason=Transition flags=3 display=7\n",
+                        new HashSet<>(Arrays.asList(0)));
+
+        final java.util.Map<String, Integer> newCounts =
+                after.staleTransitionCountsAfter(
+                        before.staleTransitionCounts());
+
+        assertEquals(1, newCounts.size());
+        assertEquals("display=7 flags=3", after.staleDetail(newCounts));
+    }
+
 }

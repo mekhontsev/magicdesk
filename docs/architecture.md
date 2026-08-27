@@ -288,10 +288,13 @@ ActivityTaskManager's existing-task freeform launch path. Every plane contains
 one retained standard anchor task, which keeps the source hierarchy valid while
 framework root selection moves the application task. The now-idle plane is
 made non-focusable and reused by a later fullscreen task, avoiding repeated
-organizer creation and deletion. Session teardown deletes the owned areas and
-their anchors. If Android removes a display first and migrates an anchor to the
-phone, the plane owner removes that exact task by saved ID and component. A
-phone-session task remains in place and changes only mode, bounds, and order.
+organizer creation and deletion. A new anchor launches behind the foreground
+task; its structural opening therefore cannot race the application's
+fullscreen entry or acquire user focus. Session teardown deletes the owned
+areas and their anchors. If Android removes a display first and migrates an
+anchor to the phone, the plane owner removes that exact task by saved ID and
+component. A phone-session task remains in place and changes only mode, bounds,
+and order.
 
 ## Modules
 
@@ -983,13 +986,12 @@ task is brought forward through Android UI and returns with the desktop plane.
 External-display taskbars are unaffected.
 
 Nubia's wired and Miracast desktop displays use their default task area
-directly. Cold launches enter that area through a WMShell launch transition
-with freeform mode and bounds in their `ActivityOptions`. A phone cold launch
-is first created freeform in the ordinary display parent, then its opening WCT
-atomically reparents it into the session area with final mode and bounds. This
-prevents display 0 from exposing a fullscreen starting surface without using
-`setAvoidMoveToFront`, which leaves the first pointer-focus handoff stale on
-affected firmware. An existing task is moved by a single
+directly. Every cold freeform launch is staged behind the desktop host in its
+known target area. Once Android assigns the task ID, one complete WMShell
+`OPEN` transition establishes freeform mode, bounds, and front order. No raw
+opening token crosses that boundary, so framework launch completion cannot
+race a later appended transaction. This also prevents a fullscreen starting
+surface from becoming visible on display 0. An existing task is moved by a single
 `WindowContainerTransaction` that combines `startTask`, the target display,
 freeform mode, bounds, caption state, and the visible WMShell transition. Its
 first visible state on the external display is therefore the requested window

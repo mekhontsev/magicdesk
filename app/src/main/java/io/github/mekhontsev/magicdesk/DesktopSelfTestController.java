@@ -94,6 +94,7 @@ final class DesktopSelfTestController {
         SimulatedDisplayLease lease = null;
         boolean observationsRecorded = false;
         boolean displayRemovalRecorded = false;
+        Map<String, Integer> staleTransitionBaseline = Collections.emptyMap();
         try {
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-TARGET-001",
@@ -106,7 +107,8 @@ final class DesktopSelfTestController {
                 }
                 return "uid=" + uid;
             });
-            requireHealthyWindowTransitions(appContext, result);
+            staleTransitionBaseline = inspectWindowTransitionPrecondition(
+                    appContext, result);
             if (target == DesktopSelfTestTarget.PHONE) {
                 preparePhoneSystemPanel(result);
             }
@@ -116,14 +118,21 @@ final class DesktopSelfTestController {
             }
             if (target == DesktopSelfTestTarget.SIMULATED) {
                 requireNoActiveDesktop(appContext, result);
-                requireNoConfiguredOverlay(result);
+                final boolean existingOverlay =
+                        inspectConfiguredOverlay(result);
                 requireNoStaleDesktopRepositories(result);
-                lease = require(result,
-                        "DISPLAY-001", "Create simulated display lease", () -> {
-                            final SimulatedDisplayLease opened =
-                                    SimulatedDisplayLease.open();
-                            return opened;
-                        }, "owned Shizuku stream with automatic restoration");
+                if (!existingOverlay) {
+                    lease = require(result,
+                            "DISPLAY-001",
+                            "Create simulated display lease",
+                            () -> SimulatedDisplayLease.open(),
+                            "owned Shizuku stream with automatic restoration");
+                } else {
+                    result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                            "DISPLAY-001",
+                            "Create simulated display lease",
+                            "using the pre-existing overlay display");
+                }
                 displayId = require(result,
                         "DISPLAY-002", "Create simulated display", () -> {
                             final int created = waitForOverlayDisplay();
@@ -145,8 +154,15 @@ final class DesktopSelfTestController {
                 recordDesktopHostObservation(result, displayId);
                 recordPhoneUiObservation(result, displayId);
                 observationsRecorded = true;
-                DesktopSelfTestDisplayRemovalSuite.run(
-                        result, displayId, lease);
+                if (lease != null) {
+                    DesktopSelfTestDisplayRemovalSuite.run(
+                            result, displayId, lease);
+                } else {
+                    DesktopSelfTestDisplayRemovalSuite.addNotTested(
+                            result,
+                            "the pre-existing simulated display is not "
+                                    + "owned by the self-test");
+                }
             } else {
                 DesktopSelfTestDisplayRemovalSuite.addNotTested(
                         result,
@@ -175,7 +191,8 @@ final class DesktopSelfTestController {
                     displayId,
                     lease,
                     restoreExternalMirror);
-            recordWindowTransitionHealth(appContext, result);
+            recordWindowTransitionHealth(
+                    appContext, result, staleTransitionBaseline);
             restoreResultTask(result, target, resultTaskId);
             RUNNING.set(false);
         }
@@ -226,7 +243,7 @@ final class DesktopSelfTestController {
         return null;
     }
 
-    private static void requireHealthyWindowTransitions(
+    private static Map<String, Integer> inspectWindowTransitionPrecondition(
             final Context context,
             final DesktopSelfTestResult result) throws AbortSelfTest {
         final WindowTransitionHealthDiagnostics.Snapshot snapshot =
@@ -239,26 +256,17 @@ final class DesktopSelfTestController {
                     "cannot inspect SystemPerformanceHinter: "
                             + snapshot.error);
         }
-        if (snapshot.pendingOpeningCount > 0) {
-            failAndAbort(
-                    result,
-                    "SELFTEST-SYSTEM-001",
-                    "Window transition runtime health",
-                    "MagicDesk has " + snapshot.pendingOpeningCount
-                            + " pending opening continuations; oldest="
-                            + snapshot.oldestPendingOpeningAgeMillis
-                            + "ms");
-        }
         if (snapshot.hasStaleTransitions()) {
-            failAndAbort(
-                    result,
+            result.add(
+                    DesktopSelfTestResult.State.WARN,
                     "SELFTEST-SYSTEM-001",
                     "Window transition runtime health",
-                    "stale transition performance sessions reference "
+                    "pre-existing transition performance sessions reference "
                             + "missing displays: "
                             + snapshot.staleDetail()
-                            + "; restart system_server or reboot before "
-                            + "running the self-test");
+                            + "; the test will continue and only newly created "
+                            + "sessions will fail cleanup");
+            return snapshot.staleTransitionCounts();
         }
         result.add(
                 DesktopSelfTestResult.State.PASS,
@@ -266,11 +274,13 @@ final class DesktopSelfTestController {
                 "Window transition runtime health",
                 "active=" + snapshot.sessions.size()
                         + ", stale=0");
+        return Collections.emptyMap();
     }
 
     private static void recordWindowTransitionHealth(
             final Context context,
-            final DesktopSelfTestResult result) {
+            final DesktopSelfTestResult result,
+            final Map<String, Integer> staleTransitionBaseline) {
         final WindowTransitionHealthDiagnostics.Snapshot snapshot =
                 WindowTransitionHealthDiagnostics.capture(context);
         if (!snapshot.available) {
@@ -282,25 +292,17 @@ final class DesktopSelfTestController {
                             + snapshot.error);
             return;
         }
-        if (snapshot.pendingOpeningCount > 0) {
-            result.add(
-                    DesktopSelfTestResult.State.FAIL,
-                    "SELFTEST-SYSTEM-002",
-                    "Window transition runtime after cleanup",
-                    "MagicDesk retained " + snapshot.pendingOpeningCount
-                            + " opening continuations; oldest="
-                            + snapshot.oldestPendingOpeningAgeMillis
-                            + "ms");
-            return;
-        }
-        if (snapshot.hasStaleTransitions()) {
+        final Map<String, Integer> newStaleTransitions =
+                snapshot.staleTransitionCountsAfter(
+                        staleTransitionBaseline);
+        if (!newStaleTransitions.isEmpty()) {
             result.add(
                     DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-SYSTEM-002",
                     "Window transition runtime after cleanup",
                     "self-test left transition performance sessions for "
                             + "missing displays: "
-                            + snapshot.staleDetail()
+                            + snapshot.staleDetail(newStaleTransitions)
                             + "; restart system_server or reboot");
             return;
         }
@@ -308,7 +310,22 @@ final class DesktopSelfTestController {
                 DesktopSelfTestResult.State.PASS,
                 "SELFTEST-SYSTEM-002",
                 "Window transition runtime after cleanup",
-                "active=" + snapshot.sessions.size() + ", stale=0");
+                "active=" + snapshot.sessions.size()
+                        + ", new-stale=0"
+                        + (staleTransitionBaseline == null
+                                || staleTransitionBaseline.isEmpty()
+                                ? "" : ", pre-existing-stale="
+                        + totalCount(staleTransitionBaseline)));
+    }
+
+    private static int totalCount(final Map<String, Integer> counts) {
+        int total = 0;
+        if (counts != null) {
+            for (final Integer count : counts.values()) {
+                total += count == null ? 0 : Math.max(0, count.intValue());
+            }
+        }
+        return total;
     }
 
     private static void preparePhoneSystemPanel(
@@ -423,23 +440,27 @@ final class DesktopSelfTestController {
         return displayId;
     }
 
-    private static void requireNoConfiguredOverlay(
+    private static boolean inspectConfiguredOverlay(
             final DesktopSelfTestResult result) throws AbortSelfTest {
         try {
             final String previous = ShellAccess.run(
                     "/system/bin/settings get global "
                             + SimulatedDisplayLease.SETTING).trim();
             if (!previous.isEmpty() && !"null".equals(previous)) {
-                failAndAbort(result, "SELFTEST-PRECONDITION-002",
+                result.add(DesktopSelfTestResult.State.WARN,
+                        "SELFTEST-PRECONDITION-002",
                         "No existing simulated display",
                         SimulatedDisplayLease.SETTING + "=" + previous);
+                return true;
             }
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-PRECONDITION-002",
                     "No existing simulated display", "ready");
+            return false;
         } catch (IOException error) {
             failAndAbort(result, "SELFTEST-PRECONDITION-002",
                     "Inspect simulated display setting", usefulMessage(error));
+            return false;
         }
     }
 

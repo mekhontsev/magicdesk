@@ -20,8 +20,7 @@ final class ShellPreparedTaskTransition {
         OPEN_TRANSITION,
         HIDE_SYNC,
         SHOW_TRANSITION,
-        DETACH_AND_SHOW_TRANSITION,
-        EXISTING_OPEN_TRANSITION
+        DETACH_AND_SHOW_TRANSITION
     }
 
     private enum FullscreenApplication {
@@ -59,24 +58,6 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 FreeformApplication.OPEN_TRANSITION);
-    }
-
-    static void joinOpenAsFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds,
-            final ShellWindowTransitionExecutor.OpeningTransition transition,
-            final Object targetParentToken)
-            throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.EXISTING_OPEN_TRANSITION,
-                transition,
-                targetParentToken);
     }
 
     static void prepareFreeform(
@@ -126,7 +107,6 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
-                null,
                 targetParentToken);
     }
 
@@ -287,7 +267,6 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 application,
-                null,
                 null);
     }
 
@@ -297,25 +276,6 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final Rect bounds,
             final FreeformApplication application,
-            final ShellWindowTransitionExecutor.OpeningTransition transition)
-            throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                application,
-                transition,
-                null);
-    }
-
-    private static void applyFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds,
-            final FreeformApplication application,
-            final ShellWindowTransitionExecutor.OpeningTransition transition,
             final Object targetParentToken)
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -350,10 +310,7 @@ final class ShellPreparedTaskTransition {
                                             == FreeformApplication.HIDE_SYNC));
         }
         if (application
-                        == FreeformApplication.DETACH_AND_SHOW_TRANSITION
-                || (application
-                                == FreeformApplication.EXISTING_OPEN_TRANSITION
-                        && targetParentToken != null)) {
+                == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
             // The fullscreen parent belongs to the long-lived shell observer.
             // Reparent and reveal in the same WMShell transition so no
             // intermediate parent or fullscreen frame becomes visible.
@@ -374,10 +331,6 @@ final class ShellPreparedTaskTransition {
         if (application == FreeformApplication.HIDE_SYNC) {
             ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
-        } else if (application
-                == FreeformApplication.EXISTING_OPEN_TRANSITION) {
-            ShellWindowTransitionExecutor.continueOpening(
-                    transition, transactionClass, transaction);
         } else {
             final ShellWindowTransitionExecutor.SystemTransition
                     transitionType = application

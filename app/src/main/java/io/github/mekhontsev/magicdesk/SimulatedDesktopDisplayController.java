@@ -42,16 +42,16 @@ final class SimulatedDesktopDisplayController {
         }
     }
 
-    static void release(final int displayId) {
+    static boolean release(final int displayId) {
         final SimulatedDisplayLease lease;
         synchronized (SimulatedDesktopDisplayController.class) {
             if (sDisplayId != displayId) {
-                return;
+                return true;
             }
             lease = sLease;
         }
         if (lease == null) {
-            return;
+            return true;
         }
         try {
             final WindowTransitionHealthDiagnostics.IdleResult idle =
@@ -66,12 +66,13 @@ final class SimulatedDesktopDisplayController {
             }
             synchronized (SimulatedDesktopDisplayController.class) {
                 if (sDisplayId != displayId || sLease != lease) {
-                    return;
+                    return true;
                 }
                 sDisplayId = Display.INVALID_DISPLAY;
                 sLease = null;
             }
             lease.close();
+            return true;
         } catch (IOException error) {
             Log.w(TAG, "Could not remove the simulated display", error);
             CompatibilityDiagnostics.record(
@@ -79,6 +80,7 @@ final class SimulatedDesktopDisplayController {
                     "Could not remove the simulated desktop display",
                     usefulMessage(error),
                     error);
+            return false;
         }
     }
 

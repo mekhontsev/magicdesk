@@ -114,6 +114,7 @@ final class DesktopSelfTestCleanup {
             }
         }
         if (target == DesktopSelfTestTarget.SIMULATED
+                && lease != null
                 && displayId > Display.DEFAULT_DISPLAY) {
             final long deadline = SystemClock.uptimeMillis()
                     + STEP_TIMEOUT_MILLIS;
@@ -162,7 +163,8 @@ final class DesktopSelfTestCleanup {
                 detail.append("stale fixture cleanup: ")
                         .append(usefulMessage(error)).append("; ");
             }
-            if (target == DesktopSelfTestTarget.SIMULATED) {
+            if (target == DesktopSelfTestTarget.SIMULATED
+                    && lease != null) {
                 try {
                     final String configured = ShellAccess.run(
                             "/system/bin/settings get global "

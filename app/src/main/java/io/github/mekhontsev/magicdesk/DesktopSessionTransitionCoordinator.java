@@ -4,6 +4,9 @@ import android.content.Context;
 import android.util.Log;
 import android.view.Display;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 /** Owns serialized desktop activation, close, and mirror transitions. */
 final class DesktopSessionTransitionCoordinator {
     interface CompletionCallback {
@@ -11,6 +14,7 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     private static final String TAG = "MagicDeskConsoleSwitcher";
+    private static final long SESSION_CLOSE_TIMEOUT_SECONDS = 15L;
 
     private final SerializedDesktopOperationQueue mOperations;
     private final Context mContext;
@@ -180,11 +184,15 @@ final class DesktopSessionTransitionCoordinator {
         } else {
             MagicDeskRuntime.prepareDesktopDisplayRemoval(
                     target.displayId);
-            DesktopRuntimeBridge.closeDesktopSession(target.displayId);
             if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
-                SimulatedDesktopDisplayController.release(target.displayId);
+                success = removeSimulatedDesktop(target.displayId);
+            } else if (!closeDesktopSessionAndWait(target.displayId)) {
+                MagicDeskRuntime.cancelDesktopDisplayRemoval(
+                        target.displayId);
+                success = false;
+            } else {
+                success = true;
             }
-            success = true;
         }
         if (shouldOpenPhonePanel(
                 restorePhonePanel,
@@ -193,6 +201,59 @@ final class DesktopSessionTransitionCoordinator {
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         }
         return success;
+    }
+
+    private static boolean removeSimulatedDesktop(final int displayId) {
+        final CountDownLatch prepared = new CountDownLatch(1);
+        DesktopRuntimeBridge.prepareDesktopSessionRemoval(
+                displayId, prepared::countDown);
+        final boolean ready;
+        try {
+            ready = prepared.await(
+                    SESSION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Simulated display removal interrupted for display="
+                    + displayId, error);
+            resumeAfterFailedDisplayRemoval(displayId);
+            return false;
+        }
+        if (!ready) {
+            Log.w(TAG, "Simulated display removal preparation timed out for "
+                    + "display=" + displayId);
+            resumeAfterFailedDisplayRemoval(displayId);
+            return false;
+        }
+        if (SimulatedDesktopDisplayController.release(displayId)) {
+            return true;
+        }
+        resumeAfterFailedDisplayRemoval(displayId);
+        return false;
+    }
+
+    private static void resumeAfterFailedDisplayRemoval(
+            final int displayId) {
+        MagicDeskRuntime.cancelDesktopDisplayRemoval(displayId);
+        DesktopRuntimeBridge.resumeDesktopSessionAfterFailedRemoval(displayId);
+    }
+
+    private static boolean closeDesktopSessionAndWait(
+            final int displayId) {
+        final CountDownLatch closed = new CountDownLatch(1);
+        DesktopRuntimeBridge.closeDesktopSession(displayId, closed::countDown);
+        try {
+            if (closed.await(
+                    SESSION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                return true;
+            }
+            Log.w(TAG, "Desktop session close timed out for display="
+                    + displayId);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Desktop session close interrupted for display="
+                    + displayId, error);
+        }
+        return false;
     }
 
     static boolean shouldOpenPhonePanel(

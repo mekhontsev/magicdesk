@@ -10,6 +10,7 @@ import android.widget.Toast;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Process-local gateway to the live desktop host Activity. */
 final class DesktopUiGateway {
@@ -56,6 +57,7 @@ final class DesktopUiGateway {
             mSession.registerHost(
                     displayId, activity.getTaskId(), replacingSameTask);
         }
+        AppWindowStateStore.beginSession();
         if (previous != null && previous != activity) {
             if (previousDisplayId >= Display.DEFAULT_DISPLAY
                     && previousDisplayId != displayId) {
@@ -105,13 +107,18 @@ final class DesktopUiGateway {
         }
         MagicDeskRuntime.preserveDesktopTasks(displayId);
         MagicDeskRuntime.refreshDesktopTasks();
+        MagicDeskRuntime.releaseDesktopTaskSession(() ->
+                TaskCommandQueue.execute(
+                        DesktopUiGateway::flushWindowSessionState));
         recordSession("host_unregistered", displayId, activity.getTaskId());
         if (displayId == Display.DEFAULT_DISPLAY) {
             MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
     }
 
-    void closeDesktopSession(final int displayId) {
+    void closeDesktopSession(
+            final int displayId,
+            final Runnable completion) {
         final DesktopShellActivity activity;
         synchronized (mHostLock) {
             activity = usableDesktopLocked(false);
@@ -120,6 +127,9 @@ final class DesktopUiGateway {
                     || displayId < Display.DEFAULT_DISPLAY
                     || target == null
                     || target.displayId != displayId) {
+                if (completion != null) {
+                    completion.run();
+                }
                 return;
             }
             mDesktop.clear();
@@ -129,23 +139,84 @@ final class DesktopUiGateway {
             mSession.close();
         }
         MagicDeskRuntime.preserveDesktopTasks(displayId);
-        final Runnable closeHost = () -> {
-            activity.releaseDesktopOverlays();
-            if (!activity.isFinishing()) {
-                activity.finishAndRemoveTask();
+        final AtomicInteger remainingCloseParts = new AtomicInteger(2);
+        final Runnable closePartFinished = () -> {
+            if (remainingCloseParts.decrementAndGet() == 0
+                    && completion != null) {
+                completion.run();
             }
-            MagicDeskRuntime.refreshDesktopTasks();
-            if (displayId == Display.DEFAULT_DISPLAY) {
-                MagicDeskRuntime.scheduleLocalDesktopCleanup();
+        };
+        final Runnable closeHost = () -> {
+            try {
+                activity.releaseDesktopOverlays();
+                if (!activity.isFinishing()) {
+                    activity.finishAndRemoveTask();
+                }
+                MagicDeskRuntime.refreshDesktopTasks();
+                if (displayId == Display.DEFAULT_DISPLAY) {
+                    MagicDeskRuntime.scheduleLocalDesktopCleanup();
+                }
+            } finally {
+                closePartFinished.run();
             }
         };
         MagicDeskRuntime.releaseDesktopTaskSession(() -> {
+            TaskCommandQueue.execute(() -> {
+                try {
+                    flushWindowSessionState();
+                } finally {
+                    closePartFinished.run();
+                }
+            });
             if (Looper.myLooper() == Looper.getMainLooper()) {
                 closeHost.run();
             } else {
                 mMainHandler.post(closeHost);
             }
         });
+    }
+
+    void prepareDesktopSessionRemoval(
+            final int displayId,
+            final Runnable completion) {
+        final DesktopDisplayTarget target;
+        synchronized (mHostLock) {
+            target = mSession.snapshot().target();
+            if (usableDesktopLocked(false) == null
+                    || target == null
+                    || target.displayId != displayId) {
+                if (completion != null) {
+                    completion.run();
+                }
+                return;
+            }
+        }
+        MagicDeskRuntime.releaseDesktopTaskSession(() ->
+                TaskCommandQueue.execute(() -> {
+                    flushWindowSessionState();
+                    if (completion != null) {
+                        completion.run();
+                    }
+                }));
+    }
+
+    void resumeDesktopSessionAfterFailedRemoval(final int displayId) {
+        synchronized (mHostLock) {
+            final DesktopDisplayTarget target = mSession.snapshot().target();
+            if (usableDesktopLocked(false) == null
+                    || target == null
+                    || target.displayId != displayId) {
+                return;
+            }
+        }
+        AppWindowStateStore.beginSession();
+        MagicDeskRuntime.refreshDesktopTasks();
+    }
+
+    private static void flushWindowSessionState() {
+        if (!AppWindowStateStore.endSession()) {
+            Log.w(TAG, "Could not flush desktop window session state");
+        }
     }
 
     DesktopSessionSnapshot sessionSnapshot() {

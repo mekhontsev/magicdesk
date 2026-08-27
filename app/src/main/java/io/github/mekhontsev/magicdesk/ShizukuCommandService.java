@@ -427,21 +427,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public boolean awaitWindowTransitionsIdle(
-            final int displayId,
-            final long timeoutMillis) {
-        return ShellWindowTransitionExecutor.awaitIdle(
-                displayId, timeoutMillis);
-    }
-
-    @Override
-    public int[] getWindowTransitionRuntimeState() {
-        final ShellWindowTransitionExecutor.Snapshot snapshot =
-                ShellWindowTransitionExecutor.snapshot();
-        return new int[]{snapshot.activeCount, snapshot.oldestAgeMillis};
-    }
-
-    @Override
     public int launchDesktopHost(
             final int displayId,
             final String intentUri) {

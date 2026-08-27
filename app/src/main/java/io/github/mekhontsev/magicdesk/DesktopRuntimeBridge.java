@@ -25,7 +25,24 @@ public final class DesktopRuntimeBridge {
     }
 
     static void closeDesktopSession(final int displayId) {
-        UI.closeDesktopSession(displayId);
+        UI.closeDesktopSession(displayId, null);
+    }
+
+    static void closeDesktopSession(
+            final int displayId,
+            final Runnable completion) {
+        UI.closeDesktopSession(displayId, completion);
+    }
+
+    static void prepareDesktopSessionRemoval(
+            final int displayId,
+            final Runnable completion) {
+        UI.prepareDesktopSessionRemoval(displayId, completion);
+    }
+
+    static void resumeDesktopSessionAfterFailedRemoval(
+            final int displayId) {
+        UI.resumeDesktopSessionAfterFailedRemoval(displayId);
     }
 
     public static int getActiveDesktopDisplayId() {

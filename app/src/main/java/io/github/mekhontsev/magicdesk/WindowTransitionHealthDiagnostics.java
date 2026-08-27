@@ -9,13 +9,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Detects system transition performance sessions orphaned by display removal. */
 final class WindowTransitionHealthDiagnostics {
     private static final long POLL_MILLIS = 50L;
-    private static final long MANAGED_WAIT_SLICE_MILLIS = 100L;
     private static final long STABLE_IDLE_MILLIS = 150L;
     private static final String DUMPSYS_COMMAND =
             "/system/bin/dumpsys window | /system/bin/toybox sed -n "
@@ -39,16 +40,13 @@ final class WindowTransitionHealthDiagnostics {
             liveDisplayIds.add(Integer.valueOf(display.getDisplayId()));
         }
         try {
-            final int[] managed =
-                    ShellAccess.getWindowTransitionRuntimeState();
-            return parse(ShellAccess.run(DUMPSYS_COMMAND), liveDisplayIds)
-                    .withPendingOpenings(managed[0], managed[1]);
+            return parse(ShellAccess.run(DUMPSYS_COMMAND), liveDisplayIds);
         } catch (IOException | RuntimeException error) {
             return Snapshot.unavailable(ShellAccess.usefulMessage(error));
         }
     }
 
-    /** Waits until neither MagicDesk nor WMShell owns work for a display. */
+    /** Waits until WMShell owns no transition work for a display. */
     static IdleResult awaitDisplayIdle(
             final Context context,
             final int displayId,
@@ -63,20 +61,6 @@ final class WindowTransitionHealthDiagnostics {
         String lastDetail = "transition state was not sampled";
         do {
             final long now = SystemClock.uptimeMillis();
-            final long remaining = Math.max(1L, deadline - now);
-            try {
-                if (!ShellAccess.awaitWindowTransitionsIdle(
-                        displayId,
-                        Math.min(remaining, MANAGED_WAIT_SLICE_MILLIS))) {
-                    stableSince = -1L;
-                    lastDetail = "MagicDesk managed transition is active";
-                    continue;
-                }
-            } catch (IOException | RuntimeException error) {
-                return IdleResult.blocked(
-                        "managed transition inspection failed: "
-                                + ShellAccess.usefulMessage(error));
-            }
             final Snapshot snapshot = capture(context);
             if (!snapshot.available) {
                 return IdleResult.blocked(
@@ -140,9 +124,7 @@ final class WindowTransitionHealthDiagnostics {
                 "",
                 sessions,
                 stale,
-                new HashSet<>(liveDisplayIds),
-                0,
-                0);
+                new HashSet<>(liveDisplayIds));
     }
 
     static void appendReport(
@@ -158,11 +140,6 @@ final class WindowTransitionHealthDiagnostics {
         }
         report.append("Active performance sessions: ")
                 .append(snapshot.sessions.size())
-                .append('\n')
-                .append("MagicDesk pending opening continuations: active=")
-                .append(snapshot.pendingOpeningCount)
-                .append(", oldestMs=")
-                .append(snapshot.oldestPendingOpeningAgeMillis)
                 .append('\n')
                 .append("Live displays: ")
                 .append(snapshot.liveDisplayIds)
@@ -220,6 +197,10 @@ final class WindowTransitionHealthDiagnostics {
             this.flags = flags;
             this.displayId = displayId;
         }
+
+        String key() {
+            return reason + ':' + flags + ':' + displayId;
+        }
     }
 
     static final class Snapshot {
@@ -228,17 +209,12 @@ final class WindowTransitionHealthDiagnostics {
         final List<Session> sessions;
         final List<Session> staleTransitions;
         final Set<Integer> liveDisplayIds;
-        final int pendingOpeningCount;
-        final int oldestPendingOpeningAgeMillis;
-
         Snapshot(
                 final boolean available,
                 final String error,
                 final List<Session> sessions,
                 final List<Session> staleTransitions,
-                final Set<Integer> liveDisplayIds,
-                final int pendingOpeningCount,
-                final int oldestPendingOpeningAgeMillis) {
+                final Set<Integer> liveDisplayIds) {
             this.available = available;
             this.error = error;
             this.sessions = Collections.unmodifiableList(
@@ -247,9 +223,6 @@ final class WindowTransitionHealthDiagnostics {
                     new ArrayList<>(staleTransitions));
             this.liveDisplayIds = Collections.unmodifiableSet(
                     new HashSet<>(liveDisplayIds));
-            this.pendingOpeningCount = pendingOpeningCount;
-            this.oldestPendingOpeningAgeMillis =
-                    oldestPendingOpeningAgeMillis;
         }
 
         static Snapshot unavailable(final String error) {
@@ -258,22 +231,7 @@ final class WindowTransitionHealthDiagnostics {
                     error == null ? "unknown error" : error,
                     Collections.emptyList(),
                     Collections.emptyList(),
-                    Collections.emptySet(),
-                    0,
-                    0);
-        }
-
-        Snapshot withPendingOpenings(
-                final int count,
-                final int oldestAgeMillis) {
-            return new Snapshot(
-                    available,
-                    error,
-                    sessions,
-                    staleTransitions,
-                    liveDisplayIds,
-                    Math.max(0, count),
-                    Math.max(0, oldestAgeMillis));
+                    Collections.emptySet());
         }
 
         boolean hasStaleTransitions() {
@@ -309,15 +267,60 @@ final class WindowTransitionHealthDiagnostics {
         }
 
         String staleDetail() {
-            final StringBuilder detail = new StringBuilder();
+            return staleDetail(staleTransitionCounts());
+        }
+
+        Map<String, Integer> staleTransitionCounts() {
+            final Map<String, Integer> counts = new LinkedHashMap<>();
             for (final Session session : staleTransitions) {
+                final String key = session.key();
+                counts.put(key, Integer.valueOf(
+                        counts.getOrDefault(key, Integer.valueOf(0)).intValue()
+                                + 1));
+            }
+            return counts;
+        }
+
+        Map<String, Integer> staleTransitionCountsAfter(
+                final Map<String, Integer> baseline) {
+            final Map<String, Integer> counts = staleTransitionCounts();
+            if (baseline == null || baseline.isEmpty()) {
+                return counts;
+            }
+            for (final Map.Entry<String, Integer> entry
+                    : baseline.entrySet()) {
+                final int remaining = counts.getOrDefault(
+                        entry.getKey(), Integer.valueOf(0)).intValue()
+                        - Math.max(0, entry.getValue().intValue());
+                if (remaining > 0) {
+                    counts.put(entry.getKey(), Integer.valueOf(remaining));
+                } else {
+                    counts.remove(entry.getKey());
+                }
+            }
+            return counts;
+        }
+
+        String staleDetail(final Map<String, Integer> includedCounts) {
+            final StringBuilder detail = new StringBuilder();
+            final Map<String, Integer> remainingCounts = includedCounts == null
+                    ? Collections.emptyMap()
+                    : new LinkedHashMap<>(includedCounts);
+            for (final Session session : staleTransitions) {
+                final int count = remainingCounts.getOrDefault(
+                        session.key(), Integer.valueOf(0)).intValue();
+                if (count <= 0) {
+                    continue;
+                }
                 if (detail.length() > 0) {
                     detail.append(", ");
                 }
                 detail.append("display=")
                         .append(session.displayId)
                         .append(" flags=")
-                        .append(session.flags);
+                        .append(session.flags)
+                        .append(count > 1 ? " count=" + count : "");
+                remainingCounts.remove(session.key());
             }
             return detail.toString();
         }
