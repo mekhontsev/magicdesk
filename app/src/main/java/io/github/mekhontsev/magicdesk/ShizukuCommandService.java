@@ -434,6 +434,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean concealFullscreenTaskPlanes(
+            final ITaskObserverCallback callback,
+            final int displayId) {
+        return mTaskObserverManager.concealFullscreenTaskPlanes(
+                callback, displayId);
+    }
+
+    @Override
     public int launchDesktopHost(
             final int displayId,
             final String intentUri) {

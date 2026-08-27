@@ -28,6 +28,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         return mTopology.focusStack(service, displayId, taskIds);
     }
 
+    synchronized boolean concealForShowDesktop(final int displayId) {
+        return mTopology.concealForShowDesktop(displayId);
+    }
+
     synchronized boolean beginAppFullscreen(
             final Object service,
             final int displayId,

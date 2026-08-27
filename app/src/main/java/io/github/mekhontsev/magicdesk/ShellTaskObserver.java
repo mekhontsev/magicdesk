@@ -622,6 +622,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    boolean concealFullscreenTaskPlanes(final int displayId) {
+        return displayId == mConfiguredDisplayId
+                && mFullscreenTaskArea.concealForShowDesktop(displayId);
+    }
+
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,

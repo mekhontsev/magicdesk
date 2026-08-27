@@ -73,6 +73,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
     private final Set<Integer> mTaskbarConcealedTaskIds =
             new LinkedHashSet<>();
+    private List<Integer> mShowDesktopRestoreOrder = Collections.emptyList();
+    private Set<Integer> mShowDesktopNewlyConcealedTaskIds =
+            Collections.emptySet();
 
     DesktopTaskController(
             final Context context,
@@ -431,6 +434,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mLatestTasks = Collections.emptyList();
         synchronized (mTaskbarConcealedTaskIds) {
             mTaskbarConcealedTaskIds.clear();
+            mShowDesktopRestoreOrder = Collections.emptyList();
+            mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
         }
         clearSessionOwnership();
         mNativeWindowBounds.reset();
@@ -826,6 +831,188 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void showDesktop(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || desktopHostTaskId < 0) {
+            completeActionCallback(callback, false, "invalid desktop host");
+            return;
+        }
+        synchronized (mTaskbarConcealedTaskIds) {
+            mShowDesktopRestoreOrder = Collections.emptyList();
+            mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
+        }
+        demoteNextShowDesktopTask(
+                displayId,
+                desktopHostTaskId,
+                mGeneration,
+                new ArrayList<>(),
+                new LinkedHashSet<>(),
+                callback);
+    }
+
+    private void demoteNextShowDesktopTask(
+            final int displayId,
+            final int desktopHostTaskId,
+            final int generation,
+            final List<Integer> restoreOrder,
+            final Set<Integer> newlyConcealedTaskIds,
+            final TaskRepository.ActionCallback callback) {
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            if (findTask(snapshot.tasks, desktopHostTaskId) == null) {
+                completeActionCallback(
+                        callback, false, "desktop host unavailable");
+                return;
+            }
+            final Set<Integer> concealedTaskIds;
+            synchronized (mTaskbarConcealedTaskIds) {
+                concealedTaskIds = new LinkedHashSet<>(
+                        mTaskbarConcealedTaskIds);
+            }
+            final TaskRepository.TaskEntry activeTask =
+                    selectShowDesktopDemotionTask(
+                            snapshot.tasks,
+                            displayId,
+                            desktopHostTaskId,
+                            concealedTaskIds);
+            if (activeTask == null) {
+                final boolean submitted =
+                        mTaskWatcher.concealFullscreenTaskPlanes(
+                                displayId,
+                                result -> {
+                                    if (result.success) {
+                                        synchronized (
+                                                mTaskbarConcealedTaskIds) {
+                                            mShowDesktopRestoreOrder =
+                                                    new ArrayList<>(
+                                                            restoreOrder);
+                                            mShowDesktopNewlyConcealedTaskIds =
+                                                    new LinkedHashSet<>(
+                                                            newlyConcealedTaskIds);
+                                        }
+                                        scheduleRefresh(0);
+                                    }
+                                    completeActionCallback(
+                                            callback,
+                                            result.success,
+                                            result.success
+                                                    ? "desktop shown"
+                                                    : result.message);
+                                });
+                if (!submitted) {
+                    completeActionCallback(
+                            callback,
+                            false,
+                            "desktop task runtime unavailable");
+                }
+                return;
+            }
+            demoteTaskbarTask(
+                    snapshot,
+                    activeTask.taskId,
+                    result -> {
+                        if (!result.success) {
+                            completeActionCallback(
+                                    callback, false, result.message);
+                            return;
+                        }
+                        restoreOrder.add(
+                                0, Integer.valueOf(activeTask.taskId));
+                        newlyConcealedTaskIds.add(
+                                Integer.valueOf(activeTask.taskId));
+                        synchronized (mTaskbarConcealedTaskIds) {
+                            mShowDesktopRestoreOrder =
+                                    new ArrayList<>(restoreOrder);
+                            mShowDesktopNewlyConcealedTaskIds =
+                                    new LinkedHashSet<>(
+                                            newlyConcealedTaskIds);
+                        }
+                        demoteNextShowDesktopTask(
+                                displayId,
+                                desktopHostTaskId,
+                                generation,
+                                restoreOrder,
+                                newlyConcealedTaskIds,
+                                callback);
+                    });
+        }));
+    }
+
+    @Override
+    public void restoreShowDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || desktopHostTaskId < 0) {
+            completeActionCallback(callback, false, "invalid desktop host");
+            return;
+        }
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final List<Integer> savedOrder;
+            final Set<Integer> savedConcealedTaskIds;
+            synchronized (mTaskbarConcealedTaskIds) {
+                savedOrder = new ArrayList<>(mShowDesktopRestoreOrder);
+                savedConcealedTaskIds = new LinkedHashSet<>(
+                        mShowDesktopNewlyConcealedTaskIds);
+            }
+            final List<Integer> liveOrder = liveTaskOrder(
+                    snapshot.tasks, displayId, savedOrder);
+            if (liveOrder.isEmpty()) {
+                completeActionCallback(
+                        callback, true, "no saved workspace");
+                return;
+            }
+            synchronized (mTaskbarConcealedTaskIds) {
+                mTaskbarConcealedTaskIds.removeAll(savedConcealedTaskIds);
+            }
+            final int targetTaskId = liveOrder.get(
+                    liveOrder.size() - 1).intValue();
+            focusThroughGateway(
+                    liveOrder,
+                    targetTaskId,
+                    findTask(snapshot.tasks, targetTaskId),
+                    result -> {
+                        synchronized (mTaskbarConcealedTaskIds) {
+                            if (result.success) {
+                                mShowDesktopRestoreOrder =
+                                        Collections.emptyList();
+                                mShowDesktopNewlyConcealedTaskIds =
+                                        Collections.emptySet();
+                            } else {
+                                mTaskbarConcealedTaskIds.addAll(
+                                        savedConcealedTaskIds);
+                            }
+                        }
+                        scheduleRefresh(0);
+                        completeActionCallback(
+                                callback, result.success, result.message);
+                    });
+        }));
+    }
+
+    @Override
     public void toggleTaskbarTask(
             final int displayId,
             final int taskId,
@@ -867,47 +1054,54 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 return;
             }
 
-            final boolean alreadyConcealed;
-            final Set<Integer> concealedTaskIds;
-            synchronized (mTaskbarConcealedTaskIds) {
-                alreadyConcealed = !mTaskbarConcealedTaskIds.add(
-                        Integer.valueOf(taskId));
-                concealedTaskIds = new LinkedHashSet<>(
-                        mTaskbarConcealedTaskIds);
-            }
-            final List<Integer> focusOrder =
-                    TaskbarTaskOrder.concealActiveTask(
-                            snapshot,
-                            taskId,
-                            mDisplayTaskState.lastVisibleTasks(),
-                            concealedTaskIds,
-                            DesktopDisplayDrivers.activeTaskAreaPolicy(
-                                    mDisplayId)
-                                    .usesIndependentFullscreenPlanes());
-            if (focusOrder.size() < 2) {
-                if (!alreadyConcealed) {
-                    restoreTaskbarTask(taskId);
-                }
-                completeActionCallback(
-                        callback, false, "task stack unavailable");
-                return;
-            }
-            final int targetTaskId = focusOrder.get(
-                    focusOrder.size() - 1).intValue();
-            final TaskRepository.TaskEntry targetTask = findTask(
-                    snapshot.tasks, targetTaskId);
-            focusThroughGateway(
-                    focusOrder,
-                    targetTaskId,
-                    targetTask,
-                    result -> {
-                        if (!result.success && !alreadyConcealed) {
-                            restoreTaskbarTask(taskId);
-                        }
-                        completeActionCallback(
-                                callback, result.success, result.message);
-                    });
+            demoteTaskbarTask(snapshot, taskId, callback);
         }));
+    }
+
+    private void demoteTaskbarTask(
+            final TaskRepository.Snapshot snapshot,
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        final boolean alreadyConcealed;
+        final Set<Integer> concealedTaskIds;
+        synchronized (mTaskbarConcealedTaskIds) {
+            alreadyConcealed = !mTaskbarConcealedTaskIds.add(
+                    Integer.valueOf(taskId));
+            concealedTaskIds = new LinkedHashSet<>(
+                    mTaskbarConcealedTaskIds);
+        }
+        final List<Integer> focusOrder =
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot,
+                        taskId,
+                        mDisplayTaskState.lastVisibleTasks(),
+                        concealedTaskIds,
+                        DesktopDisplayDrivers.activeTaskAreaPolicy(
+                                mDisplayId)
+                                .usesIndependentFullscreenPlanes());
+        if (focusOrder.size() < 2) {
+            if (!alreadyConcealed) {
+                restoreTaskbarTask(taskId);
+            }
+            completeActionCallback(
+                    callback, false, "task stack unavailable");
+            return;
+        }
+        final int targetTaskId = focusOrder.get(
+                focusOrder.size() - 1).intValue();
+        final TaskRepository.TaskEntry targetTask = findTask(
+                snapshot.tasks, targetTaskId);
+        focusThroughGateway(
+                focusOrder,
+                targetTaskId,
+                targetTask,
+                result -> {
+                    if (!result.success && !alreadyConcealed) {
+                        restoreTaskbarTask(taskId);
+                    }
+                    completeActionCallback(
+                            callback, result.success, result.message);
+                });
     }
 
     /** Common focus route for taskbar, Alt+Tab, overview, and automation. */
@@ -1022,6 +1216,50 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
         }
         return null;
+    }
+
+    static TaskRepository.TaskEntry selectShowDesktopDemotionTask(
+            final List<TaskRepository.TaskEntry> topFirstTasks,
+            final int displayId,
+            final int desktopHostTaskId,
+            final Set<Integer> concealedTaskIds) {
+        if (topFirstTasks == null) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : topFirstTasks) {
+            if (task != null && task.displayId == displayId
+                    && task.taskId != desktopHostTaskId
+                    && task.active && isFocusableTask(task)
+                    && (concealedTaskIds == null
+                            || !concealedTaskIds.contains(
+                                    Integer.valueOf(task.taskId)))) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    static List<Integer> liveTaskOrder(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int displayId,
+            final List<Integer> savedOrder) {
+        if (tasks == null || savedOrder == null || savedOrder.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final Set<Integer> liveTaskIds = new HashSet<>();
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && task.displayId == displayId
+                    && isFocusableTask(task)) {
+                liveTaskIds.add(Integer.valueOf(task.taskId));
+            }
+        }
+        final List<Integer> liveOrder = new ArrayList<>();
+        for (final Integer taskId : savedOrder) {
+            if (liveTaskIds.contains(taskId)) {
+                liveOrder.add(taskId);
+            }
+        }
+        return liveOrder;
     }
 
     private TaskRepository.ActionCallback beginFocusTracking(

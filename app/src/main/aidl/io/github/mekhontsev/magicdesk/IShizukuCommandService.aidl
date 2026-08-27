@@ -366,4 +366,8 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int expectedDisplayId) = 95;
 
+    boolean concealFullscreenTaskPlanes(
+        ITaskObserverCallback callback,
+        int displayId) = 96;
+
 }

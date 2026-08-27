@@ -86,6 +86,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, sequence, displayId, taskIds));
     }
 
+    boolean concealFullscreenTaskPlanes(final int displayId)
+            throws IOException {
+        return callServiceForResult(() ->
+                mService.concealFullscreenTaskPlanes(
+                        mCallback, displayId));
+    }
+
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,

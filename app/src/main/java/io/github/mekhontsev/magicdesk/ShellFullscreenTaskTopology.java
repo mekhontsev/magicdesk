@@ -7,6 +7,8 @@ interface ShellFullscreenTaskTopology extends AutoCloseable {
     ShellFullscreenTaskArea.FocusResult focusStack(
             Object service, int displayId, int[] taskIds);
 
+    boolean concealForShowDesktop(int displayId);
+
     boolean beginAppFullscreen(
             Object service, int displayId, int taskId, Rect restoreBounds);
 

@@ -64,6 +64,11 @@ final class IndependentFullscreenTaskTopology
     }
 
     @Override
+    public synchronized boolean concealForShowDesktop(final int displayId) {
+        return mPlanes.concealForShowDesktop(displayId);
+    }
+
+    @Override
     public synchronized boolean beginAppFullscreen(
             final Object service,
             final int displayId,

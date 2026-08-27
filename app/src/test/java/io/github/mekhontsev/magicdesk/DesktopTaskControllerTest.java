@@ -10,6 +10,7 @@ import android.graphics.Rect;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 
 public final class DesktopTaskControllerTest {
     @Test
@@ -170,6 +171,39 @@ public final class DesktopTaskControllerTest {
                                 true)),
                         "com.example.target",
                         99));
+    }
+
+    @Test
+    public void showDesktopSelectsTheNextActiveUndemotedTask() {
+        final TaskRepository.TaskEntry first = task(
+                10, "com.example.first/.MainActivity", true, true);
+        final TaskRepository.TaskEntry second = task(
+                11, "com.example.second/.MainActivity", true, true);
+        final TaskRepository.TaskEntry host = task(
+                "io.github.mekhontsev.magicdesk/.DesktopActivity");
+
+        assertEquals(
+                11,
+                DesktopTaskController.selectShowDesktopDemotionTask(
+                        Arrays.asList(first, second, host),
+                        2,
+                        1,
+                        Collections.singleton(Integer.valueOf(10))).taskId);
+    }
+
+    @Test
+    public void showDesktopRestoreDropsClosedTasksWithoutReordering() {
+        final TaskRepository.TaskEntry bottom = task(
+                12, "com.example.bottom/.MainActivity", true, false);
+        final TaskRepository.TaskEntry top = task(
+                10, "com.example.top/.MainActivity", true, true);
+
+        assertEquals(
+                Arrays.asList(12, 10),
+                DesktopTaskController.liveTaskOrder(
+                        Arrays.asList(top, bottom),
+                        2,
+                        Arrays.asList(12, 11, 10)));
     }
 
     private static TaskRepository.TaskEntry task(final String componentName) {

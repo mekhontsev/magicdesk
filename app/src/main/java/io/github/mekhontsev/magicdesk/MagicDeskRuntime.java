@@ -546,6 +546,33 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void showDesktop(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.showDesktop(displayId, desktopHostTaskId, callback);
+        } else {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
+        }
+    }
+
+    static void restoreShowDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.restoreShowDesktopWorkspace(
+                    displayId, desktopHostTaskId, callback);
+        } else {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
+        }
+    }
+
     static void toggleTaskbarTask(
             final int displayId,
             final int taskId,

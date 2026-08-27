@@ -479,13 +479,13 @@ final class DesktopUiGateway {
             }
             activity.hideAllPanels();
             if (action == DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS) {
-                activity.restoreLastVisibleWindows();
+                restoreShowDesktopWorkspaceOnDisplay(displayId);
             } else {
                 // A system activity can become focused before the task watcher
                 // publishes its next snapshot. Win+D must still expose an
                 // immediate route back to the desktop and taskbar.
                 activity.setTaskbarVisible(true);
-                focusDesktopOnDisplay(displayId);
+                showDesktopOnDisplay(displayId);
             }
         });
         return true;
@@ -799,6 +799,47 @@ final class DesktopUiGateway {
                     if (!result.success) {
                         Log.w(TAG, "Could not focus desktop task=" + taskId
                                 + " display=" + displayId
+                                + " result=" + result.message);
+                    }
+                });
+        return true;
+    }
+
+    private boolean showDesktopOnDisplay(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        final int taskId = activity.getTaskId();
+        MagicDeskRuntime.showDesktop(
+                displayId,
+                taskId,
+                result -> {
+                    if (!result.success) {
+                        Log.w(TAG, "Could not show desktop task=" + taskId
+                                + " display=" + displayId
+                                + " result=" + result.message);
+                    }
+                });
+        return true;
+    }
+
+    private boolean restoreShowDesktopWorkspaceOnDisplay(
+            final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return false;
+        }
+        final int taskId = activity.getTaskId();
+        MagicDeskRuntime.restoreShowDesktopWorkspace(
+                displayId,
+                taskId,
+                result -> {
+                    if (!result.success) {
+                        Log.w(TAG, "Could not restore desktop workspace task="
+                                + taskId + " display=" + displayId
                                 + " result=" + result.message);
                     }
                 });

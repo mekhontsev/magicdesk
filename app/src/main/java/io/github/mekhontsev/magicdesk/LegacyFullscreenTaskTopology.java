@@ -136,6 +136,13 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
         }
     }
 
+    @Override
+    public synchronized boolean concealForShowDesktop(final int displayId) {
+        // The legacy topology deactivates its shared area while focusing the
+        // desktop host, so it has no independent surfaces left to conceal.
+        return displayId == mConfiguredDisplayId;
+    }
+
     private void focusExistingHierarchy(
             final Object service,
             final int displayId,

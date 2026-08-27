@@ -31,6 +31,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private int mParentFeatureId;
     private Object mReleaseParentToken;
     private int mNextPlaneSlotId;
+    private boolean mConcealedForShowDesktop;
 
     synchronized void configure(
             final int displayId,
@@ -69,6 +70,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 service, displayId, ownership);
         final int targetTaskId =
                 requestedTaskIds[requestedTaskIds.length - 1];
+        if (!ownership.isDesktopHostTask(targetTaskId)) {
+            revealAfterShowDesktop();
+        }
         if (ownership.isDesktopHostTask(targetTaskId)) {
             focusDesktopHost(
                     service, displayId, targetTaskId, requestedTaskIds);
@@ -97,6 +101,53 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 : ShellFullscreenTaskArea.FocusResult.SESSION_FOREGROUND;
     }
 
+    synchronized boolean concealForShowDesktop(final int displayId) {
+        if (displayId != mDisplayId) {
+            return false;
+        }
+        try {
+            setPlaneSurfacesVisible(false);
+            mConcealedForShowDesktop = true;
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not conceal fullscreen planes for desktop",
+                    error);
+            return false;
+        }
+    }
+
+    private void revealAfterShowDesktop()
+            throws ReflectiveOperationException {
+        if (!mConcealedForShowDesktop) {
+            return;
+        }
+        setPlaneSurfacesVisible(true);
+        mConcealedForShowDesktop = false;
+    }
+
+    private void setPlaneSurfacesVisible(final boolean visible)
+            throws ReflectiveOperationException {
+        if (mPlanes.isEmpty()) {
+            return;
+        }
+        final Class<?> surfaceClass = Class.forName(
+                "android.view.SurfaceControl");
+        final Class<?> transactionClass = Class.forName(
+                "android.view.SurfaceControl$Transaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        try {
+            final String operation = visible ? "show" : "hide";
+            for (final TaskDisplayAreaHandle plane : mPlanes.values()) {
+                transactionClass.getMethod(operation, surfaceClass)
+                        .invoke(transaction, plane.surfaceLeash());
+            }
+            transactionClass.getMethod("apply").invoke(transaction);
+        } finally {
+            transactionClass.getMethod("close").invoke(transaction);
+        }
+    }
+
     synchronized boolean beginFullscreen(
             final Object service,
             final int displayId,
@@ -108,6 +159,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
         try {
             mService = service;
+            revealAfterShowDesktop();
             final Object enteringTask = HiddenTaskApi.requireTask(
                     service, displayId, taskId);
             if (ownership.isDesktopHostTask(taskId)
@@ -1311,6 +1363,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mPlaneOrder.clear();
         mService = null;
         mNextPlaneSlotId = 0;
+        mConcealedForShowDesktop = false;
     }
 
     private static void removeMigratedAnchorTasks(

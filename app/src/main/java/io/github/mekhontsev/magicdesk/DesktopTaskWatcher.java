@@ -338,6 +338,16 @@ final class DesktopTaskWatcher {
                 callback);
     }
 
+    boolean concealFullscreenTaskPlanes(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
+        return submitTaskMutation(
+                "conceal fullscreen planes",
+                -1,
+                handle -> handle.concealFullscreenTaskPlanes(displayId),
+                callback);
+    }
+
     boolean beginAppFullscreenTask(
             final int displayId,
             final int taskId,

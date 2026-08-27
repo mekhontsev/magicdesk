@@ -68,6 +68,16 @@ interface DesktopTaskRuntime {
             List<Integer> taskIds,
             TaskRepository.ActionCallback callback);
 
+    void showDesktop(
+            int displayId,
+            int desktopHostTaskId,
+            TaskRepository.ActionCallback callback);
+
+    void restoreShowDesktopWorkspace(
+            int displayId,
+            int desktopHostTaskId,
+            TaskRepository.ActionCallback callback);
+
     void toggleTaskbarTask(
             int displayId,
             int taskId,
