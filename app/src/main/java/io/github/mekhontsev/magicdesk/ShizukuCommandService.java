@@ -68,7 +68,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 context,
                 platform.windowing(),
                 phoneUi,
-                mNavigationGuard,
                 new PlatformPhoneUiDriver.InputOwner() {
                     @Override
                     public boolean isActive() {
@@ -917,9 +916,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void startLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mNavigationGuard.acquire(
-                ownerToken,
-                PlatformPhoneUiDriver.NavigationGuard.Scope.LOCAL_DESKTOP);
+        mNavigationGuard.acquire(ownerToken);
         Log.i(TAG, "platform navigation guard acquired for local desktop");
     }
 

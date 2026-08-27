@@ -95,27 +95,22 @@ public final class ShellProcessFailureTrackerTest {
     }
 
     @Test
-    public void reportsPrimaryLauncherCrashWithoutDesktopTask() {
+    public void launcherCrashCallbackIsNotUsedForNubiaProtection() {
         final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = emptyTracker(listener);
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
         tracker.configure(DISPLAY_ID);
 
         tracker.onProcessCrashed(
                 LAUNCHER_PACKAGE + ":quickstep", 456, "Launcher failed");
 
-        assertEquals(PhoneLauncherEvent.CRASH, listener.launcherType);
-        assertEquals(
-                LAUNCHER_PACKAGE + ":quickstep",
-                listener.launcherProcessName);
-        assertEquals(456, listener.launcherPid);
-        assertEquals("Launcher failed", listener.launcherReason);
+        assertEquals(0, listener.launcherEvents);
         assertNull(listener.processName);
     }
 
     @Test
     public void retainsEarlyLauncherAnrReason() {
         final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = emptyTracker(listener);
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
         tracker.configure(DISPLAY_ID);
 
         tracker.onProcessEarlyNotResponding(
@@ -127,15 +122,11 @@ public final class ShellProcessFailureTrackerTest {
     }
 
     @Test
-    public void reportsForegroundLauncherDeathWithoutCrashCallback() {
+    public void reportsLauncherDeathByStablePackageUid() {
         final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = new ShellProcessFailureTracker(
-                listener,
-                PhoneHomeComponents.forTests(PRIMARY_HOME),
-                LAUNCHER_UID);
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
         tracker.configure(DISPLAY_ID);
 
-        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, true);
         tracker.onProcessDied(456, LAUNCHER_UID);
 
         assertEquals(PhoneLauncherEvent.PROCESS_DIED, listener.launcherType);
@@ -144,24 +135,37 @@ public final class ShellProcessFailureTrackerTest {
     }
 
     @Test
-    public void ignoresBackgroundLauncherDeathAndCrashDuplicate() {
+    public void ignoresLauncherUidOutsideDesktopSession() {
         final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = new ShellProcessFailureTracker(
-                listener,
-                PhoneHomeComponents.forTests(PRIMARY_HOME),
-                LAUNCHER_UID);
-        tracker.configure(DISPLAY_ID);
-        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, true);
-        tracker.onForegroundActivitiesChanged(456, LAUNCHER_UID, false);
-        tracker.onForegroundActivitiesChanged(654, 10999, true);
-        tracker.onProcessDied(456, LAUNCHER_UID);
-        assertEquals(0, listener.launcherEvents);
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
 
-        tracker.onForegroundActivitiesChanged(789, LAUNCHER_UID, true);
-        tracker.onProcessCrashed(LAUNCHER_PACKAGE, 789, "crashed");
-        tracker.onProcessDied(789, LAUNCHER_UID);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+
+        assertEquals(0, listener.launcherEvents);
+    }
+
+    @Test
+    public void ignoresUnrelatedProcessUid() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onProcessDied(456, LAUNCHER_UID + 1);
+
+        assertEquals(0, listener.launcherEvents);
+    }
+
+    @Test
+    public void reportsBlockedLauncherResume() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onActivityResuming(LAUNCHER_PACKAGE, false);
+
+        assertEquals(PhoneLauncherEvent.HOME_RESUME_BLOCKED,
+                listener.launcherType);
         assertEquals(1, listener.launcherEvents);
-        assertEquals(PhoneLauncherEvent.CRASH, listener.launcherType);
     }
 
     private static ShellProcessFailureTracker tracker(
@@ -180,7 +184,18 @@ public final class ShellProcessFailureTrackerTest {
             final RecordingListener listener) {
         return new ShellProcessFailureTracker(
                 listener,
-                PhoneHomeComponents.forTests(PRIMARY_HOME));
+                PhoneHomeComponents.forTests(PRIMARY_HOME),
+                -1,
+                false);
+    }
+
+    private static ShellProcessFailureTracker launcherTracker(
+            final RecordingListener listener) {
+        return new ShellProcessFailureTracker(
+                listener,
+                PhoneHomeComponents.forTests(PRIMARY_HOME),
+                LAUNCHER_UID,
+                true);
     }
 
     private static ShellTaskStateMonitor.TaskWindowState task(

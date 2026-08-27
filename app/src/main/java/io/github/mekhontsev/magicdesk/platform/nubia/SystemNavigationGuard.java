@@ -27,16 +27,13 @@ final class SystemNavigationGuard
     private int mAppliedFlags;
 
     @Override
-    public void acquire(final IBinder ownerToken, final Scope scope) {
+    public void acquire(final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException("missing navigation guard owner token");
         }
-        if (scope == null) {
-            throw new IllegalArgumentException("missing navigation guard scope");
-        }
         synchronized (mLock) {
             final OwnerRecord previous = mOwners.get(ownerToken);
-            if (previous != null && previous.scope == scope) {
+            if (previous != null) {
                 try {
                     applyFlagsLocked(computeFlagsLocked(), true);
                     return;
@@ -45,30 +42,21 @@ final class SystemNavigationGuard
                 }
             }
 
-            final OwnerRecord replacement;
-            if (previous == null) {
-                final IBinder.DeathRecipient ownerDeath =
-                        () -> releaseForOwner(ownerToken);
-                try {
-                    ownerToken.linkToDeath(ownerDeath, 0);
-                } catch (RemoteException | RuntimeException error) {
-                    throw failure("cannot track navigation guard owner", error);
-                }
-                replacement = new OwnerRecord(scope, ownerDeath);
-            } else {
-                replacement = new OwnerRecord(scope, previous.ownerDeath);
+            final IBinder.DeathRecipient ownerDeath =
+                    () -> releaseForOwner(ownerToken);
+            try {
+                ownerToken.linkToDeath(ownerDeath, 0);
+            } catch (RemoteException | RuntimeException error) {
+                throw failure("cannot track navigation guard owner", error);
             }
+            final OwnerRecord replacement = new OwnerRecord(ownerDeath);
 
             mOwners.put(ownerToken, replacement);
             try {
                 applyFlagsLocked(computeFlagsLocked(), false);
             } catch (ReflectiveOperationException | RuntimeException error) {
-                if (previous == null) {
-                    mOwners.remove(ownerToken);
-                    ownerToken.unlinkToDeath(replacement.ownerDeath, 0);
-                } else {
-                    mOwners.put(ownerToken, previous);
-                }
+                mOwners.remove(ownerToken);
+                ownerToken.unlinkToDeath(replacement.ownerDeath, 0);
                 throw failure("cannot disable system navigation", error);
             }
         }
@@ -133,18 +121,7 @@ final class SystemNavigationGuard
     }
 
     private int computeFlagsLocked() {
-        int flags = 0;
-        for (final OwnerRecord owner : mOwners.values()) {
-            flags |= flagsForScope(owner.scope);
-        }
-        return flags;
-    }
-
-    private static int flagsForScope(final Scope scope) {
-        if (scope == Scope.LOCAL_DESKTOP) {
-            return DISABLE_HOME | DISABLE_RECENT;
-        }
-        return DISABLE_RECENT;
+        return mOwners.isEmpty() ? 0 : DISABLE_HOME | DISABLE_RECENT;
     }
 
     private void applyFlagsLocked(final int flags, final boolean force)
@@ -212,11 +189,9 @@ final class SystemNavigationGuard
     }
 
     private static final class OwnerRecord {
-        final Scope scope;
         final IBinder.DeathRecipient ownerDeath;
 
-        OwnerRecord(final Scope scope, final IBinder.DeathRecipient ownerDeath) {
-            this.scope = scope;
+        OwnerRecord(final IBinder.DeathRecipient ownerDeath) {
             this.ownerDeath = ownerDeath;
         }
     }

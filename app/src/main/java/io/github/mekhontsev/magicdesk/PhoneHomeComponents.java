@@ -40,9 +40,7 @@ final class PhoneHomeComponents {
         final PackageManager packageManager = context.getPackageManager();
         final Intent primaryIntent = homeIntent(Intent.CATEGORY_HOME);
         final ResolveInfo primaryMatch = packageManager.resolveActivity(
-                primaryIntent,
-                PackageManager.MATCH_DEFAULT_ONLY
-                        | PackageManager.MATCH_DISABLED_COMPONENTS);
+                primaryIntent, PackageManager.MATCH_DEFAULT_ONLY);
         final String primary = componentName(primaryMatch);
         final String primaryProcess = processName(primaryMatch);
         final Set<String> secondary = new LinkedHashSet<>();

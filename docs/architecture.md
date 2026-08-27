@@ -1112,15 +1112,21 @@ commands.
 
 The firmware launcher is unusually destructive here: three crashes within
 roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
-databases, preferences, and files. MagicDesk never edits launcher data.
-`IActivityController` reports Java crashes and ANRs, while an event-driven
-`IProcessObserver` covers a vendor or native foreground-process death that has
-no crash callback. The latter is tracked only while the primary launcher owns
-the last phone foreground owner and is deduplicated by PID against an ordinary
-crash. A subsequent foreground owner clears that death candidate without a
-timing heuristic.
-Either signal trips the same session-scoped circuit breaker after the first
-failure; a normal background process death does not.
+databases, preferences, and files. MagicDesk never edits launcher data. Nubia's
+custom uncaught-exception handler kills Quickstep without delivering the normal
+`IActivityController.appCrashed()` callback, and Overview can resume an existing
+launcher task without an ordinary activity start. The Nubia extension therefore
+resolves only the enabled default HOME activity and identifies its stable
+package UID. Disabled setup or restore HOME stubs must not become protection
+targets in the shell UserService. `IProcessObserver` reports the first death of
+that UID during an active desktop session. It trips a session-scoped circuit
+breaker, force-stops the package to cancel the pending service restart loop,
+and rejects later HOME starts and resumes until the session ends. A firmware
+service binding may start one clean launcher process afterward, but the stale
+Overview task is no longer replayed into another crash. Normal desktop cleanup
+releases the activity controller before intentionally returning to HOME.
+ANR and desktop-application crash reporting still use `IActivityController`,
+but those signals are not part of the Nubia launcher circuit breaker.
 
 Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI, wired output

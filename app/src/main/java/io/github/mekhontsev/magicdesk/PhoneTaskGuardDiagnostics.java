@@ -5,7 +5,7 @@ final class PhoneTaskGuardDiagnostics {
     private static int sLastTaskId = -1;
     private static int sLauncherStarts;
     private static int sLauncherStartsBlocked;
-    private static int sLauncherCrashes;
+    private static int sLauncherResumesBlocked;
     private static int sLauncherAnrs;
     private static int sLauncherDeaths;
     private static int sLauncherRecoveries;
@@ -31,9 +31,8 @@ final class PhoneTaskGuardDiagnostics {
             }
         } else if (type == PhoneLauncherEvent.HOME_START_BLOCKED) {
             sLauncherStartsBlocked++;
-        } else if (type == PhoneLauncherEvent.CRASH) {
-            sLauncherCrashes++;
-            sAwaitingLauncherRecovery = true;
+        } else if (type == PhoneLauncherEvent.HOME_RESUME_BLOCKED) {
+            sLauncherResumesBlocked++;
         } else if (type == PhoneLauncherEvent.ANR) {
             sLauncherAnrs++;
         } else if (type == PhoneLauncherEvent.PROCESS_DIED) {
@@ -51,7 +50,7 @@ final class PhoneTaskGuardDiagnostics {
                 sLastTaskId,
                 sLauncherStarts,
                 sLauncherStartsBlocked,
-                sLauncherCrashes,
+                sLauncherResumesBlocked,
                 sLauncherAnrs,
                 sLauncherDeaths,
                 sLauncherRecoveries,
@@ -63,7 +62,7 @@ final class PhoneTaskGuardDiagnostics {
         sLastTaskId = -1;
         sLauncherStarts = 0;
         sLauncherStartsBlocked = 0;
-        sLauncherCrashes = 0;
+        sLauncherResumesBlocked = 0;
         sLauncherAnrs = 0;
         sLauncherDeaths = 0;
         sLauncherRecoveries = 0;
@@ -76,7 +75,7 @@ final class PhoneTaskGuardDiagnostics {
         final int lastTaskId;
         final int launcherStarts;
         final int launcherStartsBlocked;
-        final int launcherCrashes;
+        final int launcherResumesBlocked;
         final int launcherAnrs;
         final int launcherDeaths;
         final int launcherRecoveries;
@@ -87,7 +86,7 @@ final class PhoneTaskGuardDiagnostics {
                 final int lastTaskId,
                 final int launcherStarts,
                 final int launcherStartsBlocked,
-                final int launcherCrashes,
+                final int launcherResumesBlocked,
                 final int launcherAnrs,
                 final int launcherDeaths,
                 final int launcherRecoveries,
@@ -96,7 +95,7 @@ final class PhoneTaskGuardDiagnostics {
             this.lastTaskId = lastTaskId;
             this.launcherStarts = launcherStarts;
             this.launcherStartsBlocked = launcherStartsBlocked;
-            this.launcherCrashes = launcherCrashes;
+            this.launcherResumesBlocked = launcherResumesBlocked;
             this.launcherAnrs = launcherAnrs;
             this.launcherDeaths = launcherDeaths;
             this.launcherRecoveries = launcherRecoveries;
@@ -108,7 +107,7 @@ final class PhoneTaskGuardDiagnostics {
                     + ", lastTask=" + lastTaskId
                     + ", launcherStarts=" + launcherStarts
                     + ", launcherStartsBlocked=" + launcherStartsBlocked
-                    + ", launcherCrashes=" + launcherCrashes
+                    + ", launcherResumesBlocked=" + launcherResumesBlocked
                     + ", launcherAnrs=" + launcherAnrs
                     + ", launcherDeaths=" + launcherDeaths
                     + ", launcherRecoveries=" + launcherRecoveries

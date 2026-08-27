@@ -27,12 +27,7 @@ public interface PlatformPhoneUiDriver {
     }
 
     interface NavigationGuard extends AutoCloseable {
-        enum Scope {
-            LOCAL_DESKTOP,
-            EXTERNAL_DESKTOP
-        }
-
-        void acquire(IBinder ownerToken, Scope scope);
+        void acquire(IBinder ownerToken);
 
         void release(IBinder ownerToken);
 

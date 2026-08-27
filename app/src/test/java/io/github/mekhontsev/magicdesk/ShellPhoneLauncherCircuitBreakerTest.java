@@ -7,16 +7,13 @@ import org.junit.Test;
 
 public final class ShellPhoneLauncherCircuitBreakerTest {
     @Test
-    public void isolatesPrimaryHomeAfterFirstSessionCrash() {
+    public void ignoresSignalsOtherThanObservedProcessDeath() {
         final ShellPhoneLauncherCircuitBreaker breaker =
                 new ShellPhoneLauncherCircuitBreaker(true);
         breaker.configure(true);
 
-        assertTrue(breaker.noteLauncherFailure(PhoneLauncherEvent.CRASH));
-        assertTrue(breaker.isTripped());
-        assertFalse(breaker.allowActivityStart(true));
-        assertTrue(breaker.allowActivityStart(false));
-        assertFalse(breaker.noteLauncherFailure(PhoneLauncherEvent.CRASH));
+        assertFalse(breaker.noteLauncherFailure(PhoneLauncherEvent.ANR));
+        assertFalse(breaker.isTripped());
     }
 
     @Test
@@ -24,7 +21,8 @@ public final class ShellPhoneLauncherCircuitBreakerTest {
         final ShellPhoneLauncherCircuitBreaker breaker =
                 new ShellPhoneLauncherCircuitBreaker(true);
 
-        assertFalse(breaker.noteLauncherFailure(PhoneLauncherEvent.CRASH));
+        assertFalse(breaker.noteLauncherFailure(
+                PhoneLauncherEvent.PROCESS_DIED));
         breaker.configure(true);
         assertFalse(breaker.noteLauncherFailure(PhoneLauncherEvent.ANR));
         assertTrue(breaker.allowActivityStart(true));
@@ -39,6 +37,11 @@ public final class ShellPhoneLauncherCircuitBreakerTest {
         assertTrue(breaker.noteLauncherFailure(
                 PhoneLauncherEvent.PROCESS_DIED));
         assertFalse(breaker.allowActivityStart(true));
+        assertFalse(breaker.allowActivityResume(true));
+        assertTrue(breaker.allowActivityStart(false));
+        assertTrue(breaker.allowActivityResume(false));
+        assertFalse(breaker.noteLauncherFailure(
+                PhoneLauncherEvent.PROCESS_DIED));
     }
 
     @Test
@@ -46,12 +49,13 @@ public final class ShellPhoneLauncherCircuitBreakerTest {
         final ShellPhoneLauncherCircuitBreaker breaker =
                 new ShellPhoneLauncherCircuitBreaker(true);
         breaker.configure(true);
-        breaker.noteLauncherFailure(PhoneLauncherEvent.CRASH);
+        breaker.noteLauncherFailure(PhoneLauncherEvent.PROCESS_DIED);
 
         breaker.configure(false);
 
         assertFalse(breaker.isTripped());
         assertTrue(breaker.allowActivityStart(true));
+        assertTrue(breaker.allowActivityResume(true));
         breaker.configure(true);
         assertTrue(breaker.allowActivityStart(true));
     }
@@ -62,7 +66,9 @@ public final class ShellPhoneLauncherCircuitBreakerTest {
                 new ShellPhoneLauncherCircuitBreaker(false);
         breaker.configure(true);
 
-        assertFalse(breaker.noteLauncherFailure(PhoneLauncherEvent.CRASH));
+        assertFalse(breaker.noteLauncherFailure(
+                PhoneLauncherEvent.PROCESS_DIED));
         assertTrue(breaker.allowActivityStart(true));
+        assertTrue(breaker.allowActivityResume(true));
     }
 }

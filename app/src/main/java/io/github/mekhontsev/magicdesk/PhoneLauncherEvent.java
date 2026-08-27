@@ -4,7 +4,7 @@ package io.github.mekhontsev.magicdesk;
 final class PhoneLauncherEvent {
     static final int HOME_START_ALLOWED = 1;
     static final int HOME_START_BLOCKED = 2;
-    static final int CRASH = 3;
+    static final int HOME_RESUME_BLOCKED = 3;
     static final int ANR = 4;
     static final int PROCESS_DIED = 5;
 
@@ -12,7 +12,7 @@ final class PhoneLauncherEvent {
     }
 
     static boolean isFailure(final int type) {
-        return type == CRASH || type == ANR || type == PROCESS_DIED;
+        return type == ANR || type == PROCESS_DIED;
     }
 
     static String label(final int type) {
@@ -22,8 +22,8 @@ final class PhoneLauncherEvent {
         if (type == HOME_START_BLOCKED) {
             return "home-start-blocked";
         }
-        if (type == CRASH) {
-            return "launcher-crash";
+        if (type == HOME_RESUME_BLOCKED) {
+            return "home-resume-blocked";
         }
         if (type == ANR) {
             return "launcher-anr";

@@ -859,11 +859,7 @@ final class DesktopTaskWatcher {
                             ? "" : " | reason=" + compactReason);
             final String diagnosticCode;
             final String diagnosticSummary;
-            if (type == PhoneLauncherEvent.CRASH) {
-                diagnosticCode = "PHONE-LAUNCHER-CRASH-001";
-                diagnosticSummary =
-                        "Phone launcher crashed during a desktop session";
-            } else if (type == PhoneLauncherEvent.PROCESS_DIED) {
+            if (type == PhoneLauncherEvent.PROCESS_DIED) {
                 diagnosticCode = "PHONE-LAUNCHER-DIED-001";
                 diagnosticSummary =
                         "Phone launcher process died during a desktop session";

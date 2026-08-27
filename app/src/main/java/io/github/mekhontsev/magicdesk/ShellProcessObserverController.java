@@ -8,16 +8,6 @@ import java.lang.reflect.Method;
 /** Owns the system process observer used for launcher failure detection. */
 final class ShellProcessObserverController implements AutoCloseable {
     interface Listener {
-        void onProcessStarted(
-                int pid,
-                int processUid,
-                int packageUid,
-                String packageName,
-                String processName);
-
-        void onForegroundActivitiesChanged(
-                int pid, int uid, boolean foregroundActivities);
-
         void onProcessDied(int pid, int uid);
     }
 
@@ -38,14 +28,6 @@ final class ShellProcessObserverController implements AutoCloseable {
                 final int packageUid,
                 final String packageName,
                 final String processName) {
-            if (mRegistered) {
-                dispatch(() -> mListener.onProcessStarted(
-                        pid,
-                        processUid,
-                        packageUid,
-                        packageName,
-                        processName));
-            }
         }
 
         @Override
@@ -53,10 +35,6 @@ final class ShellProcessObserverController implements AutoCloseable {
                 final int pid,
                 final int uid,
                 final boolean foregroundActivities) {
-            if (mRegistered) {
-                dispatch(() -> mListener.onForegroundActivitiesChanged(
-                        pid, uid, foregroundActivities));
-            }
         }
 
         @Override

@@ -23,8 +23,7 @@ final class ShellPhoneLauncherCircuitBreaker {
         if (!mEnabled
                 || !mSessionActive
                 || mTripped
-                || (type != PhoneLauncherEvent.CRASH
-                        && type != PhoneLauncherEvent.PROCESS_DIED)) {
+                || type != PhoneLauncherEvent.PROCESS_DIED) {
             return false;
         }
         mTripped = true;
@@ -33,6 +32,10 @@ final class ShellPhoneLauncherCircuitBreaker {
 
     boolean allowActivityStart(final boolean primaryHomeStart) {
         return !primaryHomeStart || !mTripped;
+    }
+
+    boolean allowActivityResume(final boolean primaryHomePackage) {
+        return !primaryHomePackage || !mTripped;
     }
 
     boolean isTripped() {

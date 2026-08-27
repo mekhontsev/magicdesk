@@ -8,6 +8,10 @@ import android.util.Log;
 final class ShellActivityStartController implements AutoCloseable {
     interface Listener {
         boolean onActivityStarting(Intent intent, String packageName);
+
+        default boolean onActivityResuming(final String packageName) {
+            return true;
+        }
     }
 
     interface ErrorListener {
@@ -17,6 +21,10 @@ final class ShellActivityStartController implements AutoCloseable {
     interface Observer {
         void onActivityStarting(
                 Intent intent, String packageName, boolean allowed);
+
+        default void onActivityResuming(
+                final String packageName, final boolean allowed) {
+        }
     }
 
     interface ProcessFailureListener {
@@ -62,7 +70,23 @@ final class ShellActivityStartController implements AutoCloseable {
 
                 @Override
                 public boolean activityResuming(final String packageName) {
-                    return true;
+                    if (!mEnabled) {
+                        return true;
+                    }
+                    boolean allowed = true;
+                    for (final Listener listener : mListeners) {
+                        try {
+                            if (!listener.onActivityResuming(packageName)) {
+                                allowed = false;
+                                break;
+                            }
+                        } catch (RuntimeException error) {
+                            report("activity-resume observer failed: "
+                                    + usefulMessage(error));
+                        }
+                    }
+                    notifyActivityResume(packageName, allowed);
+                    return allowed;
                 }
 
                 @Override
@@ -195,6 +219,20 @@ final class ShellActivityStartController implements AutoCloseable {
             mObserver.onActivityStarting(intent, packageName, allowed);
         } catch (RuntimeException error) {
             report("activity-start diagnostics failed: "
+                    + usefulMessage(error));
+        }
+    }
+
+    private void notifyActivityResume(
+            final String packageName,
+            final boolean allowed) {
+        if (mObserver == null) {
+            return;
+        }
+        try {
+            mObserver.onActivityResuming(packageName, allowed);
+        } catch (RuntimeException error) {
+            report("activity-resume diagnostics failed: "
                     + usefulMessage(error));
         }
     }

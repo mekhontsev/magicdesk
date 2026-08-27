@@ -24,20 +24,22 @@ public final class PhoneTaskGuardDiagnosticsTest {
     @Test
     public void recordsLauncherFailureAndRecovery() {
         PhoneTaskGuardDiagnostics.noteLauncherEvent(
-                PhoneLauncherEvent.CRASH, true);
+                PhoneLauncherEvent.PROCESS_DIED, true);
         PhoneTaskGuardDiagnostics.noteLauncherEvent(
                 PhoneLauncherEvent.HOME_START_BLOCKED, false);
         PhoneTaskGuardDiagnostics.noteLauncherEvent(
+                PhoneLauncherEvent.HOME_RESUME_BLOCKED, false);
+        PhoneTaskGuardDiagnostics.noteLauncherEvent(
                 PhoneLauncherEvent.HOME_START_ALLOWED, false);
         PhoneTaskGuardDiagnostics.noteLauncherEvent(
-                PhoneLauncherEvent.PROCESS_DIED, false);
+                PhoneLauncherEvent.ANR, false);
 
         final PhoneTaskGuardDiagnostics.Snapshot snapshot =
                 PhoneTaskGuardDiagnostics.snapshot();
         assertEquals(1, snapshot.launcherStarts);
         assertEquals(1, snapshot.launcherStartsBlocked);
-        assertEquals(1, snapshot.launcherCrashes);
-        assertEquals(0, snapshot.launcherAnrs);
+        assertEquals(1, snapshot.launcherResumesBlocked);
+        assertEquals(1, snapshot.launcherAnrs);
         assertEquals(1, snapshot.launcherDeaths);
         assertEquals(1, snapshot.launcherRecoveries);
         assertEquals(1, snapshot.launcherProtections);
