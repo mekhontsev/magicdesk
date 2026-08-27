@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
@@ -88,6 +89,15 @@ public final class DesktopTaskControllerTest {
 
         assertEquals(active, DesktopTaskController.selectShortcutTask(
                 Arrays.asList(active), 11, true));
+    }
+
+    @Test
+    public void cachedShortcutDoesNotGuessWhenFocusedTaskIsMissing() {
+        final TaskRepository.TaskEntry staleVisible = task(
+                10, "com.example.previous/.MainActivity", true, true);
+
+        assertNull(DesktopTaskController.findKnownShortcutTask(
+                Arrays.asList(staleVisible), 11, true));
     }
 
     @Test

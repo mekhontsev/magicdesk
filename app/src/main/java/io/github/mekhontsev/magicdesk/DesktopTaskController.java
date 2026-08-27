@@ -1250,13 +1250,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int activeTaskId) {
         final int displayId = mDisplayId;
         final int generation = mGeneration;
+        final boolean supportsFullscreenTask =
+                DesktopWindowTransitionController
+                        .supportsFullscreenTask(shortcut);
+        final List<TaskRepository.TaskEntry> latestTasks = mLatestTasks;
+        final TaskRepository.TaskEntry latestActiveTask =
+                findKnownShortcutTask(
+                        latestTasks,
+                        activeTaskId,
+                        !supportsFullscreenTask);
+        if (latestActiveTask != null) {
+            applyNativeTaskShortcut(
+                    shortcut, latestActiveTask, latestTasks);
+            return;
+        }
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
             if (!mRunning || generation != mGeneration || mDisplayId != displayId) {
                 return;
             }
-            final boolean supportsFullscreenTask =
-                    DesktopWindowTransitionController
-                            .supportsFullscreenTask(shortcut);
             final TaskRepository.TaskEntry task = selectShortcutTask(
                     snapshot.tasks,
                     activeTaskId,
@@ -1270,13 +1281,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 }
                 return;
             }
-            final TaskRepository.TaskEntry minimizeFocusTask =
-                    shortcut == SHORTCUT_RESTORE
-                            ? findFocusAfterMinimize(snapshot.tasks, task.taskId)
-                            : null;
-            mWindowTransitions.applyShortcut(
-                    task, shortcut, minimizeFocusTask);
+            applyNativeTaskShortcut(shortcut, task, snapshot.tasks);
         }));
+    }
+
+    private void applyNativeTaskShortcut(
+            final int shortcut,
+            final TaskRepository.TaskEntry task,
+            final List<TaskRepository.TaskEntry> tasks) {
+        final TaskRepository.TaskEntry minimizeFocusTask =
+                shortcut == SHORTCUT_RESTORE
+                        ? findFocusAfterMinimize(tasks, task.taskId)
+                        : null;
+        mWindowTransitions.applyShortcut(
+                task, shortcut, minimizeFocusTask);
     }
 
     private static TaskRepository.TaskEntry findFocusAfterMinimize(
@@ -1327,19 +1345,32 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final List<TaskRepository.TaskEntry> tasks,
             final int activeTaskId,
             final boolean requireBoundedFreeform) {
-        if (tasks != null && activeTaskId >= 0) {
-            for (final TaskRepository.TaskEntry task : tasks) {
-                if (task != null
-                        && task.taskId == activeTaskId
-                        && task.visible
-                        && (!requireBoundedFreeform
-                                || task.isBoundedFreeform())
-                        && isFocusableTask(task)) {
-                    return task;
-                }
-            }
+        final TaskRepository.TaskEntry known = findKnownShortcutTask(
+                tasks, activeTaskId, requireBoundedFreeform);
+        if (known != null) {
+            return known;
         }
         return selectTopVisibleTask(tasks, requireBoundedFreeform);
+    }
+
+    static TaskRepository.TaskEntry findKnownShortcutTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int activeTaskId,
+            final boolean requireBoundedFreeform) {
+        if (tasks == null || activeTaskId < 0) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null
+                    && task.taskId == activeTaskId
+                    && task.visible
+                    && (!requireBoundedFreeform
+                            || task.isBoundedFreeform())
+                    && isFocusableTask(task)) {
+                return task;
+            }
+        }
+        return null;
     }
 
     static TaskRepository.TaskEntry selectTopVisibleTask(

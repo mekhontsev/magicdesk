@@ -90,7 +90,7 @@ final class WindowedAppLauncher {
             }
             if (createNew) {
                 ExistingTaskController.confirmLaunchedWindow(
-                        taskId, displayId, preservedTaskIds);
+                        taskId, displayId);
             } else {
                 final ExistingTaskController.ReuseResult launched = reuse(
                         nativeDesktop,
