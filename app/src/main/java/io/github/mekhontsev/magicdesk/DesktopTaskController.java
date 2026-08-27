@@ -321,6 +321,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 && mFocusingTaskId != taskId) {
                             mFocusingTaskId = -1;
                         }
+                        restoreTaskbarTask(taskId);
                         mActiveTaskId = taskId;
                         confirmTrackedFocus(taskId);
                         recordFocusEvent(
@@ -849,7 +850,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
             }
-            if (!task.active || (!task.isFullscreen() && !task.isFreeform())) {
+            final boolean concealed = isTaskbarTaskConcealed(taskId);
+            if (shouldActivateTaskbarTask(task, concealed)) {
                 focusThroughGateway(
                         Collections.singletonList(Integer.valueOf(taskId)),
                         taskId,
@@ -1661,21 +1663,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void reconcileTaskbarConcealment(
             final List<TaskRepository.TaskEntry> tasks) {
         final Set<Integer> liveTaskIds = new HashSet<>();
-        final Set<Integer> externallyFocusedTaskIds = new HashSet<>();
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (task == null || task.displayId != mDisplayId) {
                     continue;
                 }
                 liveTaskIds.add(Integer.valueOf(task.taskId));
-                if (task.active && mFocusingTaskId < 0) {
-                    externallyFocusedTaskIds.add(Integer.valueOf(task.taskId));
-                }
             }
         }
         synchronized (mTaskbarConcealedTaskIds) {
             mTaskbarConcealedTaskIds.retainAll(liveTaskIds);
-            mTaskbarConcealedTaskIds.removeAll(externallyFocusedTaskIds);
+        }
+    }
+
+    static boolean shouldActivateTaskbarTask(
+            final TaskRepository.TaskEntry task,
+            final boolean concealed) {
+        return concealed || !task.active
+                || (!task.isFullscreen() && !task.isFreeform());
+    }
+
+    private boolean isTaskbarTaskConcealed(final int taskId) {
+        synchronized (mTaskbarConcealedTaskIds) {
+            return mTaskbarConcealedTaskIds.contains(
+                    Integer.valueOf(taskId));
         }
     }
 
