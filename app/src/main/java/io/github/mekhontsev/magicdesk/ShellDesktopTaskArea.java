@@ -259,7 +259,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         // Mark ownership before WMShell can publish the resulting mode or
         // parent change to the long-lived task observer.
         mOwnership.markDesktop(taskId);
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 mDisplayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 transactionClass,

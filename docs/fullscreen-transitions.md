@@ -84,6 +84,17 @@ transition rather than a plain WCT. This is a surface-producing boundary:
 WMShell must rebuild the task leash, native caption, and caption input window.
 Steady-state activation and geometry changes never use this route.
 
+MagicDesk currently starts this narrow class of transitions directly in
+WMCore through `WindowOrganizer.startNewTransition`. Because the call does not
+pass through the in-process WMShell `Transitions.startTransition` wrapper, its
+token is not present in SystemUI's local pending-transition registry. Current
+WMShell versions adopt the token when `onTransitionReady` arrives, then play
+and finish it through their normal handlers. The centralized
+`startForShellAdoption` boundary records this ownership contract in code and
+returns an opaque token for future experiments; production callers must not
+finish that token themselves. Replacing this path requires preserving the
+existing WCT, transition type, ordering, and surface-producing behavior.
+
 Owned desktop display teardown passes one bounded quiescence gate. It waits for
 WindowManager transition performance sessions on that display and requires a
 stable idle interval before removing the display. Compatibility reports flag

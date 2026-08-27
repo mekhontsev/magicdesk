@@ -50,6 +50,14 @@ plane anchors also launch behind the foreground task and never participate in
 the user's focus transition. Never remove an owned desktop display while a
 WindowManager performance session still references it.
 
+The established surface-producing fallback is centralized as
+`ShellWindowTransitionExecutor.startForShellAdoption`. It creates a transition
+in WMCore without registering it in SystemUI's process-local pending list;
+current WMShell versions adopt it when it becomes ready. Treat the returned
+token as opaque: do not finish it from MagicDesk. Experiments may
+replace this boundary, but must not change existing WCT contents, transition
+types, ordering, or call sites until equivalent surface behavior is proven.
+
 Before completing such a change, compare the transaction sequence directly
 with tag `v1.8.0`, run the focused unit tests and the simulated and phone
 desktop self-tests, and verify repeated fullscreen switching on a wired display

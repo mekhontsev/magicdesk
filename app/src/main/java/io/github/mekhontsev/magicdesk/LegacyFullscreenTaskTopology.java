@@ -448,7 +448,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             // selection policy-specific, but always let WMShell play the same
             // complete transition instead of applying part of it as a raw
             // focus transaction.
-            ShellWindowTransitionExecutor.playSystemTransition(
+            ShellWindowTransitionExecutor.startForShellAdoption(
                     displayId,
                     ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                     transactionClass,

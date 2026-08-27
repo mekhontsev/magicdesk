@@ -429,7 +429,7 @@ public final class TaskWindowingCommand {
             transactionClass.getMethod("removeTask", tokenClass)
                     .invoke(transaction, taskToken);
         }
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
                 transactionClass,
@@ -463,7 +463,7 @@ public final class TaskWindowingCommand {
         transactionClass.getMethod(
                 "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
                 .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
                 transactionClass,
@@ -615,7 +615,7 @@ public final class TaskWindowingCommand {
         // Finalize all restored windows in one transition. Independent task
         // moves can otherwise settle out of order and overwrite each other's
         // freeform state on physical projection displays.
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 transactionClass,

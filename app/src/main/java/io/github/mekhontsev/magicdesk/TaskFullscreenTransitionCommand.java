@@ -78,7 +78,7 @@ public final class TaskFullscreenTransitionCommand {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
 
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 transactionClass,

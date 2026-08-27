@@ -752,7 +752,7 @@ public final class TaskDisplayAreaLaunchCommand {
                         transaction,
                         Integer.valueOf(taskId),
                         options.toBundle());
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 targetDisplayId,
                 ShellWindowTransitionExecutor.SystemTransition.OPEN,
                 transactionClass,

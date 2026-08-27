@@ -65,7 +65,7 @@ public final class TaskClientPreservingFullscreenTransitionCommand {
          * DesktopTaskController observes the task and completes its local state
          * once WindowManager eventually applies this transaction.
          */
-        ShellWindowTransitionExecutor.playSystemTransition(
+        ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 transactionClass,

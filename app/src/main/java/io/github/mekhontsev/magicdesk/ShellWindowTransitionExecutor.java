@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.os.IBinder;
 
-/** Owns every shell-side window transaction and raw transition handle. */
+/** Central submission boundary for shell-side window transactions. */
 final class ShellWindowTransitionExecutor {
     enum SystemTransition {
         OPEN(1),
@@ -36,11 +36,13 @@ final class ShellWindowTransitionExecutor {
     }
 
     /**
-     * Starts a transition whose surface lifecycle is played and completed by
-     * WMShell. Use this only when applying a WCT directly would skip creation
-     * of task surfaces such as native freeform decorations.
+     * Starts a transition directly in WMCore. This bypasses WMShell's local
+     * pending-transition registration; current WMShell versions adopt the
+     * token when it becomes ready, then play and finish its surface lifecycle.
+     * Use this only when applying a WCT directly would skip creation of task
+     * surfaces such as native freeform decorations.
      */
-    static void playSystemTransition(
+    static IBinder startForShellAdoption(
             final int displayId,
             final SystemTransition transition,
             final Class<?> transactionClass,
@@ -58,6 +60,7 @@ final class ShellWindowTransitionExecutor {
             throw new IllegalStateException(
                     "system transition token is unavailable: " + reason);
         }
+        return token;
     }
 
     private static Object newWindowOrganizer()

@@ -337,7 +337,7 @@ final class ShellPreparedTaskTransition {
                     == FreeformApplication.OPEN_TRANSITION
                             ? ShellWindowTransitionExecutor.SystemTransition.OPEN
                             : ShellWindowTransitionExecutor.SystemTransition.CHANGE;
-            ShellWindowTransitionExecutor.playSystemTransition(
+            ShellWindowTransitionExecutor.startForShellAdoption(
                     displayId,
                     transitionType,
                     transactionClass,
@@ -416,7 +416,7 @@ final class ShellPreparedTaskTransition {
             ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
         } else {
-            ShellWindowTransitionExecutor.playSystemTransition(
+            ShellWindowTransitionExecutor.startForShellAdoption(
                     displayId,
                     ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
                     transactionClass,
