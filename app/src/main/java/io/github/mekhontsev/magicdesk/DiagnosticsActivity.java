@@ -98,10 +98,7 @@ public final class DiagnosticsActivity extends Activity {
     private View createContentView() {
         final LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        final int bottomPadding = dp(16)
-                + (getDisplayId() == Display.DEFAULT_DISPLAY
-                        ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
-        page.setPadding(dp(18), dp(16), dp(18), bottomPadding);
+        page.setPadding(dp(18), dp(16), dp(18), dp(16));
         SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
 

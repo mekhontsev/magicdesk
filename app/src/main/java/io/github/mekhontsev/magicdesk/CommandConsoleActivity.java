@@ -6,12 +6,10 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
-import android.view.Display;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -287,20 +285,6 @@ public final class CommandConsoleActivity extends Activity
     }
 
     @Override
-    public void onMultiWindowModeChanged(
-            final boolean inMultiWindowMode,
-            final Configuration newConfig) {
-        super.onMultiWindowModeChanged(inMultiWindowMode, newConfig);
-        updateTaskbarInset(inMultiWindowMode);
-    }
-
-    @Override
-    public void onConfigurationChanged(final Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        updateTaskbarInset(isInMultiWindowMode());
-    }
-
-    @Override
     public void onShellStateChanged(final ShellAccess.Snapshot snapshot) {
         if (mBackend != DesktopExecBackend.SHELL) {
             return;
@@ -487,7 +471,7 @@ public final class CommandConsoleActivity extends Activity
         mTerminalParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
         mTerminalParams.setMargins(
-                0, mToolbarVisible ? dp(4) : 0, 0, taskbarInset());
+                0, mToolbarVisible ? dp(4) : 0, 0, 0);
         page.addView(mTerminalContainer, mTerminalParams);
         return page;
     }
@@ -774,26 +758,6 @@ public final class CommandConsoleActivity extends Activity
                 "MagicDesk console output", text));
         Toast.makeText(this, R.string.console_copied,
                 Toast.LENGTH_SHORT).show();
-    }
-
-    private void updateTaskbarInset(final boolean inMultiWindowMode) {
-        if (mTerminalParams == null) {
-            return;
-        }
-        mTerminalParams.bottomMargin = taskbarInset(inMultiWindowMode);
-        mTerminalContainer.setLayoutParams(mTerminalParams);
-    }
-
-    private int taskbarInset() {
-        return taskbarInset(isInMultiWindowMode());
-    }
-
-    private int taskbarInset(final boolean inMultiWindowMode) {
-        final Display display = getDisplay();
-        return display != null
-                        && display.getDisplayId() != Display.DEFAULT_DISPLAY
-                        && !inMultiWindowMode
-                ? dp(DesktopShellActivity.TASKBAR_HEIGHT_DP) : 0;
     }
 
     private ImageButton createIconButton(

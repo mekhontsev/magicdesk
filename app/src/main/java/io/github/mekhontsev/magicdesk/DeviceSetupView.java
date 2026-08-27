@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.TextUtils;
-import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -45,17 +44,11 @@ final class DeviceSetupView {
 
         final LinearLayout page = new LinearLayout(mActivity);
         page.setOrientation(LinearLayout.VERTICAL);
-        final Display display = mActivity.getDisplay();
-        final int displayId = display == null
-                ? Display.DEFAULT_DISPLAY : display.getDisplayId();
-        final int bottomPadding = dp(18)
-                + (displayId == Display.DEFAULT_DISPLAY
-                        ? 0 : dp(DesktopShellActivity.TASKBAR_HEIGHT_DP));
         page.setPadding(
                 dp(20),
                 dp(18),
                 dp(20),
-                bottomPadding);
+                dp(18));
 
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.VERTICAL);
