@@ -43,6 +43,8 @@ final class DesktopTaskWatcher {
                 int displayId,
                 Rect bounds);
         void onInputFocusRefreshRequired(int generation);
+        void onTaskFocusChanged(
+                int generation, int taskId, int displayId, boolean focused);
         void onDesktopTaskAreaForegroundChanged(
                 int generation, boolean foreground);
         void onDesktopTaskOwnershipChanged(
@@ -810,6 +812,16 @@ final class DesktopTaskWatcher {
                 mListener.onInputFocusRefreshRequired(generation));
     }
 
+    private void onTaskFocusChanged(
+            final int generation,
+            final int taskId,
+            final int displayId,
+            final boolean focused) {
+        postIfActive(generation, () ->
+                mListener.onTaskFocusChanged(
+                        generation, taskId, displayId, focused));
+    }
+
     private void onDesktopTaskAreaForegroundChanged(
             final int generation,
             final boolean foreground) {
@@ -1159,6 +1171,15 @@ final class DesktopTaskWatcher {
         public void onInputFocusRefreshRequired()
                 throws RemoteException {
             mOwner.onInputFocusRefreshRequired(mGeneration);
+        }
+
+        @Override
+        public void onTaskFocusChanged(
+                final int taskId,
+                final int displayId,
+                final boolean focused) throws RemoteException {
+            mOwner.onTaskFocusChanged(
+                    mGeneration, taskId, displayId, focused);
         }
 
         @Override

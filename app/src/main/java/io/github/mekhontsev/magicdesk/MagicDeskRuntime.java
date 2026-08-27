@@ -405,6 +405,14 @@ public final class MagicDeskRuntime {
         return tasks.launchFullscreenTask(displayId, intent);
     }
 
+    static void noteTaskLaunchFocus(
+            final int displayId, final int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.noteTaskLaunchFocus(displayId, taskId);
+        }
+    }
+
     static void launchTaskAction(
             final int displayId,
             final int taskId,

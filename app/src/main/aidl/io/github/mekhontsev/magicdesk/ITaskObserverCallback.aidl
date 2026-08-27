@@ -46,4 +46,7 @@ oneway interface ITaskObserverCallback {
 
     void onTaskRequestedOrientationChanged(
         int taskId, int requestedOrientation) = 15;
+
+    void onTaskFocusChanged(
+        int taskId, int displayId, boolean focused) = 16;
 }

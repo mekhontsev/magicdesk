@@ -67,7 +67,7 @@ final class WindowedAppLauncher {
                     bounds,
                     null);
             if (existing.found) {
-                return existing.taskId;
+                return completeLaunch(displayId, existing.taskId);
             }
         } else if (createNew) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
@@ -104,10 +104,16 @@ final class WindowedAppLauncher {
                 if (!launched.found) {
                     throw new IOException("launched task not found");
                 }
-                return launched.taskId;
+                return completeLaunch(displayId, launched.taskId);
             }
-            return taskId;
+            return completeLaunch(displayId, taskId);
         }
+    }
+
+    private static int completeLaunch(
+            final int displayId, final int taskId) {
+        MagicDeskRuntime.noteTaskLaunchFocus(displayId, taskId);
+        return taskId;
     }
 
     private static ExistingTaskController.ReuseResult reuse(

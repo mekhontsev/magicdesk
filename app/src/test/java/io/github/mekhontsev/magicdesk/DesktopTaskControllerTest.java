@@ -47,6 +47,30 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
+    public void keepsKnownFocusedTaskAcrossSyntheticActiveSnapshots() {
+        final TaskRepository.TaskEntry syntheticActive = task(
+                10, "com.example.previous/.MainActivity", true, true);
+        final TaskRepository.TaskEntry knownFocused = task(
+                11, "com.example.console/.MainActivity", true, false);
+
+        assertEquals(knownFocused,
+                DesktopTaskController.selectKnownOrTopVisibleTask(
+                        Arrays.asList(syntheticActive, knownFocused), 11));
+    }
+
+    @Test
+    public void replacesKnownFocusedTaskAfterItBecomesHidden() {
+        final TaskRepository.TaskEntry visible = task(
+                10, "com.example.visible/.MainActivity", true, true);
+        final TaskRepository.TaskEntry hidden = task(
+                11, "com.example.hidden/.MainActivity", false, false);
+
+        assertEquals(visible,
+                DesktopTaskController.selectKnownOrTopVisibleTask(
+                        Arrays.asList(visible, hidden), 11));
+    }
+
+    @Test
     public void shortcutKeepsExplicitlyFocusedTaskAcrossStaleSnapshot() {
         final TaskRepository.TaskEntry staleActive = task(
                 10, "com.example.previous/.MainActivity", true, true);

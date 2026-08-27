@@ -970,7 +970,25 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final boolean focused) {
         mFocusController.onTaskFocusChanged(taskId, focused);
+        if (focused) {
+            reportTaskFocus(taskId);
+        }
         signalChange("focus-changed");
+    }
+
+    private void reportTaskFocus(final int taskId) {
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.INVALID_DISPLAY, taskId);
+            if (task == null) {
+                return;
+            }
+            final int displayId = HiddenTaskApi.getTaskDisplayId(task);
+            callCallback(() -> mCallback.onTaskFocusChanged(
+                    taskId, displayId, true));
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not resolve focused task", error);
+        }
     }
 
     @Override

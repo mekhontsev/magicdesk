@@ -19,6 +19,8 @@ interface DesktopTaskRuntime {
     int launchFullscreenTask(
             int displayId, Intent intent) throws IOException;
 
+    void noteTaskLaunchFocus(int displayId, int taskId);
+
     void launchTaskAction(
             int displayId, int taskId, Intent intent) throws IOException;
 

@@ -308,6 +308,31 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public void onTaskFocusChanged(
+                            final int generation,
+                            final int taskId,
+                            final int displayId,
+                            final boolean focused) {
+                        if (!mRunning || !focused
+                                || displayId != mDisplayId) {
+                            return;
+                        }
+                        if (mFocusingTaskId >= 0
+                                && mFocusingTaskId != taskId) {
+                            mFocusingTaskId = -1;
+                        }
+                        mActiveTaskId = taskId;
+                        confirmTrackedFocus(taskId);
+                        recordFocusEvent(
+                                "focus_observed",
+                                displayId,
+                                taskId,
+                                true,
+                                "framework task focus");
+                        scheduleRefresh(0);
+                    }
+
+                    @Override
                     public void onDesktopTaskAreaForegroundChanged(
                             final int generation,
                             final boolean foreground) {
@@ -1283,6 +1308,16 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return selectTopVisibleTask(tasks, false);
     }
 
+    static TaskRepository.TaskEntry selectKnownOrTopVisibleTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int knownTaskId) {
+        final TaskRepository.TaskEntry known = findTask(tasks, knownTaskId);
+        if (known != null && known.visible && isFocusableTask(known)) {
+            return known;
+        }
+        return findTopVisibleAppTask(tasks);
+    }
+
     private static TaskRepository.TaskEntry findTopVisibleFreeformTask(
             final List<TaskRepository.TaskEntry> tasks) {
         return selectTopVisibleTask(tasks, true);
@@ -1454,6 +1489,28 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void noteTaskLaunchFocus(
+            final int displayId, final int taskId) {
+        if (displayId < 0 || taskId < 0) {
+            return;
+        }
+        mHandler.post(() -> {
+            if (!mRunning || mDisplayId != displayId) {
+                return;
+            }
+            mFocusingTaskId = taskId;
+            mActiveTaskId = taskId;
+            recordFocusEvent(
+                    "launch_focus_expected",
+                    displayId,
+                    taskId,
+                    true,
+                    "window launch completed");
+            scheduleRefresh(0);
+        });
+    }
+
+    @Override
     public void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -1559,7 +1616,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
         } else {
             final TaskRepository.TaskEntry activeTask =
-                    findTopVisibleAppTask(snapshot.tasks);
+                    selectKnownOrTopVisibleTask(
+                            snapshot.tasks, mActiveTaskId);
             mActiveTaskId = activeTask == null ? -1 : activeTask.taskId;
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
